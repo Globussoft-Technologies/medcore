@@ -195,8 +195,11 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       if (to) where.date.lte = parseDate(to as string);
     }
 
-    // Non-admins only see their own shifts
-    if (req.user!.role !== Role.ADMIN) {
+    // Non-admins only see their own shifts (SUPER_ADMIN mirrors ADMIN).
+    if (
+      req.user!.role !== Role.ADMIN &&
+      req.user!.role !== Role.SUPER_ADMIN
+    ) {
       where.userId = req.user!.userId;
     }
 
@@ -364,7 +367,11 @@ router.patch("/:id/check-in", async (req: Request, res: Response, next: NextFunc
     }
 
     // Allow self check-in, or ADMIN
-    if (shift.userId !== req.user!.userId && req.user!.role !== Role.ADMIN) {
+    if (
+      shift.userId !== req.user!.userId &&
+      req.user!.role !== Role.ADMIN &&
+      req.user!.role !== Role.SUPER_ADMIN
+    ) {
       res.status(403).json({ success: false, data: null, error: "Forbidden" });
       return;
     }
@@ -410,7 +417,11 @@ router.patch(
         return;
       }
 
-      if (shift.userId !== req.user!.userId && req.user!.role !== Role.ADMIN) {
+      if (
+        shift.userId !== req.user!.userId &&
+        req.user!.role !== Role.ADMIN &&
+        req.user!.role !== Role.SUPER_ADMIN
+      ) {
         res.status(403).json({ success: false, data: null, error: "Forbidden" });
         return;
       }

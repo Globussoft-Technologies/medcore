@@ -60,7 +60,7 @@ export default function NotAuthorizedPage() {
       </h1>
       <p className="mb-2 text-gray-700 dark:text-gray-300">
         {user?.role
-          ? `Your role (${user.role}) doesn't have access to this page.`
+          ? `Your role (${user.actualRole ?? user.role}) doesn't have access to this page.`
           : "Your account doesn't have access to this page."}
       </p>
       {from && (

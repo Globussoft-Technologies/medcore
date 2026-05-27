@@ -416,4 +416,94 @@ describe("useAuthStore", () => {
     expect(window.localStorage.getItem("medcore_token")).toBeNull();
     expect(window.localStorage.getItem("medcore_refresh")).toBeNull();
   });
+
+  // ─── Pearl §8.2 — SUPER_ADMIN role coercion (coerceUser) ───────────────
+  //
+  // The store normalises Role.SUPER_ADMIN → role="ADMIN" so the ~100
+  // inline `user.role === "ADMIN"` checks across the dashboard pages
+  // grant access automatically. The DB role is preserved in
+  // `user.actualRole` so badges / labels still display "SUPER_ADMIN".
+  //
+  // These tests verify the coercion fires on every entry point that can
+  // populate `user`: login(), verify2FA(), refreshUser(), loadSession().
+
+  const SUPER_ADMIN_USER = {
+    id: "sa1",
+    email: "super@medcore.local",
+    name: "Super Admin",
+    role: "SUPER_ADMIN",
+    tenantId: null,
+  };
+
+  it("login coerces SUPER_ADMIN → role=ADMIN, preserves actualRole (Pearl §8.2)", async () => {
+    mockedPost.mockResolvedValueOnce({
+      success: true,
+      data: { user: SUPER_ADMIN_USER, tokens: TOKENS },
+    });
+    await useAuthStore.getState().login("super@medcore.local", "pwd");
+    const u = useAuthStore.getState().user;
+    expect(u?.role).toBe("ADMIN");
+    expect((u as any)?.actualRole).toBe("SUPER_ADMIN");
+    // Sanity: the DB-level id/email are preserved.
+    expect(u?.id).toBe("sa1");
+  });
+
+  it("verify2FA coerces SUPER_ADMIN after the second step (Pearl §8.2)", async () => {
+    mockedPost.mockResolvedValueOnce({
+      success: true,
+      data: { user: SUPER_ADMIN_USER, tokens: TOKENS },
+    });
+    await useAuthStore.getState().verify2FA("temp-xyz", "123456");
+    const u = useAuthStore.getState().user;
+    expect(u?.role).toBe("ADMIN");
+    expect((u as any)?.actualRole).toBe("SUPER_ADMIN");
+  });
+
+  it("loadSession coerces SUPER_ADMIN from /auth/me on app boot (Pearl §8.2)", async () => {
+    mockedGet.mockResolvedValueOnce({ success: true, data: SUPER_ADMIN_USER });
+    await useAuthStore.getState().loadSession();
+    const u = useAuthStore.getState().user;
+    expect(u?.role).toBe("ADMIN");
+    expect((u as any)?.actualRole).toBe("SUPER_ADMIN");
+  });
+
+  it("refreshUser does NOT trip role-clobber guard for a steady SUPER_ADMIN session (Pearl §8.2)", async () => {
+    // Both current and incoming users are SUPER_ADMIN — after coercion
+    // both roles are "ADMIN", the clobber comparison matches, and the
+    // user is updated normally (NOT wiped). This is the regression we
+    // would otherwise introduce if coercion were applied to only one
+    // side of the comparison.
+    useAuthStore.setState({
+      // Simulate a previously coerced super-admin in the store.
+      user: { ...SUPER_ADMIN_USER, role: "ADMIN", actualRole: "SUPER_ADMIN" } as any,
+      token: COOKIE_TOKEN_SENTINEL,
+      isLoading: false,
+    });
+    mockedGet.mockResolvedValueOnce({
+      success: true,
+      data: { ...SUPER_ADMIN_USER, name: "Updated Name" },
+    });
+    await useAuthStore.getState().refreshUser();
+    const u = useAuthStore.getState().user;
+    // User survived (not wiped by the role-clobber guard)…
+    expect(u).not.toBeNull();
+    // …carries the coerced role + actualRole…
+    expect(u?.role).toBe("ADMIN");
+    expect((u as any)?.actualRole).toBe("SUPER_ADMIN");
+    // …and absorbed the updated name from /me.
+    expect(u?.name).toBe("Updated Name");
+  });
+
+  it("leaves a plain ADMIN user untouched — no actualRole field (Pearl §8.2 mirror rule)", async () => {
+    const PLAIN_ADMIN = { ...USER, role: "ADMIN" };
+    mockedPost.mockResolvedValueOnce({
+      success: true,
+      data: { user: PLAIN_ADMIN, tokens: TOKENS },
+    });
+    await useAuthStore.getState().login("a@b.com", "pwd");
+    const u = useAuthStore.getState().user;
+    expect(u?.role).toBe("ADMIN");
+    // A normal ADMIN never gets an actualRole stamp.
+    expect((u as any)?.actualRole).toBeUndefined();
+  });
 });

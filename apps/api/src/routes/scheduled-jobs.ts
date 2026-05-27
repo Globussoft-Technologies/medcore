@@ -43,6 +43,11 @@ async function requireSuperAdmin(
   next: NextFunction
 ) {
   try {
+    // Pearl §8.2 — Role.SUPER_ADMIN is a wildcard "root" role: full
+    // access on every super-admin surface regardless of tenant binding.
+    if (req.user?.role === Role.SUPER_ADMIN) {
+      return next();
+    }
     const callerTenantId = req.user?.tenantId ?? null;
     if (callerTenantId == null) {
       return next();

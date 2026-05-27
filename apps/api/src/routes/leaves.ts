@@ -107,7 +107,8 @@ router.post(
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { status, userId } = req.query;
-    const isAdmin = req.user!.role === Role.ADMIN;
+    const isAdmin =
+      req.user!.role === Role.ADMIN || req.user!.role === Role.SUPER_ADMIN;
 
     const where: any = {};
     if (status) where.status = status as string;
@@ -336,7 +337,11 @@ router.patch("/:id/cancel", async (req: Request, res: Response, next: NextFuncti
       res.status(404).json({ success: false, data: null, error: "Leave request not found" });
       return;
     }
-    if (existing.userId !== req.user!.userId && req.user!.role !== Role.ADMIN) {
+    if (
+      existing.userId !== req.user!.userId &&
+      req.user!.role !== Role.ADMIN &&
+      req.user!.role !== Role.SUPER_ADMIN
+    ) {
       res.status(403).json({ success: false, data: null, error: "Forbidden" });
       return;
     }
@@ -371,7 +376,8 @@ router.get(
   "/balance",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const isAdmin = req.user!.role === Role.ADMIN;
+      const isAdmin =
+      req.user!.role === Role.ADMIN || req.user!.role === Role.SUPER_ADMIN;
       const userId = isAdmin ? (req.query.userId as string) || req.user!.userId : req.user!.userId;
       const year = parseInt((req.query.year as string) || String(new Date().getFullYear()), 10);
 
@@ -500,7 +506,11 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Leave request not found" });
         return;
       }
-      if (existing.userId !== req.user!.userId && req.user!.role !== Role.ADMIN) {
+      if (
+        existing.userId !== req.user!.userId &&
+        req.user!.role !== Role.ADMIN &&
+        req.user!.role !== Role.SUPER_ADMIN
+      ) {
         res.status(403).json({ success: false, data: null, error: "Forbidden" });
         return;
       }

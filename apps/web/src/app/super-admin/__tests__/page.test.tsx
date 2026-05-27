@@ -36,7 +36,7 @@ describe("/super-admin landing — tile coverage (complement to landing.page.tes
 
   it.each([
     ["super-admin-tile-onboard", "/super-admin/onboard", /onboard new tenant/i],
-    ["super-admin-tile-tenants", "/super-admin/tenants", /tenants/i],
+    ["super-admin-tile-tenants", "/dashboard/tenants", /tenants/i],
     ["super-admin-tile-jobs", "/super-admin/jobs", /background jobs/i],
     ["super-admin-tile-dpdp", "/super-admin/dpdp", /dpdp workbench/i],
     ["super-admin-tile-support", "/super-admin/support", /pearl support inbox/i],

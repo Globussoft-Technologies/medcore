@@ -156,10 +156,12 @@ import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
 import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
+import { superAdminTenantConfigRouter } from "./routes/super-admin-tenant-config";
 import { dpdpWorkbenchRouter } from "./routes/dpdp-workbench";
 import { scheduledJobsRouter } from "./routes/scheduled-jobs";
 import { supportTicketsRouter } from "./routes/support-tickets";
 import { superAdminUsersRouter } from "./routes/super-admin-users";
+import { superAdminAuditRouter } from "./routes/super-admin-audit";
 import { superAdminMetricsRouter } from "./routes/super-admin-metrics";
 import { superAdminComplianceRouter } from "./routes/super-admin-compliance";
 import { platformBillingRouter } from "./routes/platform-billing";
@@ -475,6 +477,11 @@ export function buildApp() {
   // atomically). HFR/HPR/WhatsApp/Razorpay config steps deferred to
   // piece 2b. See apps/web/src/app/super-admin/onboard/.
   app.use("/api/v1/tenant-onboarding", tenantOnboardingRouter);
+  // Pearl §8.1 wizard steps 4-8 backend wiring — per-tenant doctor modes,
+  // ABDM HFR/HPR draft, WhatsApp Gupshup creds, Razorpay/Cashfree creds,
+  // atomic go-live. Super-admin only (tenantId-less ADMIN or default-tenant
+  // ADMIN). See routes/super-admin-tenant-config.ts.
+  app.use("/api/v1/super-admin/tenants", superAdminTenantConfigRouter);
   // Pearl §8.4 gap row 222 closure (2026-05-22) — background-job queue
   // view + retry for super-admins. Surfaces ScheduledTaskRun rows
   // persisted by services/scheduled-tasks.ts; mounts UI at
@@ -494,6 +501,10 @@ export function buildApp() {
   // with last-active count guard. Defence-in-depth alongside the
   // /super-admin/ layout's client-side gate.
   app.use("/api/v1/super-admin/users", superAdminUsersRouter);
+  // Pearl §8.2 — cross-tenant super-admin audit trail. Filters AuditLog
+  // to rows authored by ADMIN-with-no-tenant accounts; surfaces actor +
+  // timestamp + IP + device. Mounts UI at /super-admin/audit.
+  app.use("/api/v1/super-admin/audit", superAdminAuditRouter);
   // Pearl §8.4 gap rows 219 + 220 closure (2026-05-23) — cross-tenant
   // metrics + per-tenant health rollup for the super-admin console.
   // Read-only; mounts UI at /super-admin/metrics.

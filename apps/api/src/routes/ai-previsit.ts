@@ -58,7 +58,7 @@ async function authorizeAppointmentAccess(
   }
 
   const user = req.user!;
-  if (user.role === Role.ADMIN) {
+  if (user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN) {
     return { ok: true, appointment: appointment as any };
   }
   if (user.role === Role.DOCTOR) {

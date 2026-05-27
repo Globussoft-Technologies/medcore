@@ -36,6 +36,12 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import {
+  enforceSuperAdminIdleTimeout,
+  getSuperAdminIdleMinutes,
+  setSuperAdminIdleMinutes,
+  SUPER_ADMIN_IDLE_LIMITS,
+} from "../middleware/session-idle";
 
 const router = Router();
 
@@ -53,6 +59,11 @@ async function requireSuperAdmin(
   next: NextFunction,
 ) {
   try {
+    // Pearl §8.2 — Role.SUPER_ADMIN is a wildcard "root" role: full
+    // access on every super-admin surface regardless of tenant binding.
+    if (req.user?.role === Role.SUPER_ADMIN) {
+      return next();
+    }
     const callerTenantId = req.user?.tenantId ?? null;
     if (callerTenantId == null) {
       return next();
@@ -93,11 +104,76 @@ const patchUserSchema = z.object({
   active: z.boolean(),
 });
 
+// Pearl §8.2 — invite a new super-admin. Pearl-style "Onviqa operator"
+// (tenantId = null + role = ADMIN). The temporary password is set
+// inline; TOTP enrolment is enforced on first login when
+// `requireTwoFactor=true` (default true).
+const createSuperAdminSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+  email: z.string().trim().email(),
+  phone: z
+    .string()
+    .trim()
+    .regex(/^\+?\d{7,15}$/, "Invalid phone (7-15 digits, optional leading +)"),
+  password: z.string().min(8).max(128),
+  requireTwoFactor: z.boolean().optional().default(true),
+  permissions: z
+    .object({
+      canManageTenants: z.boolean().optional(),
+      canOnboardTenant: z.boolean().optional(),
+      canViewBilling: z.boolean().optional(),
+      canTriggerJobs: z.boolean().optional(),
+      canDpdpWorkbench: z.boolean().optional(),
+      canViewAudit: z.boolean().optional(),
+      tenantScope: z.array(z.string()).optional(),
+      moduleScope: z.array(z.string()).optional(),
+    })
+    .optional(),
+});
+
+// Pearl §8.2 — granular permission grants. Stored as JSON in
+// SystemConfig under `superadmin:<userId>:permissions` (no schema change).
+// `tenantScope` empty/missing == all-tenants; same for `moduleScope`.
+const permissionsSchema = z.object({
+  canManageTenants: z.boolean().optional(),
+  canOnboardTenant: z.boolean().optional(),
+  canViewBilling: z.boolean().optional(),
+  canTriggerJobs: z.boolean().optional(),
+  canDpdpWorkbench: z.boolean().optional(),
+  canViewAudit: z.boolean().optional(),
+  tenantScope: z.array(z.string()).optional(),
+  moduleScope: z.array(z.string()).optional(),
+});
+
+const PERMISSIONS_KEY = (userId: string) =>
+  `superadmin:${userId}:permissions`;
+
+async function readPermissions(
+  userId: string,
+): Promise<Record<string, unknown>> {
+  const row = await prisma.systemConfig.findUnique({
+    where: { key: PERMISSIONS_KEY(userId) },
+  });
+  if (!row) return {};
+  try {
+    return JSON.parse(row.value) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 // ─── Routes ──────────────────────────────────────────────────────────
 
 router.use(authenticate);
-router.use(authorize(Role.ADMIN));
+// Pearl §8.2 — accept both the legacy super-admin shape (Role.ADMIN +
+// tenantId=null) and the new dedicated SUPER_ADMIN role. The narrower
+// `requireSuperAdmin` guard below disambiguates per request.
+router.use(authorize(Role.ADMIN, Role.SUPER_ADMIN));
 router.use(requireSuperAdmin);
+// Pearl §8.2 — enforce the sliding idle-timeout on all super-admin
+// surfaces. Returns 401 with code "session_idle" when the cross-tenant
+// operator has been idle longer than the configured window.
+router.use(enforceSuperAdminIdleTimeout);
 
 // GET /api/v1/super-admin/users — list the super-admin set.
 router.get(
@@ -114,9 +190,16 @@ router.get(
         return;
       }
       const { active, q } = parsed.data;
+      // Pearl §8.2 — "List of super-admins across all tenants" includes:
+      //   - New super-admin invites  (Role.SUPER_ADMIN, tenantId IS NULL)
+      //   - Legacy Onviqa operators  (Role.ADMIN, tenantId IS NULL)
+      //   - Tenant super-admins      (Role.ADMIN, tenantId IS SET)
+      // Both ADMIN and SUPER_ADMIN are recognised so the UI shows
+      // newly-invited operators alongside the legacy population during
+      // the migration window. The response carries `tenant` (null for
+      // cross-tenant) and `kind` ("onviqa" | "tenant") discriminators.
       const where: Record<string, unknown> = {
-        tenantId: null,
-        role: Role.ADMIN,
+        role: { in: [Role.ADMIN, Role.SUPER_ADMIN] },
       };
       if (active === "true") where.isActive = true;
       else if (active === "false") where.isActive = false;
@@ -128,20 +211,84 @@ router.get(
       }
       const rows = await prisma.user.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ tenantId: "asc" }, { createdAt: "desc" }],
         select: {
           id: true,
           name: true,
           email: true,
+          phone: true,
           role: true,
           isActive: true,
+          twoFactorEnabled: true,
           createdAt: true,
+          tenantId: true,
+          tenant: {
+            select: { id: true, name: true, subdomain: true },
+          },
         },
         take: 500,
       });
+
+      // Pearl §8.2 — fan-out the permission grants and the
+      // last-login timestamp (from AuditLog action='AUTH_LOGIN') in
+      // single batched queries so the list is O(1) round-trips, not
+      // O(N).
+      const userIds = rows.map((u) => u.id);
+      const [permRows, lastLoginRows] = await Promise.all([
+        userIds.length === 0
+          ? []
+          : prisma.systemConfig.findMany({
+              where: {
+                OR: userIds.map((id) => ({ key: PERMISSIONS_KEY(id) })),
+              },
+            }),
+        userIds.length === 0
+          ? []
+          : prisma.auditLog.groupBy({
+              by: ["userId"],
+              where: {
+                userId: { in: userIds },
+                action: "AUTH_LOGIN",
+              },
+              _max: { createdAt: true },
+            }),
+      ]);
+      const permByUser = new Map<string, Record<string, unknown>>();
+      for (const r of permRows) {
+        const m = r.key.match(/^superadmin:([^:]+):permissions$/);
+        if (!m) continue;
+        try {
+          permByUser.set(m[1], JSON.parse(r.value));
+        } catch {
+          permByUser.set(m[1], {});
+        }
+      }
+      const lastLoginByUser = new Map<string, string | null>();
+      for (const r of lastLoginRows) {
+        if (!r.userId) continue;
+        lastLoginByUser.set(
+          r.userId,
+          r._max.createdAt ? r._max.createdAt.toISOString() : null,
+        );
+      }
+
+      const enriched = rows.map((u) => ({
+        ...u,
+        // Pearl §8.2 — discriminator the UI uses to decide whether the
+        // row is an Onviqa operator (cross-tenant) or a tenant
+        // super-admin. Onviqa rows allow Deactivate / permission edit;
+        // tenant rows are read-only (managed via that tenant's own
+        // user admin).
+        kind: u.tenantId == null ? "onviqa" : "tenant",
+        // Permission grants only exist for Onviqa operators; tenant
+        // ADMINs don't go through the super-admin invite flow.
+        permissions: permByUser.get(u.id) ?? {},
+        lastLoginAt: lastLoginByUser.get(u.id) ?? null,
+      }));
+
       res.status(200).json({
         success: true,
-        data: { users: rows },
+        data: { users: enriched },
         error: null,
       });
     } catch (err) {
@@ -181,7 +328,10 @@ router.patch(
       // shape, but PATCH /:id MUST refuse to mutate a non-super-admin
       // user (otherwise the endpoint is a tenant-user mass-mutation
       // surface masquerading as a super-admin tool).
-      if (target.tenantId !== null || target.role !== Role.ADMIN) {
+      if (
+        target.tenantId !== null ||
+        (target.role !== Role.ADMIN && target.role !== Role.SUPER_ADMIN)
+      ) {
         res.status(404).json({
           success: false,
           data: null,
@@ -210,11 +360,14 @@ router.patch(
       }
 
       // Count-guard: deactivating must leave at least one active super-admin.
+      // Pearl §8.2 — counts BOTH Role.SUPER_ADMIN (new invites) and the
+      // legacy Role.ADMIN + tenantId=null shape so we don't accidentally
+      // lock the platform out during the migration window.
       if (nextActive === false) {
         const otherActive = await prisma.user.count({
           where: {
             tenantId: null,
-            role: Role.ADMIN,
+            role: { in: [Role.ADMIN, Role.SUPER_ADMIN] },
             isActive: true,
             id: { not: target.id },
           },
@@ -257,6 +410,312 @@ router.patch(
       res.status(200).json({
         success: true,
         data: updated,
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── POST / — invite a new super-admin ──────────────────────────────
+// Creates a `Role.ADMIN` user with `tenantId = null`. Email must be
+// unique. The temporary password is hashed via bcrypt before insert.
+// TOTP enrolment is encouraged via `requireTwoFactor` flag — stored in
+// SystemConfig (`superadmin:<userId>:require_two_factor`) so the login
+// flow can refuse to admit the user until they've enrolled.
+router.post(
+  "/",
+  validate(createSuperAdminSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as z.infer<typeof createSuperAdminSchema>;
+
+      const existing = await prisma.user.findUnique({
+        where: { email: body.email.trim().toLowerCase() },
+        select: { id: true },
+      });
+      if (existing) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "A user with this email already exists",
+        });
+        return;
+      }
+
+      // bcryptjs is the same library auth.ts uses — same cost factor.
+      const bcrypt = await import("bcryptjs");
+      const passwordHash = await bcrypt.hash(body.password, 10);
+
+      const created = await prisma.user.create({
+        data: {
+          email: body.email.trim().toLowerCase(),
+          name: body.name.trim(),
+          phone: body.phone.trim(),
+          passwordHash,
+          // Pearl §8.2 — new super-admin invites get the dedicated
+          // SUPER_ADMIN role. Legacy super-admins still exist as
+          // ADMIN + tenantId=null; both shapes are recognised below
+          // by the count-guard, requireSuperAdmin, and list filters.
+          role: Role.SUPER_ADMIN,
+          tenantId: null,
+          isActive: true,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          twoFactorEnabled: true,
+          createdAt: true,
+        },
+      });
+
+      // Stash the TOTP-required flag + initial permissions in
+      // SystemConfig (keyed by the new user's id).
+      const writes: Array<Promise<unknown>> = [];
+      writes.push(
+        prisma.systemConfig.upsert({
+          where: { key: `superadmin:${created.id}:require_two_factor` },
+          create: {
+            key: `superadmin:${created.id}:require_two_factor`,
+            value: body.requireTwoFactor === false ? "false" : "true",
+          },
+          update: {
+            value: body.requireTwoFactor === false ? "false" : "true",
+          },
+        }),
+      );
+      if (body.permissions) {
+        writes.push(
+          prisma.systemConfig.upsert({
+            where: { key: PERMISSIONS_KEY(created.id) },
+            create: {
+              key: PERMISSIONS_KEY(created.id),
+              value: JSON.stringify(body.permissions),
+            },
+            update: { value: JSON.stringify(body.permissions) },
+          }),
+        );
+      }
+      await Promise.all(writes);
+
+      await auditLog(req, "SUPER_ADMIN_USER_CREATED", "user", created.id, {
+        email: created.email,
+        requireTwoFactor: body.requireTwoFactor !== false,
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          ...created,
+          permissions: body.permissions ?? {},
+          requireTwoFactor: body.requireTwoFactor !== false,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── GET /:id — single super-admin detail ────────────────────────────
+router.get(
+  "/:id",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          role: true,
+          isActive: true,
+          twoFactorEnabled: true,
+          tenantId: true,
+          createdAt: true,
+        },
+      });
+      if (
+        !user ||
+        user.tenantId !== null ||
+        (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN)
+      ) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Super-admin user not found",
+        });
+        return;
+      }
+      const [permissions, lastLogin] = await Promise.all([
+        readPermissions(user.id),
+        prisma.auditLog.findFirst({
+          where: { userId: user.id, action: "AUTH_LOGIN" },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        }),
+      ]);
+      res.status(200).json({
+        success: true,
+        data: {
+          ...user,
+          permissions,
+          lastLoginAt: lastLogin?.createdAt
+            ? lastLogin.createdAt.toISOString()
+            : null,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── GET /:id/permissions — fetch granular grants ────────────────────
+router.get(
+  "/:id/permissions",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, role: true, tenantId: true },
+      });
+      if (
+        !user ||
+        user.tenantId !== null ||
+        (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN)
+      ) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Super-admin user not found",
+        });
+        return;
+      }
+      const permissions = await readPermissions(user.id);
+      res.status(200).json({
+        success: true,
+        data: { userId: user.id, permissions },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── PUT /:id/permissions — replace the grant set ────────────────────
+router.put(
+  "/:id/permissions",
+  validate(permissionsSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, role: true, tenantId: true },
+      });
+      if (
+        !user ||
+        user.tenantId !== null ||
+        (user.role !== Role.ADMIN && user.role !== Role.SUPER_ADMIN)
+      ) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Super-admin user not found",
+        });
+        return;
+      }
+      const body = req.body as z.infer<typeof permissionsSchema>;
+      await prisma.systemConfig.upsert({
+        where: { key: PERMISSIONS_KEY(user.id) },
+        create: {
+          key: PERMISSIONS_KEY(user.id),
+          value: JSON.stringify(body),
+        },
+        update: { value: JSON.stringify(body) },
+      });
+
+      await auditLog(
+        req,
+        "SUPER_ADMIN_PERMISSIONS_UPDATED",
+        "user",
+        user.id,
+        {
+          permissionKeys: Object.keys(body),
+        },
+      );
+
+      res.status(200).json({
+        success: true,
+        data: { userId: user.id, permissions: body },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── Super-admin session idle-timeout settings ───────────────────────
+// Pearl §8.2 — operator-facing knob for the global super-admin idle
+// window. Returns the current value + the allowed range so the UI
+// can render a slider/input with proper bounds.
+
+router.get(
+  "/session-idle",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const minutes = await getSuperAdminIdleMinutes();
+      res.status(200).json({
+        success: true,
+        data: {
+          minutes,
+          min: SUPER_ADMIN_IDLE_LIMITS.min,
+          max: SUPER_ADMIN_IDLE_LIMITS.max,
+          default: SUPER_ADMIN_IDLE_LIMITS.default,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const sessionIdleBodySchema = z.object({
+  minutes: z
+    .number()
+    .int()
+    .min(SUPER_ADMIN_IDLE_LIMITS.min)
+    .max(SUPER_ADMIN_IDLE_LIMITS.max),
+});
+
+router.put(
+  "/session-idle",
+  validate(sessionIdleBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as z.infer<typeof sessionIdleBodySchema>;
+      const persisted = await setSuperAdminIdleMinutes(body.minutes);
+      await auditLog(
+        req,
+        "SUPER_ADMIN_SESSION_IDLE_UPDATED",
+        "system",
+        undefined,
+        { minutes: persisted },
+      );
+      res.status(200).json({
+        success: true,
+        data: { minutes: persisted },
         error: null,
       });
     } catch (err) {

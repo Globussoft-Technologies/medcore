@@ -582,7 +582,7 @@ export default function DashboardPage() {
           )}
           {role && (
             <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-              {role}
+              {user?.actualRole ?? role}
             </span>
           )}
         </div>

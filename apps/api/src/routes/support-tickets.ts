@@ -45,6 +45,9 @@ const router = Router();
  * handlers that have different behaviour for the two ADMIN flavours.
  */
 async function isCallerSuperAdmin(req: Request): Promise<boolean> {
+  // Pearl §8.2 — Role.SUPER_ADMIN is a wildcard "root" role: always a
+  // super-admin, regardless of tenant binding.
+  if (req.user?.role === Role.SUPER_ADMIN) return true;
   if (req.user?.role !== Role.ADMIN) return false;
   const callerTenantId = req.user?.tenantId ?? null;
   if (callerTenantId == null) return true;

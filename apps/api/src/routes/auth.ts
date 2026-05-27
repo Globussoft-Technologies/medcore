@@ -944,31 +944,67 @@ router.post(
       // operator on this IP isn't locked out by a previous user's typos.
       clearFailedLogins(ip);
 
-      // Pearl gap #10b — mandatory TOTP for tenant ADMIN.
-      // If the tenant has requireAdminTOTP=true AND the user is ADMIN
-      // AND they haven't enrolled 2FA, block the login with 412
-      // (Precondition Failed) + a clear message + a one-shot tempToken
-      // they can swap for the /auth/2fa/enroll endpoint to set up.
-      if (user.tenantId && user.role === "ADMIN" && !user.twoFactorEnabled) {
-        const tenant = await prisma.tenant.findUnique({
-          where: { id: user.tenantId },
-          select: { requireAdminTOTP: true },
-        });
-        if (tenant?.requireAdminTOTP) {
+      // Pearl gap #10b + §8.2 — mandatory TOTP for ADMIN.
+      //
+      //   - Tenant-bound ADMIN: enforce when `Tenant.requireAdminTOTP=true`.
+      //   - Cross-tenant super-admin (tenantId IS NULL): enforce when
+      //     SystemConfig `superadmin:<userId>:require_two_factor` is "true"
+      //     (set at invite time via POST /super-admin/users with
+      //     `requireTwoFactor: true`, which is the default per §8.2).
+      //
+      // Either way the login is blocked with 412 + a one-shot enrolToken
+      // the client swaps for /auth/2fa/setup to enrol the authenticator.
+      // Pearl §8.2 — recognise both the new dedicated SUPER_ADMIN role
+      // and the legacy ADMIN+tenantId=null shape as super-admin login
+      // candidates that need TOTP enforcement.
+      const isAdminLike =
+        user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+      if (isAdminLike && !user.twoFactorEnabled) {
+        let requireTotp = false;
+        let reason: "tenant" | "super_admin" | null = null;
+        if (user.tenantId) {
+          // Tenant-bound ADMIN — read Tenant.requireAdminTOTP.
+          const tenant = await prisma.tenant.findUnique({
+            where: { id: user.tenantId },
+            select: { requireAdminTOTP: true },
+          });
+          if (tenant?.requireAdminTOTP) {
+            requireTotp = true;
+            reason = "tenant";
+          }
+        } else {
+          // Pearl §8.2 — cross-tenant super-admin (either SUPER_ADMIN
+          // or legacy ADMIN+tenantId=null).
+          const flag = await prisma.systemConfig.findUnique({
+            where: { key: `superadmin:${user.id}:require_two_factor` },
+            select: { value: true },
+          });
+          // Default to ON for super-admins per §8.2 ("2FA mandatory for
+          // any super-admin role"). The flag is "false" only if the
+          // operator explicitly opted out (break-glass account).
+          const optedOut = flag?.value === "false";
+          if (!optedOut) {
+            requireTotp = true;
+            reason = "super_admin";
+          }
+        }
+
+        if (requireTotp) {
           const enrolToken = await issueTempToken(user.id);
-          // Pearl §8.2 row 211 — audit the blocked sign-in so operators can
-          // see when mandatory-TOTP is biting unenrolled admins (signal for
-          // rollout coordination / forced enrolment campaigns).
+          // Pearl §8.2 row 211 — audit the blocked sign-in so operators
+          // can see when mandatory-TOTP is biting unenrolled admins.
           auditLog(req, "LOGIN_BLOCKED_TOTP_REQUIRED", "user", user.id, {
             email: user.email,
             tenantId: user.tenantId,
+            reason,
           }).catch(console.error);
           res.status(412).json({
             success: false,
             data: { totpEnrolmentRequired: true, enrolToken },
             error:
-              "This tenant requires ADMIN users to enroll TOTP before signing in. " +
-              "Use the returned enrolToken to call /auth/2fa/setup.",
+              reason === "super_admin"
+                ? "Super-admin accounts must enrol TOTP before signing in. Use the returned enrolToken to call /auth/2fa/setup."
+                : "This tenant requires ADMIN users to enrol TOTP before signing in. Use the returned enrolToken to call /auth/2fa/setup.",
           });
           return;
         }

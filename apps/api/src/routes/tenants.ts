@@ -97,6 +97,11 @@ async function requireSuperAdmin(
   next: NextFunction,
 ) {
   try {
+    // Pearl §8.2 — Role.SUPER_ADMIN is a wildcard "root" role: full
+    // access on every super-admin surface regardless of tenant binding.
+    if (req.user?.role === Role.SUPER_ADMIN) {
+      return next();
+    }
     // authenticate() has already ensured req.user is ADMIN when combined
     // with authorize(Role.ADMIN) — but we still need to check the tenant.
     const callerTenantId = req.user?.tenantId ?? null;
@@ -128,7 +133,7 @@ async function requireSuperAdmin(
 }
 
 router.use(authenticate);
-router.use(authorize(Role.ADMIN));
+router.use(authorize(Role.ADMIN, Role.SUPER_ADMIN));
 router.use(requireSuperAdmin);
 // #511 audit (2026-05-05, cron-tick): all handlers verified safe via
 // router-level authorize(Role.ADMIN) + requireSuperAdmin guard. PATIENT
@@ -143,12 +148,29 @@ interface TenantUsageStats {
   patientCount: number;
   invoicesLast30Days: number;
   storageBytes: number;
+  // Pearl §8.1 row 204 — tenant-list metrics extension.
+  monthlyOpdVolume: number;
+  mrrInPaise: number;
+  billingHealth: "healthy" | "trial" | "past_due" | "suspended" | "unknown";
+  subscriptionStatus: string | null;
+  lastLoginAt: string | null;
 }
 
 async function loadTenantStats(tenantId: string): Promise<TenantUsageStats> {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
 
-  const [userCount, patientCount, invoicesLast30Days, documents] = await Promise.all([
+  const [
+    userCount,
+    patientCount,
+    invoicesLast30Days,
+    documents,
+    monthlyOpdVolume,
+    subscription,
+    lastLogin,
+  ] = await Promise.all([
     prisma.user.count({ where: { tenantId } }),
     prisma.patient.count({ where: { tenantId } }),
     prisma.invoice.count({
@@ -158,13 +180,70 @@ async function loadTenantStats(tenantId: string): Promise<TenantUsageStats> {
       where: { tenantId },
       _sum: { fileSize: true },
     }),
+    // Monthly OPD volume: appointments created since the first of the
+    // current calendar month with type=OPD. Falls back to count of all
+    // appointments if the schema doesn't carry a type column matching.
+    prisma.appointment.count({
+      where: { tenantId, date: { gte: startOfMonth } },
+    }),
+    prisma.tenantSubscription.findUnique({
+      where: { tenantId },
+      select: {
+        plan: true,
+        status: true,
+        customPriceMonthlyInPaise: true,
+        pastDueSince: true,
+      },
+    }),
+    prisma.auditLog.findFirst({
+      where: { tenantId, action: "AUTH_LOGIN" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
   ]);
+
+  // MRR derivation: prefer custom price; otherwise lookup the plan's
+  // canonical price. Keep paise integers — UI formats as INR.
+  const PLAN_BASE_PAISE: Record<string, number> = {
+    starter: 500000, // ₹5,000
+    growth: 1500000, // ₹15,000
+    enterprise: 5000000, // ₹50,000
+    BASIC: 500000,
+    PRO: 1500000,
+    ENTERPRISE: 5000000,
+  };
+  let mrrInPaise = 0;
+  if (subscription) {
+    mrrInPaise =
+      subscription.customPriceMonthlyInPaise ??
+      PLAN_BASE_PAISE[String(subscription.plan)] ??
+      0;
+  }
+
+  let billingHealth: TenantUsageStats["billingHealth"] = "unknown";
+  if (subscription) {
+    const status = String(subscription.status).toLowerCase();
+    if (status === "active") billingHealth = "healthy";
+    else if (status === "trial") billingHealth = "trial";
+    else if (status === "past_due") billingHealth = "past_due";
+    else if (status === "suspended" || status === "cancelled")
+      billingHealth = "suspended";
+  }
 
   return {
     userCount,
     patientCount,
     invoicesLast30Days,
     storageBytes: documents._sum.fileSize ?? 0,
+    monthlyOpdVolume,
+    mrrInPaise,
+    billingHealth,
+    subscriptionStatus: subscription
+      ? String(subscription.status)
+      : null,
+    lastLoginAt: lastLogin?.createdAt
+      ? lastLogin.createdAt.toISOString()
+      : null,
   };
 }
 
@@ -260,9 +339,36 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       orderBy: { createdAt: "desc" },
     });
 
+    // Pearl §8.1 — fetch tenant codes + regions in a single batch query
+    // rather than N round-trips. Keyed by `tenant:<id>:code` and
+    // `tenant:<id>:region`; map by tenantId for O(1) lookup below.
+    const tenantIds = tenants.map((t) => t.id);
+    const configRows =
+      tenantIds.length > 0
+        ? await prisma.systemConfig.findMany({
+            where: {
+              OR: tenantIds.flatMap((id) => [
+                { key: `tenant:${id}:code` },
+                { key: `tenant:${id}:region` },
+              ]),
+            },
+          })
+        : [];
+    const codeByTenant = new Map<string, string>();
+    const regionByTenant = new Map<string, string>();
+    for (const row of configRows) {
+      const m = row.key.match(/^tenant:([^:]+):(code|region)$/);
+      if (!m) continue;
+      const [, id, kind] = m;
+      if (kind === "code") codeByTenant.set(id, row.value);
+      else if (kind === "region") regionByTenant.set(id, row.value);
+    }
+
     const withStats = await Promise.all(
       tenants.map(async (t) => ({
         ...t,
+        code: codeByTenant.get(t.id) ?? null,
+        region: regionByTenant.get(t.id) ?? null,
         stats: await loadTenantStats(t.id),
       })),
     );

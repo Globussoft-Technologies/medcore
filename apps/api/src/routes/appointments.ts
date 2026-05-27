@@ -155,6 +155,7 @@ router.post(
         }
         if (
           req.user!.role !== Role.ADMIN &&
+          req.user!.role !== Role.SUPER_ADMIN &&
           req.user!.role !== Role.RECEPTION
         ) {
           res.status(400).json({
@@ -2458,7 +2459,11 @@ router.delete(
 
       const callerId = req.user!.userId;
       const role = req.user!.role;
-      if (remark.authorUserId !== callerId && role !== Role.ADMIN) {
+      if (
+        remark.authorUserId !== callerId &&
+        role !== Role.ADMIN &&
+        role !== Role.SUPER_ADMIN
+      ) {
         res.status(403).json({
           success: false,
           data: null,

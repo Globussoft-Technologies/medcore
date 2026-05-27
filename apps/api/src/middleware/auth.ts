@@ -76,6 +76,23 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
 }
 
 /**
+ * Pearl §8.2 — central "is this an admin-or-better caller?" predicate.
+ * SUPER_ADMIN is a wildcard "root" role and must be treated identically to
+ * ADMIN in every per-handler elevation check (admin-view filters,
+ * edit-others permissions, deletion gates, etc.). Use this instead of
+ * inline `req.user?.role === Role.ADMIN` so adding new root-equivalent
+ * roles later is one edit, not a repo-wide sweep.
+ */
+export function isAdminLike(roleOrReq: Role | string | Request | undefined | null): boolean {
+  if (roleOrReq == null) return false;
+  const role =
+    typeof roleOrReq === "string"
+      ? roleOrReq
+      : (roleOrReq as Request).user?.role;
+  return role === Role.ADMIN || role === Role.SUPER_ADMIN;
+}
+
+/**
  * Express middleware factory that restricts access to the given roles.
  * Must be used after {@link authenticate}. Responds 403 when the caller's
  * role is not in the allowed list.
@@ -86,6 +103,17 @@ export function authorize(...roles: Role[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
       res.status(401).json({ success: false, data: null, error: "Unauthorized" });
+      return;
+    }
+    // Pearl §8.2 — SUPER_ADMIN mirrors ADMIN exactly. If a route allows
+    // ADMIN, SUPER_ADMIN passes too. If ADMIN is NOT in the allowlist
+    // (e.g. a DOCTOR-only or PATIENT-only route), SUPER_ADMIN is also
+    // blocked — they don't get more access than an ADMIN would.
+    if (
+      req.user.role === Role.SUPER_ADMIN &&
+      roles.includes(Role.ADMIN)
+    ) {
+      next();
       return;
     }
     if (!roles.includes(req.user.role as Role)) {

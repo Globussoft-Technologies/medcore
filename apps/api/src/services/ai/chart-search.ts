@@ -258,7 +258,7 @@ function extractCitedChunkIds(answer: string, hits: ChartSearchHit[]): string[] 
 export async function resolveDoctorPanel(
   user: { userId: string; role: string }
 ): Promise<{ isAdmin: boolean; patientIds: string[]; doctorId: string | null }> {
-  if (user.role === "ADMIN") {
+  if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") {
     return { isAdmin: true, patientIds: [], doctorId: null };
   }
 

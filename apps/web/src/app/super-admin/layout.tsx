@@ -78,7 +78,9 @@ export default function SuperAdminLayout({
       router.replace(`/login?${qs.toString()}`);
       return;
     }
-    const isSuperAdmin = user.role === "ADMIN" && (user.tenantId ?? null) === null;
+    const isSuperAdmin =
+      user.role === "SUPER_ADMIN" ||
+      (user.role === "ADMIN" && (user.tenantId ?? null) === null);
     if (!isSuperAdmin) {
       toast.error(
         "Super-admin access required (Role.ADMIN with no tenant).",
@@ -112,7 +114,9 @@ export default function SuperAdminLayout({
     );
   }
 
-  const isSuperAdmin = user.role === "ADMIN" && (user.tenantId ?? null) === null;
+  const isSuperAdmin =
+    user.role === "SUPER_ADMIN" ||
+    (user.role === "ADMIN" && (user.tenantId ?? null) === null);
   if (!isSuperAdmin) {
     // Render-time guard belt-and-suspenders. The useEffect above will fire
     // a router.replace on the next tick; meanwhile we render nothing to

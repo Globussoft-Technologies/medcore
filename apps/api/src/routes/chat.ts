@@ -410,7 +410,7 @@ router.post(
         });
         return;
       }
-      if (room.createdBy !== userId && req.user!.role !== Role.ADMIN) {
+      if (room.createdBy !== userId && req.user!.role !== Role.ADMIN && req.user!.role !== Role.SUPER_ADMIN) {
         res
           .status(403)
           .json({ success: false, data: null, error: "Only creator can add" });
@@ -462,7 +462,7 @@ router.delete(
       if (
         targetUserId !== me &&
         room.createdBy !== me &&
-        req.user!.role !== Role.ADMIN
+        req.user!.role !== Role.ADMIN && req.user!.role !== Role.SUPER_ADMIN
       ) {
         res.status(403).json({ success: false, data: null, error: "Forbidden" });
         return;

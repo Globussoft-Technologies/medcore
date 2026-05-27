@@ -51,7 +51,7 @@ async function checkDocumentAccess(
   doc: { id: string; patientId: string; uploadedBy: string },
   user: { userId: string; role: string }
 ): Promise<{ status: number; error: string } | null> {
-  if (user.role === "ADMIN") return null;
+  if (user.role === "ADMIN" || user.role === "SUPER_ADMIN") return null;
   if (doc.uploadedBy === user.userId) return null;
 
   // Patient owner

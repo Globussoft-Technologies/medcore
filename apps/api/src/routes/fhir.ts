@@ -108,7 +108,13 @@ function operationOutcome(severity: "error" | "warning", code: string, diagnosti
  */
 async function canReadPatient(req: Request, patientId: string): Promise<boolean> {
   const role = req.user?.role;
-  if (role === Role.ADMIN || role === Role.DOCTOR || role === Role.NURSE || role === Role.RECEPTION) {
+  if (
+    role === Role.ADMIN ||
+    role === Role.SUPER_ADMIN ||
+    role === Role.DOCTOR ||
+    role === Role.NURSE ||
+    role === Role.RECEPTION
+  ) {
     return true;
   }
   if (role === Role.PATIENT) {

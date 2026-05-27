@@ -668,6 +668,50 @@ router.get(
         prisma.invoice.count({ where }),
       ]);
 
+      // 2026-05-27: lazy paymentStatus reconciliation.
+      //
+      // We've seen invoices where the persisted `paymentStatus` lags the
+      // truth (e.g. a row flipped to PAID under the old pre-GST math is
+      // now PARTIAL with a small GST gap once the totals were corrected,
+      // OR a manual payment was inserted via a path that bypassed the
+      // flip-on-payment logic). The payments[] array sums to ≥ the
+      // GST-corrected total but the column still says PENDING/PARTIAL,
+      // so the patient sees a red OVERDUE pill on a fully-settled bill.
+      //
+      // The pay-online endpoint (line 1044) already uses the same
+      // computeInvoiceTotals math as the authority for "already paid".
+      // Doing the same here closes the inconsistency: the list reflects
+      // the same truth the payment endpoint enforces. Per-row reconcile
+      // is fire-and-forget (don't block the response on the writes; the
+      // returned data is the corrected shape either way).
+      const reconciledIds: string[] = [];
+      for (const inv of invoices) {
+        if (inv.paymentStatus === "PAID" || inv.paymentStatus === "REFUNDED") continue;
+        const ti = totalsInput(inv);
+        const correctedTotal = computeInvoiceTotals(ti.items, ti.persisted).totalAmount;
+        const paidSum = inv.payments.reduce((s, p) => s + Number(p.amount), 0);
+        if (paidSum + 0.01 >= correctedTotal) {
+          inv.paymentStatus = "PAID";
+          reconciledIds.push(inv.id);
+        }
+      }
+      if (reconciledIds.length > 0) {
+        // Persist in the background — best-effort. A failed write just
+        // means the next list-load will reconcile again; nothing is lost.
+        void prisma.invoice
+          .updateMany({
+            where: { id: { in: reconciledIds } },
+            data: { paymentStatus: "PAID" },
+          })
+          .catch((err) => {
+            // eslint-disable-next-line no-console
+            console.warn(
+              `[billing] paymentStatus reconcile write failed for ${reconciledIds.length} row(s):`,
+              err,
+            );
+          });
+      }
+
       res.json({
         success: true,
         data: invoices,
@@ -761,6 +805,29 @@ router.get(
       }
 
       if (!(await assertPatientOwnsResource(req, res, invoice.patientId))) return;
+
+      // 2026-05-27: same lazy paymentStatus reconciliation as the list
+      // endpoint (line 671) — see that block for the full rationale. A
+      // detail-view consumer (patient bills detail page, web admin
+      // invoice modal) should never see PENDING/PARTIAL on a row whose
+      // payments[] already covers the GST-corrected total.
+      if (invoice.paymentStatus !== "PAID" && invoice.paymentStatus !== "REFUNDED") {
+        const ti = totalsInput(invoice);
+        const correctedTotal = computeInvoiceTotals(ti.items, ti.persisted).totalAmount;
+        const paidSum = invoice.payments.reduce((s, p) => s + Number(p.amount), 0);
+        if (paidSum + 0.01 >= correctedTotal) {
+          invoice.paymentStatus = "PAID";
+          void prisma.invoice
+            .update({ where: { id: invoice.id }, data: { paymentStatus: "PAID" } })
+            .catch((err) => {
+              // eslint-disable-next-line no-console
+              console.warn(
+                `[billing] paymentStatus reconcile (detail) write failed for ${invoice.id}:`,
+                err,
+              );
+            });
+        }
+      }
 
       res.json({ success: true, data: invoice, error: null });
     } catch (err) {

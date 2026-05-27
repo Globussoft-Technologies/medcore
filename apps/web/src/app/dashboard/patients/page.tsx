@@ -343,16 +343,36 @@ export default function PatientsPage() {
       // Issue #103: 409 carries `existingPatient` so reception can pull up
       // the existing chart in one click. Otherwise fall through to the
       // generic field-error or toast path.
-      const payload = (err as { payload?: { existingPatient?: { id: string; mrNumber: string; name: string | null } } })
-        .payload;
+      //
+      // Issue #976: the conflict field comes from the API's `details[0].field`
+      // (one of "phone" | "email" | "name"). Previously this branch hard-coded
+      // the error onto `phone`, so an email-duplicate surfaced red under the
+      // phone input — confusing reception about which field actually clashed.
+      // Read the field from details and fall back to "phone" only when the
+      // API omits it.
+      const payload = (err as {
+        payload?: {
+          existingPatient?: { id: string; mrNumber: string; name: string | null };
+          details?: Array<{ field?: string; message?: string }>;
+        };
+      }).payload;
       if (payload?.existingPatient) {
+        const conflictField =
+          payload.details?.find((d) => typeof d?.field === "string")?.field ??
+          "phone";
+        const fieldLabel =
+          conflictField === "email"
+            ? "email"
+            : conflictField === "name"
+            ? "name and date of birth"
+            : "phone";
         setDuplicateMatch(payload.existingPatient);
         setFormErrors((p) => ({
           ...p,
-          phone: `Already registered as ${payload.existingPatient!.name ?? "patient"} (MR: ${payload.existingPatient!.mrNumber}).`,
+          [conflictField]: `Already registered as ${payload.existingPatient!.name ?? "patient"} (MR: ${payload.existingPatient!.mrNumber}).`,
         }));
         toast.error(
-          `Patient with this phone already exists (MR: ${payload.existingPatient.mrNumber}).`,
+          `Patient with this ${fieldLabel} already exists (MR: ${payload.existingPatient.mrNumber}).`,
         );
         return;
       }

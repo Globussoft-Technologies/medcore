@@ -133,11 +133,31 @@ function isOpen(status: InvoiceRow["paymentStatus"]): boolean {
 function isOverdue(row: InvoiceRow): boolean {
   if (!isOpen(row.paymentStatus)) return false;
   if (!row.dueDate) return false;
+  // 2026-05-27: defend against stale server `paymentStatus`. We've seen
+  // invoices where the API still says PENDING/PARTIAL but the payments[]
+  // array sums to ≥ totalAmount (the status-flip-on-payment job didn't
+  // run / a manual payment was inserted bypassing the flip). Without
+  // this check the row gets a red OVERDUE badge despite being fully
+  // settled. `outstandingFor` already computes total − non-failed
+  // payments, so a 0 outstanding means the patient has paid in full
+  // regardless of what paymentStatus claims.
+  if (outstandingFor(row) <= 0) return false;
   return new Date(row.dueDate).getTime() < Date.now();
 }
 
+// 2026-05-27: same band-aid as isOverdue — when payments sum to ≥
+// totalAmount, treat the row as PAID regardless of stale server
+// paymentStatus. Without this the row drops the OVERDUE/PARTIAL
+// red/amber pill (good) but still shows "PARTIAL"/"PENDING" text
+// (confusing).
+function effectivelyPaid(row: InvoiceRow): boolean {
+  if (row.paymentStatus === "PAID") return true;
+  if (row.paymentStatus === "REFUNDED") return false;
+  return outstandingFor(row) <= 0;
+}
+
 function statusPillClass(row: InvoiceRow): string {
-  if (row.paymentStatus === "PAID") return "bg-emerald-100 text-emerald-900";
+  if (effectivelyPaid(row)) return "bg-emerald-100 text-emerald-900";
   if (row.paymentStatus === "REFUNDED") return "bg-slate-200 text-slate-700";
   if (isOverdue(row)) return "bg-red-100 text-red-900";
   if (row.paymentStatus === "PARTIAL") return "bg-amber-100 text-amber-900";
@@ -145,6 +165,7 @@ function statusPillClass(row: InvoiceRow): string {
 }
 
 function statusPillLabel(row: InvoiceRow): string {
+  if (effectivelyPaid(row)) return "PAID";
   if (isOverdue(row)) return "OVERDUE";
   return row.paymentStatus;
 }
@@ -219,7 +240,7 @@ export default function PatientBillsPage() {
         return;
       }
 
-      const open: InvoiceRow[] =
+      const openRaw: InvoiceRow[] =
         openRes.status === "fulfilled" && openRes.value.success
           ? openRes.value.data ?? []
           : [];
@@ -228,11 +249,20 @@ export default function PatientBillsPage() {
           ? paidRes.value.data ?? []
           : [];
 
+      // 2026-05-27: re-bucket on the client so a stale-PENDING/PARTIAL
+      // row whose payments[] sums to ≥ totalAmount lands in Paid (where
+      // the patient expects it) instead of Open with a red OVERDUE pill
+      // (where they'd think they still owe money). Keeps the section
+      // split in lockstep with the BillCard's effectivelyPaid badge.
+      const effectivelySettled = openRaw.filter((row) => effectivelyPaid(row));
+      const open: InvoiceRow[] = openRaw.filter((row) => !effectivelyPaid(row));
+      const paidMerged: InvoiceRow[] = [...effectivelySettled, ...paid];
+
       setOpenRows(open);
-      setPaidRows(paid);
+      setPaidRows(paidMerged);
       setOpenTotal(
         openRes.status === "fulfilled" && openRes.value.meta
-          ? openRes.value.meta.total
+          ? Math.max(0, openRes.value.meta.total - effectivelySettled.length)
           : open.length,
       );
       setOpenPage(1);
@@ -471,7 +501,12 @@ interface CardProps {
 }
 
 function BillCard({ invoice }: CardProps) {
-  const open = isOpen(invoice.paymentStatus);
+  // 2026-05-27: same band-aid surface — a row that the server still
+  // marks PENDING/PARTIAL but whose payments already cover the total
+  // should NOT render "Pay now" or land in the Open section. Falls
+  // through `effectivelyPaid` to keep one source of truth across pill,
+  // section split, and CTA gating.
+  const open = isOpen(invoice.paymentStatus) && !effectivelyPaid(invoice);
   const overdue = isOverdue(invoice);
   const outstanding = outstandingFor(invoice);
   const claim = invoice.insuranceClaims?.[0] ?? null;

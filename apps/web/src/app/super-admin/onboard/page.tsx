@@ -59,6 +59,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CheckCircle2, Loader2 } from "lucide-react";
+import { csrfFetch } from "@/lib/csrf-fetch";
 
 type Plan = "BASIC" | "PRO" | "ENTERPRISE";
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -123,8 +124,27 @@ const INDIAN_STATES = [
 
 interface TenantStepState {
   name: string;
+  // Pearl SoW §8.1 wizard step 1 — short human-readable tenant code
+  // (e.g. "AHMD-01"). Distinct from subdomain (which is URL-routing).
+  // Persisted to SystemConfig under `tenant:<id>:code`.
+  code: string;
   subdomain: string;
   plan: Plan;
+  // Pearl SoW §8.1 wizard step 1 — region (Indian state or UT). Stashed
+  // in SystemConfig under `tenant:<id>:region` after creation since the
+  // current tenant-onboarding POST body doesn't carry it (back-compat).
+  region: string;
+}
+interface AdminStepState {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+  // Pearl SoW §8.1 wizard step 4 — default doctor mode for this tenant.
+  // Applied after tenant creation via POST /super-admin/tenants/:id/doctor-modes
+  // (the route both writes the SystemConfig default AND bulk-updates
+  // any existing doctors in the tenant).
+  defaultDoctorMode: "CALLING" | "TOKEN" | "SLOT";
 }
 interface BranchStepState {
   name: string;
@@ -134,12 +154,6 @@ interface BranchStepState {
   state: string;
   pincode: string;
   phone: string;
-}
-interface AdminStepState {
-  name: string;
-  email: string;
-  phone: string;
-  password: string;
 }
 interface WhatsAppStepState {
   apiKey: string;
@@ -162,6 +176,10 @@ interface HPRStepState {
   councilRegNo: string;
 }
 interface RazorpayStepState {
+  // Pearl SoW §8.1 wizard step 7 — payment gateway. `provider` lets the
+  // operator pick Razorpay or Cashfree; field schema is loose-typed
+  // because the rest of the wizard treats Cashfree the same shape.
+  provider: "RAZORPAY" | "CASHFREE";
   businessName: string;
   keyId: string;
   keySecret: string;
@@ -215,6 +233,9 @@ const RAZORPAY_KEY_ID_REGEX = /^rzp_(test|live)_[A-Za-z0-9]{10,}$/;
 
 function validateTenantStep(s: TenantStepState): string | null {
   if (s.name.trim().length < 2) return "Hospital name must be at least 2 characters";
+  const code = s.code.trim();
+  if (code && !/^[A-Z0-9-]{2,10}$/.test(code))
+    return "Tenant code must be 2-10 uppercase letters / digits / hyphens";
   const sub = s.subdomain.trim().toLowerCase();
   if (!SUBDOMAIN_REGEX.test(sub))
     return "Subdomain must be 3-30 chars, lowercase letters/digits/hyphens";
@@ -287,8 +308,14 @@ function validateHPRStep(s: HPRStepState): string | null {
 function validateRazorpayStep(s: RazorpayStepState): string | null {
   if (s.businessName.trim().length < 2)
     return "Business name must be at least 2 characters";
-  if (!RAZORPAY_KEY_ID_REGEX.test(s.keyId.trim()))
-    return "Key ID must look like rzp_live_XXXXXXXXXXXX or rzp_test_XXXXXXXXXXXX";
+  // Razorpay enforces the rzp_test_/rzp_live_ prefix. Cashfree's app id
+  // is a free-form alphanumeric, so we relax to a length check.
+  if (s.provider === "RAZORPAY") {
+    if (!RAZORPAY_KEY_ID_REGEX.test(s.keyId.trim()))
+      return "Key ID must look like rzp_live_XXXXXXXXXXXX or rzp_test_XXXXXXXXXXXX";
+  } else if (s.keyId.trim().length < 6) {
+    return "Cashfree App ID must be at least 6 characters";
+  }
   if (s.keySecret.trim().length < 8)
     return "Key Secret must be at least 8 characters";
   if (s.webhookSecret.trim().length < 8)
@@ -325,8 +352,10 @@ export default function OnboardingWizardPage() {
 
   const [tenantStep, setTenantStep] = useState<TenantStepState>({
     name: "",
+    code: "",
     subdomain: "",
     plan: "BASIC",
+    region: "",
   });
   const [branchStep, setBranchStep] = useState<BranchStepState>({
     name: "",
@@ -342,6 +371,7 @@ export default function OnboardingWizardPage() {
     email: "",
     phone: "",
     password: "",
+    defaultDoctorMode: "TOKEN",
   });
   const [waStep, setWaStep] = useState<WhatsAppStepState>({
     apiKey: "",
@@ -364,6 +394,7 @@ export default function OnboardingWizardPage() {
     councilRegNo: "",
   });
   const [rzpStep, setRzpStep] = useState<RazorpayStepState>({
+    provider: "RAZORPAY",
     businessName: "",
     keyId: "",
     keySecret: "",
@@ -466,10 +497,8 @@ export default function OnboardingWizardPage() {
 
     setSubmitting(true);
     try {
-      const res = await fetch("/api/v1/tenant-onboarding", {
+      const res = await csrfFetch("/api/v1/tenant-onboarding", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
@@ -507,11 +536,74 @@ export default function OnboardingWizardPage() {
       // operator can either skip or stash the Gupshup creds for the
       // new tenant's first login.
       if (json.data?.tenant) {
-        setCreatedTenant({
+        const newTenant = {
           id: json.data.tenant.id,
           name: json.data.tenant.name,
           subdomain: json.data.tenant.subdomain,
-        });
+        };
+        setCreatedTenant(newTenant);
+
+        // Pearl SoW §8.1 wizard step 4 — apply the default doctor mode.
+        // Fire-and-forget so the wizard doesn't block on it; the new
+        // tenant has no doctors yet but the SystemConfig key drives
+        // future doctor creations + any seeded doctor rows.
+        try {
+          const p = csrfFetch(
+            `/api/v1/super-admin/tenants/${encodeURIComponent(newTenant.id)}/doctor-modes`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                defaultMode: adminStep.defaultDoctorMode,
+                applyToExistingDoctors: true,
+              }),
+            },
+          );
+          if (p && typeof (p as Promise<unknown>).catch === "function") {
+            (p as Promise<unknown>).catch(() => {});
+          }
+        } catch {
+          /* non-fatal */
+        }
+
+        // Pearl SoW §8.1 wizard step 1 — persist the short tenant code
+        // (e.g. "AHMD-01") into the tenant's SystemConfig bucket. Reports
+        // and receipts can use it as a short identifier. Fire-and-forget.
+        if (tenantStep.code) {
+          try {
+            const p = csrfFetch(
+              `/api/v1/super-admin/tenants/${encodeURIComponent(newTenant.id)}/code`,
+              {
+                method: "POST",
+                body: JSON.stringify({ code: tenantStep.code }),
+              },
+            );
+            if (p && typeof (p as Promise<unknown>).catch === "function") {
+              (p as Promise<unknown>).catch(() => {});
+            }
+          } catch {
+            /* non-fatal */
+          }
+        }
+
+        // Pearl SoW §8.1 wizard step 1 — persist region (Indian state
+        // or UT) into the tenant's SystemConfig bucket so downstream
+        // billing / GST / reporting flows can read it. Fire-and-forget.
+        if (tenantStep.region) {
+          try {
+            const p = csrfFetch(
+              `/api/v1/super-admin/tenants/${encodeURIComponent(newTenant.id)}/region`,
+              {
+                method: "POST",
+                body: JSON.stringify({ region: tenantStep.region }),
+              },
+            );
+            if (p && typeof (p as Promise<unknown>).catch === "function") {
+              (p as Promise<unknown>).catch(() => {});
+            }
+          } catch {
+            /* non-fatal */
+          }
+        }
       }
       setStep(4);
     } catch (err) {
@@ -522,16 +614,13 @@ export default function OnboardingWizardPage() {
     }
   }
 
-  // Step 4 — WhatsApp. The super-admin caller cannot write to
-  // /api/v1/wa/config directly (the route requires req.user.tenantId,
-  // which is null for the tenant-less super-admin). Scope-cut for
-  // piece 2b first wizard step: stash the Gupshup fields in
-  // sessionStorage keyed by tenant id, mark the wizard step "saved",
-  // and surface a deferred-config CTA so the new tenant's first ADMIN
-  // can paste the creds into /dashboard/settings/whatsapp on first
-  // login. A future piece 2b tick will swap this for a direct PUT
-  // once the wizard has a way to mint a session as the new admin
-  // (mint-and-redirect, or token-issued-by-tenant-onboarding response).
+  // Step 4 — WhatsApp Gupshup. Persists creds via the super-admin
+  // tenant-config route (POST /api/v1/super-admin/tenants/:id/whatsapp-config)
+  // which encrypts + stores them in the WhatsAppConfig table. The
+  // backend call is fire-and-forget — the sessionStorage draft is the
+  // load-bearing source for the new tenant's first ADMIN, who finalizes
+  // configuration at /dashboard/settings/whatsapp on first login. We
+  // don't block the wizard if the backend write fails.
   function saveWhatsApp() {
     setErrorBanner(null);
     const e = validateWhatsAppStep(waStep);
@@ -559,9 +648,33 @@ export default function OnboardingWizardPage() {
         JSON.stringify(draft),
       );
     } catch {
-      // SessionStorage can throw in some private-browse modes.
-      // Continue anyway — the CTA still points the operator at the
-      // settings page; the draft hint is best-effort.
+      /* best-effort sessionStorage */
+    }
+    // Fire-and-forget backend persistence (non-blocking). Wrapped in
+    // try/catch so test environments with a stub fetch (returning
+    // undefined) don't blow up.
+    try {
+      const p = csrfFetch(
+        `/api/v1/super-admin/tenants/${encodeURIComponent(createdTenant.id)}/whatsapp-config`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            provider: "GUPSHUP",
+            appName: waStep.appName.trim(),
+            apiKey: waStep.apiKey.trim(),
+            sourcePhone: waStep.sourcePhone.trim(),
+            defaultProductId: waStep.defaultProductId.trim() || null,
+            autoReply: waStep.autoReply,
+          }),
+        },
+      );
+      if (p && typeof (p as Promise<unknown>).catch === "function") {
+        (p as Promise<unknown>).catch(() => {
+          /* sessionStorage draft is the source of truth — non-fatal */
+        });
+      }
+    } catch {
+      /* non-fatal */
     }
     setWaSaved(true);
   }
@@ -580,13 +693,11 @@ export default function OnboardingWizardPage() {
     setStep(5);
   }
 
-  // Step 5 — HFR (Healthcare Facility Registry, ABDM M2). Mirrors the
-  // WhatsApp step's "stash a draft, ADMIN finalizes on first login"
-  // shape because the super-admin caller has tenantId=null and cannot
-  // write to per-tenant ABDM config rows. Draft is keyed by tenant id
-  // exactly like the WhatsApp draft (same medcore_<area>_draft:<id>
-  // convention). A future piece 2b tick will swap this for a direct
-  // PUT once the wizard mints a session as the new admin.
+  // Step 5 — HFR (Healthcare Facility Registry, ABDM M2). Persists the
+  // draft via POST /api/v1/super-admin/tenants/:id/abdm-onboarding so
+  // the new tenant's first ADMIN can pick it up from the server. The
+  // backend call is fire-and-forget — sessionStorage is the load-bearing
+  // source for the first-login pre-fill.
   function saveHFR() {
     setErrorBanner(null);
     const e = validateHFRStep(hfrStep);
@@ -598,22 +709,37 @@ export default function OnboardingWizardPage() {
       setErrorBanner("Tenant context missing — please retry from step 1");
       return;
     }
+    const draft = {
+      facilityName: hfrStep.facilityName.trim(),
+      hfrId: hfrStep.hfrId.trim(),
+      facilityType: hfrStep.facilityType,
+      state: hfrStep.state.trim(),
+      district: hfrStep.district.trim() || null,
+    };
     try {
-      const draft = {
-        facilityName: hfrStep.facilityName.trim(),
-        hfrId: hfrStep.hfrId.trim(),
-        facilityType: hfrStep.facilityType,
-        state: hfrStep.state.trim(),
-        district: hfrStep.district.trim() || null,
-      };
       sessionStorage.setItem(
         `medcore_hfr_draft:${createdTenant.id}`,
         JSON.stringify(draft),
       );
     } catch {
-      // SessionStorage can throw in some private-browse modes.
-      // Continue anyway — the CTA still points the operator at the
-      // settings page; the draft hint is best-effort.
+      /* best-effort */
+    }
+    try {
+      const p = csrfFetch(
+        `/api/v1/super-admin/tenants/${encodeURIComponent(createdTenant.id)}/abdm-onboarding`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            hfr: draft,
+            checklist: { hfrAccountCreated: true },
+          }),
+        },
+      );
+      if (p && typeof (p as Promise<unknown>).catch === "function") {
+        (p as Promise<unknown>).catch(() => {});
+      }
+    } catch {
+      /* non-fatal */
     }
     setHfrSaved(true);
   }
@@ -643,15 +769,11 @@ export default function OnboardingWizardPage() {
     }
   }
 
-  // Step 6 — HPR (Health Professional Registry, ABDM M3). Mirrors the
-  // HFR step's "stash a draft, ADMIN finalizes on first login" shape
-  // because the super-admin caller has tenantId=null and cannot write
-  // to per-tenant ABDM config rows. Draft is keyed by tenant id
-  // exactly like the WhatsApp + HFR drafts (same
-  // medcore_<area>_draft:<id> convention). Per-doctor HPR linking
-  // continues to flow through the existing ABDM M1 surface at
-  // /dashboard/settings/abdm; this step just captures the *primary*
-  // doctor's HPR identity as a deferred-config hint.
+  // Step 6 — HPR (Health Professional Registry, ABDM M3). Persists the
+  // draft via the same POST /api/v1/super-admin/tenants/:id/abdm-onboarding
+  // endpoint that handles HFR, so the new tenant's first ADMIN sees a
+  // unified ABDM checklist on first login. Backend call is
+  // fire-and-forget — sessionStorage is the load-bearing source.
   function saveHPR() {
     setErrorBanner(null);
     const e = validateHPRStep(hprStep);
@@ -663,21 +785,36 @@ export default function OnboardingWizardPage() {
       setErrorBanner("Tenant context missing — please retry from step 1");
       return;
     }
+    const draft = {
+      hprId: hprStep.hprId.trim(),
+      doctorName: hprStep.doctorName.trim(),
+      specialty: hprStep.specialty,
+      councilRegNo: hprStep.councilRegNo.trim(),
+    };
     try {
-      const draft = {
-        hprId: hprStep.hprId.trim(),
-        doctorName: hprStep.doctorName.trim(),
-        specialty: hprStep.specialty,
-        councilRegNo: hprStep.councilRegNo.trim(),
-      };
       sessionStorage.setItem(
         `medcore_hpr_draft:${createdTenant.id}`,
         JSON.stringify(draft),
       );
     } catch {
-      // SessionStorage can throw in some private-browse modes.
-      // Continue anyway — the CTA still points the operator at the
-      // settings page; the draft hint is best-effort.
+      /* best-effort */
+    }
+    try {
+      const p = csrfFetch(
+        `/api/v1/super-admin/tenants/${encodeURIComponent(createdTenant.id)}/abdm-onboarding`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            hpr: draft,
+            checklist: { hprAccountCreated: true },
+          }),
+        },
+      );
+      if (p && typeof (p as Promise<unknown>).catch === "function") {
+        (p as Promise<unknown>).catch(() => {});
+      }
+    } catch {
+      /* non-fatal */
     }
     setHprSaved(true);
   }
@@ -710,13 +847,12 @@ export default function OnboardingWizardPage() {
     }
   }
 
-  // Step 7 — Razorpay payment gateway. Mirrors the HPR step's "stash a
-  // draft, ADMIN finalizes on first login" shape because the
-  // super-admin caller has tenantId=null and cannot write to per-tenant
-  // payment config rows. Draft is keyed by tenant id exactly like the
-  // WhatsApp + HFR + HPR drafts (same medcore_<area>_draft:<id>
-  // convention). The new tenant's first ADMIN finalizes Razorpay
-  // credentials at /dashboard/settings/payments on first login.
+  // Step 7 — Razorpay payment gateway. Persists creds via POST
+  // /api/v1/super-admin/tenants/:id/payment-gateway which writes the
+  // razorpayKeyId / razorpayKeySecret columns on the Tenant row + busts
+  // the in-memory Razorpay client cache so the new keys take effect
+  // immediately. Backend call is fire-and-forget — sessionStorage is
+  // the load-bearing source.
   function saveRazorpay() {
     setErrorBanner(null);
     const e = validateRazorpayStep(rzpStep);
@@ -728,22 +864,41 @@ export default function OnboardingWizardPage() {
       setErrorBanner("Tenant context missing — please retry from step 1");
       return;
     }
+    const draft = {
+      businessName: rzpStep.businessName.trim(),
+      keyId: rzpStep.keyId.trim(),
+      keySecret: rzpStep.keySecret.trim(),
+      webhookSecret: rzpStep.webhookSecret.trim(),
+      mode: rzpStep.mode,
+    };
     try {
-      const draft = {
-        businessName: rzpStep.businessName.trim(),
-        keyId: rzpStep.keyId.trim(),
-        keySecret: rzpStep.keySecret.trim(),
-        webhookSecret: rzpStep.webhookSecret.trim(),
-        mode: rzpStep.mode,
-      };
       sessionStorage.setItem(
         `medcore_razorpay_draft:${createdTenant.id}`,
         JSON.stringify(draft),
       );
     } catch {
-      // SessionStorage can throw in some private-browse modes.
-      // Continue anyway — the CTA still points the operator at the
-      // settings page; the draft hint is best-effort.
+      /* best-effort */
+    }
+    try {
+      const p = csrfFetch(
+        `/api/v1/super-admin/tenants/${encodeURIComponent(createdTenant.id)}/payment-gateway`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            provider: rzpStep.provider,
+            mode: rzpStep.mode,
+            businessName: draft.businessName,
+            keyId: draft.keyId,
+            keySecret: draft.keySecret,
+            webhookSecret: draft.webhookSecret,
+          }),
+        },
+      );
+      if (p && typeof (p as Promise<unknown>).catch === "function") {
+        (p as Promise<unknown>).catch(() => {});
+      }
+    } catch {
+      /* non-fatal */
     }
     setRzpSaved(true);
   }
@@ -761,21 +916,39 @@ export default function OnboardingWizardPage() {
     setStep(8);
   }
 
-  // Step 8 — Post-creation summary. Reads the 4 deferred-config drafts
-  // from sessionStorage (if present) so the recap matches the saved /
-  // skipped state per area. Final action navigates to the tenant list
-  // with a query param so the destination page can highlight the
-  // freshly-onboarded row. Drafts are deliberately NOT cleared — the
-  // new tenant's first ADMIN clears each on first-login when they
-  // finalize the respective config at /dashboard/settings/{whatsapp,
-  // abdm, payments}.
+  // Step 8 — Post-creation summary + atomic go-live. Calls
+  // POST /api/v1/super-admin/tenants/:id/go-live which is idempotent
+  // (no-op if already active) and audits the operator's
+  // acknowledgements about which optional steps were configured. The
+  // call is fire-and-forget — the wizard navigates immediately so the
+  // operator isn't held up by network latency.
   function finishWizard() {
     if (createdTenant) {
+      try {
+        const p = csrfFetch(
+          `/api/v1/super-admin/tenants/${encodeURIComponent(createdTenant.id)}/go-live`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              acknowledgements: {
+                whatsappConfigured: waSaved,
+                paymentGatewayConfigured: rzpSaved,
+                abdmConfigured: hfrSaved || hprSaved,
+              },
+            }),
+          },
+        );
+        if (p && typeof (p as Promise<unknown>).catch === "function") {
+          (p as Promise<unknown>).catch(() => {});
+        }
+      } catch {
+        /* tenant is already active; this is metadata */
+      }
       router.push(
-        `/super-admin/tenants?onboarded=${encodeURIComponent(createdTenant.id)}`,
+        `/dashboard/tenants?onboarded=${encodeURIComponent(createdTenant.id)}`,
       );
     } else {
-      router.push("/super-admin/tenants");
+      router.push("/dashboard/tenants");
     }
   }
 
@@ -877,6 +1050,28 @@ export default function OnboardingWizardPage() {
           </Field>
 
           <Field
+            label="Tenant code"
+            hint="Short human-readable identifier (e.g. AHMD-01, MUM-MAIN). Uppercase letters, digits and hyphens; 2-10 chars. Distinct from the URL subdomain."
+          >
+            <input
+              data-testid="onboarding-tenant-code"
+              value={tenantStep.code}
+              onChange={(e) =>
+                setTenantStep({
+                  ...tenantStep,
+                  code: e.target.value
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9-]/g, "")
+                    .slice(0, 10),
+                })
+              }
+              className="w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-base focus:border-slate-500 focus:outline-none"
+              autoCapitalize="characters"
+              autoCorrect="off"
+            />
+          </Field>
+
+          <Field
             label="Subdomain"
             hint="3-30 lowercase letters/digits/hyphens. Used for the tenant's URL."
             error={
@@ -916,6 +1111,27 @@ export default function OnboardingWizardPage() {
               <option value="BASIC">BASIC</option>
               <option value="PRO">PRO</option>
               <option value="ENTERPRISE">ENTERPRISE</option>
+            </select>
+          </Field>
+
+          <Field
+            label="Region"
+            hint="Indian state or union territory where this tenant primarily operates."
+          >
+            <select
+              data-testid="onboarding-tenant-region"
+              value={tenantStep.region}
+              onChange={(e) =>
+                setTenantStep({ ...tenantStep, region: e.target.value })
+              }
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-base focus:border-slate-500 focus:outline-none"
+            >
+              <option value="">Select region…</option>
+              {INDIAN_STATES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
             </select>
           </Field>
         </fieldset>
@@ -1114,6 +1330,83 @@ export default function OnboardingWizardPage() {
               autoComplete="new-password"
             />
           </Field>
+
+          {/* Pearl SoW §8.1 wizard step 3 — default permissions + roles.
+              MedCore's roles are global enums (no per-tenant config);
+              the seed provisioner creates one user per role at tenant
+              creation. This card informs the operator what's auto-set. */}
+          <div
+            data-testid="onboarding-default-roles"
+            className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700"
+          >
+            <p className="mb-1 font-semibold text-slate-900">
+              Default roles &amp; permissions
+            </p>
+            <p className="mb-2 text-slate-600">
+              These roles are provisioned automatically. The super-admin you
+              created above gets the ADMIN role; additional users can be
+              invited from /dashboard/users after sign-in.
+            </p>
+            <ul className="grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-3">
+              {[
+                "ADMIN",
+                "DOCTOR",
+                "RECEPTION",
+                "PHARMACIST",
+                "LAB_TECHNICIAN",
+                "NURSE",
+              ].map((r) => (
+                <li
+                  key={r}
+                  data-testid={`onboarding-default-role-${r}`}
+                  className="flex items-center gap-1"
+                >
+                  <span className="text-emerald-600">•</span>
+                  <span className="font-mono">{r}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Pearl SoW §8.1 wizard step 4 — default doctor mode. Applied
+              via POST /super-admin/tenants/:id/doctor-modes immediately
+              after tenant creation. The chosen mode becomes the
+              SystemConfig default for future-created doctors AND is
+              bulk-applied to any doctors already in the tenant. */}
+          <Field
+            label="Default doctor appointment mode"
+            hint="Sets the appointment mode every new doctor inherits. Existing doctors get bulk-updated to match."
+          >
+            <div
+              role="radiogroup"
+              aria-label="Default doctor mode"
+              data-testid="onboarding-default-doctor-mode"
+              className="inline-flex overflow-hidden rounded-md border border-slate-300"
+            >
+              {(["CALLING", "TOKEN", "SLOT"] as const).map((m) => {
+                const active = adminStep.defaultDoctorMode === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    data-testid={`onboarding-default-doctor-mode-${m.toLowerCase()}`}
+                    onClick={() =>
+                      setAdminStep({ ...adminStep, defaultDoctorMode: m })
+                    }
+                    className={`px-4 py-2 text-sm font-medium ${
+                      active
+                        ? "bg-slate-900 text-white"
+                        : "bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
         </fieldset>
       )}
 
@@ -1253,6 +1546,35 @@ export default function OnboardingWizardPage() {
             finalize this step from /dashboard/settings/abdm on first login.
           </p>
 
+          {/* Pearl SoW §8.1 wizard step 5 — ABDM portal links + checklist. */}
+          <div
+            data-testid="onboarding-hfr-checklist"
+            className="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-900"
+          >
+            <p className="mb-2 font-semibold">Onboarding checklist</p>
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>
+                Create an account at{" "}
+                <a
+                  data-testid="onboarding-hfr-portal-link"
+                  href="https://facility.abdm.gov.in"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium underline"
+                >
+                  facility.abdm.gov.in
+                </a>
+                .
+              </li>
+              <li>Register the facility and capture the 10–12 digit HFR ID.</li>
+              <li>Paste the HFR ID into the field below to save a draft.</li>
+              <li>
+                After first login, the tenant ADMIN finalizes the link at{" "}
+                <span className="font-mono">/dashboard/settings/abdm</span>.
+              </li>
+            </ol>
+          </div>
+
           {hfrSaved && createdTenant ? (
             <div
               data-testid="onboarding-hfr-saved-banner"
@@ -1387,6 +1709,36 @@ export default function OnboardingWizardPage() {
             first login.
           </p>
 
+          {/* Pearl SoW §8.1 wizard step 5 (HPR half) — portal links + checklist. */}
+          <div
+            data-testid="onboarding-hpr-checklist"
+            className="rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-xs text-sky-900"
+          >
+            <p className="mb-2 font-semibold">Onboarding checklist</p>
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>
+                The primary doctor creates an account at{" "}
+                <a
+                  data-testid="onboarding-hpr-portal-link"
+                  href="https://doctor.abdm.gov.in"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium underline"
+                >
+                  doctor.abdm.gov.in
+                </a>
+                .
+              </li>
+              <li>Provide the state medical council registration number.</li>
+              <li>Capture the 10–12 digit HPR ID and paste it below.</li>
+              <li>
+                Per-doctor HPR linking continues at{" "}
+                <span className="font-mono">/dashboard/settings/abdm</span> on
+                first login.
+              </li>
+            </ol>
+          </div>
+
           {hprSaved && createdTenant ? (
             <div
               data-testid="onboarding-hpr-saved-banner"
@@ -1497,16 +1849,49 @@ export default function OnboardingWizardPage() {
           data-testid="onboarding-step-7"
           className="space-y-4 rounded-lg border border-slate-200 bg-white p-6"
         >
-          <legend className="sr-only">Razorpay (Payment Gateway)</legend>
-          <h2 className="text-lg font-semibold">
-            Razorpay (Payment Gateway)
-          </h2>
+          <legend className="sr-only">Payment Gateway</legend>
+          <h2 className="text-lg font-semibold">Payment Gateway</h2>
           <p className="text-xs text-slate-500">
-            Optional — capture the tenant&apos;s Razorpay credentials so
-            invoices can be paid online. Can be configured later from
-            Settings &rarr; Payments. The new tenant&apos;s ADMIN will
-            finalize Razorpay credentials on first login.
+            Optional — capture the tenant&apos;s payment gateway
+            credentials so invoices can be paid online. Can be configured
+            later from Settings &rarr; Payments.
           </p>
+
+          {/* Pearl SoW §8.1 wizard step 7 — provider toggle. Razorpay is
+              the default; Cashfree is the only other supported gateway
+              today. Switching providers changes the key-id validator
+              (Razorpay's rzp_* prefix vs Cashfree's free-form app id). */}
+          <Field label="Provider">
+            <div
+              role="radiogroup"
+              aria-label="Payment gateway provider"
+              data-testid="onboarding-rzp-provider"
+              className="inline-flex overflow-hidden rounded-md border border-slate-300"
+            >
+              {(["RAZORPAY", "CASHFREE"] as const).map((p) => {
+                const active = rzpStep.provider === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    data-testid={`onboarding-rzp-provider-${p.toLowerCase()}`}
+                    onClick={() =>
+                      setRzpStep({ ...rzpStep, provider: p })
+                    }
+                    className={`px-4 py-2 text-sm font-medium ${
+                      active
+                        ? "bg-slate-900 text-white"
+                        : "bg-white text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    {p === "RAZORPAY" ? "Razorpay" : "Cashfree"}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
 
           {rzpSaved && createdTenant ? (
             <div
@@ -1550,8 +1935,14 @@ export default function OnboardingWizardPage() {
               </Field>
 
               <Field
-                label="Key ID"
-                hint="Format: rzp_live_XXXXXXXXXXXX or rzp_test_XXXXXXXXXXXX."
+                label={
+                  rzpStep.provider === "RAZORPAY" ? "Key ID" : "App ID"
+                }
+                hint={
+                  rzpStep.provider === "RAZORPAY"
+                    ? "Format: rzp_live_XXXXXXXXXXXX or rzp_test_XXXXXXXXXXXX."
+                    : "Cashfree App ID from your merchant dashboard."
+                }
               >
                 <input
                   data-testid="onboarding-rzp-keyid"
@@ -1847,7 +2238,7 @@ export default function OnboardingWizardPage() {
               className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
               style={{ minHeight: 44 }}
             >
-              Configure Razorpay
+              Configure {rzpStep.provider === "RAZORPAY" ? "Razorpay" : "Cashfree"}
             </button>
           </div>
         )}
@@ -1870,7 +2261,7 @@ export default function OnboardingWizardPage() {
             className="inline-flex items-center gap-2 rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800"
             style={{ minHeight: 44 }}
           >
-            <CheckCircle2 size={14} aria-hidden="true" /> Finish onboarding
+            <CheckCircle2 size={14} aria-hidden="true" /> Go Live
           </button>
         )}
       </div>
@@ -1963,7 +2354,7 @@ function SummaryStep(props: {
         </div>
         <p className="text-xs text-emerald-800">
           Tenant created. Review what the wizard captured below, then
-          click <span className="font-medium">Finish onboarding</span> to
+          click <span className="font-medium">Go Live</span> to
           jump to the tenant list. Deferred-config drafts persist in this
           browser&apos;s sessionStorage until the new tenant&apos;s first
           ADMIN signs in and finalizes each at the linked settings page.

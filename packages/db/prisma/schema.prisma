@@ -20,6 +20,12 @@ enum Role {
   BILLING // finance staff — TDS, no-show, commission, lead-funnel reports
   PLATFORM_OPERATOR // Onviqa platform staff; tenantId=null; bypasses tenant-scope filter
   PLATFORM_BILLING_OPERATOR // Onviqa finance staff; tenantId=null; billing-only platform actions
+  // Pearl ERP Stage 1 §8.2 — explicit super-admin role for users hired
+  // via the "Invite Super-Admin" flow. Stored alongside the legacy
+  // ADMIN + tenantId=null pattern (both shapes are recognised by
+  // requireSuperAdmin during the migration window). New super-admin
+  // invites land with this role.
+  SUPER_ADMIN
 }
 
 enum Gender {

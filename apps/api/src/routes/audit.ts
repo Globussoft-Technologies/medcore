@@ -439,22 +439,47 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
+    // Pearl §8.2 — resolve tenantId → tenant name/subdomain so the
+    // super-admin viewer can see "which tenant the action targeted"
+    // alongside actor/timestamp. Single batched query; falls back to
+    // null when AuditLog.tenantId is null (system / bootstrap rows).
+    const tenantIds = Array.from(
+      new Set(
+        dedupedLogs
+          .map((l) => l.tenantId)
+          .filter((v): v is string => !!v),
+      ),
+    );
+    const tenants = tenantIds.length
+      ? await prisma.tenant.findMany({
+          where: { id: { in: tenantIds } },
+          select: { id: true, name: true, subdomain: true },
+        })
+      : [];
+    const tenantMap = new Map(tenants.map((t) => [t.id, t]));
+
     // Issue #192: resolve entityId UUIDs to human-readable labels per row.
     const labels = await resolveEntityLabels(dedupedLogs);
 
-    const data = dedupedLogs.map((l) => ({
-      id: l.id,
-      timestamp: l.createdAt.toISOString(),
-      userId: l.userId,
-      userName: l.userId ? userMap.get(l.userId)?.name ?? "Unknown" : "—",
-      userEmail: l.userId ? userMap.get(l.userId)?.email ?? "" : "",
-      action: l.action,
-      entity: l.entity,
-      entityId: l.entityId,
-      entityLabel: labelFor(l.entity, l.entityId, labels),
-      ipAddress: l.ipAddress,
-      details: l.details,
-    }));
+    const data = dedupedLogs.map((l) => {
+      const tenant = l.tenantId ? tenantMap.get(l.tenantId) ?? null : null;
+      return {
+        id: l.id,
+        timestamp: l.createdAt.toISOString(),
+        userId: l.userId,
+        userName: l.userId ? userMap.get(l.userId)?.name ?? "Unknown" : "—",
+        userEmail: l.userId ? userMap.get(l.userId)?.email ?? "" : "",
+        action: l.action,
+        entity: l.entity,
+        entityId: l.entityId,
+        entityLabel: labelFor(l.entity, l.entityId, labels),
+        ipAddress: l.ipAddress,
+        tenantId: l.tenantId,
+        tenantName: tenant?.name ?? null,
+        tenantSubdomain: tenant?.subdomain ?? null,
+        details: l.details,
+      };
+    });
 
     res.json({
       success: true,

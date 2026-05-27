@@ -83,11 +83,14 @@ router.get(
     try {
       const users = await prisma.user.findMany({
         where: {
-          // Issue #190: include PHARMACIST + LAB_TECH so newly-created
-          // staff in those roles show up in the User Management table.
+          // Issue #190 + Pearl §8.2: include SUPER_ADMIN so cross-tenant
+          // operators (the seeded super-admin + anyone invited via the
+          // Super-Admins tab) show up in the User Management table
+          // alongside regular staff.
           role: {
             in: [
               Role.ADMIN,
+              Role.SUPER_ADMIN,
               Role.DOCTOR,
               Role.NURSE,
               Role.RECEPTION,
@@ -104,6 +107,11 @@ router.get(
           role: true,
           isActive: true,
           createdAt: true,
+          // Pearl §8.2 — surface tenantId so the UI can distinguish a
+          // legacy super-admin (role=ADMIN + tenantId=null) from a
+          // tenant-bound ADMIN. New invites already carry role=SUPER_ADMIN
+          // but we keep the legacy detection for back-compat.
+          tenantId: true,
         },
         orderBy: [{ role: "asc" }, { name: "asc" }],
       });

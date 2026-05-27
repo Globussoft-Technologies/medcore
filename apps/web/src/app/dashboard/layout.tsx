@@ -154,6 +154,7 @@ const navByRole: Record<
   ADMIN: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/admin-console", label: "Admin Console", icon: LayoutDashboard },
+    { href: "/dashboard/tenants", label: "Tenants", icon: Building },
     { href: "/dashboard/agent-console", label: "Agent Console", icon: HeartPulse },
     { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
@@ -907,13 +908,31 @@ export default function DashboardLayout({
     "/dashboard/ai-fraud": "aiFraud",
     "/dashboard/ai-kpis": "predictiveCds",
   };
-  const rawNav = navByRole[user.role] || navByRole.PATIENT;
+  // Pearl §8.2 — SUPER_ADMIN users get the ADMIN sidebar (cross-tenant
+  // operator view, same nav as legacy ADMIN+tenantId=null). Cleaner
+  // than duplicating the ADMIN nav block under a SUPER_ADMIN key.
+  const navRoleKey = user.role === "SUPER_ADMIN" ? "ADMIN" : user.role;
+  const rawNav = navByRole[navRoleKey] || navByRole.PATIENT;
+  // Pearl §8.1 — `/dashboard/tenants` is super-admin-only (cross-tenant
+  // hospital fleet management). A tenant-bound ADMIN clicking it just
+  // gets a 403 toast from the API guard ("Only super-admins on the
+  // default tenant can manage tenants"), so we hide the link from
+  // non-super-admin ADMINs to avoid dead clicks. Super-admin =
+  // `role === "ADMIN" AND tenantId == null`.
+  // Pearl §8.2 — recognise both shapes: the dedicated SUPER_ADMIN role
+  // and the legacy "ADMIN + no tenant" pattern.
+  const isSuperAdmin =
+    user.role === "SUPER_ADMIN" ||
+    (user.role === "ADMIN" && (user.tenantId ?? null) === null);
+  const SUPER_ADMIN_ONLY_ROUTES = new Set<string>(["/dashboard/tenants"]);
   const nav = rawNav.filter((item) => {
+    if (SUPER_ADMIN_ONLY_ROUTES.has(item.href) && !isSuperAdmin) return false;
     const key = FEATURE_GATED_ROUTES[item.href];
     if (!key) return true; // ungated nav item — always show
     return featureFlags[key];
   });
-  const bottomNav = bottomNavByRole[user.role] || bottomNavByRole.PATIENT;
+  const bottomNav =
+    bottomNavByRole[navRoleKey] || bottomNavByRole.PATIENT;
 
   return (
     <DialogProvider>
@@ -970,7 +989,7 @@ export default function DashboardLayout({
                 {user.name}
               </span>
               <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-px text-[8px] font-medium uppercase tracking-wider text-primary dark:bg-primary/20 dark:text-blue-300">
-                {user.role}
+                {user.actualRole ?? user.role}
               </span>
             </div>
           </div>

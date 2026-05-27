@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import jwt from "jsonwebtoken";
 import { Role } from "@medcore/shared";
-import { authenticate, authorize } from "./auth";
+import { authenticate, authorize, isAdminLike } from "./auth";
 // Issue #482: services/jwt.ts caches getJwtConfig() at module scope. Under
 // vitest's singleFork: true the cache survives across files, so we MUST
 // reset it after every case that mutates env vars (per CLAUDE.md test-infra
@@ -139,5 +139,94 @@ describe("authorize", () => {
     const next = vi.fn();
     mw(req, res, next);
     expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  // ─── Pearl §8.2 — SUPER_ADMIN mirrors ADMIN exactly ────────────────
+  //
+  // The contract: SUPER_ADMIN passes any authorize() check that includes
+  // ADMIN in its allowlist, and is blocked from any check that does NOT
+  // include ADMIN. This is the "if some access is not having for admin
+  // those access dont give to the super admin as well" rule the operator
+  // explicitly requested — SUPER_ADMIN is never a wildcard root, just an
+  // exact mirror of ADMIN's scope.
+
+  it("allows SUPER_ADMIN when ADMIN is in the allowlist (Pearl §8.2)", () => {
+    const mw = authorize(Role.ADMIN, Role.DOCTOR);
+    const req: any = {
+      user: { userId: "u", email: "e", role: "SUPER_ADMIN" as Role },
+    };
+    const res = makeRes();
+    const next = vi.fn();
+    mw(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("allows SUPER_ADMIN on an ADMIN-only route (Pearl §8.2)", () => {
+    const mw = authorize(Role.ADMIN);
+    const req: any = {
+      user: { userId: "u", email: "e", role: "SUPER_ADMIN" as Role },
+    };
+    const res = makeRes();
+    const next = vi.fn();
+    mw(req, res, next);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("REJECTS SUPER_ADMIN when ADMIN is NOT in the allowlist (Pearl §8.2 mirror rule)", () => {
+    // DOCTOR-only and NURSE-only routes do not grant ADMIN access. By the
+    // mirror rule, SUPER_ADMIN must also be blocked — otherwise SUPER_ADMIN
+    // would have MORE access than ADMIN, which the operator forbade.
+    const mw = authorize(Role.DOCTOR, Role.NURSE);
+    const req: any = {
+      user: { userId: "u", email: "e", role: "SUPER_ADMIN" as Role },
+    };
+    const res = makeRes();
+    const next = vi.fn();
+    mw(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("REJECTS SUPER_ADMIN on a PATIENT-only route (Pearl §8.2 mirror rule)", () => {
+    const mw = authorize(Role.PATIENT);
+    const req: any = {
+      user: { userId: "u", email: "e", role: "SUPER_ADMIN" as Role },
+    };
+    const res = makeRes();
+    const next = vi.fn();
+    mw(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+});
+
+describe("isAdminLike", () => {
+  it("returns true for Role.ADMIN", () => {
+    expect(isAdminLike(Role.ADMIN)).toBe(true);
+  });
+
+  it("returns true for Role.SUPER_ADMIN", () => {
+    expect(isAdminLike("SUPER_ADMIN")).toBe(true);
+  });
+
+  it("returns false for other roles", () => {
+    expect(isAdminLike(Role.DOCTOR)).toBe(false);
+    expect(isAdminLike(Role.NURSE)).toBe(false);
+    expect(isAdminLike(Role.RECEPTION)).toBe(false);
+    expect(isAdminLike(Role.PATIENT)).toBe(false);
+    expect(isAdminLike(Role.PHARMACIST)).toBe(false);
+    expect(isAdminLike(Role.LAB_TECH)).toBe(false);
+  });
+
+  it("returns false for null/undefined inputs", () => {
+    expect(isAdminLike(null)).toBe(false);
+    expect(isAdminLike(undefined)).toBe(false);
+  });
+
+  it("accepts an Express Request and reads req.user.role", () => {
+    expect(isAdminLike({ user: { role: Role.ADMIN } } as never)).toBe(true);
+    expect(isAdminLike({ user: { role: "SUPER_ADMIN" } } as never)).toBe(true);
+    expect(isAdminLike({ user: { role: Role.DOCTOR } } as never)).toBe(false);
+    expect(isAdminLike({} as never)).toBe(false);
   });
 });

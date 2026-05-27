@@ -47,6 +47,28 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Dev-only API proxy. The super-admin onboarding wizard and the tenant
+  // management pages call relative paths like `/api/v1/tenant-onboarding`.
+  // Without a proxy those hit the Next dev server on :3000 and 404 (Next
+  // returns the HTML error page, which the wizard surfaces as
+  // "Invalid server response"). In prod the platform sits behind a
+  // reverse proxy that already maps /api → the API container; locally we
+  // need to do that ourselves. Reads NEXT_PUBLIC_API_URL (without the
+  // trailing /api/v1) to derive the origin, falling back to
+  // http://localhost:4000.
+  async rewrites() {
+    const apiUrl =
+      process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+    // NEXT_PUBLIC_API_URL is canonically `<origin>/api/v1`; strip the
+    // suffix to derive the origin, then re-attach for the rewrite target.
+    const origin = apiUrl.replace(/\/api\/v1\/?$/, "");
+    return [
+      {
+        source: "/api/v1/:path*",
+        destination: `${origin}/api/v1/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

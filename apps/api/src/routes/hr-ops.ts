@@ -187,7 +187,9 @@ router.get(
   "/attendance",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const isAdmin = req.user!.role === Role.ADMIN;
+      const isAdmin =
+        req.user!.role === Role.ADMIN ||
+        req.user!.role === Role.SUPER_ADMIN;
       const userId =
         isAdmin ? ((req.query.userId as string) || req.user!.userId) : req.user!.userId;
       const now = new Date();
@@ -297,13 +299,22 @@ router.get(
     try {
       const { userId, expiring } = req.query as Record<string, string>;
       const isOwn = userId && req.user!.userId === userId;
-      if (!isOwn && req.user!.role !== Role.ADMIN && userId) {
+      if (
+        !isOwn &&
+        req.user!.role !== Role.ADMIN &&
+        req.user!.role !== Role.SUPER_ADMIN &&
+        userId
+      ) {
         res.status(403).json({ success: false, data: null, error: "Forbidden" });
         return;
       }
       const where: Record<string, unknown> = {};
       if (userId) where.userId = userId;
-      else if (req.user!.role !== Role.ADMIN) where.userId = req.user!.userId;
+      else if (
+        req.user!.role !== Role.ADMIN &&
+        req.user!.role !== Role.SUPER_ADMIN
+      )
+        where.userId = req.user!.userId;
 
       if (expiring) {
         const days = parseInt(expiring, 10) || 30;
@@ -451,13 +462,22 @@ router.get(
     try {
       const { userId, month } = req.query as Record<string, string>;
       const isOwn = userId && req.user!.userId === userId;
-      if (!isOwn && req.user!.role !== Role.ADMIN && userId) {
+      if (
+        !isOwn &&
+        req.user!.role !== Role.ADMIN &&
+        req.user!.role !== Role.SUPER_ADMIN &&
+        userId
+      ) {
         res.status(403).json({ success: false, data: null, error: "Forbidden" });
         return;
       }
       const where: Record<string, unknown> = {};
       if (userId) where.userId = userId;
-      else if (req.user!.role !== Role.ADMIN) where.userId = req.user!.userId;
+      else if (
+        req.user!.role !== Role.ADMIN &&
+        req.user!.role !== Role.SUPER_ADMIN
+      )
+        where.userId = req.user!.userId;
 
       if (month) {
         const [y, m] = month.split("-").map((x) => parseInt(x, 10));
@@ -636,7 +656,9 @@ router.get(
   "/payroll/:userId/slip",
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const isAdmin = req.user!.role === Role.ADMIN;
+      const isAdmin =
+        req.user!.role === Role.ADMIN ||
+        req.user!.role === Role.SUPER_ADMIN;
       if (!isAdmin && req.user!.userId !== req.params.userId) {
         res.status(403).json({ success: false, data: null, error: "Forbidden" });
         return;

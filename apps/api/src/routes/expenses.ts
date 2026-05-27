@@ -147,7 +147,9 @@ router.post(
   validate(createExpenseSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const isAdmin = req.user!.role === Role.ADMIN;
+      const isAdmin =
+        req.user!.role === Role.ADMIN ||
+        req.user!.role === Role.SUPER_ADMIN;
       const over = req.body.amount > EXPENSE_APPROVAL_THRESHOLD;
       const approvalStatus = over && !isAdmin ? "PENDING" : "APPROVED";
       const expense = await prisma.expense.create({

@@ -192,10 +192,10 @@ describe("Super-admin route group — gap #6 piece 1 of 4", () => {
     expect(billing).toHaveAttribute("aria-disabled", "true");
   });
 
-  it("renders the Tenants tile linking to /super-admin/tenants (piece 2 target)", () => {
+  it("renders the Tenants tile linking to /dashboard/tenants (in-band per user feedback)", () => {
     render(<SuperAdminLandingPage />);
     const tenants = screen.getByTestId("super-admin-tile-tenants");
     expect(tenants).toBeInTheDocument();
-    expect(tenants).toHaveAttribute("href", "/super-admin/tenants");
+    expect(tenants).toHaveAttribute("href", "/dashboard/tenants");
   });
 });

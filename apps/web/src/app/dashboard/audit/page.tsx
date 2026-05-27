@@ -23,6 +23,12 @@ interface AuditEntry {
   // server returns `null` and the table falls back to the bare UUID.
   entityLabel?: string | null;
   ipAddress: string | null;
+  // Pearl §8.2 — which tenant the action targeted (system / bootstrap
+  // rows have null). Resolved server-side from AuditLog.tenantId in
+  // a single batched lookup.
+  tenantId?: string | null;
+  tenantName?: string | null;
+  tenantSubdomain?: string | null;
   details?: unknown;
 }
 
@@ -422,6 +428,7 @@ export default function AuditPage() {
                     <th className="whitespace-nowrap px-4 py-3">Action</th>
                     <th className="whitespace-nowrap px-4 py-3">Entity</th>
                     <th className="whitespace-nowrap px-4 py-3">Entity ID</th>
+                    <th className="whitespace-nowrap px-4 py-3">Tenant</th>
                     <th className="whitespace-nowrap px-4 py-3">IP Address</th>
                   </tr>
                 </thead>
@@ -475,6 +482,27 @@ export default function AuditPage() {
                             {entry.entityId}
                           </code>
                         ) : null}
+                      </td>
+                      <td
+                        className="px-4 py-3"
+                        data-testid={`audit-tenant-${entry.id}`}
+                      >
+                        {entry.tenantName ? (
+                          <div title={entry.tenantId ?? ""}>
+                            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                              {entry.tenantName}
+                            </p>
+                            {entry.tenantSubdomain && (
+                              <p className="font-mono text-[10px] text-gray-400 dark:text-gray-500">
+                                {entry.tenantSubdomain}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-400 dark:text-gray-500">
+                            —
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
                         {entry.ipAddress ?? ""}

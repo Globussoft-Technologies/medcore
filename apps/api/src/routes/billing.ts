@@ -1763,7 +1763,9 @@ router.post(
             : 0;
 
       const requiresApproval =
-        req.user!.role !== Role.ADMIN && effPct > threshold;
+        req.user!.role !== Role.ADMIN &&
+        req.user!.role !== Role.SUPER_ADMIN &&
+        effPct > threshold;
 
       if (requiresApproval) {
         const approval = await prisma.discountApproval.create({

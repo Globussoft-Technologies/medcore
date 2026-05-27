@@ -5,7 +5,7 @@
 // piece 4 (cross-tenant metrics).
 
 import Link from "next/link";
-import { Building2, CreditCard, ArrowRight, UserPlus, ListChecks, ShieldAlert, Inbox, Users, BarChart3, ShieldCheck } from "lucide-react";
+import { Building2, CreditCard, ArrowRight, UserPlus, ListChecks, ShieldAlert, Inbox, Users, BarChart3, ShieldCheck, FileSearch } from "lucide-react";
 
 export default function SuperAdminLandingPage() {
   return (
@@ -65,7 +65,7 @@ export default function SuperAdminLandingPage() {
             does not exist (404 inside the surface). Piece 2 adds the
             onboarding-wizard list under that path. */}
         <Link
-          href="/super-admin/tenants"
+          href="/dashboard/tenants"
           data-testid="super-admin-tile-tenants"
           className="group flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
         >
@@ -244,6 +244,36 @@ export default function SuperAdminLandingPage() {
           </div>
           <p className="text-xs text-slate-500">
             Pearl §8.4 — aggregated metrics + per-tenant health rollup.
+          </p>
+        </Link>
+
+        {/* Audit trail tile — Pearl §8.2. Cross-tenant log of every
+            super-admin action (actor + timestamp + IP + device). */}
+        <Link
+          href="/super-admin/audit"
+          data-testid="super-admin-tile-audit"
+          className="group flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-slate-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
+        >
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-fuchsia-600 text-white">
+              <FileSearch size={18} aria-hidden="true" />
+            </span>
+            <div className="flex-1">
+              <h2 className="text-base font-semibold text-slate-900">
+                Super-admin audit trail
+              </h2>
+              <p className="text-xs text-slate-500">
+                Every operator action with actor / IP / device.
+              </p>
+            </div>
+            <ArrowRight
+              size={16}
+              className="text-slate-400 transition group-hover:translate-x-0.5"
+              aria-hidden="true"
+            />
+          </div>
+          <p className="text-xs text-slate-500">
+            Pearl §8.2 — cross-tenant operator action log.
           </p>
         </Link>
 

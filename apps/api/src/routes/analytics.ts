@@ -297,7 +297,9 @@ router.get("/overview", authorize(Role.ADMIN, Role.RECEPTION), async (req: Reque
     // callers. This keeps the operational counters (appointments, patients,
     // admissions, etc.) flowing to RECEPTION while hiding money.
     const stripFinancial = (snap: typeof current) => {
-      if (req.user?.role === Role.ADMIN) return snap;
+      // Pearl §8.2 — SUPER_ADMIN sees revenue alongside ADMIN.
+      if (req.user?.role === Role.ADMIN || req.user?.role === Role.SUPER_ADMIN)
+        return snap;
       const { totalRevenue: _tr, revenueByMode: _rbm, ...rest } = snap;
       void _tr;
       void _rbm;
@@ -332,7 +334,7 @@ router.get("/overview", authorize(Role.ADMIN, Role.RECEPTION), async (req: Reque
         Number(previous[k] || 0)
       );
     });
-    if (req.user?.role !== Role.ADMIN) {
+    if (req.user?.role !== Role.ADMIN && req.user?.role !== Role.SUPER_ADMIN) {
       delete deltaPercent.totalRevenue;
     }
 

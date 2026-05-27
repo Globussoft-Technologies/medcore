@@ -1013,7 +1013,7 @@ describe("Super-admin onboarding wizard — gap #6 piece 2 (+ piece 2b WhatsApp,
     fireEvent.click(screen.getByTestId("onboarding-finish-final"));
 
     expect(routerPush).toHaveBeenCalledWith(
-      "/super-admin/tenants?onboarded=new-id",
+      "/dashboard/tenants?onboarded=new-id",
     );
 
     // The WhatsApp draft survives — the first ADMIN clears it on first

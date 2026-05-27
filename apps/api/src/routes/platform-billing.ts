@@ -78,6 +78,11 @@ async function requirePlatformOperatorOrSuperAdmin(
       return;
     }
     const role = req.user.role as Role;
+    // Pearl §8.2 — Role.SUPER_ADMIN is a wildcard "root" role: full
+    // access on every super-admin surface regardless of tenant binding.
+    if (role === Role.SUPER_ADMIN) {
+      return next();
+    }
     if (
       role === Role.PLATFORM_OPERATOR ||
       role === Role.PLATFORM_BILLING_OPERATOR
@@ -134,7 +139,13 @@ function requirePlatformOperatorStrict(
     return;
   }
   const role = req.user.role as Role;
+  // Pearl §8.2 — Role.SUPER_ADMIN is a wildcard "root" role: full access
+  // including the platform-billing mark-paid mutation. The original Pearl
+  // open-decision (#1) carved this out for PLATFORM_OPERATOR only because
+  // SUPER_ADMIN did not exist as a distinct role at the time; with the
+  // dedicated role landed, SUPER_ADMIN is the true root and supersedes it.
   if (
+    role === Role.SUPER_ADMIN ||
     role === Role.PLATFORM_OPERATOR ||
     role === Role.PLATFORM_BILLING_OPERATOR
   ) {

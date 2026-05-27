@@ -41,6 +41,40 @@ interface User {
   // older /auth/me cached responses pre-dating the surface won't
   // include it.
   tenantId?: string | null;
+  // Pearl §8.2 — preserved DB role when `role` has been coerced for
+  // permission compatibility. The store normalises Role.SUPER_ADMIN
+  // → role="ADMIN" so the ~100 inline `user.role === "ADMIN"`
+  // checks across the dashboard pages all grant access automatically
+  // (SUPER_ADMIN has the same scope as ADMIN by design). The DB
+  // value is kept here so badges / labels / the role chip can still
+  // display "SUPER_ADMIN" — see coerceUser() below.
+  actualRole?: string;
+}
+
+/**
+ * Pearl §8.2 — coerce SUPER_ADMIN to ADMIN at the store layer.
+ *
+ * Rationale: the API already gives SUPER_ADMIN exactly the access ADMIN
+ * gets (see apps/api/src/middleware/auth.ts:authorize). On the web side
+ * there are ~100 inline `user.role === "ADMIN"` permission checks
+ * scattered through dashboard pages. Patching each one to also accept
+ * "SUPER_ADMIN" is verbose and easy to miss; doing the coercion once
+ * here makes every existing check work for SUPER_ADMIN automatically.
+ *
+ * `actualRole` preserves the DB value so UI surfaces that genuinely
+ * need to distinguish the two (the role badge, the super-admin tab in
+ * /dashboard/users) read from `actualRole ?? role`.
+ *
+ * Super-admin route gating still works after this coercion because the
+ * dashboard / super-admin layouts test `(role === "ADMIN" && tenantId == null)`
+ * as part of their `isSuperAdmin` decision — that clause matches a
+ * coerced SUPER_ADMIN just as well as a legacy tenant-less ADMIN.
+ */
+function coerceUser(u: User): User {
+  if (u.role === "SUPER_ADMIN") {
+    return { ...u, role: "ADMIN", actualRole: "SUPER_ADMIN" };
+  }
+  return u;
 }
 
 interface LoginResult {
@@ -234,7 +268,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       };
     }
 
-    const { user } = data as { user: User };
+    const { user: rawUser } = data as { user: User };
+    const user = coerceUser(rawUser);
     // Issue #477: token is a sentinel; the real one is on the cookie.
     set({ user, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
     // Cross-tab cookie-swap defence (#524 cluster): tell every other
@@ -268,7 +303,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     if (get().loginGeneration !== generation) return;
 
-    const { user } = res.data;
+    const user = coerceUser(res.data.user);
     // Issue #477: token sentinel only — server set the real cookie.
     set({ user, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
     // Cross-tab cookie-swap defence (#524 cluster): same as login() —
@@ -304,11 +339,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Doctor mid-navigation, or any page from being tricked into ADMIN
       // by a /me-shaped admin endpoint.
       const current = (useAuthStore.getState() as AuthState).user;
+      const incoming = res.data ? coerceUser(res.data) : res.data;
       if (
         current &&
-        res.data &&
-        current.id === res.data.id &&
-        current.role !== res.data.role
+        incoming &&
+        current.id === incoming.id &&
+        current.role !== incoming.role
       ) {
         clearPersistedAuth();
         set({ user: null, token: null });
@@ -323,21 +359,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // server's identity. Force re-auth.
       if (
         current &&
-        res.data &&
-        current.id !== res.data.id
+        incoming &&
+        current.id !== incoming.id
       ) {
         clearPersistedAuth();
         set({ user: null, token: null });
         // Cross-tab cookie-swap defence (#524 cluster): if WE detected
         // the swap first, alert the other tabs so they re-hydrate too
         // rather than waiting for their own next /me probe.
-        broadcastAuthChanged(res.data.id, res.data.role);
+        broadcastAuthChanged(incoming.id, incoming.role);
         if (typeof window !== "undefined") {
           window.location.replace("/login?reason=session_mismatch");
         }
         return;
       }
-      set({ user: res.data });
+      set({ user: incoming });
     } catch {
       // ignore
     }
@@ -399,11 +435,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // restore. If we have a cached user and the server's role differs,
       // refuse the silent change.
       const current = (useAuthStore.getState() as AuthState).user;
+      const incoming = res.data ? coerceUser(res.data) : res.data;
       if (
         current &&
-        res.data &&
-        current.id === res.data.id &&
-        current.role !== res.data.role
+        incoming &&
+        current.id === incoming.id &&
+        current.role !== incoming.role
       ) {
         clearPersistedAuth();
         set({ user: null, token: null, isLoading: false });
@@ -414,15 +451,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // tab's stale in-memory user), refuse and clear.
       if (
         current &&
-        res.data &&
-        current.id !== res.data.id
+        incoming &&
+        current.id !== incoming.id
       ) {
         clearPersistedAuth();
         set({ user: null, token: null, isLoading: false });
         return;
       }
       // Issue #477: token sentinel only — the real one is on the cookie.
-      set({ user: res.data, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
+      // Pearl §8.2: write the *coerced* user, not the raw server payload —
+      // otherwise SUPER_ADMIN landing through loadSession would skip the
+      // role normalisation and the role-keyed permission checks across
+      // the dashboard would lock the user out of every ADMIN-only page.
+      set({ user: incoming, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
     } catch (err) {
       // 2026-05-27: previously this `catch` unconditionally cleared the
       // auth state, which mis-classified 429 (rate-limited) and 5xx

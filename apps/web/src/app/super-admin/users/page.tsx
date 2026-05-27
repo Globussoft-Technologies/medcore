@@ -25,16 +25,31 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Loader2, ShieldCheck, UserPlus, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  Loader2,
+  ShieldCheck,
+  UserPlus,
+  XCircle,
+  Smartphone,
+  KeyRound,
+} from "lucide-react";
 import { useAuthStore } from "@/lib/store";
 
 interface SuperAdminUserRow {
   id: string;
   name: string;
   email: string | null;
+  phone?: string | null;
   role: string;
   isActive: boolean;
+  twoFactorEnabled?: boolean;
   createdAt: string;
+  // Pearl §8.2 — granular permission grants persisted in SystemConfig
+  // (`superadmin:<id>:permissions`). Server returns them alongside the
+  // row so the UI can show badges without an N+1 fetch.
+  permissions?: Record<string, unknown>;
+  lastLoginAt?: string | null;
 }
 
 interface ListResponse {
@@ -253,10 +268,16 @@ export default function SuperAdminUsersPage() {
                 Email
               </th>
               <th scope="col" className="px-4 py-3 font-medium">
+                2FA
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
+                Permissions
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
                 Status
               </th>
               <th scope="col" className="px-4 py-3 font-medium">
-                Created
+                Last login
               </th>
               <th scope="col" className="px-4 py-3 font-medium text-right">
                 Action
@@ -267,7 +288,7 @@ export default function SuperAdminUsersPage() {
             {rows.length === 0 && !loading ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={7}
                   className="px-4 py-8 text-center text-sm text-slate-500"
                   data-testid="super-admin-users-empty"
                 >
@@ -297,7 +318,39 @@ export default function SuperAdminUsersPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-slate-700">
-                    {row.email ?? <span className="text-slate-400">—</span>}
+                    <Link
+                      href={`/super-admin/users/${row.id}`}
+                      data-testid={`super-admin-users-link-${row.id}`}
+                      className="hover:underline"
+                    >
+                      {row.email ?? <span className="text-slate-400">—</span>}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.twoFactorEnabled ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                        data-testid={`super-admin-users-2fa-${row.id}`}
+                      >
+                        <Smartphone size={12} aria-hidden="true" />
+                        Enrolled
+                      </span>
+                    ) : (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700"
+                        data-testid={`super-admin-users-2fa-${row.id}`}
+                        title="TOTP not enrolled — Pearl §8.2 requires 2FA for super-admins"
+                      >
+                        <KeyRound size={12} aria-hidden="true" />
+                        Required
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <PermissionBadges
+                      permissions={row.permissions ?? {}}
+                      testId={`super-admin-users-perms-${row.id}`}
+                    />
                   </td>
                   <td className="px-4 py-3">
                     {row.isActive ? (
@@ -318,8 +371,13 @@ export default function SuperAdminUsersPage() {
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-slate-700">
-                    {formatCreated(row.createdAt)}
+                  <td
+                    className="px-4 py-3 text-xs text-slate-600"
+                    title={row.lastLoginAt ?? "Never"}
+                  >
+                    {row.lastLoginAt
+                      ? formatCreated(row.lastLoginAt)
+                      : "Never"}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
@@ -364,5 +422,71 @@ export default function SuperAdminUsersPage() {
         {rows.length} super-admin user{rows.length === 1 ? "" : "s"} shown
       </div>
     </section>
+  );
+}
+
+// Pearl §8.2 — render short permission chips. Falls back to "Full access"
+// when no granular grants exist (legacy behaviour: a super-admin without
+// a grant set has all-access).
+const PERMISSION_LABELS: Array<{ key: string; label: string }> = [
+  { key: "canManageTenants", label: "Tenants" },
+  { key: "canOnboardTenant", label: "Onboard" },
+  { key: "canViewBilling", label: "Billing" },
+  { key: "canTriggerJobs", label: "Jobs" },
+  { key: "canDpdpWorkbench", label: "DPDP" },
+  { key: "canViewAudit", label: "Audit" },
+];
+
+function PermissionBadges(props: {
+  permissions: Record<string, unknown>;
+  testId: string;
+}) {
+  const { permissions, testId } = props;
+  const granted = PERMISSION_LABELS.filter(
+    (p) => permissions[p.key] === true,
+  );
+  if (Object.keys(permissions).length === 0) {
+    return (
+      <span
+        data-testid={testId}
+        className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600"
+        title="No granular permission set — defaults to full super-admin access"
+      >
+        Full access
+      </span>
+    );
+  }
+  if (granted.length === 0) {
+    return (
+      <span
+        data-testid={testId}
+        className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700"
+        title="No permissions granted — this user cannot do anything"
+      >
+        No grants
+      </span>
+    );
+  }
+  const visible = granted.slice(0, 3);
+  const more = granted.length - visible.length;
+  return (
+    <div
+      data-testid={testId}
+      className="flex flex-wrap items-center gap-1"
+    >
+      {visible.map((p) => (
+        <span
+          key={p.key}
+          className="inline-flex items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800"
+        >
+          {p.label}
+        </span>
+      ))}
+      {more > 0 && (
+        <span className="text-[10px] font-semibold text-slate-500">
+          +{more}
+        </span>
+      )}
+    </div>
   );
 }

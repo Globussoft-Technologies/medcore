@@ -17,6 +17,11 @@ export enum Role {
   // PLATFORM_ROLES allow-list in `@medcore/db` so the bypass picks them up.
   PLATFORM_OPERATOR = "PLATFORM_OPERATOR",
   PLATFORM_BILLING_OPERATOR = "PLATFORM_BILLING_OPERATOR",
+  // Pearl ERP Stage 1 §8.2 — distinct role for users hired via the
+  // "Invite Super-Admin" flow. Old super-admins live as ADMIN +
+  // tenantId=null; new invites land with SUPER_ADMIN. The
+  // requireSuperAdmin guard recognises both shapes.
+  SUPER_ADMIN = "SUPER_ADMIN",
 }
 
 export interface UserBase {

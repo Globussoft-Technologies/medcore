@@ -130,6 +130,8 @@ function routeApiGet(
 describe("TenantsAdminPage", () => {
   beforeEach(() => {
     apiMock.get.mockReset();
+    apiMock.post.mockReset();
+    apiMock.patch.mockReset();
     routerPush.mockReset();
     authMock.mockImplementation((selector?: any) => {
       const state = {
@@ -153,7 +155,114 @@ describe("TenantsAdminPage", () => {
     await waitFor(() =>
       expect(screen.getByText("St. Johns")).toBeInTheDocument()
     );
-    expect(screen.getByText("stjohns")).toBeInTheDocument();
+    // Subdomain column was removed from the operator UI (we now
+    // auto-derive the slug from Hospital Name on create and never show
+    // it in the list). Use the row-level testid as a stable anchor that
+    // proves the row rendered without depending on the removed cell.
+    expect(screen.getByTestId("tenant-row-stjohns")).toBeInTheDocument();
+    expect(screen.getByTestId("tenant-row-edge")).toBeInTheDocument();
+  });
+
+  it("does NOT render the Subdomain column or any subdomain text in the list (post-2026-05-27 UI scrub)", async () => {
+    routeApiGet();
+    render(<TenantsAdminPage />);
+    await waitFor(() =>
+      expect(screen.getByText("St. Johns")).toBeInTheDocument(),
+    );
+    // The slug used to render as `stjohns` in a mono-font cell. After
+    // the scrub there's no Subdomain header, no cell text, and the
+    // search hint no longer mentions subdomain.
+    expect(screen.queryByText("stjohns")).not.toBeInTheDocument();
+    expect(screen.queryByText("Subdomain")).not.toBeInTheDocument();
+    const search = screen.getByTestId("tenants-search") as HTMLInputElement;
+    expect(search.placeholder).not.toMatch(/subdomain/i);
+    expect(search.placeholder).toMatch(/name/i);
+  });
+
+  it("Create Tenant modal renders without a Subdomain input and POSTs an auto-derived slug (post-2026-05-27 UI scrub)", async () => {
+    routeApiGet({ data: [] });
+    apiMock.post.mockResolvedValue({
+      data: { tenant: { id: "new-id" } },
+    });
+    render(<TenantsAdminPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("tenants-empty")).toBeInTheDocument(),
+    );
+
+    // Open the create modal.
+    fireEvent.click(screen.getByTestId("tenants-create-open"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tenants-create-modal")).toBeInTheDocument(),
+    );
+
+    // The subdomain input must not exist anywhere in the modal.
+    expect(
+      screen.queryByTestId("tenants-create-subdomain"),
+    ).not.toBeInTheDocument();
+
+    // Fill in only the user-visible fields.
+    fireEvent.change(screen.getByTestId("tenants-create-name"), {
+      target: { value: "Apollo Mumbai" },
+    });
+    fireEvent.change(screen.getByTestId("tenants-create-admin-name"), {
+      target: { value: "Dr. Alice" },
+    });
+    fireEvent.change(screen.getByTestId("tenants-create-admin-email"), {
+      target: { value: "alice@apollo.com" },
+    });
+    fireEvent.change(screen.getByTestId("tenants-create-admin-password"), {
+      target: { value: "TempPass123" },
+    });
+
+    fireEvent.click(screen.getByTestId("tenants-create-submit"));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalled());
+
+    // The POST body must still carry a `subdomain` (backend requires it),
+    // and it must be derived from the Hospital Name via the local slugify
+    // (spaces → hyphens, lowercase, alnum + hyphen only).
+    const [path, body] = apiMock.post.mock.calls[0] as [string, any];
+    expect(path).toBe("/tenants");
+    expect(body.name).toBe("Apollo Mumbai");
+    expect(body.subdomain).toBe("apollo-mumbai");
+    expect(body.adminEmail).toBe("alice@apollo.com");
+  });
+
+  it("Create Tenant modal slugifies edge characters into a valid subdomain (post-2026-05-27 UI scrub)", async () => {
+    routeApiGet({ data: [] });
+    apiMock.post.mockResolvedValue({
+      data: { tenant: { id: "new-id-2" } },
+    });
+    render(<TenantsAdminPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("tenants-empty")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("tenants-create-open"));
+    await waitFor(() =>
+      expect(screen.getByTestId("tenants-create-modal")).toBeInTheDocument(),
+    );
+
+    // Punctuation + multiple spaces must collapse to single hyphens and
+    // be stripped at the edges.
+    fireEvent.change(screen.getByTestId("tenants-create-name"), {
+      target: { value: "  St. John's Medical Center!! " },
+    });
+    fireEvent.change(screen.getByTestId("tenants-create-admin-name"), {
+      target: { value: "Dr. Bob" },
+    });
+    fireEvent.change(screen.getByTestId("tenants-create-admin-email"), {
+      target: { value: "bob@stjohns.com" },
+    });
+    fireEvent.change(screen.getByTestId("tenants-create-admin-password"), {
+      target: { value: "TempPass123" },
+    });
+    fireEvent.click(screen.getByTestId("tenants-create-submit"));
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalled());
+
+    const body = (apiMock.post.mock.calls[0] as [string, any])[1];
+    expect(body.subdomain).toBe("st-john-s-medical-center");
+    // No leading/trailing hyphen, no double hyphens.
+    expect(body.subdomain).toMatch(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/);
+    expect(body.subdomain).not.toMatch(/--/);
   });
 
   it("shows empty-state message when no tenants", async () => {

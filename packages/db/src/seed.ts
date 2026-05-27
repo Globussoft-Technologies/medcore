@@ -56,19 +56,57 @@ async function main() {
   //
   // Change `superadmin123` to a strong password before any non-local
   // deploy — this is dev-seed credential parity with admin@medcore.local.
+  // Pearl §8.2 — the seed super-admin uses the dedicated SUPER_ADMIN
+  // role (added 2026-05-27). On re-seed, any legacy row that still has
+  // `role=ADMIN` is upgraded to `SUPER_ADMIN` via the `update` clause so
+  // existing local DBs converge without a manual UPDATE.
+  //
+  // NOTE: the literal `"SUPER_ADMIN"` is cast to Role because the
+  // Prisma client must be regenerated (`npm run db:push`) before its
+  // emitted enum picks up the new value. Once regenerate runs, this
+  // cast becomes a no-op and the value is enum-validated as normal.
+  const SUPER_ADMIN = "SUPER_ADMIN" as Role;
   const superAdmin = await prisma.user.upsert({
     where: { email: "superadmin@medcore.local" },
-    update: { tenantId: null },
+    update: {
+      tenantId: null,
+      role: SUPER_ADMIN,
+    },
     create: {
       email: "superadmin@medcore.local",
       phone: "9999900099",
       name: "Onviqa Super Admin",
       passwordHash: hashPassword("superadmin123"),
-      role: Role.ADMIN,
+      role: SUPER_ADMIN,
       tenantId: null,
     },
   });
   console.log("Created super admin:", superAdmin.email);
+
+  // Pearl §8.2 — note: we deliberately do NOT mass-upgrade legacy
+  // ADMIN+tenantId=null users to SUPER_ADMIN. Only this seed account
+  // (superadmin@medcore.local) carries the SUPER_ADMIN role. Other
+  // tenant-less ADMINs stay as ADMIN per the operator's intent.
+
+  // Pearl §8.2 — dev opt-out for mandatory TOTP on the seeded admins.
+  // The login handler (apps/api/src/routes/auth.ts) blocks any admin-like
+  // account without `twoFactorEnabled=true` UNLESS the SystemConfig key
+  // `superadmin:<userId>:require_two_factor` is explicitly "false". The
+  // seeded credentials must remain usable with just email+password for
+  // local development — production-onboarded super-admins (created via
+  // POST /api/v1/super-admin/users) still default to `require_two_factor=true`
+  // and are forced through /auth/2fa/setup as designed.
+  for (const u of [admin, superAdmin]) {
+    await prisma.systemConfig.upsert({
+      where: { key: `superadmin:${u.id}:require_two_factor` },
+      update: { value: "false" },
+      create: {
+        key: `superadmin:${u.id}:require_two_factor`,
+        value: "false",
+      },
+    });
+  }
+  console.log("Disabled mandatory TOTP for seeded admins (dev convenience)");
 
   // Create Doctors
   // Specialization strings here MUST match what the AI triage prompt returns

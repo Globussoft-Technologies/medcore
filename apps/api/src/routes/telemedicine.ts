@@ -320,8 +320,8 @@ router.get(
       | { id: string; name: string; email?: string }
       | null = null;
 
-    if (role === Role.ADMIN) {
-      // ADMIN gets moderator URL for break-glass triage.
+    if (role === Role.ADMIN || role === Role.SUPER_ADMIN) {
+      // ADMIN / SUPER_ADMIN gets moderator URL for break-glass triage.
       isParticipant = true;
       jitsiRole = "moderator";
       jitsiUser = {

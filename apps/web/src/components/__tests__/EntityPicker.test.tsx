@@ -115,6 +115,39 @@ describe("EntityPicker (Issue #84)", () => {
     });
   });
 
+  it("Issue #978: shows the search dropdown when `value` is set but the label has not resolved", async () => {
+    // Repro: prescriptions/new opens with ?patientId=… in the URL. The
+    // parent form stamps the id into `value` before the by-id fetch
+    // populates `initialLabel`. The picker used to early-out the search
+    // effect on `value` alone, leaving the user with a search input that
+    // fired no network requests and showed no dropdown.
+    apiMock.get.mockResolvedValueOnce({
+      data: [{ id: "p-9", user: { name: "Stale Value Patient" }, mrNumber: "MR-009" }],
+    });
+    function StaleValueHarness() {
+      const [id, setId] = useState("preset-patient-id");
+      return (
+        <EntityPicker
+          endpoint="/patients"
+          labelField="user.name"
+          value={id}
+          onChange={setId}
+          testIdPrefix="ep"
+        />
+      );
+    }
+    render(<StaleValueHarness />);
+    // The chip branch should NOT have rendered (no chosenLabel yet).
+    expect(screen.queryByTestId("ep-chosen")).not.toBeInTheDocument();
+    expect(screen.getByTestId("ep-input")).toBeInTheDocument();
+    // Typing should fire the API and surface a dropdown.
+    await userEvent.type(screen.getByTestId("ep-input"), "st");
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalled();
+    });
+    expect(await screen.findByTestId("ep-option")).toBeInTheDocument();
+  });
+
   it("clears the chosen entity when the Change button is clicked", async () => {
     apiMock.get.mockResolvedValueOnce({
       data: [{ id: "p-7", user: { name: "Foo Bar" }, mrNumber: "MR-007" }],

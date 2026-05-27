@@ -242,6 +242,19 @@ export default function PrescriptionsPage() {
   const [interactionWarnings, setInteractionWarnings] = useState<InteractionWarning[]>([]);
   const [showInteractionModal, setShowInteractionModal] = useState(false);
   const [checkingInteractions, setCheckingInteractions] = useState(false);
+  // Issue #980: when POST /prescriptions returns 400 with an allergy
+  // conflict, render the API's structured `allergyConflicts` payload as
+  // an in-form banner above the Save button so the prescriber can see
+  // which medicine clashed with which allergen + severity + the
+  // documented reaction, instead of a generic dismissible toast that
+  // drops every clinically-relevant field.
+  interface AllergyConflict {
+    medicineName: string;
+    allergen: string;
+    severity: string;
+    reaction: string | null;
+  }
+  const [allergyConflicts, setAllergyConflicts] = useState<AllergyConflict[]>([]);
 
   // Sign-before-share modal: when the doctor hits "Share via WhatsApp/Email"
   // on a prescription that has no signatureUrl yet, the API returns 409
@@ -772,6 +785,7 @@ export default function PrescriptionsPage() {
     setShowForm(false);
     setShowInteractionModal(false);
     setInteractionWarnings([]);
+    setAllergyConflicts([]);
     setEditingId(null);
     setForm({ appointmentId: "", patientId: "", diagnosis: "", advice: "", followUpDate: "", signatureDataUrl: "" });
     setMedicines([
@@ -891,6 +905,11 @@ export default function PrescriptionsPage() {
     override: boolean,
     scheduleXAck = false,
   ) {
+    // Issue #980: clear any stale allergy-conflict banner from a previous
+    // attempt. If THIS attempt also conflicts, the catch block below
+    // will repopulate it; if the doctor changed the offending medicine
+    // and the API now accepts the Rx, the banner stays gone.
+    setAllergyConflicts([]);
     try {
       if (editingId) {
         // Edit mode: PATCH /:id. appointment/patient are immutable on the
@@ -930,6 +949,7 @@ export default function PrescriptionsPage() {
       const anyErr = err as Error & {
         payload?: {
           warnings?: InteractionWarning[];
+          allergyConflicts?: AllergyConflict[];
           error?: string;
           data?: { existingPrescriptionId?: string };
         };
@@ -938,6 +958,24 @@ export default function PrescriptionsPage() {
       if (anyErr.payload?.warnings && anyErr.payload.warnings.length > 0) {
         setInteractionWarnings(anyErr.payload.warnings);
         setShowInteractionModal(true);
+        return;
+      }
+      // Issue #980: patient-allergy-conflict flow. The API returns a 400
+      // with the structured `allergyConflicts` array; surface it as an
+      // actionable in-form banner instead of just a toast. The user can
+      // then change the medicine, review the patient's allergies, or
+      // open the interactions modal to override with a reason (handled
+      // by the existing Override flow lower in the form).
+      if (
+        anyErr.payload?.allergyConflicts &&
+        anyErr.payload.allergyConflicts.length > 0
+      ) {
+        setAllergyConflicts(anyErr.payload.allergyConflicts);
+        toast.error(
+          `Allergy conflict on ${anyErr.payload.allergyConflicts
+            .map((c) => c.medicineName)
+            .join(", ")} — see banner above the Save button.`,
+        );
         return;
       }
       // 409 "already exists" fallback: load the existing Rx into the form
@@ -1859,10 +1897,74 @@ export default function PrescriptionsPage() {
             />
           </div>
 
+          {/* Issue #980: in-form allergy-conflict banner. Renders the
+              structured `allergyConflicts` payload from the API's 400
+              response — medicine, allergen, severity, documented
+              reaction — instead of dropping that information into a
+              generic toast. The Save button is disabled while the
+              banner is visible; the prescriber must either change the
+              offending medicine OR use the existing Override flow
+              (which surfaces a reason input in the interactions modal). */}
+          {allergyConflicts.length > 0 && (
+            <div
+              role="alert"
+              data-testid="rx-allergy-conflict-banner"
+              className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900 dark:border-red-700 dark:bg-red-900/30 dark:text-red-100"
+            >
+              <div className="mb-2 flex items-start justify-between gap-3">
+                <p className="font-semibold">
+                  Allergy conflict — prescription blocked
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setAllergyConflicts([])}
+                  className="text-xs text-red-700 hover:underline dark:text-red-200"
+                  data-testid="rx-allergy-conflict-dismiss"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <ul className="space-y-1 pl-1">
+                {allergyConflicts.map((c, i) => (
+                  <li
+                    key={`${c.medicineName}-${c.allergen}-${i}`}
+                    data-testid="rx-allergy-conflict-row"
+                  >
+                    <span className="font-medium">{c.medicineName}</span>
+                    {" conflicts with documented allergy: "}
+                    <span className="font-medium">{c.allergen}</span>
+                    <span
+                      className={`ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+                        c.severity === "SEVERE"
+                          ? "bg-red-700 text-white"
+                          : c.severity === "MODERATE"
+                            ? "bg-amber-600 text-white"
+                            : "bg-gray-500 text-white"
+                      }`}
+                    >
+                      {c.severity}
+                    </span>
+                    {c.reaction ? (
+                      <span className="ml-2 text-xs italic text-red-800 dark:text-red-200">
+                        documented reaction: {c.reaction}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-red-800 dark:text-red-200">
+                Change the medicine, or open the Override flow to record a
+                clinical reason for proceeding anyway (audit-logged).
+              </p>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button
               type="submit"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white"
+              disabled={allergyConflicts.length > 0}
+              data-testid="rx-save-btn"
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {editingId ? "Update Prescription" : "Save Prescription"}
             </button>

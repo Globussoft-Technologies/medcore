@@ -21,7 +21,7 @@
  *   RBAC: ADMIN only (mirrors the API).
  */
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
@@ -130,6 +130,45 @@ export default function NewCampaignPage() {
   const [body, setBody] = useState("");
   const [sendWindowStart, setSendWindowStart] = useState("09:00");
   const [sendWindowEnd, setSendWindowEnd] = useState("21:00");
+
+  // Issue #983: render personalisation tokens as clickable chips instead
+  // of exposing raw {{handlebars}} syntax in helper text + textarea
+  // placeholder. The dispatcher resolves these at send time; the chip's
+  // `insert` value is what the dispatcher actually expects, but operators
+  // never need to know that — they just click a chip to insert at the
+  // textarea's caret. Each chip also carries an `example` value that
+  // powers the resolved-sample placeholder.
+  const PERSONALISATION_TOKENS = [
+    { label: "First name", insert: "{{first_name}}", example: "Anita" },
+    {
+      label: "Last visit",
+      insert: "{{last_visit}}",
+      example: "12 Mar",
+    },
+  ] as const;
+  const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  function insertToken(token: string) {
+    const ta = bodyTextareaRef.current;
+    if (!ta) {
+      setBody((prev) => prev + token);
+      return;
+    }
+    const start = ta.selectionStart ?? body.length;
+    const end = ta.selectionEnd ?? body.length;
+    const next = body.slice(0, start) + token + body.slice(end);
+    setBody(next);
+    // Restore caret to just-after-inserted token on the next paint.
+    requestAnimationFrame(() => {
+      if (!bodyTextareaRef.current) return;
+      const pos = start + token.length;
+      bodyTextareaRef.current.focus();
+      bodyTextareaRef.current.setSelectionRange(pos, pos);
+    });
+  }
+  // Resolved-example placeholder for the body textarea. Same copy as
+  // the previous raw-token placeholder, but with `{{...}}` swapped for
+  // example values so operators see what the patient will receive.
+  const bodyPlaceholderResolved = `Hi ${PERSONALISATION_TOKENS[0].example}, it's been a while since ${PERSONALISATION_TOKENS[1].example}…`;
 
   // Audience
   const [audienceName, setAudienceName] = useState("");
@@ -349,15 +388,29 @@ export default function NewCampaignPage() {
         {/* ── Message ─────────────────────────────────────────── */}
         <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-1 text-lg font-semibold">Message</h2>
-          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">
-            Tokens supported by the dispatcher:{" "}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
-              {"{{first_name}}"}
-            </code>{" "}
-            <code className="rounded bg-gray-100 px-1 dark:bg-gray-800">
-              {"{{last_visit}}"}
-            </code>
-          </p>
+          {/* Issue #983: replace raw {{handlebars}} helper text with
+              labelled chips. Clicking a chip inserts the underlying
+              token at the body textarea's caret, so operators never
+              need to learn the dispatcher's templating syntax. */}
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <span>Personalisation:</span>
+            {PERSONALISATION_TOKENS.map((tk) => (
+              <button
+                key={tk.insert}
+                type="button"
+                onClick={() => insertToken(tk.insert)}
+                data-testid={`campaign-token-${tk.insert.replace(/[^a-z_]/gi, "")}`}
+                className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 text-[11px] font-medium text-indigo-700 hover:border-indigo-400 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 dark:hover:bg-indigo-900/40"
+                title={`Inserts the patient's ${tk.label.toLowerCase()} at send time (e.g. "${tk.example}")`}
+              >
+                + {tk.label}
+              </button>
+            ))}
+            <span className="text-[11px] italic text-gray-400">
+              Click a chip to insert at the cursor; the dispatcher fills it in
+              per patient.
+            </span>
+          </div>
 
           <div className="grid gap-3">
             <div>
@@ -388,11 +441,16 @@ export default function NewCampaignPage() {
               </label>
               <textarea
                 id="campaign-body"
+                ref={bodyTextareaRef}
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 maxLength={8000}
                 rows={4}
-                placeholder="Hi {{first_name}}, it's been a while since {{last_visit}}…"
+                // Issue #983: placeholder shows the message as the
+                // patient will receive it (with example values) instead
+                // of the raw {{...}} templating syntax. The actual
+                // tokens are inserted via the chips above.
+                placeholder={bodyPlaceholderResolved}
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm dark:border-gray-700 dark:bg-gray-800"
               />
               <p className="mt-1 text-xs text-gray-500">

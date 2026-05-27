@@ -154,7 +154,16 @@ export function EntityPicker({
 
   // Debounced search — 250ms, identical to the appointments patient picker.
   useEffect(() => {
-    if (value) return; // already chosen
+    // Issue #978: previously this short-circuited on `value` alone, but the
+    // parent can hold a non-empty `value` (e.g. patientId from a URL param)
+    // while `chosenLabel` is still empty (the by-id fetch that resolves the
+    // display name hasn't returned, or the entity doesn't exist). When that
+    // happens we render the search input (the `if (value && chosenLabel)`
+    // chip branch below is skipped) but the search effect refused to fire
+    // and the dropdown stayed hidden — silent failure, no network requests,
+    // exactly what #978 reported. Gate on `chosenLabel` so the search runs
+    // whenever we're actually showing the search input.
+    if (value && chosenLabel) return; // already chosen + label resolved
     // Issue #194: when `minQueryLength === 0`, only fetch once the
     // dropdown is open so we don't fire an unnecessary list query on
     // mount. With `minQueryLength > 0`, the query string is the gate.
@@ -191,11 +200,15 @@ export function EntityPicker({
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [query, value, endpoint, searchParam, limit, minQueryLength, open]);
+  }, [query, value, chosenLabel, endpoint, searchParam, limit, minQueryLength, open]);
 
   const showDropdown = useMemo(
-    () => open && !value && query.trim().length >= minQueryLength,
-    [open, value, query, minQueryLength]
+    // Issue #978: same gating as the search effect above — we want the
+    // dropdown visible whenever the search input is rendered (i.e. we
+    // haven't yet resolved `chosenLabel`), even if `value` is non-empty
+    // because the parent stamped a stale id into the form from a URL.
+    () => open && !(value && chosenLabel) && query.trim().length >= minQueryLength,
+    [open, value, chosenLabel, query, minQueryLength]
   );
 
   // ── Chosen state — render a chip + Change button ─────────────────────────

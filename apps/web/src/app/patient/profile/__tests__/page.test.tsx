@@ -16,7 +16,7 @@
 // vitest pattern — same shape as pieces 3b / 3c / 3d).
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent } from "@testing-library/react";
 
 const { apiGetMock, apiPatchMock, apiPutMock } = vi.hoisted(() => ({
   apiGetMock: vi.fn(),
@@ -277,17 +277,30 @@ describe("Patient profile page — gap #5 piece 3e", () => {
     await waitFor(() => screen.getByTestId("patient-profile"));
 
     const nameInput = screen.getByTestId("patient-profile-name-input") as HTMLInputElement;
-    fireEvent.change(nameInput, { target: { value: "Different Name" } });
-    expect(nameInput.value).toBe("Different Name");
 
-    // 2026-05-27: wait for the Cancel button to actually become enabled
-    // before clicking. The button is `disabled={!dirty}`; under React 19's
-    // batched-update model the `dirty` recompute can land on a later
-    // microtask than the input-value commit, so a synchronous click can
-    // hit the still-disabled button and be silently swallowed — leaving
-    // the field stuck on "Different Name" forever and timing out the
-    // waitFor below. Guarding on `not.toBeDisabled` ensures we click only
-    // after the controlled re-render has flushed.
+    // 2026-05-27 (v3): under React 19 + jsdom + vitest, a synchronous
+    // assertion immediately after fireEvent.change on a controlled input
+    // is racy — the setForm() commit can land on a microtask AFTER the
+    // assertion runs, leaving nameInput.value === "Anand Kumar" (the
+    // initial value) instead of "Different Name". The CI annotation for
+    // PR #1494 captured exactly this: the rendered DOM still showed
+    // value="Anand Kumar" at the failure point.
+    //
+    // Wrap the change event in act() to force the React commit phase to
+    // drain inside the event boundary, then waitFor the input value
+    // before continuing. Same pattern is needed for the post-Cancel
+    // assertion below.
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "Different Name" } });
+    });
+    await waitFor(() => {
+      expect(nameInput.value).toBe("Different Name");
+    });
+
+    // The Cancel button is `disabled={!dirty || submitState === "saving"}`.
+    // After the input commit lands, useMemo recomputes dirty=true and the
+    // button becomes enabled. Wait for that before clicking, otherwise
+    // fireEvent.click on a disabled button is silently swallowed.
     const cancelBtn = screen.getByTestId(
       "patient-profile-cancel-btn",
     ) as HTMLButtonElement;
@@ -295,7 +308,9 @@ describe("Patient profile page — gap #5 piece 3e", () => {
       expect(cancelBtn).not.toBeDisabled();
     });
 
-    fireEvent.click(cancelBtn);
+    await act(async () => {
+      fireEvent.click(cancelBtn);
+    });
     // handleCancel's `setForm(initialForm)` + adjacent setSubmitState/
     // setSubmitError/setFieldErrors land across React 19's automatic batch
     // boundary, and the synchronous read of nameInput.value races the

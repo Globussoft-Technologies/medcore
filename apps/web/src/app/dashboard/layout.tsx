@@ -198,6 +198,7 @@ const navByRole: Record<
     { href: "/dashboard/census", label: "Census Report", icon: ClipboardList },
     { href: "/dashboard/budgets", label: "Budgets", icon: PiggyBank },
     { href: "/dashboard/broadcasts", label: "Broadcasts", icon: Megaphone },
+    { href: "/dashboard/campaigns", label: "Campaigns", icon: Megaphone },
     { href: "/dashboard/schedule", label: "Schedule", icon: CalendarClock },
     { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
     { href: "/dashboard/scheduled-reports", label: "Scheduled Reports", icon: Clock },

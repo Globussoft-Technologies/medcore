@@ -114,6 +114,109 @@ function fmtMinutes(m: number | null): string {
   return `${hh}:${mm}`;
 }
 
+// Issue #984: render the audience-rule DSL as plain English instead of
+// the raw JSON triples (e.g. `{ op: "gte", field: "age", value: 40 }`).
+// Mirrors the v1 supported predicates in
+// apps/api/src/services/audience-compiler.ts and the UI-side mapping in
+// apps/web/src/app/dashboard/campaigns/new/page.tsx::buildRulesPayload.
+// Falls back to the JSON pretty-print for any unknown shape so the
+// operator still sees SOMETHING for newer DSL fields not yet covered
+// here (defensive — keeps the panel useful as the DSL grows).
+interface AudienceFilter {
+  field?: string;
+  op?: string;
+  value?: unknown;
+}
+interface AudienceRulesV1 {
+  filters?: AudienceFilter[];
+  matchMode?: "ALL" | "ANY";
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  gender: "Gender",
+  age: "Age",
+  lastVisitDays: "Days since last visit",
+  abhaLinked: "ABHA linked",
+  city: "City",
+  branchId: "Branch",
+  optedOut: "Opted out",
+};
+
+function formatFilterValue(field: string, op: string, value: unknown): string {
+  if (field === "abhaLinked" || field === "optedOut") {
+    return value === true ? "Yes" : value === false ? "No" : String(value);
+  }
+  if (field === "gender" && typeof value === "string") {
+    // Title-case MALE -> Male, FEMALE -> Female, OTHER -> Other.
+    return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
+  }
+  if (op === "in" && Array.isArray(value)) {
+    return value.map(String).join(", ");
+  }
+  return String(value);
+}
+
+function describeFilter(f: AudienceFilter): string | null {
+  if (!f || typeof f !== "object") return null;
+  const field = typeof f.field === "string" ? f.field : null;
+  const op = typeof f.op === "string" ? f.op : null;
+  if (!field || !op) return null;
+  const label = FIELD_LABELS[field] ?? field;
+  const v = formatFilterValue(field, op, f.value);
+  switch (op) {
+    case "eq":
+      return `${label} is ${v}`;
+    case "neq":
+      return `${label} is not ${v}`;
+    case "gte":
+      return `${label} ≥ ${v}`;
+    case "lte":
+      return `${label} ≤ ${v}`;
+    case "gt":
+      return `${label} > ${v}`;
+    case "lt":
+      return `${label} < ${v}`;
+    case "in":
+      return `${label} in: ${v}`;
+    default:
+      return `${label} ${op} ${v}`;
+  }
+}
+
+// True when the rules object looks like the v1 DSL shape we know how to
+// pretty-print. Anything else falls back to JSON so we don't silently
+// hide unknown fields.
+function isV1Rules(r: unknown): r is AudienceRulesV1 {
+  if (!r || typeof r !== "object") return false;
+  const x = r as { filters?: unknown };
+  return Array.isArray(x.filters);
+}
+
+// Issue #987: render a sample-resolved preview of the campaign body so
+// operators can verify how their {{first_name}}/{{last_visit}} tokens
+// will look to a real recipient. Mirrors the dispatcher's substitution
+// surface from the new-campaign page (PERSONALISATION_TOKENS). The
+// sample values are illustrative only — the actual dispatcher fills
+// them per audience row at send time.
+const PREVIEW_SAMPLE: Record<string, string> = {
+  first_name: "Anita",
+  last_visit: "12 Mar",
+};
+
+function renderPreview(template: string | null): string {
+  if (!template) return "";
+  // {{ token }} with optional whitespace; non-greedy match on token name
+  // restricted to lowercase letters + underscore (same shape as the
+  // dispatcher's allowlist).
+  return template.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (raw, key: string) => {
+    if (key in PREVIEW_SAMPLE) return PREVIEW_SAMPLE[key];
+    // Unknown token — keep the original {{...}} so it's visibly broken
+    // in the preview instead of silently disappearing. Helps the
+    // operator catch typos.
+    return raw;
+  });
+}
+
 export default function CampaignDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
@@ -396,18 +499,67 @@ export default function CampaignDetailPage() {
             </div>
           </dl>
 
+          {/* Issue #987: render a sample-resolved Preview of subject +
+              body alongside the raw template. Operators can verify the
+              rendered output before scheduling, and still see the
+              underlying {{tokens}} via the "Raw template" details. */}
           {campaign.subject && (
             <div className="mt-4 border-t pt-3 text-sm dark:border-gray-700">
-              <div className="text-xs uppercase text-gray-500">Subject</div>
-              <p className="mt-1">{campaign.subject}</p>
+              <div className="text-xs uppercase text-gray-500">
+                Subject preview
+                <span className="ml-1 text-[10px] font-normal normal-case text-gray-400">
+                  (sample: first_name="{PREVIEW_SAMPLE.first_name}",
+                  last_visit="{PREVIEW_SAMPLE.last_visit}")
+                </span>
+              </div>
+              <p
+                data-testid="campaign-subject-preview"
+                className="mt-1"
+              >
+                {renderPreview(campaign.subject)}
+              </p>
+              {campaign.subject !== renderPreview(campaign.subject) && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                    Show raw template
+                  </summary>
+                  <pre
+                    data-testid="campaign-subject-raw"
+                    className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-2 font-mono text-xs dark:bg-gray-800"
+                  >
+                    {campaign.subject}
+                  </pre>
+                </details>
+              )}
             </div>
           )}
           {campaign.body && (
             <div className="mt-3 text-sm">
-              <div className="text-xs uppercase text-gray-500">Body</div>
-              <pre className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-2 font-mono text-xs dark:bg-gray-800">
-                {campaign.body}
+              <div className="text-xs uppercase text-gray-500">
+                Body preview
+                <span className="ml-1 text-[10px] font-normal normal-case text-gray-400">
+                  (sample values shown; dispatcher fills per recipient)
+                </span>
+              </div>
+              <pre
+                data-testid="campaign-body-preview"
+                className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-2 text-xs dark:bg-gray-800"
+              >
+                {renderPreview(campaign.body)}
               </pre>
+              {campaign.body !== renderPreview(campaign.body) && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                    Show raw template
+                  </summary>
+                  <pre
+                    data-testid="campaign-body-raw"
+                    className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-2 font-mono text-xs dark:bg-gray-800"
+                  >
+                    {campaign.body}
+                  </pre>
+                </details>
+              )}
             </div>
           )}
         </section>
@@ -443,16 +595,64 @@ export default function CampaignDetailPage() {
                   </span>
                 )}
               </p>
+              {/* Issue #984: human-readable rule summary instead of raw
+                  JSON. Falls back to a collapsible <details> with the
+                  JSON pretty-print so power users / debugging can still
+                  see the underlying DSL on demand. */}
               <div className="mt-3">
-                <div className="text-xs uppercase text-gray-500">
-                  Rules (DSL)
-                </div>
-                <pre
-                  data-testid="audience-rules-json"
-                  className="mt-1 max-h-64 overflow-auto rounded bg-gray-50 p-2 font-mono text-xs dark:bg-gray-800"
-                >
-                  {JSON.stringify(campaign.audience.rules, null, 2)}
-                </pre>
+                <div className="text-xs uppercase text-gray-500">Targeting</div>
+                {(() => {
+                  const rules = campaign.audience.rules;
+                  if (isV1Rules(rules) && (rules.filters?.length ?? 0) > 0) {
+                    const matchMode = rules.matchMode ?? "ALL";
+                    return (
+                      <div data-testid="audience-rules-human" className="mt-1">
+                        <p className="text-xs text-gray-600 dark:text-gray-400">
+                          Patients matching{" "}
+                          <strong>
+                            {matchMode === "ANY" ? "ANY" : "ALL"}
+                          </strong>{" "}
+                          of:
+                        </p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-gray-800 dark:text-gray-200">
+                          {(rules.filters ?? []).map((f, i) => {
+                            const desc = describeFilter(f);
+                            if (!desc) return null;
+                            return (
+                              <li
+                                key={i}
+                                data-testid="audience-rules-row"
+                              >
+                                {desc}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    );
+                  }
+                  // Empty filters or unknown shape — keep the JSON view
+                  // as the only signal (better than blank), but flag it.
+                  return (
+                    <p
+                      data-testid="audience-rules-empty"
+                      className="mt-1 text-xs italic text-gray-500"
+                    >
+                      No filters — all patients in tenant.
+                    </p>
+                  );
+                })()}
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-[11px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                    Show raw DSL
+                  </summary>
+                  <pre
+                    data-testid="audience-rules-json"
+                    className="mt-1 max-h-64 overflow-auto rounded bg-gray-50 p-2 font-mono text-xs dark:bg-gray-800"
+                  >
+                    {JSON.stringify(campaign.audience.rules, null, 2)}
+                  </pre>
+                </details>
               </div>
             </>
           )}

@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { CAMPAIGN_SEND_WINDOW_POLICY } from "@medcore/shared";
 import {
   Megaphone,
   Save,
@@ -112,6 +113,30 @@ function timeToMinutes(t: string): number | null {
   return hh * 60 + mm;
 }
 
+// Issue #985 — quiet-hour policy: campaigns must dispatch within
+// 09:00..21:00 IST. Mirror the server schema's
+// CAMPAIGN_SEND_WINDOW_POLICY so the client surfaces the error before
+// the round-trip. Returns null when valid; otherwise the message to
+// show under the offending input.
+function checkSendWindowPolicy(
+  start: string,
+  end: string,
+): string | null {
+  const s = timeToMinutes(start);
+  const e = timeToMinutes(end);
+  if (s == null || e == null) return null;
+  if (s >= e) {
+    return "Start must be before end.";
+  }
+  if (s < CAMPAIGN_SEND_WINDOW_POLICY.minStart) {
+    return CAMPAIGN_SEND_WINDOW_POLICY.label;
+  }
+  if (e > CAMPAIGN_SEND_WINDOW_POLICY.maxEnd) {
+    return CAMPAIGN_SEND_WINDOW_POLICY.label;
+  }
+  return null;
+}
+
 export default function NewCampaignPage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
@@ -184,6 +209,13 @@ export default function NewCampaignPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Issue #985 — derived send-window-policy error, recomputed on every
+  // input change. Pushes the inline message and gates `canSubmit`.
+  const sendWindowError = useMemo(
+    () => checkSendWindowPolicy(sendWindowStart, sendWindowEnd),
+    [sendWindowStart, sendWindowEnd],
+  );
+
   function toggleChannel(c: CampaignChannel) {
     setChannels((prev) =>
       prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
@@ -255,7 +287,11 @@ export default function NewCampaignPage() {
     name.trim().length >= 2 &&
     channels.length > 0 &&
     !!audienceId &&
-    !submitting;
+    !submitting &&
+    // Issue #985 — block submit when the send window violates the
+    // quiet-hour policy. The server schema also rejects this, but
+    // catching it client-side prevents a confusing round-trip + toast.
+    !sendWindowError;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -459,6 +495,15 @@ export default function NewCampaignPage() {
             </div>
           </div>
 
+          {/* Issue #985: enforce 09:00..21:00 quiet-hour policy on
+              both inputs + show an inline error when violated. The
+              type=time pickers respect the min/max hint on most
+              browsers, but we ALSO compute checkSendWindowPolicy()
+              and block submit because (a) Safari ignores the time-
+              input clamp on mobile and (b) typed-in values can
+              bypass the spinner. The server-side schema refinement
+              in packages/shared/src/validation/campaign.ts is the
+              defence-in-depth check. */}
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <div>
               <label
@@ -470,9 +515,16 @@ export default function NewCampaignPage() {
               <input
                 id="campaign-window-start"
                 type="time"
+                min="09:00"
+                max="21:00"
                 value={sendWindowStart}
                 onChange={(e) => setSendWindowStart(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                aria-invalid={!!sendWindowError}
+                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm dark:bg-gray-800 ${
+                  sendWindowError
+                    ? "border-red-400 dark:border-red-500"
+                    : "border-gray-300 dark:border-gray-700"
+                }`}
               />
             </div>
             <div>
@@ -485,11 +537,30 @@ export default function NewCampaignPage() {
               <input
                 id="campaign-window-end"
                 type="time"
+                min="09:00"
+                max="21:00"
                 value={sendWindowEnd}
                 onChange={(e) => setSendWindowEnd(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                aria-invalid={!!sendWindowError}
+                className={`mt-1 w-full rounded-lg border px-3 py-2 text-sm dark:bg-gray-800 ${
+                  sendWindowError
+                    ? "border-red-400 dark:border-red-500"
+                    : "border-gray-300 dark:border-gray-700"
+                }`}
               />
             </div>
+            {sendWindowError && (
+              <p
+                role="alert"
+                data-testid="campaign-window-error"
+                className="text-xs text-red-600 dark:text-red-400 md:col-span-2"
+              >
+                {sendWindowError}
+              </p>
+            )}
+            <p className="text-[11px] text-gray-500 md:col-span-2">
+              Send window must be within 09:00–21:00 IST (quiet hours after 21:00).
+            </p>
           </div>
         </section>
 

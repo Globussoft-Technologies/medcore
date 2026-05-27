@@ -42,15 +42,27 @@ const TODAY = `${TODAY_IST_YMD}T00:00:00.000Z`;
 
 // Build a fixture row whose composeWhen lands ≥ 1h in the future (so the
 // upcoming/past sort always parks it in Upcoming regardless of wallclock).
+//
+// 2026-05-27: previously this used `slot.getUTCHours()` of `now + 4h`,
+// matching the page's pre-IST-fix logic which treated slotStart as
+// UTC. The page now parses slotStart as Asia/Kolkata wallclock (HH:MM
+// is the IST clock time the patient sees on their card), so we have
+// to build the same shape: derive HH:MM from the IST clock 4h ahead
+// of "now". Otherwise the composed instant ends up 5h30m earlier than
+// intended, the row gets filtered out of Upcoming, and tests that
+// expect the row in the section assert against the empty state.
+// Same fix applied to dashboard/__tests__/page.test.tsx::todayBookedRow
+// in 6ec5e499.
 function bookActiveTodayUpcoming(id: string) {
-  const futureSlotMs = Date.now() + 4 * HOUR;
-  const slot = new Date(futureSlotMs);
-  const hh = String(slot.getUTCHours()).padStart(2, "0");
-  const mm = String(slot.getUTCMinutes()).padStart(2, "0");
+  const istHHMM = new Date(Date.now() + 4 * HOUR).toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   return {
     id,
     date: TODAY,
-    slotStart: `${hh}:${mm}:00`,
+    slotStart: `${istHHMM}:00`,
     tokenNumber: 12,
     status: "BOOKED",
     doctor: { user: { name: "Sharma" }, specialty: "Obstetrics" },

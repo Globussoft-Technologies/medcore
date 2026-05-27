@@ -140,12 +140,28 @@ describe("Patient dashboard — gap #5 piece 3a", () => {
     const rxTile = screen.getByTestId("patient-dashboard-prescriptions");
     expect(within(rxTile).getByText(/Amoxicillin 500mg/)).toBeInTheDocument();
     expect(within(rxTile).getByText(/\+ 1 more/)).toBeInTheDocument();
+    // 2026-05-27: download URL changed to the absolute API path (`${API_BASE}/
+    // prescriptions/:id/pdf?format=pdf`) — the old `/api/v1/...` was a
+    // web-relative path that 404'd on Next's dev server. Test uses
+    // `stringContaining` so the assertion stays stable across env-var
+    // changes to NEXT_PUBLIC_API_URL.
     expect(
       within(rxTile).getByTestId("patient-dashboard-prescription-download"),
-    ).toHaveAttribute("href", "/api/v1/prescriptions/rx-1/pdf");
-    expect(
-      within(rxTile).getByTestId("patient-dashboard-prescription-share"),
-    ).toHaveAttribute("href", expect.stringContaining("https://wa.me/"));
+    ).toHaveAttribute(
+      "href",
+      expect.stringContaining("/prescriptions/rx-1/pdf?format=pdf"),
+    );
+    // 2026-05-27: Share is now a <button> that calls
+    // POST /prescriptions/:id/share { channel: "WHATSAPP" } server-side
+    // (mirrors the doctor flow at apps/web/src/app/dashboard/prescriptions/
+    // page.tsx `shareVia`). No more wa.me anchor. Just assert the button
+    // is in the DOM and clickable (the share-success path is covered by a
+    // separate test below).
+    const shareBtn = within(rxTile).getByTestId(
+      "patient-dashboard-prescription-share",
+    );
+    expect(shareBtn.tagName).toBe("BUTTON");
+    expect(shareBtn).toHaveTextContent(/Share on WhatsApp/);
 
     // Bills tile — INR 1500 - 500 = 1000 due
     const billsTile = screen.getByTestId("patient-dashboard-bills");

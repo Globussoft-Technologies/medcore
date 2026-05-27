@@ -39,6 +39,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 interface PrescriptionItem {
   id: string;
@@ -70,13 +71,6 @@ interface ApiList<T> {
 type LoadState = "loading" | "ready" | "unauth" | "error";
 
 const PAGE_SIZE = 20;
-
-// Mirror the share-rx server policy at routes/prescriptions.ts:871-887 —
-// a CANCELLED / REJECTED prescription is not a valid medical document and
-// must not be shared. We also hide the share CTA for rows with no
-// signatureUrl (still a draft) so the patient never sends an unverifiable
-// artefact to a third party.
-const NON_SHAREABLE_STATUSES = new Set(["CANCELLED", "REJECTED", "DRAFT"]);
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", {
@@ -126,6 +120,39 @@ export default function PatientPrescriptionsPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // Same shape as the dashboard's Recent Prescriptions tile + the doctor
+  // side (apps/web/src/app/dashboard/prescriptions/page.tsx `shareVia` at
+  // L494): POST /prescriptions/:id/share with { channel: "WHATSAPP" }.
+  // Server delivers the verify link to the patient's registered phone via
+  // Meta Cloud API and logs the share — no client-side `wa.me` navigation,
+  // the patient stays on this page and sees a toast. The doctor side's
+  // Sign-before-share modal branch doesn't apply here (patient can't sign
+  // for the doctor), so on a 409 "unsigned" we surface the API's message
+  // verbatim.
+  const [sharingRxId, setSharingRxId] = useState<string | null>(null);
+  const shareViaWhatsApp = useCallback(async (rxId: string): Promise<void> => {
+    setSharingRxId((curr) => {
+      // Guard against double-click while one share is in flight.
+      if (curr) return curr;
+      return rxId;
+    });
+    try {
+      await api.post(`/prescriptions/${rxId}/share`, { channel: "WHATSAPP" });
+      toast.success("Prescription shared via WhatsApp");
+    } catch (err) {
+      const anyErr = err as Error & {
+        status?: number;
+        payload?: { error?: string };
+      };
+      const msg =
+        anyErr?.payload?.error ??
+        (err instanceof Error ? err.message : "Failed to share");
+      toast.error(msg);
+    } finally {
+      setSharingRxId(null);
+    }
+  }, []);
 
   const fetchPage = useCallback(
     async (
@@ -249,7 +276,12 @@ export default function PatientPrescriptionsPage() {
       ) : (
         <ul className="space-y-3">
           {prescriptions.map((rx) => (
-            <PrescriptionCard key={rx.id} prescription={rx} />
+            <PrescriptionCard
+              key={rx.id}
+              prescription={rx}
+              onShare={shareViaWhatsApp}
+              sharing={sharingRxId === rx.id}
+            />
           ))}
         </ul>
       )}
@@ -273,9 +305,11 @@ export default function PatientPrescriptionsPage() {
 
 interface CardProps {
   prescription: PrescriptionRow;
+  onShare: (rxId: string) => void | Promise<void>;
+  sharing: boolean;
 }
 
-function PrescriptionCard({ prescription }: CardProps) {
+function PrescriptionCard({ prescription, onShare, sharing }: CardProps) {
   const items = prescription.items ?? [];
   const first = items[0]?.medicineName ?? "Prescription";
   const more = Math.max(0, items.length - 1);
@@ -283,18 +317,14 @@ function PrescriptionCard({ prescription }: CardProps) {
   const specialty = prescription.doctor?.specialty ?? null;
   const status = prescription.status ?? null;
 
-  // Share gate: don't expose a "Share with verify URL" CTA for a Rx that
-  // would fail server-side verification (no signature / cancelled / draft).
-  const isShareable =
-    !!prescription.signatureUrl &&
-    !(status && NON_SHAREABLE_STATUSES.has(status));
-
+  // We render the Share button unconditionally now — the API's POST
+  // /:id/share endpoint returns friendly 409s for unsigned /
+  // cancelled / rejected rows ("Cannot share an unsigned prescription —
+  // the prescribing doctor must sign it first.") which we toast
+  // verbatim. The previous hide-when-not-shareable pattern left the
+  // patient with no idea why share was missing.
   const verifyUrl = buildVerifyUrl(prescription.id);
   const pdfUrl = buildPdfUrl(prescription.id);
-  const waText = `My prescription from ${
-    doctorName ? `Dr. ${doctorName}` : "MedCore"
-  }: ${verifyUrl}`;
-  const waHref = `https://wa.me/?text=${encodeURIComponent(waText)}`;
 
   return (
     <li
@@ -353,17 +383,15 @@ function PrescriptionCard({ prescription }: CardProps) {
         >
           Download PDF
         </a>
-        {isShareable ? (
-          <a
-            href={waHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-testid="patient-prescriptions-share-btn"
-            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-4 text-sm font-medium text-emerald-900"
-          >
-            Share via WhatsApp
-          </a>
-        ) : null}
+        <button
+          type="button"
+          onClick={() => void onShare(prescription.id)}
+          disabled={sharing}
+          data-testid="patient-prescriptions-share-btn"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-4 text-sm font-medium text-emerald-900 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {sharing ? "Sharing…" : "Share via WhatsApp"}
+        </button>
         <a
           href={verifyUrl}
           target="_blank"

@@ -137,11 +137,13 @@ const bottomNavByRole: Record<
     { href: "/dashboard/visitors", label: "Visitors", icon: UserCheck },
   ],
   PATIENT: [
-    { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-    { href: "/dashboard/appointments", label: "Appts", icon: Calendar },
-    { href: "/dashboard/prescriptions", label: "Rx", icon: FileText },
-    { href: "/dashboard/billing", label: "Bills", icon: CreditCard },
-    { href: "/dashboard/settings", label: "Profile", icon: SettingsIcon },
+    { href: "/patient/dashboard", label: "Home", icon: LayoutDashboard },
+    { href: "/patient/appointments", label: "Appts", icon: Calendar },
+    { href: "/patient/prescriptions", label: "Rx", icon: FileText },
+    { href: "/patient/bills", label: "Bills", icon: CreditCard },
+    // Pearl §6.1 SOW row 254 — bottom-nav points at the patient profile form
+    // (/patient/profile), not the staff settings page.
+    { href: "/patient/profile", label: "Profile", icon: SettingsIcon },
   ],
 };
 
@@ -320,12 +322,16 @@ const navByRole: Record<
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
   ],
   PATIENT: [
-    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/patient/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
-    { href: "/dashboard/appointments", label: "My Appointments", icon: Calendar },
+    { href: "/patient/appointments", label: "My Appointments", icon: Calendar },
     { href: "/dashboard/telemedicine", label: "Telemedicine", icon: Video },
-    { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
-    { href: "/dashboard/billing", label: "Bills", icon: CreditCard },
+    { href: "/patient/prescriptions", label: "Prescriptions", icon: FileText },
+    { href: "/patient/bills", label: "Bills", icon: CreditCard },
+    // Pearl §6.1 SOW row 254 — My Profile. Points at /patient/profile (the
+    // fully-built form covering name, DOB, address, language preference,
+    // reminder opt-in, ABHA linking).
+    { href: "/patient/profile", label: "My Profile", icon: UserCog },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
     { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
     { href: "/dashboard/adherence", label: "Medication Reminders", icon: BellIcon },
@@ -518,10 +524,20 @@ export default function DashboardLayout({
       setRedirectArmed(true);
       return;
     }
-    if (!localStorage.getItem("medcore_token")) {
-      setRedirectArmed(true); // no token, no retry needed; bounce now
-      return;
-    }
+    // Issue #477 fix: the access token has been in an httpOnly cookie
+    // since May 2026, so `localStorage.getItem("medcore_token")` is now
+    // ALWAYS null. The previous early-out here was a leftover from the
+    // pre-#477 localStorage scheme — it short-circuited every unauthed-
+    // looking mount past the 5-attempt /auth/me retry loop and bounced
+    // to /login with "session expired", even when the cookie was alive
+    // but the auth store just hadn't hydrated yet (e.g. after a tab
+    // switch / hot reload / Next route-group remount).
+    //
+    // Post-#477 the only reliable "do we have a session?" probe is
+    // /auth/me itself (the browser auto-attaches the cookie). So we
+    // unconditionally run the retry loop — if the cookie is dead all
+    // 5 attempts return 401, redirect arms; if it's alive but slow,
+    // one of the 5 succeeds and the redirect never fires.
     let cancelled = false;
     (async () => {
       // 5-attempt retry loop (v3): between each attempt, sleep 200ms

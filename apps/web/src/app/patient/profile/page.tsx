@@ -349,215 +349,256 @@ export default function PatientProfilePage() {
     [form, initialForm],
   );
 
+  // Field helper mirrors apps/web/src/app/dashboard/settings/page.tsx Field —
+  // small label-stacked-above-input convention shared across the staff
+  // settings UI. Keeping the patient form on the same primitive lets it
+  // visually match the settings cards exactly.
+  function Field({
+    label,
+    htmlFor,
+    children,
+  }: {
+    label: string;
+    htmlFor?: string;
+    children: React.ReactNode;
+  }) {
+    return (
+      <label htmlFor={htmlFor} className="block">
+        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          {label}
+        </span>
+        {children}
+      </label>
+    );
+  }
+  const inputClass =
+    "w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900";
+  const inputErrorClass =
+    "w-full rounded-lg border border-red-500 bg-red-50 px-3 py-2 dark:bg-red-900/20";
+  const readOnlyInputClass =
+    "w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/50";
+
   if (state === "loading") {
     return (
-      <section
-        data-testid="patient-profile-loading"
-        className="space-y-4 py-6"
-      >
-        <div className="h-8 w-40 animate-pulse rounded bg-slate-100" />
-        <div className="space-y-3">
+      <div data-testid="patient-profile-loading">
+        <h1 className="mb-6 text-2xl font-bold">My Profile</h1>
+        <div className="space-y-4">
           {[0, 1, 2, 3].map((i) => (
             <div
               key={i}
-              className="h-11 w-full animate-pulse rounded bg-slate-100"
-            />
+              className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
+            >
+              <div className="mb-4 h-5 w-32 animate-pulse rounded bg-gray-100 dark:bg-gray-700" />
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="h-10 animate-pulse rounded bg-gray-100 dark:bg-gray-700" />
+                <div className="h-10 animate-pulse rounded bg-gray-100 dark:bg-gray-700" />
+              </div>
+            </div>
           ))}
         </div>
-      </section>
+      </div>
     );
   }
 
   if (state === "unauth") {
     return (
-      <section data-testid="patient-profile-unauth" className="space-y-4 py-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
-          Please sign in to view and edit your profile.
-        </p>
-        <Link
-          href="/patient/login"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-6 text-sm font-medium text-white"
-          data-testid="patient-profile-signin-cta"
-        >
-          Sign in
-        </Link>
-      </section>
+      <div data-testid="patient-profile-unauth">
+        <h1 className="mb-6 text-2xl font-bold">My Profile</h1>
+        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+          <h2 className="mb-2 text-lg font-semibold">Sign in required</h2>
+          <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+            Please sign in to view and edit your profile.
+          </p>
+          <Link
+            href="/patient/login"
+            data-testid="patient-profile-signin-cta"
+            className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          >
+            Sign in
+          </Link>
+        </div>
+      </div>
     );
   }
 
   if (state === "error" || !form || !me) {
     return (
-      <section
-        data-testid="patient-profile-error"
-        role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
-      >
-        Something went wrong loading your profile. Please refresh.
-      </section>
+      <div>
+        <h1 className="mb-6 text-2xl font-bold">My Profile</h1>
+        <div
+          data-testid="patient-profile-error"
+          role="alert"
+          className="rounded-xl border border-red-300 bg-red-50 p-6 text-sm text-red-800 shadow-sm dark:border-red-700 dark:bg-red-900/20 dark:text-red-200"
+        >
+          Something went wrong loading your profile. Please refresh.
+        </div>
+      </div>
     );
   }
 
   return (
-    <section data-testid="patient-profile" className="space-y-6 py-4">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">My profile</h1>
-        <p className="text-sm text-slate-600">
-          Keep your details up to date so reminders and bills reach you.
-        </p>
-      </header>
+    <div>
+      <h1 className="mb-2 text-2xl font-bold">My Profile</h1>
+      <p className="mb-6 text-sm text-gray-600 dark:text-gray-400">
+        Keep your details up to date so reminders and bills reach you.
+      </p>
 
-      <form className="space-y-8" onSubmit={handleSubmit} noValidate>
+      <form
+        data-testid="patient-profile"
+        className="space-y-6"
+        onSubmit={handleSubmit}
+        noValidate
+      >
         {/* ─── Personal ─────────────────────────────────────────────── */}
-        <fieldset
+        <div
           data-testid="patient-profile-section-personal"
-          className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+          className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
         >
-          <legend className="px-1 text-sm font-medium uppercase tracking-wide text-slate-500">
-            Personal
-          </legend>
-
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-slate-800">Full name</span>
-            <input
-              type="text"
-              data-testid="patient-profile-name-input"
-              value={form.name}
-              onChange={(e) => patchField("name", e.target.value)}
-              maxLength={100}
-              className="block h-11 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900 focus:border-slate-900 focus:outline-none"
-            />
-            {fieldErrors.name ? (
-              <span
-                data-testid="patient-profile-name-error"
-                className="text-xs font-medium text-red-700"
-              >
-                {fieldErrors.name}
-              </span>
-            ) : null}
-          </label>
-
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-slate-800">Date of birth</span>
-            <input
-              type="date"
-              data-testid="patient-profile-dob-input"
-              value={form.dateOfBirth}
-              onChange={(e) => patchField("dateOfBirth", e.target.value)}
-              className="block h-11 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900 focus:border-slate-900 focus:outline-none"
-            />
-            {fieldErrors.dateOfBirth ? (
-              <span
-                data-testid="patient-profile-dob-error"
-                className="text-xs font-medium text-red-700"
-              >
-                {fieldErrors.dateOfBirth}
-              </span>
-            ) : null}
-          </label>
-
-          <div className="space-y-1">
-            <span className="text-sm font-medium text-slate-800">Phone</span>
-            <input
-              type="tel"
-              readOnly
-              data-testid="patient-profile-phone-input"
-              value={me.phone ?? ""}
-              className="block h-11 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-base text-slate-700"
-            />
-            <p
-              data-testid="patient-profile-phone-hint"
-              className="text-xs text-slate-500"
-            >
-              Contact reception to change your phone number — it secures your sign-in.
-            </p>
-          </div>
-
-          {me.patient?.gender ? (
-            <div className="space-y-1">
-              <span className="text-sm font-medium text-slate-800">Gender</span>
+          <h2 className="mb-4 text-lg font-semibold">Personal</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Full name">
               <input
                 type="text"
-                readOnly
-                data-testid="patient-profile-gender-input"
-                value={me.patient.gender}
-                className="block h-11 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-base text-slate-700"
+                data-testid="patient-profile-name-input"
+                value={form.name}
+                onChange={(e) => patchField("name", e.target.value)}
+                maxLength={100}
+                aria-invalid={fieldErrors.name ? "true" : undefined}
+                className={fieldErrors.name ? inputErrorClass : inputClass}
               />
-            </div>
-          ) : null}
-        </fieldset>
+              {fieldErrors.name ? (
+                <span
+                  data-testid="patient-profile-name-error"
+                  className="mt-1 block text-xs text-red-600"
+                >
+                  {fieldErrors.name}
+                </span>
+              ) : null}
+            </Field>
+
+            <Field label="Date of birth">
+              <input
+                type="date"
+                data-testid="patient-profile-dob-input"
+                value={form.dateOfBirth}
+                onChange={(e) => patchField("dateOfBirth", e.target.value)}
+                aria-invalid={fieldErrors.dateOfBirth ? "true" : undefined}
+                className={
+                  fieldErrors.dateOfBirth ? inputErrorClass : inputClass
+                }
+              />
+              {fieldErrors.dateOfBirth ? (
+                <span
+                  data-testid="patient-profile-dob-error"
+                  className="mt-1 block text-xs text-red-600"
+                >
+                  {fieldErrors.dateOfBirth}
+                </span>
+              ) : null}
+            </Field>
+
+            <Field label="Phone (read-only)">
+              <input
+                type="tel"
+                readOnly
+                data-testid="patient-profile-phone-input"
+                value={me.phone ?? ""}
+                className={readOnlyInputClass}
+              />
+              <span
+                data-testid="patient-profile-phone-hint"
+                className="mt-1 block text-xs text-gray-500 dark:text-gray-400"
+              >
+                Contact reception to change your phone number — it secures your
+                sign-in.
+              </span>
+            </Field>
+
+            {me.patient?.gender ? (
+              <Field label="Gender (read-only)">
+                <input
+                  type="text"
+                  readOnly
+                  data-testid="patient-profile-gender-input"
+                  value={me.patient.gender}
+                  className={readOnlyInputClass}
+                />
+              </Field>
+            ) : null}
+          </div>
+        </div>
 
         {/* ─── Address ──────────────────────────────────────────────── */}
-        <fieldset
+        <div
           data-testid="patient-profile-section-address"
-          className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+          className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
         >
-          <legend className="px-1 text-sm font-medium uppercase tracking-wide text-slate-500">
-            Address
-          </legend>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-slate-800">Postal address</span>
+          <h2 className="mb-4 text-lg font-semibold">Address</h2>
+          <Field label="Postal address">
             <textarea
               data-testid="patient-profile-address-input"
               value={form.address}
               onChange={(e) => patchField("address", e.target.value)}
               rows={3}
-              className="block w-full rounded-md border border-slate-300 px-3 py-2 text-base text-slate-900 focus:border-slate-900 focus:outline-none"
+              aria-invalid={fieldErrors.address ? "true" : undefined}
+              className={fieldErrors.address ? inputErrorClass : inputClass}
             />
             {fieldErrors.address ? (
               <span
                 data-testid="patient-profile-address-error"
-                className="text-xs font-medium text-red-700"
+                className="mt-1 block text-xs text-red-600"
               >
                 {fieldErrors.address}
               </span>
             ) : null}
-          </label>
-        </fieldset>
+          </Field>
+        </div>
 
         {/* ─── Preferences ──────────────────────────────────────────── */}
-        <fieldset
+        <div
           data-testid="patient-profile-section-preferences"
-          className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+          className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
         >
-          <legend className="px-1 text-sm font-medium uppercase tracking-wide text-slate-500">
-            Preferences
-          </legend>
-
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-slate-800">Preferred language</span>
-            <select
-              data-testid="patient-profile-language-select"
-              value={form.preferredLanguage}
-              onChange={(e) => patchField("preferredLanguage", e.target.value)}
-              className="block h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-base text-slate-900 focus:border-slate-900 focus:outline-none"
-            >
-              {LANGUAGE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <h2 className="mb-4 text-lg font-semibold">Preferences</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Preferred language">
+              <select
+                data-testid="patient-profile-language-select"
+                value={form.preferredLanguage}
+                onChange={(e) =>
+                  patchField("preferredLanguage", e.target.value)
+                }
+                className={inputClass}
+              >
+                {LANGUAGE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
 
           <div
             data-testid="patient-profile-channels"
-            className="space-y-2 pt-2"
+            className="mt-6 space-y-3"
           >
-            <p className="text-sm font-medium text-slate-800">Send reminders via</p>
-            <p className="text-xs text-slate-500">
-              Pick the channels we&apos;re allowed to use for appointment + medication
-              reminders.
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Send reminders via
             </p>
-            <ul className="space-y-2 pt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Pick the channels we&apos;re allowed to use for appointment +
+              medication reminders.
+            </p>
+            <ul className="grid gap-2 sm:grid-cols-2">
               {CHANNELS.map((channel) => {
                 const enabled = form.notifications[channel];
                 return (
                   <li
                     key={channel}
-                    className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                    className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/40"
                   >
-                    <span className="text-sm text-slate-800">
+                    <span className="text-sm text-gray-800 dark:text-gray-200">
                       {CHANNEL_LABELS[channel]}
                     </span>
                     <button
@@ -565,11 +606,12 @@ export default function PatientProfilePage() {
                       onClick={() => toggleChannel(channel)}
                       aria-pressed={enabled}
                       data-testid={`patient-profile-channel-${channel.toLowerCase()}`}
-                      className={`inline-flex h-11 min-w-[44px] items-center justify-center rounded-md px-4 text-xs font-medium ${
-                        enabled
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-300 bg-white text-slate-700"
-                      }`}
+                      className={
+                        "inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-medium transition " +
+                        (enabled
+                          ? "bg-primary text-white hover:bg-primary-dark"
+                          : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700")
+                      }
                     >
                       {enabled ? "On" : "Off"}
                     </button>
@@ -578,54 +620,54 @@ export default function PatientProfilePage() {
               })}
             </ul>
           </div>
-        </fieldset>
+        </div>
 
         {/* ─── Health ID (ABHA) ─────────────────────────────────────── */}
-        <fieldset
+        <div
           data-testid="patient-profile-section-healthid"
-          className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+          className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
         >
-          <legend className="px-1 text-sm font-medium uppercase tracking-wide text-slate-500">
-            Health ID
-          </legend>
-          <label className="block space-y-1">
-            <span className="text-sm font-medium text-slate-800">ABHA number</span>
+          <h2 className="mb-4 text-lg font-semibold">Health ID</h2>
+          <Field label="ABHA number">
             <input
               type="text"
               data-testid="patient-profile-abha-input"
               value={form.abhaId}
               onChange={(e) => patchField("abhaId", e.target.value)}
               placeholder="e.g. 14-1234-5678-9012"
-              className="block h-11 w-full rounded-md border border-slate-300 px-3 text-base text-slate-900 focus:border-slate-900 focus:outline-none"
+              aria-invalid={fieldErrors.abhaId ? "true" : undefined}
+              className={fieldErrors.abhaId ? inputErrorClass : inputClass}
             />
             {fieldErrors.abhaId ? (
               <span
                 data-testid="patient-profile-abha-error"
-                className="text-xs font-medium text-red-700"
+                className="mt-1 block text-xs text-red-600"
               >
                 {fieldErrors.abhaId}
               </span>
             ) : null}
-          </label>
-          <Link
-            href="/patient/profile/link-abha"
-            data-testid="patient-profile-abha-link-cta"
-            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
-          >
-            Link ABHA (Aadhaar OTP)
-          </Link>
-          <p className="text-xs text-slate-500">
-            ABHA linking via Aadhaar OTP is coming soon. For now you can paste an
-            existing ABHA number to attach to your record.
-          </p>
-        </fieldset>
+          </Field>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <Link
+              href="/patient/profile/link-abha"
+              data-testid="patient-profile-abha-link-cta"
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-lg border border-gray-300 px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+            >
+              Link ABHA (Aadhaar OTP)
+            </Link>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              ABHA linking via Aadhaar OTP is coming soon. For now you can paste
+              an existing ABHA number to attach to your record.
+            </p>
+          </div>
+        </div>
 
-        {/* ─── Submit row + status ──────────────────────────────────── */}
+        {/* ─── Status banners ───────────────────────────────────────── */}
         {submitState === "saved" ? (
           <p
             data-testid="patient-profile-saved-toast"
             role="status"
-            className="rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm font-medium text-emerald-900"
+            className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-sm font-medium text-emerald-900 shadow-sm dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-200"
           >
             Profile saved.
           </p>
@@ -634,32 +676,33 @@ export default function PatientProfilePage() {
           <p
             data-testid="patient-profile-submit-error"
             role="alert"
-            className="rounded-md border border-red-300 bg-red-50 p-3 text-sm font-medium text-red-800"
+            className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm font-medium text-red-800 shadow-sm dark:border-red-700 dark:bg-red-900/20 dark:text-red-200"
           >
             {submitError}
           </p>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-2 pt-2">
-          <button
-            type="submit"
-            data-testid="patient-profile-save-btn"
-            disabled={!dirty || submitState === "saving"}
-            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-6 text-sm font-medium text-white disabled:opacity-60"
-          >
-            {submitState === "saving" ? "Saving…" : "Save changes"}
-          </button>
+        {/* ─── Submit row ───────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={handleCancel}
             data-testid="patient-profile-cancel-btn"
             disabled={!dirty || submitState === "saving"}
-            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-6 text-sm font-medium text-slate-800 disabled:opacity-60"
+            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-lg border border-gray-300 px-4 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             Cancel
           </button>
+          <button
+            type="submit"
+            data-testid="patient-profile-save-btn"
+            disabled={!dirty || submitState === "saving"}
+            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+          >
+            {submitState === "saving" ? "Saving…" : "Save changes"}
+          </button>
         </div>
       </form>
-    </section>
+    </div>
   );
 }

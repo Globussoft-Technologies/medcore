@@ -27,6 +27,8 @@ const en: Dict = {
     "Keep me signed in on this device for 30 days. Leave unchecked on shared computers.",
   "login.newPatient": "New Patient?",
   "login.register": "Register here",
+  "login.patientLogin": "Patient?",
+  "login.patientLoginCta": "Sign in with phone OTP",
   "login.error.generic": "Login failed",
   "login.error.rateLimited":
     "Too many login attempts. Please wait a minute and try again.",
@@ -720,6 +722,8 @@ const hi: Dict = {
     "इस डिवाइस पर मुझे 30 दिनों तक साइन-इन रखें। साझा कंप्यूटर पर इसे अनचेक छोड़ें।",
   "login.newPatient": "नए मरीज़?",
   "login.register": "यहाँ पंजीकरण करें",
+  "login.patientLogin": "मरीज़?",
+  "login.patientLoginCta": "फ़ोन OTP से साइन इन करें",
   "login.error.generic": "लॉगिन विफल",
   "login.error.rateLimited":
     "बहुत अधिक लॉगिन प्रयास। कृपया एक मिनट प्रतीक्षा करें और पुनः प्रयास करें।",

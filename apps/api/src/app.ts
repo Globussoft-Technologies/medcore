@@ -345,8 +345,17 @@ export function buildApp() {
   app.use("/api/v1/status", statusRouter);
 
   // Routes
+  //
+  // Bump 2026-05-27: namespace-wide auth limit was 30/min — too tight for a
+  // dashboard SPA where every layout mount + cross-tab broadcast listener +
+  // patient-page own /auth/me probe fans out (3-4 calls per route change).
+  // A patient tab-switching ~10 times hits 30 and gets a 429 cascade that
+  // the layout's 5-attempt retry loop misreads as "session expired" →
+  // bogus /login bounce. The strict-by-design limiter on /auth/login
+  // itself (5/min, in routes/auth.ts:88) is unchanged — this just lifts
+  // the broad cap on safe operations like /auth/me.
   const authLimiter =
-    process.env.NODE_ENV === "test" ? (_: any, __: any, n: any) => n() : rateLimit(30, 60_000);
+    process.env.NODE_ENV === "test" ? (_: any, __: any, n: any) => n() : rateLimit(300, 60_000);
   app.use("/api/v1/auth", authLimiter, authRouter);
   // Pearl §5.3 / §6.1 — patient phone-OTP login (gap #5 piece 2 of 4).
   // No global authLimiter here: the router does per-phone rate limiting

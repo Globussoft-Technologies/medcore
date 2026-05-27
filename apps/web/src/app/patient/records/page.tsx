@@ -137,12 +137,22 @@ const TYPE_ICON: Record<EntryType, string> = {
 
 // ─── Adapters: source row → TimelineEntry ────────────────────────────────
 
+// IST offset in minutes — clinic-local time is Asia/Kolkata (UTC+5:30).
+// `Appointment.date` is the calendar day at UTC midnight; `slotStart` is
+// "HH:MM(:SS)" in clinic-local IST clock time. Composing the right UTC
+// instant requires subtracting the IST offset; the older `setUTCHours`
+// version treated the IST clock string AS IF it were UTC and produced a
+// 5h30m-offset timestamp that mis-grouped the entry under the wrong day.
+const IST_OFFSET_MIN = 330;
+
 function appointmentToEntry(a: AppointmentRow): TimelineEntry {
-  // Compose date + slotStart (same pattern as dashboard + appointments page).
   const base = new Date(a.date);
   if (a.slotStart) {
     const [hh, mm] = a.slotStart.split(":").map((s) => parseInt(s, 10));
-    if (Number.isFinite(hh)) base.setUTCHours(hh, mm || 0, 0, 0);
+    if (Number.isFinite(hh)) {
+      const ist = hh * 60 + (Number.isFinite(mm) ? mm : 0);
+      base.setTime(base.getTime() + (ist - IST_OFFSET_MIN) * 60_000);
+    }
   }
   const doctorName = a.doctor?.user?.name;
   const title = doctorName
@@ -213,6 +223,7 @@ function formatDateHeader(ts: number): string {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: "Asia/Kolkata",
   });
 }
 
@@ -220,14 +231,16 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString("en-IN", {
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
   });
 }
 
 function dayKey(ts: number): string {
-  const d = new Date(ts);
-  // Use UTC day for grouping so the same day stays bucketed regardless of
-  // the user's local TZ shift on hour-of-day.
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  // Use the IST calendar day for grouping so an appointment at 11pm IST
+  // doesn't get bucketed under the next UTC day on a non-IST browser.
+  // en-CA produces YYYY-MM-DD which is the canonical sortable form.
+  return new Date(ts).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 }
 
 // ─── Component ───────────────────────────────────────────────────────────

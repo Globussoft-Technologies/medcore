@@ -120,7 +120,16 @@ describe("useAuthStore", () => {
     // Issue #477: there's no localStorage gate anymore. Even with no
     // cookie, loadSession will call /auth/me — the API returns 401 and
     // we settle into clean unauthenticated state.
-    mockedGet.mockRejectedValueOnce(new Error("401"));
+    //
+    // 2026-05-27: loadSession now branches on `err.status` to distinguish
+    // true session expiry (401 → clear auth) from transient failure
+    // (429/5xx → preserve cached user). The mock must therefore carry a
+    // real `status: 401` to mirror what api.ts actually throws (it
+    // attaches `.status` to the Error via `Object.assign`-style shape;
+    // see lib/api.ts:222-229). Bare `new Error("401")` has no .status
+    // and would now hit the preserve-cached-user branch.
+    const err = Object.assign(new Error("Unauthorized"), { status: 401 });
+    mockedGet.mockRejectedValueOnce(err);
     await useAuthStore.getState().loadSession();
     expect(useAuthStore.getState().user).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();

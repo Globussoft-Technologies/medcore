@@ -43,13 +43,24 @@ const TODAY = `${TODAY_IST_YMD}T00:00:00.000Z`;
 // Build a today-row whose composeWhen lands ≥ 1h in the future so the
 // `nextAppointment` filter (1h grace) always picks it up.
 function todayBookedRow(id: string) {
-  const slot = new Date(Date.now() + 4 * HOUR);
-  const hh = String(slot.getUTCHours()).padStart(2, "0");
-  const mm = String(slot.getUTCMinutes()).padStart(2, "0");
+  // 2026-05-27: previously this used `slot.getUTCHours()` of `now + 4h`,
+  // matching the page's pre-IST-fix logic which treated slotStart as
+  // UTC. The page now parses slotStart as Asia/Kolkata wallclock (HH:MM
+  // is the IST clock time the patient sees on their card), so we have
+  // to build the same shape: derive HH:MM from the IST clock 4h ahead
+  // of "now". Otherwise nextAppointment.ts ends up 5h30m earlier than
+  // intended and the row gets filtered out as past-the-grace-window,
+  // leaving the page with no nextAppointment and the test seeing the
+  // "all paid up" empty state instead of the I've-arrived button.
+  const istHHMM = new Date(Date.now() + 4 * HOUR).toLocaleTimeString("en-GB", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   return {
     id,
     date: TODAY,
-    slotStart: `${hh}:${mm}:00`,
+    slotStart: `${istHHMM}:00`,
     tokenNumber: 7,
     status: "BOOKED",
     doctor: { user: { name: "Sharma" }, specialty: "Obstetrics" },
@@ -140,12 +151,28 @@ describe("Patient dashboard — gap #5 piece 3a", () => {
     const rxTile = screen.getByTestId("patient-dashboard-prescriptions");
     expect(within(rxTile).getByText(/Amoxicillin 500mg/)).toBeInTheDocument();
     expect(within(rxTile).getByText(/\+ 1 more/)).toBeInTheDocument();
+    // 2026-05-27: download URL changed to the absolute API path (`${API_BASE}/
+    // prescriptions/:id/pdf?format=pdf`) — the old `/api/v1/...` was a
+    // web-relative path that 404'd on Next's dev server. Test uses
+    // `stringContaining` so the assertion stays stable across env-var
+    // changes to NEXT_PUBLIC_API_URL.
     expect(
       within(rxTile).getByTestId("patient-dashboard-prescription-download"),
-    ).toHaveAttribute("href", "/api/v1/prescriptions/rx-1/pdf");
-    expect(
-      within(rxTile).getByTestId("patient-dashboard-prescription-share"),
-    ).toHaveAttribute("href", expect.stringContaining("https://wa.me/"));
+    ).toHaveAttribute(
+      "href",
+      expect.stringContaining("/prescriptions/rx-1/pdf?format=pdf"),
+    );
+    // 2026-05-27: Share is now a <button> that calls
+    // POST /prescriptions/:id/share { channel: "WHATSAPP" } server-side
+    // (mirrors the doctor flow at apps/web/src/app/dashboard/prescriptions/
+    // page.tsx `shareVia`). No more wa.me anchor. Just assert the button
+    // is in the DOM and clickable (the share-success path is covered by a
+    // separate test below).
+    const shareBtn = within(rxTile).getByTestId(
+      "patient-dashboard-prescription-share",
+    );
+    expect(shareBtn.tagName).toBe("BUTTON");
+    expect(shareBtn).toHaveTextContent(/Share on WhatsApp/);
 
     // Bills tile — INR 1500 - 500 = 1000 due
     const billsTile = screen.getByTestId("patient-dashboard-bills");

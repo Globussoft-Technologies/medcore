@@ -1,19 +1,29 @@
 // Behaviour coverage for the patient phone-OTP login page
-// (`apps/web/src/app/patient/login/page.tsx`, Pearl §5.3 / §6.1 — gap #5 piece 2).
+// (`apps/web/src/app/patient/login/page.tsx`, Pearl §5.3 / §6.1 — gap #5
+// piece 2, rewritten 2026-05-27 for the Firebase-backed flow).
 //
-// Pins the two-step flow:
-//   1. Step 1 (phone): client-side regex validation, `/patient-auth/otp-request`
-//      POST with trimmed phone, success → step 2 + info banner, server error →
-//      inline error at `patient-login-error`, thrown error → fallback message.
-//   2. Step 2 (otp): client-side 6-digit validation, `/patient-auth/otp-verify`
-//      POST with phone + otp, success → `router.push("/patient")`, server error
-//      → inline error, "Change number" returns to step 1 + clears OTP/error,
-//      "Resend code" re-fires the otp-request POST.
-//   3. Misc: register CTA href, busy-state disables interactive controls during
-//      the in-flight request.
+// The page now uses Firebase Phone Auth on the client (invisible
+// reCAPTCHA → sendOtp → verifyOtp returns an ID token) and POSTs that
+// token to `/patient-auth/firebase-verify` on the API, which mints our
+// own httpOnly session cookies. The legacy `/patient-auth/otp-request`
+// + `/patient-auth/otp-verify` endpoints are no longer wired into this
+// page (still exist server-side as a fallback for the legacy SMS path,
+// but no UI calls them anymore).
 //
-// Mock layer mirrors the patient/register/__tests__/page.test.tsx pattern:
-// vi.hoisted api mock + next/navigation router mock.
+// What's pinned:
+//   1. Step 1 (phone): client-side regex/normalisation, sendOtp() called
+//      with the canonical E.164, success → step 2 + info banner, thrown
+//      Firebase error → inline error and stays on step 1.
+//   2. Step 2 (otp): client-side 6-digit validation, verifyOtp() returns
+//      the ID token, POST /patient-auth/firebase-verify with that token,
+//      success → router.push("/patient/dashboard"), error → inline error
+//      and no redirect.
+//   3. Misc: register CTA href, busy-state disables interactive controls
+//      during in-flight requests, Change number / Resend behaviours.
+//
+// Mock layer: vi.hoisted handles to the @/lib/firebase helpers (the
+// page imports them at module level so module-init order matters) +
+// the @/lib/api post mock + the next/navigation router mock.
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
@@ -24,9 +34,22 @@ import {
   act,
 } from "@testing-library/react";
 
-const { apiPostMock, routerPushMock } = vi.hoisted(() => ({
+const {
+  apiPostMock,
+  routerPushMock,
+  ensureRecaptchaMock,
+  disposeRecaptchaMock,
+  sendOtpMock,
+  verifyOtpMock,
+  resetPhoneAuthStateMock,
+} = vi.hoisted(() => ({
   apiPostMock: vi.fn(),
   routerPushMock: vi.fn(),
+  ensureRecaptchaMock: vi.fn(),
+  disposeRecaptchaMock: vi.fn(),
+  sendOtpMock: vi.fn(),
+  verifyOtpMock: vi.fn(),
+  resetPhoneAuthStateMock: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -37,6 +60,14 @@ vi.mock("@/lib/api", () => ({
     put: vi.fn(),
     delete: vi.fn(),
   },
+}));
+
+vi.mock("@/lib/firebase", () => ({
+  ensureRecaptcha: ensureRecaptchaMock,
+  disposeRecaptcha: disposeRecaptchaMock,
+  sendOtp: sendOtpMock,
+  verifyOtp: verifyOtpMock,
+  resetPhoneAuthState: resetPhoneAuthStateMock,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -58,11 +89,7 @@ function typeOtp(value: string): void {
 }
 
 async function advanceToOtpStep(phone = "+919876543210"): Promise<void> {
-  apiPostMock.mockResolvedValueOnce({
-    success: true,
-    data: { sent: true },
-    error: null,
-  });
+  sendOtpMock.mockResolvedValueOnce(undefined);
   typePhone(phone);
   await act(async () => {
     fireEvent.click(screen.getByTestId("patient-login-send-code"));
@@ -72,10 +99,15 @@ async function advanceToOtpStep(phone = "+919876543210"): Promise<void> {
   });
 }
 
-describe("PatientLoginPage — phone-OTP two-step flow", () => {
+describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
   beforeEach(() => {
     apiPostMock.mockReset();
     routerPushMock.mockReset();
+    ensureRecaptchaMock.mockReset();
+    disposeRecaptchaMock.mockReset();
+    sendOtpMock.mockReset();
+    verifyOtpMock.mockReset();
+    resetPhoneAuthStateMock.mockReset();
   });
 
   it("renders step 1 with the phone input and a register CTA link", () => {
@@ -91,43 +123,64 @@ describe("PatientLoginPage — phone-OTP two-step flow", () => {
     ).toBeInTheDocument();
     const registerLink = screen.getByTestId("patient-login-register-link");
     expect(registerLink).toHaveAttribute("href", "/patient/register");
-    // No OTP input yet — flow starts at step 1.
     expect(
       screen.queryByTestId("patient-login-otp-input"),
     ).not.toBeInTheDocument();
   });
 
-  it("rejects an invalid phone number client-side without calling the API", () => {
+  it("mounts the invisible reCAPTCHA on first render and tears it down on unmount", () => {
+    const { unmount } = render(<PatientLoginPage />);
+    expect(ensureRecaptchaMock).toHaveBeenCalledWith("patient-recaptcha");
+    unmount();
+    expect(disposeRecaptchaMock).toHaveBeenCalled();
+    expect(resetPhoneAuthStateMock).toHaveBeenCalled();
+  });
+
+  it("surfaces a Firebase init error inline if ensureRecaptcha throws", () => {
+    ensureRecaptchaMock.mockImplementationOnce(() => {
+      throw new Error("Firebase env not configured");
+    });
     render(<PatientLoginPage />);
-    typePhone("123"); // Too short — regex requires 10-15 digits.
+    expect(screen.getByTestId("patient-login-error")).toHaveTextContent(
+      /firebase env not configured/i,
+    );
+  });
+
+  it("rejects an invalid phone number client-side without calling sendOtp", () => {
+    render(<PatientLoginPage />);
+    typePhone("123"); // Too short — fails normaliseToE164.
     fireEvent.click(screen.getByTestId("patient-login-send-code"));
-    expect(apiPostMock).not.toHaveBeenCalled();
+    expect(sendOtpMock).not.toHaveBeenCalled();
     expect(screen.getByTestId("patient-login-error")).toHaveTextContent(
       /valid phone number/i,
     );
   });
 
-  it("POSTs trimmed phone to /patient-auth/otp-request on send-code and advances to step 2", async () => {
-    apiPostMock.mockResolvedValueOnce({
-      success: true,
-      data: { sent: true },
-      error: null,
-    });
-
+  it("normalises a 10-digit Indian number to +91 E.164 before calling sendOtp", async () => {
+    sendOtpMock.mockResolvedValueOnce(undefined);
     render(<PatientLoginPage />);
-    typePhone("  +919876543210  "); // Whitespace must be trimmed before POST.
+    typePhone("9876543210"); // bare 10-digit, no +91
     await act(async () => {
       fireEvent.click(screen.getByTestId("patient-login-send-code"));
     });
-
     await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledTimes(1);
+      expect(sendOtpMock).toHaveBeenCalledWith("+919876543210");
     });
-    const [endpoint, body] = apiPostMock.mock.calls[0];
-    expect(endpoint).toBe("/patient-auth/otp-request");
-    expect(body).toEqual({ phone: "+919876543210" });
+    expect(
+      screen.getByTestId("patient-login-otp-input"),
+    ).toBeInTheDocument();
+  });
 
-    // Step 2 specific elements now in the DOM.
+  it("calls sendOtp with the trimmed E.164 and advances to step 2", async () => {
+    sendOtpMock.mockResolvedValueOnce(undefined);
+    render(<PatientLoginPage />);
+    typePhone("  +919876543210  ");
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("patient-login-send-code"));
+    });
+    await waitFor(() => {
+      expect(sendOtpMock).toHaveBeenCalledWith("+919876543210");
+    });
     expect(
       screen.getByTestId("patient-login-otp-input"),
     ).toBeInTheDocument();
@@ -136,42 +189,16 @@ describe("PatientLoginPage — phone-OTP two-step flow", () => {
     );
   });
 
-  it("surfaces a server-side otp-request failure inline and does NOT advance to step 2", async () => {
-    apiPostMock.mockResolvedValueOnce({
-      success: false,
-      data: null,
-      error: "Too many requests — please wait 10 minutes.",
-    });
-
+  it("surfaces a thrown sendOtp error inline and does NOT advance to step 2", async () => {
+    sendOtpMock.mockRejectedValueOnce(new Error("Invalid phone number format."));
     render(<PatientLoginPage />);
     typePhone("+919876543210");
     await act(async () => {
       fireEvent.click(screen.getByTestId("patient-login-send-code"));
     });
-
     await waitFor(() => {
       expect(screen.getByTestId("patient-login-error")).toHaveTextContent(
-        /too many requests/i,
-      );
-    });
-    // Stayed on step 1 — OTP input must NOT be in the DOM.
-    expect(
-      screen.queryByTestId("patient-login-otp-input"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("surfaces a thrown network error inline using the error's message", async () => {
-    apiPostMock.mockRejectedValueOnce(new Error("Network offline"));
-
-    render(<PatientLoginPage />);
-    typePhone("+919876543210");
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("patient-login-send-code"));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("patient-login-error")).toHaveTextContent(
-        /network offline/i,
+        /invalid phone number format/i,
       );
     });
     expect(
@@ -179,40 +206,31 @@ describe("PatientLoginPage — phone-OTP two-step flow", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("rejects an OTP that is not exactly 6 digits client-side without calling the API", async () => {
+  it("rejects an OTP that is not exactly 6 digits client-side without calling verifyOtp", async () => {
     render(<PatientLoginPage />);
     await advanceToOtpStep();
-    apiPostMock.mockClear();
-
     typeOtp("12345"); // Only 5 digits.
     fireEvent.click(screen.getByTestId("patient-login-verify"));
-
-    expect(apiPostMock).not.toHaveBeenCalled();
+    expect(verifyOtpMock).not.toHaveBeenCalled();
     expect(screen.getByTestId("patient-login-error")).toHaveTextContent(
       /6-digit code/i,
     );
   });
 
-  it("strips non-numeric characters from OTP input as the user types", async () => {
-    render(<PatientLoginPage />);
-    await advanceToOtpStep();
-    typeOtp("12a3b4c5d6");
-    const input = screen.getByTestId(
-      "patient-login-otp-input",
-    ) as HTMLInputElement;
-    // The page's onChange does value.replace(/\D/g, "") — only digits survive.
-    expect(input.value).toBe("123456");
-  });
-
-  it("POSTs phone + otp to /patient-auth/otp-verify and router.push('/patient') on success", async () => {
+  it("verifyOtp returns ID token → POST /patient-auth/firebase-verify → router.push('/patient/dashboard')", async () => {
     render(<PatientLoginPage />);
     await advanceToOtpStep("+919876543210");
 
+    verifyOtpMock.mockResolvedValueOnce("firebase-id-token-abc");
     apiPostMock.mockResolvedValueOnce({
       success: true,
       data: {
-        user: { id: "u-1", name: "Asha Verma", role: "PATIENT" },
-        accessToken: "jwt-token",
+        user: {
+          id: "u-1",
+          name: "Asha Verma",
+          role: "PATIENT",
+          phone: "9876543210",
+        },
       },
       error: null,
     });
@@ -222,22 +240,28 @@ describe("PatientLoginPage — phone-OTP two-step flow", () => {
     });
 
     await waitFor(() => {
-      expect(routerPushMock).toHaveBeenCalledWith("/patient");
+      expect(verifyOtpMock).toHaveBeenCalledWith("123456");
     });
-    // Verify call shape: second POST is the verify, first was the request.
-    const verifyCall = apiPostMock.mock.calls[apiPostMock.mock.calls.length - 1];
-    expect(verifyCall[0]).toBe("/patient-auth/otp-verify");
-    expect(verifyCall[1]).toEqual({ phone: "+919876543210", otp: "123456" });
+    await waitFor(() => {
+      expect(apiPostMock).toHaveBeenCalledWith(
+        "/patient-auth/firebase-verify",
+        { idToken: "firebase-id-token-abc" },
+      );
+    });
+    await waitFor(() => {
+      expect(routerPushMock).toHaveBeenCalledWith("/patient/dashboard");
+    });
   });
 
-  it("surfaces an invalid-OTP server response inline and does NOT redirect", async () => {
+  it("surfaces a server-side firebase-verify failure inline and does NOT redirect", async () => {
     render(<PatientLoginPage />);
     await advanceToOtpStep();
 
+    verifyOtpMock.mockResolvedValueOnce("firebase-id-token");
     apiPostMock.mockResolvedValueOnce({
       success: false,
       data: null,
-      error: "Invalid or expired code",
+      error: "Couldn't sign you in. Please try again.",
     });
     typeOtp("123456");
     await act(async () => {
@@ -246,17 +270,19 @@ describe("PatientLoginPage — phone-OTP two-step flow", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("patient-login-error")).toHaveTextContent(
-        /invalid or expired code/i,
+        /couldn't sign you in/i,
       );
     });
     expect(routerPushMock).not.toHaveBeenCalled();
   });
 
-  it("surfaces a thrown verify-step error inline and does NOT redirect", async () => {
+  it("surfaces a thrown verifyOtp error inline (e.g. wrong code from Firebase) and does NOT redirect", async () => {
     render(<PatientLoginPage />);
     await advanceToOtpStep();
 
-    apiPostMock.mockRejectedValueOnce(new Error("Verification API down"));
+    verifyOtpMock.mockRejectedValueOnce(
+      new Error("That code didn't match — please try again."),
+    );
     typeOtp("123456");
     await act(async () => {
       fireEvent.click(screen.getByTestId("patient-login-verify"));
@@ -264,24 +290,24 @@ describe("PatientLoginPage — phone-OTP two-step flow", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("patient-login-error")).toHaveTextContent(
-        /verification api down/i,
+        /didn't match/i,
       );
     });
+    expect(apiPostMock).not.toHaveBeenCalled();
     expect(routerPushMock).not.toHaveBeenCalled();
   });
 
-  it("'Change number' returns to step 1 and clears the OTP + error/info banners", async () => {
+  it("'Change number' returns to step 1 and clears the OTP + error banners", async () => {
     render(<PatientLoginPage />);
     await advanceToOtpStep();
 
-    // Type partial OTP + trigger a client-side error so we can verify clear.
+    // Trigger a client-side error so we can verify it gets cleared.
     typeOtp("12");
     fireEvent.click(screen.getByTestId("patient-login-verify"));
     expect(screen.getByTestId("patient-login-error")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("patient-login-back"));
 
-    // Back on step 1 — phone input visible, OTP gone, banners cleared.
     expect(
       screen.getByTestId("patient-login-phone-input"),
     ).toBeInTheDocument();
@@ -296,34 +322,31 @@ describe("PatientLoginPage — phone-OTP two-step flow", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("'Resend code' re-fires the otp-request POST against the same phone", async () => {
+  it("'Resend code' re-fires sendOtp against the SAME normalised E.164 and stays on step 2", async () => {
     render(<PatientLoginPage />);
     await advanceToOtpStep("+919876543210");
-    apiPostMock.mockClear();
+    sendOtpMock.mockClear();
+    resetPhoneAuthStateMock.mockClear();
 
-    apiPostMock.mockResolvedValueOnce({
-      success: true,
-      data: { sent: true },
-      error: null,
-    });
+    sendOtpMock.mockResolvedValueOnce(undefined);
     await act(async () => {
       fireEvent.click(screen.getByTestId("patient-login-resend"));
     });
 
     await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledTimes(1);
+      expect(sendOtpMock).toHaveBeenCalledTimes(1);
     });
-    expect(apiPostMock.mock.calls[0][0]).toBe("/patient-auth/otp-request");
-    expect(apiPostMock.mock.calls[0][1]).toEqual({ phone: "+919876543210" });
-    // Still on step 2 — OTP input remains visible.
+    expect(sendOtpMock).toHaveBeenCalledWith("+919876543210");
+    // resend() resets any stale ConfirmationResult before re-minting.
+    expect(resetPhoneAuthStateMock).toHaveBeenCalled();
     expect(
       screen.getByTestId("patient-login-otp-input"),
     ).toBeInTheDocument();
   });
 
-  it("disables the send-code button while a request is in flight (busy state)", async () => {
+  it("disables the send-code button while sendOtp is in flight (busy state)", async () => {
     let resolveSend: ((v: unknown) => void) | undefined;
-    apiPostMock.mockReturnValueOnce(
+    sendOtpMock.mockReturnValueOnce(
       new Promise((resolve) => {
         resolveSend = resolve;
       }),
@@ -338,16 +361,14 @@ describe("PatientLoginPage — phone-OTP two-step flow", () => {
       fireEvent.click(button);
     });
 
-    // Mid-flight: button disabled + label flipped to "Sending…".
     expect(button).toBeDisabled();
     expect(button).toHaveTextContent(/sending/i);
 
     await act(async () => {
-      resolveSend?.({ success: true, data: { sent: true }, error: null });
+      resolveSend?.(undefined);
       await Promise.resolve();
     });
 
-    // Settled: advanced to step 2.
     await waitFor(() => {
       expect(
         screen.getByTestId("patient-login-otp-input"),

@@ -14,17 +14,34 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 
-const { apiGetMock } = vi.hoisted(() => ({
-  apiGetMock: vi.fn(),
-}));
+const { apiGetMock, apiPostMock, toastSuccessMock, toastErrorMock } = vi.hoisted(
+  () => ({
+    apiGetMock: vi.fn(),
+    apiPostMock: vi.fn(),
+    toastSuccessMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+  }),
+);
 
 vi.mock("@/lib/api", () => ({
   api: {
     get: apiGetMock,
-    post: vi.fn(),
+    post: apiPostMock,
     patch: vi.fn(),
     put: vi.fn(),
     delete: vi.fn(),
+  },
+}));
+
+// 2026-05-27: the Share CTA now posts to /prescriptions/:id/share and
+// toasts the result (mirroring the doctor flow). Stub the toast helpers
+// so the assertions can verify both happy + 409 paths.
+vi.mock("@/lib/toast", () => ({
+  toast: {
+    success: toastSuccessMock,
+    error: toastErrorMock,
+    info: vi.fn(),
+    warning: vi.fn(),
   },
 }));
 
@@ -77,6 +94,9 @@ function rejectedWithStatus(status: number) {
 describe("Patient prescriptions page — gap #5 piece 3c", () => {
   beforeEach(() => {
     apiGetMock.mockReset();
+    apiPostMock.mockReset();
+    toastSuccessMock.mockReset();
+    toastErrorMock.mockReset();
   });
 
   it("renders the list with 3 mocked rows (mixed item counts)", async () => {
@@ -208,7 +228,13 @@ describe("Patient prescriptions page — gap #5 piece 3c", () => {
     }
   });
 
-  it("Share-WhatsApp link uses the wa.me/?text=... shape with the verify URL encoded inside", async () => {
+  it("Share button posts to /prescriptions/:id/share with channel=WHATSAPP and toasts on success", async () => {
+    // 2026-05-27: replaces the old wa.me-link test. The Share CTA is now
+    // a <button> that calls the server-side share endpoint (mirrors the
+    // doctor flow at apps/web/src/app/dashboard/prescriptions/page.tsx
+    // `shareVia` at L494). Server delivers the verify link via Meta
+    // Cloud API to the patient's registered phone and logs the share;
+    // the client just toasts.
     apiGetMock.mockResolvedValue(
       listOk([
         makeRow({
@@ -219,21 +245,63 @@ describe("Patient prescriptions page — gap #5 piece 3c", () => {
         }),
       ]),
     );
+    apiPostMock.mockResolvedValue({ success: true, data: null, error: null });
     render(<PatientPrescriptionsPage />);
     await waitFor(() =>
       expect(screen.getByTestId("patient-prescriptions")).toBeInTheDocument(),
     );
 
-    const link = screen.getByTestId("patient-prescriptions-share-btn");
-    const href = link.getAttribute("href") ?? "";
-    expect(href.startsWith("https://wa.me/?text=")).toBe(true);
-    // The verify URL must appear inside the encoded message — encodeURIComponent
-    // doesn't escape ":" or "/" so we can grep for the path directly.
-    const decoded = decodeURIComponent(href.replace("https://wa.me/?text=", ""));
-    expect(decoded).toContain("/verify/rx/rx-abc-123");
-    expect(decoded).toContain("Dr. Sharma");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    const btn = screen.getByTestId("patient-prescriptions-share-btn");
+    expect(btn.tagName).toBe("BUTTON");
+    fireEvent.click(btn);
+
+    await waitFor(() =>
+      expect(apiPostMock).toHaveBeenCalledWith(
+        "/prescriptions/rx-abc-123/share",
+        { channel: "WHATSAPP" },
+      ),
+    );
+    await waitFor(() =>
+      expect(toastSuccessMock).toHaveBeenCalledWith(
+        "Prescription shared via WhatsApp",
+      ),
+    );
+  });
+
+  it("Share button toasts the API's 409 error verbatim (unsigned/cancelled/no-phone)", async () => {
+    // Patient-side has no SignaturePad branch (a patient can't sign for
+    // their doctor) — on a 409 we surface the API's friendly message
+    // unchanged so the patient knows what to do next.
+    apiGetMock.mockResolvedValue(
+      listOk([
+        makeRow({
+          id: "rx-unsigned",
+          createdAt: "2026-05-15T10:00:00Z",
+          items: ["Paracetamol"],
+          signatureUrl: null,
+        }),
+      ]),
+    );
+    const apiErr = Object.assign(new Error("nope"), {
+      status: 409,
+      payload: {
+        error:
+          "Cannot share an unsigned prescription — the prescribing doctor must sign it first.",
+      },
+    });
+    apiPostMock.mockRejectedValue(apiErr);
+
+    render(<PatientPrescriptionsPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("patient-prescriptions")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("patient-prescriptions-share-btn"));
+
+    await waitFor(() =>
+      expect(toastErrorMock).toHaveBeenCalledWith(
+        "Cannot share an unsigned prescription — the prescribing doctor must sign it first.",
+      ),
+    );
   });
 
   it("Download PDF link points at the API PDF endpoint with format=pdf", async () => {
@@ -277,7 +345,15 @@ describe("Patient prescriptions page — gap #5 piece 3c", () => {
     expect(link).toHaveAttribute("target", "_blank");
   });
 
-  it("hides the Share CTA on rows that have no signatureUrl (draft Rx)", async () => {
+  it("renders the Share CTA on unsigned/draft rows so the patient can see the gate explanation", async () => {
+    // 2026-05-27: previously this test asserted the Share CTA was HIDDEN
+    // on rows without a signature. We flipped that: the API's POST
+    // /:id/share returns a friendly 409 explaining why share is
+    // unavailable ("Cannot share an unsigned prescription — the
+    // prescribing doctor must sign it first."), and the client toasts
+    // that message verbatim. Hiding the button left the patient with no
+    // explanation; rendering it lets the gate-explanation toast fire on
+    // click. Download + Verify still visible regardless.
     apiGetMock.mockResolvedValue(
       listOk([
         makeRow({
@@ -294,10 +370,8 @@ describe("Patient prescriptions page — gap #5 piece 3c", () => {
       expect(screen.getByTestId("patient-prescriptions")).toBeInTheDocument(),
     );
     expect(
-      screen.queryByTestId("patient-prescriptions-share-btn"),
-    ).not.toBeInTheDocument();
-    // Download + Verify still visible — the patient may still want to read
-    // their own draft and the verify view will show "unsigned".
+      screen.getByTestId("patient-prescriptions-share-btn"),
+    ).toBeInTheDocument();
     expect(
       screen.getByTestId("patient-prescriptions-download-btn"),
     ).toBeInTheDocument();

@@ -530,6 +530,51 @@ describeIfDB("Auth API (integration)", () => {
     expect(errStr).toMatch(/password|12 characters/);
   });
 
+  // ─── Issue #991 (admin staff-create via cookie-only auth) ──────────────
+  //
+  // Since #477 the web client stores the access token in an httpOnly
+  // `medcore_at` cookie and never adds an Authorization: Bearer header.
+  // resolveRegistrationRole previously only consulted the header, so
+  // every staff-create POST from the web UI was demoted to PATIENT,
+  // which then tripped the PATIENT-only address + emergencyContact gate
+  // and returned 400 with messages for fields the staff form does not
+  // collect. Pin the cookie-path behaviour here so the regression is
+  // caught immediately.
+  it("#991 admin staff-create on /register accepts cookie-only auth (no Bearer header)", async () => {
+    const adminLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
+    expect(adminLogin.status).toBe(200);
+    // Extract the medcore_at Set-Cookie header — supertest returns it as
+    // either a string or array depending on Node version.
+    const rawCookies = adminLogin.headers["set-cookie"];
+    const cookies = Array.isArray(rawCookies)
+      ? rawCookies
+      : rawCookies
+        ? [rawCookies]
+        : [];
+    const at = cookies.find((c: string) => c.startsWith("medcore_at="));
+    expect(at).toBeDefined();
+    const cookieHeader = at!.split(";")[0];
+
+    // Mirror the web form's payload exactly — only the 5 fields the
+    // Create-Staff form exposes. NO address, NO emergencyContact.
+    // NO Authorization header.
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Cookie", cookieHeader)
+      .send({
+        name: "Cookie Auth Doctor",
+        email: "cookie.doctor@test.local",
+        phone: "9123461001",
+        password: "MedCoreT3st-2026",
+        role: "DOCTOR",
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body?.data?.user?.role).toBe("DOCTOR");
+  });
+
   it("#668 admin staff-create on /register rejects denylisted 'password123'", async () => {
     const adminLogin = await request(app)
       .post("/api/v1/auth/login")

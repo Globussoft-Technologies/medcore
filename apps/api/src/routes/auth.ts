@@ -318,9 +318,24 @@ function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
   // We do an in-line, best-effort token decode here (the route is otherwise
   // unauthenticated, so we can't bolt on `authenticate` middleware without
   // breaking the public flow). Any decode/role failure → coerce to PATIENT.
+  //
+  // Issue #991: read BOTH the httpOnly `medcore_at` cookie (the post-#477
+  // primary storage for the access token) AND the legacy `Authorization:
+  // Bearer ...` header. Previously this only looked at the header; the
+  // web Create-Staff form lets the browser send the cookie automatically
+  // (api.ts uses credentials:"include") and never adds the header — so
+  // every staff-creation POST got demoted to PATIENT, which then tripped
+  // the PATIENT-only address + emergencyContact gate below and returned
+  // 400 with messages for fields the staff form deliberately doesn't
+  // collect.
+  const cookieToken = (req as Request & { cookies?: Record<string, string> })
+    .cookies?.medcore_at;
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) return PUBLIC_DEFAULT;
-  const token = header.split(" ")[1];
+  const headerToken = header?.startsWith("Bearer ")
+    ? header.split(" ")[1]
+    : undefined;
+  const token = cookieToken || headerToken;
+  if (!token) return PUBLIC_DEFAULT;
   try {
     // Issue #482: algorithm-agnostic — services/jwt.ts.
     const decoded = verifyAccessToken<{ role?: string }>(token);

@@ -50,6 +50,7 @@ import {
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { setAuthCookies } from "../middleware/auth-cookies";
+import { rateLimit } from "../middleware/rate-limit";
 import { signAccessToken, signRefreshToken } from "../services/jwt";
 import { sendSMS } from "../services/channels/sms";
 import { verifyPhoneIdToken } from "../services/firebase-admin";
@@ -425,8 +426,29 @@ router.post(
 //     is not registered, the response is the same as for an invalid
 //     token — defence against enumeration. Onboarding goes through the
 //     existing /patient/register flow.
+// Per-IP rate limiter for /firebase-verify.
+//
+// Why IP-keyed (not per-phone like /otp-request): we can only learn the
+// phone number AFTER Firebase verifies the token, which is the expensive
+// work we're trying to guard against. An attacker can't fabricate a valid
+// token, but they CAN spam the endpoint with junk tokens and force us to
+// burn Firebase Admin SDK quota / latency on each rejection.
+//
+// 20/min/IP — generous enough for a legitimate patient who fat-fingers
+// the OTP a few times and re-mints, hostile enough to make brute-forcing
+// pointless. Mirrors the central authLimiter's NODE_ENV=test bypass
+// pattern (apps/api/src/app.ts:349) so integration tests stay
+// deterministic.
+//
+// CodeQL js/missing-rate-limiting auto-finding from PR #1019 closure.
+const firebaseVerifyLimiter =
+  process.env.NODE_ENV === "test"
+    ? (_: Request, __: Response, n: NextFunction) => n()
+    : rateLimit(20, 60_000);
+
 router.post(
   "/firebase-verify",
+  firebaseVerifyLimiter,
   validate(firebaseVerifyPatientSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const { idToken } = req.body as { idToken: string };

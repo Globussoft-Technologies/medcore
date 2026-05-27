@@ -1,39 +1,58 @@
 "use client";
 
-// Patient phone-OTP login page (Pearl §5.3 / §6.1 — gap #5 piece 2 of 4).
+// Patient phone-OTP login page — Firebase Phone Authentication.
+//
+// Replaces the old server-issued SMS-OTP flow (POST /patient-auth/otp-request
+// + /patient-auth/otp-verify). Firebase handles SMS delivery + code
+// generation; our backend only verifies the resulting Firebase ID token and
+// mints the medcore_at / medcore_rt session cookies via
+// POST /patient-auth/firebase-verify. That preserves the existing audit log,
+// tenant scoping, rate limiting, and BOLA defenses — only the OTP transport
+// changed.
 //
 // Two-step flow:
-//   1. Phone input → POST /api/v1/patient-auth/otp-request → moves to step 2.
-//   2. OTP input → POST /api/v1/patient-auth/otp-verify → cookies set by the
-//      server, then router.push('/patient').
+//   1. Phone input → ensureRecaptcha() + sendOtp(phoneE164) → step 2.
+//   2. OTP input → verifyOtp(code) → POST the Firebase ID token to our API
+//      → server mints cookies → router.push('/patient/dashboard').
 //
-// Functional > pretty per the piece-2 scope. Piece 3 (dashboard tiles) and
-// piece 4 (offline cache) will polish the look. We deliberately do NOT use
-// the dashboard's `<LanguageDropdown>` or `<BranchPicker>` — this page lives
-// in the bare `/patient` route group whose layout omits both.
+// reCAPTCHA: Firebase requires a bot-check before sending the SMS. We mount
+// an INVISIBLE verifier under #patient-recaptcha so the user never sees the
+// widget unless Firebase decides they look like a bot.
 //
-// Touch targets: every interactive control is h-11 (44px) per Pearl §6.2.
-// API errors render inline next to `data-testid="patient-login-error"` so
-// the e2e (future) can assert on a specific element rather than a toast.
+// Touch targets remain h-11 (44px) per Pearl §6.2. All testids prefixed
+// `patient-login-*` are preserved from the old flow so component-level
+// smoke tests don't need to relearn them (the integration tests pinning
+// /patient-auth/otp-request URLs DO need to be rewritten — see
+// __tests__/page.test.tsx; they assume the old transport).
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import {
+  ensureRecaptcha,
+  disposeRecaptcha,
+  sendOtp,
+  verifyOtp,
+  resetPhoneAuthState,
+} from "@/lib/firebase";
 
 type Step = "phone" | "otp";
 
-interface OtpRequestResponse {
-  success: boolean;
-  data?: { sent: boolean } | null;
-  error?: string | null;
-}
-interface OtpVerifyResponse {
+interface FirebaseVerifyResponse {
   success: boolean;
   data?: {
-    user?: { id: string; name: string; role: string };
-    accessToken?: string;
+    user?: { id: string; name: string; role: string; phone: string };
   } | null;
   error?: string | null;
+}
+
+// Accept either 10-digit (assume +91), 12-digit starting +91, or any valid
+// E.164 — Firebase requires E.164 so we'll normalise before sending.
+function normaliseToE164(input: string): string | null {
+  const trimmed = input.trim().replace(/[\s-]/g, "");
+  if (/^\+\d{10,15}$/.test(trimmed)) return trimmed;
+  if (/^\d{10}$/.test(trimmed)) return `+91${trimmed}`; // India default
+  return null;
 }
 
 export default function PatientLoginPage() {
@@ -44,32 +63,52 @@ export default function PatientLoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  // Remember the normalised E.164 across the two steps so the verify step
+  // doesn't depend on whatever the user might have typed into the phone
+  // input in the meantime.
+  const e164Ref = useRef<string | null>(null);
+
+  // Mount the invisible reCAPTCHA verifier on first render. Cleanup on
+  // unmount so a fresh widget gets installed on the next visit (Firebase
+  // attaches DOM state to the container).
+  useEffect(() => {
+    try {
+      ensureRecaptcha("patient-recaptcha");
+    } catch (err) {
+      // Misconfigured env vars throw inside Firebase init. Surface as the
+      // first error the user sees rather than letting the page render
+      // half-broken.
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Patient sign-in is unavailable right now.",
+      );
+    }
+    return () => {
+      disposeRecaptcha();
+      resetPhoneAuthState();
+    };
+  }, []);
 
   async function sendCode(): Promise<void> {
     if (busy) return;
     setError(null);
     setInfo(null);
-    if (!/^\+?[0-9]{10,15}$/.test(phone.trim())) {
-      setError("Enter a valid phone number (10–15 digits, optional +).");
+    const e164 = normaliseToE164(phone);
+    if (!e164) {
+      setError(
+        "Enter a valid phone number — 10 digits for India, or full +country code (e.g. +91 9876543210).",
+      );
       return;
     }
     setBusy(true);
     try {
-      const res = await api.post<OtpRequestResponse>(
-        "/patient-auth/otp-request",
-        { phone: phone.trim() },
-      );
-      if (res?.success) {
-        setStep("otp");
-        setInfo(
-          "If this number is registered, a 6-digit code has been sent.",
-        );
-      } else {
-        setError(res?.error || "Couldn't send code — please try again.");
-      }
+      await sendOtp(e164);
+      e164Ref.current = e164;
+      setStep("otp");
+      setInfo("A 6-digit code has been sent to your phone.");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Couldn't send code";
-      setError(msg);
+      setError(err instanceof Error ? err.message : "Couldn't send code");
     } finally {
       setBusy(false);
     }
@@ -85,30 +124,37 @@ export default function PatientLoginPage() {
     }
     setBusy(true);
     try {
-      const res = await api.post<OtpVerifyResponse>(
-        "/patient-auth/otp-verify",
-        { phone: phone.trim(), otp: otp.trim() },
+      // Step A — confirm with Firebase, get ID token.
+      const idToken = await verifyOtp(otp.trim());
+      // Step B — hand the ID token to our backend so it can verify with
+      // firebase-admin, look up the Patient by phone, and mint our session
+      // cookies. The server is the only thing that should be issuing
+      // medcore_at / medcore_rt — we don't store the Firebase token
+      // anywhere client-side (no localStorage), it's just a one-shot
+      // bearer to the exchange endpoint.
+      const res = await api.post<FirebaseVerifyResponse>(
+        "/patient-auth/firebase-verify",
+        { idToken },
       );
       if (res?.success) {
-        // Cookies (medcore_at / medcore_rt / medcore_csrf) are already set
-        // by the API response. Bounce to the patient landing page.
-        router.push("/patient");
+        // Cookies set by server response — bounce to dashboard.
+        router.push("/patient/dashboard");
       } else {
-        setError(res?.error || "Invalid or expired code");
+        setError(res?.error || "Couldn't sign you in. Please try again.");
       }
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Couldn't verify code";
-      setError(msg);
+      setError(err instanceof Error ? err.message : "Couldn't verify code");
     } finally {
       setBusy(false);
     }
   }
 
-  function resend(): void {
-    // Re-runs sendCode against the same phone — the server enforces the
-    // 3-per-10-min throttle and will surface a 429 inline if exceeded.
-    void sendCode();
+  async function resend(): Promise<void> {
+    // Send a fresh code for the SAME normalised E.164. resetPhoneAuthState
+    // first so any stale ConfirmationResult isn't reused.
+    resetPhoneAuthState();
+    setOtp("");
+    await sendCode();
   }
 
   return (
@@ -144,7 +190,7 @@ export default function PatientLoginPage() {
               inputMode="tel"
               autoComplete="tel"
               className="block h-11 w-full rounded-md border border-slate-300 px-3 text-base"
-              placeholder="+919876543210"
+              placeholder="+91 9876543210"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               disabled={busy}
@@ -207,6 +253,7 @@ export default function PatientLoginPage() {
                 setOtp("");
                 setError(null);
                 setInfo(null);
+                resetPhoneAuthState();
               }}
               className="inline-flex h-11 min-w-[44px] items-center text-slate-700 underline-offset-2 hover:underline"
             >
@@ -215,7 +262,7 @@ export default function PatientLoginPage() {
             <button
               type="button"
               data-testid="patient-login-resend"
-              onClick={resend}
+              onClick={() => void resend()}
               disabled={busy}
               className="inline-flex h-11 min-w-[44px] items-center text-slate-700 underline-offset-2 hover:underline disabled:opacity-60"
             >
@@ -243,7 +290,21 @@ export default function PatientLoginPage() {
         </p>
       ) : null}
 
-      <p className="text-center text-sm text-slate-600">New patient? <a href="/patient/register" data-testid="patient-login-register-link" className="font-medium text-slate-900 underline-offset-2 hover:underline">Create an account</a></p>
+      <p className="text-center text-sm text-slate-600">
+        New patient?{" "}
+        <a
+          href="/patient/register"
+          data-testid="patient-login-register-link"
+          className="font-medium text-slate-900 underline-offset-2 hover:underline"
+        >
+          Create an account
+        </a>
+      </p>
+
+      {/* Invisible reCAPTCHA container — Firebase mounts the widget here.
+          Must exist in the DOM before ensureRecaptcha() runs (the effect
+          above schedules that after first paint). */}
+      <div id="patient-recaptcha" />
     </section>
   );
 }

@@ -423,9 +423,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       // Issue #477: token sentinel only — the real one is on the cookie.
       set({ user: res.data, token: COOKIE_TOKEN_SENTINEL, isLoading: false });
-    } catch {
-      clearPersistedAuth();
-      set({ user: null, token: null, isLoading: false });
+    } catch (err) {
+      // 2026-05-27: previously this `catch` unconditionally cleared the
+      // auth state, which mis-classified 429 (rate-limited) and 5xx
+      // (server hiccup) as "session dead" and bounced the user to
+      // /login with "session expired". Now we only clear on a 401
+      // (true session expiry); anything else preserves the prior `user`
+      // value so the layout doesn't redirect on a transient blip.
+      const status = (err as { status?: number })?.status;
+      if (status === 401) {
+        clearPersistedAuth();
+        set({ user: null, token: null, isLoading: false });
+      } else {
+        // Settle isLoading so the UI stops showing skeletons, but keep
+        // any cached `user` — a retry will reconcile on the next call.
+        set({ isLoading: false });
+      }
     }
   },
 }));

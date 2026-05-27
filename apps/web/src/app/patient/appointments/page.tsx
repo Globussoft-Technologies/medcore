@@ -94,31 +94,56 @@ function isTodayInIST(a: AppointmentRow): boolean {
   return apptYmd === ymdInIST(new Date());
 }
 
+// IST offset in minutes — clinic-local time is Asia/Kolkata (UTC+5:30).
+// The DB stores `Appointment.date` as the calendar day at UTC midnight and
+// `slotStart` as "HH:MM(:SS)" in clinic-local IST clock time. To compose a
+// real timestamp we add the IST clock minutes back into the UTC midnight,
+// then subtract the IST offset so the result is the correct UTC instant
+// for the appointment. (Previously the code did `setUTCHours(hh, mm)`
+// which treated the IST clock string AS IF it were UTC — that produced a
+// timestamp 5:30 hours off, which then re-converted through the browser's
+// local TZ in toLocaleTimeString gave wildly wrong displayed times.)
+const IST_OFFSET_MIN = 330;
+
 function composeWhen(a: AppointmentRow): number {
-  // Stored Appointment.date is the calendar day at UTC midnight; slotStart is
-  // "HH:MM:SS" or "HH:MM". Compose for sort/display. Match the dashboard's
-  // approach (apps/web/src/app/patient/dashboard/page.tsx:178-186).
   const base = new Date(a.date);
   if (a.slotStart) {
     const [hh, mm] = a.slotStart.split(":").map((s) => parseInt(s, 10));
-    if (Number.isFinite(hh)) base.setUTCHours(hh, mm || 0, 0, 0);
+    if (Number.isFinite(hh)) {
+      const istMinutesIntoDay = hh * 60 + (Number.isFinite(mm) ? mm : 0);
+      const utcMinutesIntoDay = istMinutesIntoDay - IST_OFFSET_MIN;
+      return base.getTime() + utcMinutesIntoDay * 60 * 1000;
+    }
   }
   return base.getTime();
 }
 
-function formatDateTime(ts: number): string {
-  const d = new Date(ts);
-  const date = d.toLocaleDateString("en-IN", {
+// Format an IST clock string "HH:MM(:SS)" as a 12-hour display ("10:45 PM")
+// WITHOUT routing it through Date — the raw HH:MM is already the wall-clock
+// time we want to render, regardless of the viewer's browser timezone.
+function formatSlotTime(slotStart: string | null | undefined): string {
+  if (!slotStart) return "";
+  const [hhRaw, mmRaw] = slotStart.split(":");
+  const hh = parseInt(hhRaw ?? "", 10);
+  const mm = parseInt(mmRaw ?? "", 10);
+  if (!Number.isFinite(hh)) return "";
+  const minute = Number.isFinite(mm) ? mm : 0;
+  const period = hh >= 12 ? "PM" : "AM";
+  const hour12 = ((hh + 11) % 12) + 1; // 0→12, 13→1, etc.
+  return `${hour12}:${String(minute).padStart(2, "0")} ${period}`;
+}
+
+function formatApptWhen(a: AppointmentRow): string {
+  // Date: render in IST so a UTC-midnight `Appointment.date` (e.g.
+  // 2026-05-26T00:00:00Z) lands as "26 May 2026" even for non-IST browsers.
+  const dateStr = new Date(a.date).toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: "Asia/Kolkata",
   });
-  const time = d.toLocaleTimeString("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  return `${date} · ${time}`;
+  const timeStr = formatSlotTime(a.slotStart);
+  return timeStr ? `${dateStr} · ${timeStr}` : dateStr;
 }
 
 function statusPillClass(status: string): string {
@@ -388,7 +413,7 @@ export default function PatientAppointmentsPage() {
           My appointments
         </h1>
         <Link
-          href="/patient/appointments/book"
+          href="/patient/book"
           className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white"
           data-testid="patient-appointments-book-cta"
         >
@@ -403,7 +428,7 @@ export default function PatientAppointmentsPage() {
         >
           <p className="text-base text-slate-700">No appointments yet.</p>
           <Link
-            href="/patient/appointments/book"
+            href="/patient/book"
             className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-6 text-sm font-medium text-white"
             data-testid="patient-appointments-empty-book-cta"
           >
@@ -714,7 +739,7 @@ function AppointmentCard({
   arriving,
   arrived,
 }: CardProps) {
-  const when = formatDateTime(composeWhen(appointment));
+  const when = formatApptWhen(appointment);
   const canReschedule =
     !!onReschedule &&
     RESCHEDULABLE_STATUSES.has(appointment.status) &&

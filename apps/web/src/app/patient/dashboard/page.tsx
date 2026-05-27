@@ -28,6 +28,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 
 interface AppointmentRow {
   id: string;
@@ -45,6 +46,11 @@ interface PrescriptionRow {
   id: string;
   createdAt: string;
   diagnosis?: string | null;
+  // Mirror /patient/prescriptions/page.tsx: status + signatureUrl gate
+  // the share button — an unsigned or cancelled prescription is not a
+  // valid medical document and the share endpoint will 409 on it.
+  status?: string | null;
+  signatureUrl?: string | null;
   doctor?: { user?: { name?: string | null } | null } | null;
   items?: Array<{ medicineName?: string | null }> | null;
 }
@@ -79,6 +85,36 @@ interface MeResponse {
 
 const ABHA_PROMPT_DISMISS_KEY = "medcore_abha_prompt_dismissed";
 
+// Same helpers as /patient/prescriptions/page.tsx — keep the URL-build
+// logic local so the Recent Prescriptions tile's Download + Share
+// buttons point at the right hosts:
+//   • Download PDF — absolute API URL (web app is :3000, API is :4000 in
+//     dev; in prod both live behind the same origin but the env var
+//     resolves correctly either way).
+//   • Share on WhatsApp — `${origin}/verify/rx/<id>` so the link the
+//     patient sends lands on the public verify page that actually
+//     exists. The previous `/verify/<id>` shape (no `/rx/` segment)
+//     404'd in WhatsApp.
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+
+function buildPdfUrl(id: string): string {
+  return `${API_BASE.replace(/\/$/, "")}/prescriptions/${id}/pdf?format=pdf`;
+}
+
+function buildVerifyUrl(id: string): string {
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "";
+  return `${origin}/verify/rx/${id}`;
+}
+
+// Mirror the share-rx server policy at routes/prescriptions.ts:871-887
+// (and /patient/prescriptions/page.tsx:79) — these statuses indicate
+// the prescription is not a valid medical document for sharing.
+const NON_SHAREABLE_STATUSES = new Set(["CANCELLED", "REJECTED", "DRAFT"]);
+
 type LoadState = "loading" | "ready" | "unauth" | "error";
 
 // Pearl §6.3 row 340 — "I've arrived" date helpers. Mirror the server's
@@ -93,20 +129,41 @@ function isTodayInIST(appointmentDate: string): boolean {
   return (appointmentDate ?? "").slice(0, 10) === ymdInIST(new Date());
 }
 
-function formatDateTime(d: Date): string {
-  // 22 May 2026 · 10:30 AM (locale-agnostic enough for the PWA; date-fns
-  // would be cleaner but the dashboard isn't worth pulling it in for).
-  const date = d.toLocaleDateString("en-IN", {
+// IST offset in minutes — clinic-local time is Asia/Kolkata (UTC+5:30).
+// `Appointment.date` is the calendar day at UTC midnight; `slotStart` is
+// "HH:MM(:SS)" in clinic-local IST clock time. See the matching helpers in
+// apps/web/src/app/patient/appointments/page.tsx for the full background.
+const IST_OFFSET_MIN = 330;
+
+// Format an IST clock string "HH:MM(:SS)" as 12-hour ("10:45 PM") WITHOUT
+// routing it through Date — the raw HH:MM IS the wall-clock time we want,
+// independent of the viewer's browser timezone.
+function formatSlotTime(slotStart: string | null | undefined): string {
+  if (!slotStart) return "";
+  const [hhRaw, mmRaw] = slotStart.split(":");
+  const hh = parseInt(hhRaw ?? "", 10);
+  const mm = parseInt(mmRaw ?? "", 10);
+  if (!Number.isFinite(hh)) return "";
+  const minute = Number.isFinite(mm) ? mm : 0;
+  const period = hh >= 12 ? "PM" : "AM";
+  const hour12 = ((hh + 11) % 12) + 1;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${period}`;
+}
+
+function formatApptWhen(a: {
+  date: string;
+  slotStart?: string | null;
+}): string {
+  // Render the date in IST so a UTC-midnight Appointment.date lands as the
+  // expected calendar day even for non-IST browsers.
+  const dateStr = new Date(a.date).toLocaleDateString("en-IN", {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    timeZone: "Asia/Kolkata",
   });
-  const time = d.toLocaleTimeString("en-IN", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  return `${date} · ${time}`;
+  const timeStr = formatSlotTime(a.slotStart);
+  return timeStr ? `${dateStr} · ${timeStr}` : dateStr;
 }
 
 function formatINR(n: number): string {
@@ -145,6 +202,37 @@ export default function PatientDashboardPage() {
     "idle" | "submitting" | "arrived"
   >("idle");
   const [arriveError, setArriveError] = useState<string | null>(null);
+
+  // Mirror the doctor side (apps/web/src/app/dashboard/prescriptions/page.tsx
+  // `shareVia` at L494): fire-and-toast. Holds the rx id currently in
+  // flight so the clicked button can render "Sharing…" and disable to
+  // prevent double-submit. Cleared on settle.
+  const [sharingRxId, setSharingRxId] = useState<string | null>(null);
+
+  async function shareViaWhatsApp(rxId: string): Promise<void> {
+    if (sharingRxId) return;
+    setSharingRxId(rxId);
+    try {
+      await api.post(`/prescriptions/${rxId}/share`, { channel: "WHATSAPP" });
+      toast.success("Prescription shared via WhatsApp");
+    } catch (err) {
+      // The API's friendly 409 messages already explain the unsigned /
+      // cancelled / no-phone cases — surface verbatim rather than
+      // re-wording on the client. The doctor side has a Sign-before-share
+      // modal for the unsigned 409, but a patient can't sign for the
+      // doctor; the toast is the only action they have.
+      const anyErr = err as Error & {
+        status?: number;
+        payload?: { error?: string };
+      };
+      const msg =
+        anyErr?.payload?.error ??
+        (err instanceof Error ? err.message : "Failed to share");
+      toast.error(msg);
+    } finally {
+      setSharingRxId(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -243,13 +331,19 @@ export default function PatientDashboardPage() {
     const now = Date.now();
     const upcoming = appointments
       .map((a) => {
-        // The list endpoint stores `date` as the calendar day (UTC) and
-        // `slotStart` as HH:MM:SS. Compose them for the sort; fall back
-        // to date-only when slotStart is null (CALLING / WALK_IN rows).
+        // `date` is UTC midnight of the calendar day; `slotStart` is IST
+        // clock time. Subtract the IST offset so the composed instant is
+        // the correct UTC timestamp for the appointment. The earlier code
+        // used setUTCHours, which treated the IST string AS IF it were UTC
+        // — produced a 5h30m-offset timestamp that compared wrong against
+        // Date.now() AND rendered wrong through toLocaleTimeString.
         const base = new Date(a.date);
         if (a.slotStart) {
           const [hh, mm] = a.slotStart.split(":").map((s) => parseInt(s, 10));
-          if (Number.isFinite(hh)) base.setUTCHours(hh, mm || 0, 0, 0);
+          if (Number.isFinite(hh)) {
+            const ist = hh * 60 + (Number.isFinite(mm) ? mm : 0);
+            return { a, ts: base.getTime() + (ist - IST_OFFSET_MIN) * 60_000 };
+          }
         }
         return { a, ts: base.getTime() };
       })
@@ -413,18 +507,7 @@ export default function PatientDashboardPage() {
               data-testid="patient-dashboard-next-appointment-when"
               className="text-sm text-slate-700"
             >
-              {formatDateTime(
-                (() => {
-                  const d = new Date(nextAppointment.date);
-                  if (nextAppointment.slotStart) {
-                    const [hh, mm] = nextAppointment.slotStart
-                      .split(":")
-                      .map((s) => parseInt(s, 10));
-                    if (Number.isFinite(hh)) d.setUTCHours(hh, mm || 0, 0, 0);
-                  }
-                  return d;
-                })(),
-              )}
+              {formatApptWhen(nextAppointment)}
             </p>
             {nextAppointment.tokenNumber ? (
               <p className="text-sm text-slate-600">
@@ -546,26 +629,36 @@ export default function PatientDashboardPage() {
                       : ""}
                   </p>
                   <div className="flex gap-2 pt-1">
-                    <Link
-                      href={`/api/v1/prescriptions/${rx.id}/pdf`}
+                    <a
+                      href={buildPdfUrl(rx.id)}
                       className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-800"
                       data-testid="patient-dashboard-prescription-download"
                       target="_blank"
                       rel="noopener noreferrer"
                     >
                       Download PDF
-                    </Link>
-                    <a
-                      href={`https://wa.me/?text=${encodeURIComponent(
-                        `My MedCore prescription: ${typeof window !== "undefined" ? window.location.origin : ""}/verify/${rx.id}`,
-                      )}`}
-                      className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-800"
-                      data-testid="patient-dashboard-prescription-share"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Share on WhatsApp
                     </a>
+                    {/* Same flow as the doctor side
+                        (apps/web/src/app/dashboard/prescriptions/page.tsx
+                        `shareVia` at L494): POST /prescriptions/:id/share
+                        with { channel: "WHATSAPP" }. The server delivers
+                        the verify link to the patient's registered phone
+                        via the Meta Cloud API and logs the share. No new
+                        tab to wa.me — the patient stays on the dashboard
+                        and sees a toast.
+                        The doctor-side branch that pops a SignaturePad on
+                        a 409 "unsigned" response doesn't apply here — a
+                        patient can't sign for their doctor — so we toast
+                        the API's friendly message verbatim instead. */}
+                    <button
+                      type="button"
+                      onClick={() => shareViaWhatsApp(rx.id)}
+                      disabled={sharingRxId === rx.id}
+                      className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      data-testid="patient-dashboard-prescription-share"
+                    >
+                      {sharingRxId === rx.id ? "Sharing…" : "Share on WhatsApp"}
+                    </button>
                   </div>
                 </li>
               );
@@ -617,6 +710,17 @@ export default function PatientDashboardPage() {
               {invoices.map((inv) => {
                 const due =
                   toNumber(inv.totalAmount) - toNumber(inv.paidAmount);
+                // The server filter (?status=PENDING,PARTIAL) already
+                // excludes PAID rows, but defend against stale state
+                // (e.g. the patient paid in another tab and the
+                // dashboard hasn't refetched yet, or a race between
+                // status flip and the fetch): if the row is PAID or
+                // has zero outstanding, swap Pay-now for View-detail
+                // so the patient is never offered to pay a settled
+                // bill. Matches the open vs paid split on
+                // /patient/bills (line 562 there).
+                const isSettled =
+                  inv.paymentStatus === "PAID" || due <= 0;
                 return (
                   <li
                     key={inv.id}
@@ -634,13 +738,23 @@ export default function PatientDashboardPage() {
                       })}{" "}
                       · {formatINR(due)} due
                     </p>
-                    <Link
-                      href={`/patient/bills/${inv.id}/pay`}
-                      className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-emerald-700 px-4 text-xs font-medium text-white"
-                      data-testid="patient-dashboard-bill-pay"
-                    >
-                      Pay now
-                    </Link>
+                    {isSettled ? (
+                      <Link
+                        href={`/patient/bills/${inv.id}`}
+                        className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-xs font-medium text-slate-800"
+                        data-testid="patient-dashboard-bill-view"
+                      >
+                        View detail
+                      </Link>
+                    ) : (
+                      <Link
+                        href={`/patient/bills/${inv.id}/pay`}
+                        className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-emerald-700 px-4 text-xs font-medium text-white"
+                        data-testid="patient-dashboard-bill-pay"
+                      >
+                        Pay now
+                      </Link>
+                    )}
                   </li>
                 );
               })}

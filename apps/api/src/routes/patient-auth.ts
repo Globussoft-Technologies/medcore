@@ -44,6 +44,7 @@ import { prisma } from "@medcore/db";
 import {
   requestPatientOtpSchema,
   verifyPatientOtpSchema,
+  firebaseVerifyPatientSchema,
   canonicalisePhone,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
@@ -51,6 +52,7 @@ import { auditLog } from "../middleware/audit";
 import { setAuthCookies } from "../middleware/auth-cookies";
 import { signAccessToken, signRefreshToken } from "../services/jwt";
 import { sendSMS } from "../services/channels/sms";
+import { verifyPhoneIdToken } from "../services/firebase-admin";
 
 const router = Router();
 
@@ -392,6 +394,161 @@ router.post(
             role: user.role,
           },
           accessToken,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── POST /api/v1/patient-auth/firebase-verify ───────────────────────
+//
+// Firebase Phone Auth exchange endpoint. The patient PWA runs Firebase
+// Phone Auth in the browser (signInWithPhoneNumber → ConfirmationResult
+// .confirm), receives a Firebase ID token, and POSTs it here. We verify
+// the token with the firebase-admin SDK (signature, audience, issuer,
+// expiry, revocation), pull the verified `phone_number` out, and use it
+// — never the body — to look up the Patient User. If they exist + their
+// tenant is active, mint the existing medcore_at / medcore_rt cookies
+// and we're done; otherwise return a generic "Couldn't sign you in" so
+// we don't leak whether a phone is registered.
+//
+// Security notes:
+//   - Phone comes from the verified token claim, NOT from the body. A
+//     malicious client cannot say "I verified phone X but log me in as
+//     phone Y" — the body has only the token.
+//   - Audit logs the canonical phone suffix (last 4) same as the old
+//     otp-verify path so investigation tooling stays uniform.
+//   - The endpoint does NOT auto-create patient User rows. If the phone
+//     is not registered, the response is the same as for an invalid
+//     token — defence against enumeration. Onboarding goes through the
+//     existing /patient/register flow.
+router.post(
+  "/firebase-verify",
+  validate(firebaseVerifyPatientSchema),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const { idToken } = req.body as { idToken: string };
+    try {
+      // 1. Verify the token with Firebase Admin. Throws on any failure.
+      let verified;
+      try {
+        verified = await verifyPhoneIdToken(idToken);
+      } catch (err) {
+        // Don't leak Firebase's verbose error messages — keep parity with
+        // the otp-verify endpoint's generic copy so callers can't tell
+        // expired-from-tampered.
+        console.warn(
+          `[patient-auth] firebase-verify rejected token: ${(err as Error).message}`,
+        );
+        res.status(401).json({
+          success: false,
+          data: null,
+          error: "Couldn't sign you in. Please try again.",
+        });
+        return;
+      }
+
+      // 2. Look up the patient by canonical phone. Firebase returns E.164
+      // (+919876543210); our User.phone column stores the bare 10-digit
+      // canonical form. Run the same canonicaliser used by the existing
+      // OTP flow so the two paths converge on the same row.
+      const phone = canonicalisePhone(verified.phoneNumber);
+      const user = await prisma.user.findFirst({
+        where: { phone, role: Role.PATIENT },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          tenantId: true,
+        },
+      });
+      if (!user) {
+        // No registered patient with this phone. Generic 401 — parity
+        // with the otp-verify defence against phone-enumeration.
+        res.status(401).json({
+          success: false,
+          data: null,
+          error: "Couldn't sign you in. Please try again.",
+        });
+        return;
+      }
+
+      // 3. Honour the deactivated-tenant gate the otp-verify route uses.
+      if (user.tenantId) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: user.tenantId },
+          select: { active: true },
+        });
+        if (tenant && !tenant.active) {
+          res.status(401).json({
+            success: false,
+            data: null,
+            error: "Couldn't sign you in. Please try again.",
+          });
+          return;
+        }
+      }
+
+      // 4. Mint the JWT pair + cookie set — identical to otp-verify's
+      // happy path so the rest of the patient surface (audit, refresh
+      // rotation, cookie posture) keeps behaving exactly the same.
+      const jti = crypto.randomUUID();
+      const accessToken = signAccessToken(
+        {
+          userId: user.id,
+          email: user.email,
+          role: user.role,
+          tenantId: user.tenantId ?? null,
+          jti,
+        },
+        { expiresIn: "24h" },
+      );
+      const refreshTtlSeconds = 7 * 24 * 60 * 60;
+      const refreshToken = signRefreshToken(
+        {
+          userId: user.id,
+          email: user.email,
+          role: user.role,
+          tenantId: user.tenantId ?? null,
+          jti: crypto.randomUUID(),
+        },
+        { expiresIn: refreshTtlSeconds },
+      );
+
+      await prisma.refreshToken.create({
+        data: {
+          token: refreshToken,
+          userId: user.id,
+          expiresAt: new Date(Date.now() + refreshTtlSeconds * 1000),
+        },
+      });
+
+      setAuthCookies(res, { accessToken, refreshToken }, refreshTtlSeconds);
+
+      await auditLog(
+        req,
+        "PATIENT_FIREBASE_VERIFY_SUCCESS",
+        "patient-auth",
+        user.id,
+        {
+          phoneSuffix: phone.slice(-4),
+          firebaseUid: verified.uid,
+        },
+      );
+
+      res.json({
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            phone,
+          },
         },
         error: null,
       });

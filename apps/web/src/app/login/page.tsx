@@ -90,6 +90,13 @@ function LoginPageInner() {
     searchParams.get("next"),
     searchParams.get("redirect"),
   );
+  // Track whether the redirect target was EXPLICITLY supplied by the URL
+  // (session-expired bounce, deep link) vs. fell back to the safe default.
+  // We override the fallback for PATIENTs so they land on /patient/dashboard,
+  // but if the caller asked for a specific page (e.g. ?redirect=/patient/profile
+  // after a session expiry on that page), we honour it.
+  const nextRaw = searchParams.get("next") ?? searchParams.get("redirect");
+  const hasExplicitRedirect = Boolean(nextRaw && nextRaw.trim().length > 0);
   const { login, verify2FA } = useAuthStore();
   const { t } = useTranslation();
   const [email, setEmail] = useState("");
@@ -149,7 +156,14 @@ function LoginPageInner() {
       toast.success(t("login.welcome"));
       // Issue #33: honour the `?redirect=` param set by the dashboard auth
       // gate so users land back on the page they originally tried to open.
-      router.push(redirectTo);
+      // PATIENT override: when no explicit redirect was requested, send the
+      // patient to /patient/dashboard instead of the staff /dashboard.
+      const role = useAuthStore.getState().user?.role;
+      const dest =
+        !hasExplicitRedirect && role === "PATIENT"
+          ? "/patient/dashboard"
+          : redirectTo;
+      router.push(dest);
     } catch (err) {
       // Issue #15: distinguish 429 (rate-limit) from 401/403 (bad creds) so
       // users never see "Invalid email or password" when they're simply
@@ -170,7 +184,13 @@ function LoginPageInner() {
       await verify2FA(tempToken, twoFACode.trim());
       toast.success(t("login.welcome"));
       // Issue #33: honour ?redirect= after successful 2FA as well.
-      router.push(redirectTo);
+      // PATIENT override (same logic as the password path).
+      const role = useAuthStore.getState().user?.role;
+      const dest =
+        !hasExplicitRedirect && role === "PATIENT"
+          ? "/patient/dashboard"
+          : redirectTo;
+      router.push(dest);
     } catch (err) {
       // Issue #15: same status-aware handling for the 2FA step. A throttled
       // verify must not read as "Invalid 2FA code".
@@ -526,6 +546,16 @@ function LoginPageInner() {
             )}
 
             <p className="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+              {t("login.patientLogin")}{" "}
+              <Link
+                href="/patient/login"
+                data-testid="patient-login-link"
+                className="font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
+              >
+                {t("login.patientLoginCta")}
+              </Link>
+            </p>
+            <p className="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
               {t("login.newPatient")}{" "}
               <Link
                 href="/register"

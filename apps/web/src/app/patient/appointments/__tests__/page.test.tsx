@@ -141,7 +141,7 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
     });
     expect(
       screen.getByTestId("patient-appointments-empty-book-cta"),
-    ).toHaveAttribute("href", "/patient/appointments/book");
+    ).toHaveAttribute("href", "/patient/book");
   });
 
   it("hides Cancel + Reschedule buttons on terminal-status (past) rows", async () => {

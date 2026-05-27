@@ -48,6 +48,17 @@ const CSRF_BYPASS_PATHS = [
   "/api/v1/auth/2fa-validate",
   "/api/v1/auth/forgot-password",
   "/api/v1/auth/reset-password",
+  // Patient bootstrap endpoints — these MINT the medcore_csrf cookie
+  // themselves so they cannot require it. Each has its own defence:
+  //   - otp-request: per-phone rate limiter (3/10min) — see patient-auth.ts
+  //   - otp-verify: bcrypt challenge with 5-min TTL + 5-attempt limit
+  //   - firebase-verify: Firebase ID-token signature + audience verification
+  //     (firebase-admin verifyIdToken with checkRevoked) — see
+  //     services/firebase-admin.ts. The verified phone_number claim drives
+  //     the patient User lookup, never the request body.
+  "/api/v1/patient-auth/otp-request",
+  "/api/v1/patient-auth/otp-verify",
+  "/api/v1/patient-auth/firebase-verify",
   // Razorpay webhook is authenticated by signature, not CSRF — and is
   // mounted before express.json so it doesn't even pass through here,
   // but list it for documentation.

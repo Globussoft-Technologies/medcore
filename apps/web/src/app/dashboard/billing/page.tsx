@@ -653,7 +653,7 @@ export default function BillingPage() {
                 <th className="min-w-36 px-4 py-3 text-right">Balance</th>
                 <th className="px-4 py-3">Age</th>
                 <th className="px-4 py-3">Status</th>
-                {isStaff && <th className="px-4 py-3">Actions</th>}
+                {(isStaff || isPatient) && <th className="px-4 py-3">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -871,6 +871,33 @@ export default function BillingPage() {
                           })(),
                           document.body,
                         )}
+                    </td>
+                  )}
+                  {isPatient && (
+                    <td className="px-4 py-3">
+                      {inv.displayStatus !== "PAID" && razorpay.enabled ? (
+                        <Link
+                          href={`/patient/bills/${inv.id}/pay`}
+                          data-testid={`bills-pay-online-${inv.id}`}
+                          className="inline-flex h-9 min-w-[44px] items-center justify-center gap-1.5 rounded-md bg-emerald-700 px-3 text-xs font-medium text-white hover:bg-emerald-800"
+                        >
+                          <Globe size={14} aria-hidden="true" />
+                          <span>Pay Online</span>
+                          {razorpay.isTestMode && (
+                            <span className="rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
+                              TEST
+                            </span>
+                          )}
+                        </Link>
+                      ) : (
+                        <Link
+                          href={`/patient/bills/${inv.id}`}
+                          data-testid={`bills-view-${inv.id}`}
+                          className="inline-flex h-9 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          View
+                        </Link>
+                      )}
                     </td>
                   )}
                 </tr>

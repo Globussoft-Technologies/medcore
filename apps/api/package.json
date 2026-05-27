@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "tsx src/index.ts",
+    "start:prod": "node dist/index.js",
     "lint": "tsc --noEmit",
     "bench": "vitest bench --run --root ../.. apps/api/src/services/ai",
     "hl7v2:roundtrip": "tsx src/services/hl7v2/roundtrip.ts"
@@ -27,6 +28,7 @@
     "dicom-parser": "^1.8.21",
     "expo-server-sdk": "^6.1.0",
     "express": "^5.2.1",
+    "firebase-admin": "^13.10.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "langfuse": "^3.38.20",

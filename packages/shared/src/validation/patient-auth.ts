@@ -84,3 +84,30 @@ export const verifyPatientOtpSchema = z.object({
 });
 
 export type VerifyPatientOtpInput = z.infer<typeof verifyPatientOtpSchema>;
+
+/**
+ * Firebase Phone Auth exchange schema. The patient frontend completes
+ * Firebase's signInWithPhoneNumber → confirm() handshake, receives an ID
+ * token, and POSTs it here. The route handler verifies the token with the
+ * firebase-admin SDK (signature, audience, issuer, expiry, revocation),
+ * extracts the verified `phone_number` claim, and uses THAT phone to find
+ * the patient User row — never the body. The token itself is the only
+ * thing the client supplies; the phone is read from the verified claim so
+ * a malicious client can't tunnel "I just verified phone X but please log
+ * me in as patient Y".
+ *
+ * Length cap is generous (4096 chars) because Firebase ID tokens are
+ * standard JWTs — ours typically run ~1200-1800 chars. Tighter than no cap
+ * (DoS surface for `verifyIdToken`).
+ */
+export const firebaseVerifyPatientSchema = z.object({
+  idToken: z
+    .string()
+    .trim()
+    .min(1, "ID token is required")
+    .max(4096, "ID token is too long"),
+});
+
+export type FirebaseVerifyPatientInput = z.infer<
+  typeof firebaseVerifyPatientSchema
+>;

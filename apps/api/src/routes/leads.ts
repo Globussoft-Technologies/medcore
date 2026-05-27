@@ -59,6 +59,45 @@ router.post(
         }
       }
 
+      // Issue #1001 — exact-match dup detection within tenant. Block
+      // when name + phone + email all match an existing lead exactly
+      // (case-insensitive on name + email, exact on phone). Per
+      // product decision the rule is intentionally strict so a typo
+      // in any of the three fields lets the new lead through — false
+      // negatives are acceptable; the goal is to stop the "same row
+      // posted 20 times" reporter case.
+      //
+      // Only runs when BOTH phone and email are present in the
+      // payload — if either is blank the operator hasn't supplied
+      // enough to claim "identical lead" and we let the row through
+      // (matches reception's intent when they record a half-known
+      // walk-in).
+      const nameIn = typeof req.body.name === "string" ? req.body.name.trim() : "";
+      const phoneIn =
+        typeof req.body.phone === "string" ? req.body.phone.trim() : "";
+      const emailIn =
+        typeof req.body.email === "string" ? req.body.email.trim() : "";
+      if (nameIn && phoneIn && emailIn) {
+        const dup = await prisma.lead.findFirst({
+          where: {
+            tenantId: req.tenantId,
+            phone: phoneIn,
+            name: { equals: nameIn, mode: "insensitive" },
+            email: { equals: emailIn, mode: "insensitive" },
+          },
+          select: { id: true },
+        });
+        if (dup) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error:
+              "A lead with this name, phone and email already exists. Open the existing lead or change one of the fields to proceed.",
+          });
+          return;
+        }
+      }
+
       const lead = await prisma.lead.create({
         data: {
           name: req.body.name,

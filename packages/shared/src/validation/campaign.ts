@@ -36,6 +36,19 @@ const abVariantSchema = z.object({
 // Minute-of-day window: 0..1439 inclusive. Used for IST quiet-hour clamp.
 const minuteOfDay = z.number().int().min(0).max(1439);
 
+// Issue #985 — quiet-hour policy. Campaigns must dispatch within
+// 09:00..21:00 IST so we don't push WhatsApp/SMS to patients in the
+// middle of the night. Exported so the web form can share the same
+// bounds + the same human-readable copy.
+export const CAMPAIGN_SEND_WINDOW_POLICY = {
+  /** Earliest minute-of-day a campaign send window may START at. 09:00 = 540. */
+  minStart: 9 * 60,
+  /** Latest minute-of-day a campaign send window may END at. 21:00 = 1260. */
+  maxEnd: 21 * 60,
+  /** Human-readable copy for client + API error messages. Keep in sync. */
+  label: "Send window must be within 09:00–21:00 (quiet hours after 21:00)",
+} as const;
+
 // Operator-side state-machine. The dispatcher (piece 2) is responsible
 // for SCHEDULED → RUNNING; operators can DRAFT → SCHEDULED, RUNNING ↔
 // PAUSED, and any → CANCELLED. Direct jumps to COMPLETED are rejected by
@@ -91,6 +104,24 @@ export const createCampaignSchema = z
     },
     {
       message: "sendWindowStart must be strictly less than sendWindowEnd",
+      path: ["sendWindowEnd"],
+    },
+  )
+  // Issue #985 — quiet-hour policy: the send window must lie within
+  // 09:00..21:00 IST. A previous client-side bug let users save a
+  // 22:00 end-time silently; this refinement is the defence-in-depth
+  // server-side guard so the same payload is rejected from any
+  // client (web, mobile, CLI, automation).
+  .refine(
+    (v) => {
+      if (v.sendWindowStart == null || v.sendWindowEnd == null) return true;
+      return (
+        v.sendWindowStart >= CAMPAIGN_SEND_WINDOW_POLICY.minStart &&
+        v.sendWindowEnd <= CAMPAIGN_SEND_WINDOW_POLICY.maxEnd
+      );
+    },
+    {
+      message: CAMPAIGN_SEND_WINDOW_POLICY.label,
       path: ["sendWindowEnd"],
     },
   );
@@ -152,6 +183,22 @@ export const updateCampaignSchema = z
     },
     {
       message: "sendWindowStart must be strictly less than sendWindowEnd",
+      path: ["sendWindowEnd"],
+    },
+  )
+  // Issue #985 — same quiet-hour policy as createCampaignSchema. Also
+  // applies on PATCH so an operator can't widen the window outside
+  // 09:00..21:00 after the campaign exists.
+  .refine(
+    (v) => {
+      if (v.sendWindowStart == null || v.sendWindowEnd == null) return true;
+      return (
+        v.sendWindowStart >= CAMPAIGN_SEND_WINDOW_POLICY.minStart &&
+        v.sendWindowEnd <= CAMPAIGN_SEND_WINDOW_POLICY.maxEnd
+      );
+    },
+    {
+      message: CAMPAIGN_SEND_WINDOW_POLICY.label,
       path: ["sendWindowEnd"],
     },
   );

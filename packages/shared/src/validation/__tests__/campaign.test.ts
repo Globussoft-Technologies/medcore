@@ -315,33 +315,64 @@ describe("createCampaignSchema", () => {
 
   // minuteOfDay bounds (0..1439)
   it("rejects sendWindowStart below 0", () => {
+    // Both negative AND below the 540 policy floor — schema rejects.
     expect(
       createCampaignSchema.safeParse({
         ...minimal,
         sendWindowStart: -1,
-        sendWindowEnd: 100,
+        sendWindowEnd: 1140,
       }).success,
     ).toBe(false);
   });
 
   it("rejects sendWindowEnd above 1439", () => {
+    // Above the minuteOfDay max AND above the 1260 policy ceiling.
     expect(
       createCampaignSchema.safeParse({
         ...minimal,
-        sendWindowStart: 0,
+        sendWindowStart: 540,
         sendWindowEnd: 1440,
       }).success,
     ).toBe(false);
   });
 
-  it("accepts sendWindow at the 0..1439 boundary", () => {
+  // Issue #985 — quiet-hour policy locks the accepted window to
+  // 09:00..21:00 (540..1260). Prior tests treated 0..1439 as accepted;
+  // those values would now violate the policy refinement.
+  it("accepts sendWindow at the 540..1260 (09:00..21:00) policy boundary", () => {
     expect(
       createCampaignSchema.safeParse({
         ...minimal,
-        sendWindowStart: 0,
-        sendWindowEnd: 1439,
+        sendWindowStart: 540,
+        sendWindowEnd: 1260,
       }).success,
     ).toBe(true);
+  });
+
+  it("rejects sendWindowEnd at 22:00 (#985 — out-of-policy)", () => {
+    const r = createCampaignSchema.safeParse({
+      ...minimal,
+      sendWindowStart: 540, // 09:00
+      sendWindowEnd: 1320, // 22:00
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(
+        r.error.issues.some((i) =>
+          /09:00.*21:00|Send window must be within/.test(i.message),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("rejects sendWindowStart at 08:00 (#985 — before policy floor)", () => {
+    expect(
+      createCampaignSchema.safeParse({
+        ...minimal,
+        sendWindowStart: 480, // 08:00
+        sendWindowEnd: 1260,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects non-integer minuteOfDay", () => {

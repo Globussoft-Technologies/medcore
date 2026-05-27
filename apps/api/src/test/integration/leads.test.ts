@@ -162,6 +162,75 @@ describeIfDB("Lead pipeline API (Pearl §3.3 — integration)", () => {
     expect(dup.status).toBe(409);
   });
 
+  // Issue #1001 — exact-match (name + phone + email all match) dup
+  // detection. Reporter saw the SAME lead row created repeatedly. Per
+  // product decision the rule is strict: only block when all three
+  // user-supplied fields are populated AND match an existing lead
+  // exactly (case-insensitive name + email, exact phone). A typo in
+  // any single field lets the new row through (false negatives are
+  // acceptable; the goal is stopping the obvious "double-click /
+  // duplicate-import" path).
+  it("#1001 POST /leads with same name + phone + email → 409 on second attempt", async () => {
+    const first = await request(app)
+      .post("/api/v1/leads")
+      .set("Authorization", `Bearer ${receptionToken}`)
+      .send({
+        name: "Dup Detect One",
+        phone: "+919876541001",
+        email: "dup1001@example.com",
+        source: "PHONE",
+      });
+    expect(first.status).toBe(201);
+
+    // Identical triple → blocked.
+    const second = await request(app)
+      .post("/api/v1/leads")
+      .set("Authorization", `Bearer ${receptionToken}`)
+      .send({
+        name: "Dup Detect One",
+        phone: "+919876541001",
+        email: "dup1001@example.com",
+        source: "PHONE",
+      });
+    expect(second.status).toBe(409);
+    expect(second.body.error).toMatch(/already exists/i);
+
+    // Case-insensitive on name + email; different casing still blocks.
+    const thirdCase = await request(app)
+      .post("/api/v1/leads")
+      .set("Authorization", `Bearer ${receptionToken}`)
+      .send({
+        name: "dup detect ONE",
+        phone: "+919876541001",
+        email: "DUP1001@example.com",
+        source: "PHONE",
+      });
+    expect(thirdCase.status).toBe(409);
+
+    // Different phone → allowed (typo escapes the gate, by design).
+    const fourthPhoneTypo = await request(app)
+      .post("/api/v1/leads")
+      .set("Authorization", `Bearer ${receptionToken}`)
+      .send({
+        name: "Dup Detect One",
+        phone: "+919876541002", // last digit changed
+        email: "dup1001@example.com",
+        source: "PHONE",
+      });
+    expect(fourthPhoneTypo.status).toBe(201);
+
+    // Missing email → falls outside the gate (only 2 of 3 fields).
+    const fifthMissingEmail = await request(app)
+      .post("/api/v1/leads")
+      .set("Authorization", `Bearer ${receptionToken}`)
+      .send({
+        name: "Dup Detect One",
+        phone: "+919876541001",
+        source: "PHONE",
+      });
+    expect(fifthMissingEmail.status).toBe(201);
+  });
+
   // Smoke: DOCTOR + ADMIN can list (just to ensure RBAC matrix is right).
   it("DOCTOR + ADMIN can list leads", async () => {
     const a = await request(app).get("/api/v1/leads").set("Authorization", `Bearer ${doctorToken}`);

@@ -13,6 +13,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 import {
   LEAD_STATUS_VALUES,
   LEAD_SOURCE_VALUES,
@@ -20,6 +21,38 @@ import {
   type LeadSource,
 } from "@medcore/shared";
 import { Plus, Search, UserCheck } from "lucide-react";
+
+// Issue #1002 — mirror the server schema (packages/shared/src/validation/leads.ts
+// createLeadSchema) on the client so users get immediate feedback before the
+// round-trip. Phone is optional, but if provided must match 10..15 digits
+// (with optional +). Email is optional, but if provided must be RFC-ish.
+const LEAD_PHONE_REGEX = /^\+?\d{10,15}$/;
+const LEAD_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateLeadForm(input: {
+  name: string;
+  phone: string;
+  email: string;
+}): FieldErrorMap {
+  const errs: FieldErrorMap = {};
+  const name = input.name.trim();
+  if (!name) {
+    errs.name = "Name is required";
+  } else if (name.length < 2) {
+    errs.name = "Name must be at least 2 characters";
+  } else if (name.length > 120) {
+    errs.name = "Name must be at most 120 characters";
+  }
+  const phone = input.phone.trim();
+  if (phone && !LEAD_PHONE_REGEX.test(phone)) {
+    errs.phone = "Phone must be 10–15 digits (optional + prefix)";
+  }
+  const email = input.email.trim();
+  if (email && !LEAD_EMAIL_REGEX.test(email)) {
+    errs.email = "Enter a valid email address";
+  }
+  return errs;
+}
 
 interface Lead {
   id: string;
@@ -59,6 +92,19 @@ export default function LeadsPage() {
     source: "PHONE" as LeadSource,
     notes: "",
   });
+  // Issue #1002 — inline field errors + form-level error (server messages).
+  const [formErrors, setFormErrors] = useState<FieldErrorMap>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Live-validate so the Create button enable state updates as the user
+  // types. The validator is cheap (3 regex tests) so running it every
+  // render is fine.
+  const liveErrors = useMemo(
+    () => validateLeadForm(newLead),
+    [newLead.name, newLead.phone, newLead.email], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const canSubmit = Object.keys(liveErrors).length === 0 && !submitting;
 
   const isStaff = !!user?.role && user.role !== "PATIENT";
 
@@ -94,10 +140,19 @@ export default function LeadsPage() {
   }, [leads]);
 
   const handleCreate = async () => {
-    if (!newLead.name.trim()) {
-      toast.error("Name is required");
+    // Issue #1002 — re-run validation on submit so the error map
+    // reflects the final state (the live one is keyed to render, but
+    // the user can click Create before React commits the latest
+    // setState in the same tick under some browsers).
+    const errs = validateLeadForm(newLead);
+    if (Object.keys(errs).length > 0) {
+      setFormErrors(errs);
+      setFormError(null);
       return;
     }
+    setFormErrors({});
+    setFormError(null);
+    setSubmitting(true);
     try {
       await api.post("/leads", {
         name: newLead.name.trim(),
@@ -111,8 +166,42 @@ export default function LeadsPage() {
       setNewLead({ name: "", phone: "", email: "", source: "PHONE", notes: "" });
       void load();
     } catch (err: any) {
-      toast.error(err?.message ?? "Failed to create lead");
+      // Issue #1001 — server returns 409 with `error` when an exact-match
+      // dup is detected (same tenant + name + phone + email). Surface
+      // that as a form-level banner instead of dropping it into a
+      // generic toast so the operator sees the actionable copy.
+      // Issue #1002 — also surface Zod field errors (phone regex, email
+      // format) inline if the schema-level rejection slips past the
+      // client-side check (different regex, edge case).
+      const status =
+        err && typeof err === "object" && "status" in err
+          ? (err as { status?: number }).status
+          : undefined;
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFormErrors(fields);
+        setFormError(null);
+      } else if (status === 409) {
+        const payload = (err as { payload?: { error?: string } }).payload;
+        setFormError(
+          payload?.error ?? "A lead with these details already exists.",
+        );
+      } else {
+        setFormError(err?.message ?? "Failed to create lead");
+      }
+    } finally {
+      setSubmitting(false);
     }
+  };
+
+  // Helper — clear the inline error for a single field when the user
+  // edits that field. Keeps `formErrors` in sync with the value.
+  const clearFieldError = (field: keyof FieldErrorMap) => {
+    setFormErrors((prev) => {
+      if (!prev[String(field)]) return prev;
+      const { [String(field)]: _drop, ...rest } = prev;
+      return rest;
+    });
   };
 
   const handleStatusChange = async (lead: Lead, status: LeadStatus) => {
@@ -284,6 +373,18 @@ export default function LeadsPage() {
             <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
               <UserCheck size={18} /> New lead
             </h2>
+            {/* Issue #1001 — form-level banner for 409 dup detection and
+                any other non-field server error. Field errors render
+                inline next to each input. */}
+            {formError && (
+              <div
+                role="alert"
+                data-testid="lead-create-error"
+                className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-700 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200"
+              >
+                {formError}
+              </div>
+            )}
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400">
@@ -291,33 +392,82 @@ export default function LeadsPage() {
                 </label>
                 <input
                   value={newLead.name}
-                  onChange={(e) =>
-                    setNewLead((p) => ({ ...p, name: e.target.value }))
-                  }
-                  className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                  onChange={(e) => {
+                    setNewLead((p) => ({ ...p, name: e.target.value }));
+                    clearFieldError("name");
+                    setFormError(null);
+                  }}
+                  className={`mt-1 w-full rounded border px-3 py-2 text-sm dark:bg-gray-900 ${
+                    formErrors.name
+                      ? "border-red-500 dark:border-red-500"
+                      : "border-gray-300 dark:border-gray-600"
+                  }`}
                   data-testid="lead-create-name"
+                  aria-invalid={formErrors.name ? true : undefined}
                 />
+                {formErrors.name && (
+                  <p
+                    className="mt-1 text-xs text-red-600 dark:text-red-400"
+                    data-testid="lead-create-name-error"
+                  >
+                    {formErrors.name}
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400">Phone</label>
                   <input
                     value={newLead.phone}
-                    onChange={(e) =>
-                      setNewLead((p) => ({ ...p, phone: e.target.value }))
-                    }
-                    className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                    onChange={(e) => {
+                      setNewLead((p) => ({ ...p, phone: e.target.value }));
+                      clearFieldError("phone");
+                      setFormError(null);
+                    }}
+                    className={`mt-1 w-full rounded border px-3 py-2 text-sm dark:bg-gray-900 ${
+                      formErrors.phone
+                        ? "border-red-500 dark:border-red-500"
+                        : "border-gray-300 dark:border-gray-600"
+                    }`}
+                    data-testid="lead-create-phone"
+                    aria-invalid={formErrors.phone ? true : undefined}
+                    placeholder="10–15 digits"
                   />
+                  {formErrors.phone && (
+                    <p
+                      className="mt-1 text-xs text-red-600 dark:text-red-400"
+                      data-testid="lead-create-phone-error"
+                    >
+                      {formErrors.phone}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 dark:text-gray-400">Email</label>
                   <input
+                    type="email"
                     value={newLead.email}
-                    onChange={(e) =>
-                      setNewLead((p) => ({ ...p, email: e.target.value }))
-                    }
-                    className="mt-1 w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                    onChange={(e) => {
+                      setNewLead((p) => ({ ...p, email: e.target.value }));
+                      clearFieldError("email");
+                      setFormError(null);
+                    }}
+                    className={`mt-1 w-full rounded border px-3 py-2 text-sm dark:bg-gray-900 ${
+                      formErrors.email
+                        ? "border-red-500 dark:border-red-500"
+                        : "border-gray-300 dark:border-gray-600"
+                    }`}
+                    data-testid="lead-create-email"
+                    aria-invalid={formErrors.email ? true : undefined}
                   />
+                  {formErrors.email && (
+                    <p
+                      className="mt-1 text-xs text-red-600 dark:text-red-400"
+                      data-testid="lead-create-email-error"
+                    >
+                      {formErrors.email}
+                    </p>
+                  )}
                 </div>
               </div>
               <div>
@@ -350,17 +500,22 @@ export default function LeadsPage() {
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
-                onClick={() => setCreateOpen(false)}
+                onClick={() => {
+                  setCreateOpen(false);
+                  setFormErrors({});
+                  setFormError(null);
+                }}
                 className="rounded border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600"
               >
                 Cancel
               </button>
               <button
                 onClick={handleCreate}
-                className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                disabled={!canSubmit}
+                className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 data-testid="lead-create-submit"
               >
-                Create
+                {submitting ? "Creating…" : "Create"}
               </button>
             </div>
           </div>

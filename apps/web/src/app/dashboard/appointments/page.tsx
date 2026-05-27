@@ -1251,9 +1251,42 @@ export default function AppointmentsPage() {
         };
       }>("/appointments/bulk-action", { appointmentIds: ids, action });
       const d = res.data;
-      toast.success(
-        `${action.replace(/_/g, " ")}: ${d.processed} processed, ${d.skipped} skipped, ${d.errors} errors`
-      );
+      // Issue #981: previously every outcome surfaced a green
+      // toast.success even when 0 rows were actually processed. Marking
+      // an already-CANCELLED appointment as NO_SHOW (or vice-versa) is
+      // an invalid status transition the API skips silently — the
+      // user saw "NO SHOW: 0 processed, 1 skipped, 0 errors" in
+      // success styling with no explanation of WHY the row was
+      // skipped. Pick the toast variant + copy based on the actual
+      // outcome so the user can tell whether the action worked.
+      const actionLabel = action.replace(/_/g, " ").toLowerCase();
+      if (d.errors > 0) {
+        toast.error(
+          `Could not ${actionLabel} ${d.errors} appointment(s). ` +
+            `${d.processed} updated, ${d.skipped} skipped.`,
+        );
+      } else if (d.processed === 0 && d.skipped > 0) {
+        // The most common path that surfaced #981: the selected rows
+        // were in a status the action cannot apply to. The bulk-action
+        // API does not yet report per-row reasons, so the copy is
+        // intentionally general but DOES point the user at the most
+        // likely cause (current status). When the API surfaces a
+        // `skippedReasons` payload we can enrich this further.
+        toast.warning(
+          `No appointments were ${actionLabel === "mark as no-show" ? "marked as no-show" : actionLabel + "ed"}. ` +
+            `${d.skipped} skipped — likely already in a status that does not allow this action ` +
+            `(e.g. an already-CANCELLED appointment cannot be marked as NO SHOW).`,
+        );
+      } else if (d.skipped > 0) {
+        toast.info(
+          `${actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)}: ` +
+            `${d.processed} updated, ${d.skipped} skipped (already in a status that does not allow this action).`,
+        );
+      } else {
+        toast.success(
+          `${actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)}: ${d.processed} appointment(s) updated.`,
+        );
+      }
       setSelectedIds(new Set());
       loadAppointments();
     } catch (err) {

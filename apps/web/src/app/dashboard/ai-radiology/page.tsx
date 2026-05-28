@@ -749,12 +749,21 @@ function ReportDetailModal({
                           ? "border-amber-400/80"
                           : "border-blue-400/70"
                   }`}
-                  style={{
-                    left: `${Math.max(0, f.region.x) * 100}%`,
-                    top: `${Math.max(0, f.region.y) * 100}%`,
-                    width: `${Math.min(1, f.region.w) * 100}%`,
-                    height: `${Math.min(1, f.region.h) * 100}%`,
-                  }}
+                  style={(() => {
+                    // Clamp the box so (x+w) ≤ 1 and (y+h) ≤ 1, even when the
+                    // AI returns coordinates that would overflow the image.
+                    // Without this, x=0.9 + w=0.5 paints past the right edge.
+                    const x = Math.max(0, Math.min(1, f.region.x));
+                    const y = Math.max(0, Math.min(1, f.region.y));
+                    const w = Math.max(0, Math.min(1 - x, f.region.w));
+                    const h = Math.max(0, Math.min(1 - y, f.region.h));
+                    return {
+                      left: `${x * 100}%`,
+                      top: `${y * 100}%`,
+                      width: `${w * 100}%`,
+                      height: `${h * 100}%`,
+                    };
+                  })()}
                   title={f.region.label ?? f.description}
                 />
               ) : null,

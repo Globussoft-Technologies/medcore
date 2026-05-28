@@ -34,6 +34,9 @@ import {
   Loader2,
   Plus,
   Trash2,
+  FlaskConical,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 type CampaignKind = "BROADCAST" | "DRIP" | "TRIGGER" | "COHORT_REMINDER";
@@ -137,6 +140,146 @@ function checkSendWindowPolicy(
   return null;
 }
 
+// SOW row M4 closure (piece 5) — A/B variant UI.
+//
+// Backend contract (parseAbVariants + pickVariant in campaign-dispatcher.ts):
+//   abVariants: [{ id, weight, subjectOverride?, bodyOverride? }]
+//   - id must be non-empty (1..40 chars). Used as the attribution key
+//     on CampaignSend.variantId.
+//   - weight is a positive int. The dispatcher does weighted-random over
+//     the absolute weights; the schema caps each at 100 but doesn't
+//     require them to sum to 100. We enforce sum=100 in the UI anyway
+//     because "split %" is the mental model operators expect.
+//   - Both override fields are optional. The dispatcher falls back to
+//     campaign.subject/body when an override is absent — so two-variant
+//     campaigns can vary only the body, only the subject, or both.
+//
+// At most 10 variants (schema cap). Minimum 2 when the A/B mode is on
+// (otherwise it's just a single message — turn the mode off).
+
+interface UIVariant {
+  // Stable React key so reordering / editing the id field doesn't
+  // remount the row.
+  rid: string;
+  id: string; // attribution label (A / B / "v1" / etc.)
+  weight: number; // split percentage, 0..100; sum across variants = 100
+  subjectOverride: string;
+  bodyOverride: string;
+  expanded: boolean; // whether the per-variant subject/body block is open
+}
+
+function makeVariant(label: string, weight: number): UIVariant {
+  return {
+    rid:
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random()}`,
+    id: label,
+    weight,
+    subjectOverride: "",
+    bodyOverride: "",
+    expanded: false,
+  };
+}
+
+// Rebalance weights so they sum to 100 after one row is edited or a row
+// is added/removed. Strategy: keep the just-edited row at its target,
+// distribute the remaining (100 - target) across the OTHER rows
+// proportional to their current weights. If the others all sum to 0,
+// split the remainder evenly.
+function rebalanceAfterEdit(
+  variants: UIVariant[],
+  editedIdx: number,
+  targetWeight: number,
+): UIVariant[] {
+  const clamped = Math.max(0, Math.min(100, Math.round(targetWeight)));
+  if (variants.length <= 1) {
+    return variants.map((v, i) =>
+      i === editedIdx ? { ...v, weight: 100 } : v,
+    );
+  }
+  const remainder = 100 - clamped;
+  const others = variants.filter((_, i) => i !== editedIdx);
+  const othersSum = others.reduce((s, v) => s + v.weight, 0);
+
+  let allocated = 0;
+  const next = variants.map((v, i) => {
+    if (i === editedIdx) return { ...v, weight: clamped };
+    let w: number;
+    if (othersSum === 0) {
+      w = Math.floor(remainder / others.length);
+    } else {
+      w = Math.round((v.weight / othersSum) * remainder);
+    }
+    allocated += w;
+    return { ...v, weight: w };
+  });
+
+  // Drift correction — push the rounding error onto the LAST non-edited
+  // row so the table always sums to exactly 100.
+  const drift = remainder - allocated;
+  if (drift !== 0) {
+    for (let i = next.length - 1; i >= 0; i--) {
+      if (i !== editedIdx) {
+        next[i] = { ...next[i], weight: Math.max(0, next[i].weight + drift) };
+        break;
+      }
+    }
+  }
+  return next;
+}
+
+// Even-split helper used on add/remove. Pure: caller passes `variants`
+// already mutated (added or removed), this normalises the weights.
+function rebalanceEvenly(variants: UIVariant[]): UIVariant[] {
+  if (variants.length === 0) return variants;
+  const base = Math.floor(100 / variants.length);
+  const drift = 100 - base * variants.length;
+  return variants.map((v, i) => ({
+    ...v,
+    weight: i === 0 ? base + drift : base,
+  }));
+}
+
+function nextVariantLabel(existing: UIVariant[]): string {
+  // A, B, C, … Z, then AA, AB, … — but we cap at 10 in the UI so this
+  // realistically only emits A..J.
+  const used = new Set(existing.map((v) => v.id.trim().toUpperCase()));
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (const ch of letters) {
+    if (!used.has(ch)) return ch;
+  }
+  return `V${existing.length + 1}`;
+}
+
+// Validate the UI variant set against the server contract. Returns the
+// first user-facing error string, or null when valid.
+function validateVariants(variants: UIVariant[]): string | null {
+  if (variants.length < 2) return "A/B testing needs at least 2 variants.";
+  if (variants.length > 10) return "At most 10 variants allowed.";
+  const ids = new Set<string>();
+  for (const v of variants) {
+    const id = v.id.trim();
+    if (!id) return "Every variant needs a non-empty label.";
+    if (id.length > 40) return `Variant "${id}" label is too long (max 40).`;
+    const key = id.toUpperCase();
+    if (ids.has(key)) return `Duplicate variant label "${id}".`;
+    ids.add(key);
+    if (!Number.isFinite(v.weight) || v.weight < 1)
+      return `Variant "${id}" needs a split weight of at least 1%.`;
+    if (v.weight > 100)
+      return `Variant "${id}" split can't exceed 100%.`;
+    if (v.subjectOverride.length > 255)
+      return `Variant "${id}" subject is too long (max 255).`;
+    if (v.bodyOverride.length > 8000)
+      return `Variant "${id}" body is too long (max 8000).`;
+  }
+  const sum = variants.reduce((s, v) => s + v.weight, 0);
+  if (sum !== 100)
+    return `Splits must add up to 100% (currently ${sum}%).`;
+  return null;
+}
+
 export default function NewCampaignPage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
@@ -216,6 +359,70 @@ export default function NewCampaignPage() {
     [sendWindowStart, sendWindowEnd],
   );
 
+  // ── A/B variants state ─────────────────────────────────────────────
+  // Default off — backwards-compatible with the single-message UX. When
+  // an operator enables it, we seed two variants (A / B) at 50/50 so the
+  // first state the user sees is already valid.
+  const [abEnabled, setAbEnabled] = useState(false);
+  const [variants, setVariants] = useState<UIVariant[]>([]);
+
+  function enableAb() {
+    setAbEnabled(true);
+    setVariants([makeVariant("A", 50), makeVariant("B", 50)]);
+  }
+  function disableAb() {
+    setAbEnabled(false);
+    setVariants([]);
+  }
+
+  function addVariant() {
+    setVariants((prev) => {
+      if (prev.length >= 10) return prev;
+      const next = [...prev, makeVariant(nextVariantLabel(prev), 0)];
+      return rebalanceEvenly(next);
+    });
+  }
+  function removeVariant(rid: string) {
+    setVariants((prev) => {
+      if (prev.length <= 2) return prev; // enforce min when A/B is on
+      const next = prev.filter((v) => v.rid !== rid);
+      return rebalanceEvenly(next);
+    });
+  }
+  function updateVariantLabel(rid: string, label: string) {
+    setVariants((prev) =>
+      prev.map((v) => (v.rid === rid ? { ...v, id: label } : v)),
+    );
+  }
+  function updateVariantWeight(rid: string, weight: number) {
+    setVariants((prev) => {
+      const idx = prev.findIndex((v) => v.rid === rid);
+      if (idx < 0) return prev;
+      return rebalanceAfterEdit(prev, idx, weight);
+    });
+  }
+  function updateVariantField(
+    rid: string,
+    field: "subjectOverride" | "bodyOverride",
+    value: string,
+  ) {
+    setVariants((prev) =>
+      prev.map((v) => (v.rid === rid ? { ...v, [field]: value } : v)),
+    );
+  }
+  function toggleVariantExpanded(rid: string) {
+    setVariants((prev) =>
+      prev.map((v) =>
+        v.rid === rid ? { ...v, expanded: !v.expanded } : v,
+      ),
+    );
+  }
+
+  const variantsError = useMemo(
+    () => (abEnabled ? validateVariants(variants) : null),
+    [abEnabled, variants],
+  );
+
   function toggleChannel(c: CampaignChannel) {
     setChannels((prev) =>
       prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
@@ -291,7 +498,11 @@ export default function NewCampaignPage() {
     // Issue #985 — block submit when the send window violates the
     // quiet-hour policy. The server schema also rejects this, but
     // catching it client-side prevents a confusing round-trip + toast.
-    !sendWindowError;
+    !sendWindowError &&
+    // SOW M4 piece 5 — A/B variants must be self-consistent (≥2,
+    // unique labels, splits sum to 100). Disabling A/B clears the
+    // error since `variantsError` is null when abEnabled is false.
+    !variantsError;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -301,6 +512,24 @@ export default function NewCampaignPage() {
     try {
       const swStart = timeToMinutes(sendWindowStart);
       const swEnd = timeToMinutes(sendWindowEnd);
+
+      // SOW M4 piece 5 — collapse the UI variants into the wire shape
+      // the dispatcher's parseAbVariants() expects. Strip empty
+      // override strings so the dispatcher's fallback-to-campaign.body
+      // path kicks in cleanly rather than overriding with "".
+      const abVariantsPayload =
+        abEnabled && variants.length > 0
+          ? variants.map((v) => ({
+              id: v.id.trim(),
+              weight: v.weight,
+              ...(v.subjectOverride.trim()
+                ? { subjectOverride: v.subjectOverride.trim() }
+                : {}),
+              ...(v.bodyOverride.trim()
+                ? { bodyOverride: v.bodyOverride.trim() }
+                : {}),
+            }))
+          : null;
 
       const created = await api.post<{
         data: { id: string };
@@ -313,6 +542,7 @@ export default function NewCampaignPage() {
         audienceId,
         sendWindowStart: swStart,
         sendWindowEnd: swEnd,
+        abVariants: abVariantsPayload,
       });
       toast.success("Campaign created");
       router.push(`/dashboard/campaigns/${created.data.id}`);
@@ -562,6 +792,260 @@ export default function NewCampaignPage() {
               Send window must be within 09:00–21:00 IST (quiet hours after 21:00).
             </p>
           </div>
+        </section>
+
+        {/* ── A/B variants (optional) ─────────────────────────── */}
+        {/* SOW M4 piece 5 — variant body / subject overrides + split
+            percentages. Backend (parseAbVariants in
+            campaign-dispatcher.ts) does weighted-random per recipient
+            and stamps CampaignSend.variantId for attribution. */}
+        <section
+          className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+          data-testid="campaign-ab-section"
+        >
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <FlaskConical className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+              <h2 className="text-lg font-semibold">
+                A/B variants{" "}
+                <span className="text-xs font-normal text-gray-400">
+                  (optional)
+                </span>
+              </h2>
+            </div>
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={abEnabled}
+                onChange={(e) =>
+                  e.target.checked ? enableAb() : disableAb()
+                }
+                data-testid="campaign-ab-toggle"
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <span className="text-gray-700 dark:text-gray-300">
+                Enable A/B testing
+              </span>
+            </label>
+          </div>
+
+          {!abEnabled ? (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Test variations of the message — different subject lines, body
+              copy, or both. The dispatcher will weighted-randomly pick a
+              variant per patient and tag it on the delivery row so you can
+              measure conversion per variant later.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Splits must add up to 100%. Empty subject / body overrides
+                fall back to the campaign&apos;s defaults from the section
+                above.
+              </p>
+
+              <ul
+                className="space-y-2"
+                data-testid="campaign-ab-variant-list"
+              >
+                {variants.map((v, idx) => (
+                  <li
+                    key={v.rid}
+                    data-testid="campaign-ab-variant-row"
+                    className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Expand / collapse */}
+                      <button
+                        type="button"
+                        onClick={() => toggleVariantExpanded(v.rid)}
+                        aria-label={
+                          v.expanded
+                            ? "Collapse variant overrides"
+                            : "Expand variant overrides"
+                        }
+                        className="rounded p-1 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700"
+                        data-testid={`campaign-ab-expand-${idx}`}
+                      >
+                        {v.expanded ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </button>
+
+                      {/* Label */}
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-500">Label</span>
+                        <input
+                          type="text"
+                          value={v.id}
+                          maxLength={40}
+                          onChange={(e) =>
+                            updateVariantLabel(v.rid, e.target.value)
+                          }
+                          aria-label={`Variant ${idx + 1} label`}
+                          className="w-16 rounded border border-gray-300 px-2 py-1 text-center text-sm font-semibold uppercase dark:border-gray-600 dark:bg-gray-900"
+                          data-testid={`campaign-ab-label-${idx}`}
+                        />
+                      </div>
+
+                      {/* Split slider + number */}
+                      <div className="flex flex-1 items-center gap-2 min-w-[200px]">
+                        <span className="text-xs text-gray-500">Split</span>
+                        <input
+                          type="range"
+                          min={1}
+                          max={99}
+                          value={v.weight}
+                          onChange={(e) =>
+                            updateVariantWeight(v.rid, Number(e.target.value))
+                          }
+                          aria-label={`Variant ${idx + 1} split percentage`}
+                          className="flex-1 accent-indigo-600"
+                          data-testid={`campaign-ab-slider-${idx}`}
+                        />
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={v.weight}
+                            onChange={(e) =>
+                              updateVariantWeight(
+                                v.rid,
+                                Number(e.target.value),
+                              )
+                            }
+                            aria-label={`Variant ${idx + 1} split percentage`}
+                            className="w-16 rounded border border-gray-300 px-2 py-1 pr-5 text-right text-sm dark:border-gray-600 dark:bg-gray-900"
+                            data-testid={`campaign-ab-weight-${idx}`}
+                          />
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+                            %
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Remove */}
+                      <button
+                        type="button"
+                        onClick={() => removeVariant(v.rid)}
+                        disabled={variants.length <= 2}
+                        aria-label={`Remove variant ${v.id}`}
+                        title={
+                          variants.length <= 2
+                            ? "Need at least 2 variants for A/B"
+                            : "Remove this variant"
+                        }
+                        className="rounded p-1 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-950/30"
+                        data-testid={`campaign-ab-remove-${idx}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {/* Per-variant overrides */}
+                    {v.expanded ? (
+                      <div className="mt-3 grid gap-3 border-t border-gray-200 pt-3 dark:border-gray-700">
+                        <div>
+                          <label
+                            htmlFor={`ab-subject-${v.rid}`}
+                            className="block text-xs font-medium text-gray-700 dark:text-gray-300"
+                          >
+                            Subject override{" "}
+                            <span className="text-gray-400">(Email only)</span>
+                          </label>
+                          <input
+                            id={`ab-subject-${v.rid}`}
+                            type="text"
+                            value={v.subjectOverride}
+                            maxLength={255}
+                            onChange={(e) =>
+                              updateVariantField(
+                                v.rid,
+                                "subjectOverride",
+                                e.target.value,
+                              )
+                            }
+                            placeholder={
+                              subject ||
+                              "Leave blank to use the campaign subject above"
+                            }
+                            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900"
+                            data-testid={`campaign-ab-subject-${idx}`}
+                          />
+                        </div>
+                        <div>
+                          <label
+                            htmlFor={`ab-body-${v.rid}`}
+                            className="block text-xs font-medium text-gray-700 dark:text-gray-300"
+                          >
+                            Body override
+                          </label>
+                          <textarea
+                            id={`ab-body-${v.rid}`}
+                            value={v.bodyOverride}
+                            maxLength={8000}
+                            rows={3}
+                            onChange={(e) =>
+                              updateVariantField(
+                                v.rid,
+                                "bodyOverride",
+                                e.target.value,
+                              )
+                            }
+                            placeholder={
+                              body ||
+                              "Leave blank to use the campaign body above"
+                            }
+                            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm dark:border-gray-600 dark:bg-gray-900"
+                            data-testid={`campaign-ab-body-${idx}`}
+                          />
+                          <p className="mt-1 text-[11px] text-gray-500">
+                            {v.bodyOverride.length} / 8000
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={addVariant}
+                  disabled={variants.length >= 10}
+                  className="flex h-9 items-center gap-1 rounded-lg border border-gray-300 px-3 text-xs hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800"
+                  data-testid="campaign-ab-add"
+                >
+                  <Plus className="h-3 w-3" /> Add variant
+                  {variants.length >= 10 ? " (max 10)" : ""}
+                </button>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    variants.reduce((s, v) => s + v.weight, 0) === 100
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                  }`}
+                  data-testid="campaign-ab-sum"
+                >
+                  Total split: {variants.reduce((s, v) => s + v.weight, 0)}%
+                </span>
+              </div>
+
+              {variantsError ? (
+                <p
+                  role="alert"
+                  data-testid="campaign-ab-error"
+                  className="rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                >
+                  {variantsError}
+                </p>
+              ) : null}
+            </div>
+          )}
         </section>
 
         {/* ── Audience builder ────────────────────────────────── */}

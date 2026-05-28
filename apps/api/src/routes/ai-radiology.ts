@@ -375,6 +375,63 @@ aiRadiologyRouter.get(
   }
 );
 
+// ── GET /patient/:patientId ───────────────────────────────────────────────────
+// Patient-scoped feed: every radiology study for this patient along with its
+// report (when one exists). Powers the "Radiology" tab on the patient-detail
+// page so any future doctor can see prior imaging + approved interpretations
+// without trawling the global pending-review queue.
+//
+// Static path placed before `/:reportId/...` so Express matching is
+// unambiguous. Tenant scoping is automatic via `tenantScopedPrisma` — a
+// caller can never read another tenant's studies.
+
+aiRadiologyRouter.get(
+  "/patient/:patientId",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { patientId } = req.params;
+
+      // Resolve `patientId` the same way POST /studies does — accept either
+      // the internal UUID or the MR-number — so callers can hit this with
+      // whichever id they already hold.
+      const isMrNumberShape = /^MRN?[-_]/i.test(patientId);
+      let patient = isMrNumberShape
+        ? await prisma.patient.findFirst({ where: { mrNumber: patientId } })
+        : await prisma.patient.findUnique({ where: { id: patientId } });
+      if (!patient && isMrNumberShape) {
+        patient = await prisma.patient.findUnique({ where: { id: patientId } });
+      }
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+
+      const studies = await prisma.radiologyStudy.findMany({
+        where: { patientId: patient.id },
+        orderBy: { studyDate: "desc" },
+        include: { report: true },
+        take: 100,
+      });
+
+      const studiesWithUrls = await Promise.all(
+        studies.map(async (s) => ({
+          ...s,
+          images: await attachSignedUrls(req, s.images),
+        })),
+      );
+
+      safeAudit(req, "RADIOLOGY_PATIENT_FEED_READ", "Patient", patient.id, {
+        studyCount: studies.length,
+      });
+
+      res.json({ success: true, data: studiesWithUrls, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // ── POST /:reportId/approve ───────────────────────────────────────────────────
 // HITL approval. Moves DRAFT / RADIOLOGIST_REVIEW → FINAL.
 

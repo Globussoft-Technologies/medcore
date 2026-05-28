@@ -29,6 +29,10 @@ let currentParamId: string = "inv1";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: routerPush, replace: vi.fn() }),
   useParams: () => ({ id: currentParamId }),
+  // Some imports on the detail page (or its shared layout) reach for
+  // useSearchParams; tests don't drive any query state, so a stub
+  // returning null for every key is sufficient.
+  useSearchParams: () => ({ get: () => null }),
 }));
 
 const routerPush = vi.fn();
@@ -156,7 +160,7 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
       ).toHaveTextContent(/Issued/);
     });
     expect(
-      screen.getByTestId("platform-billing-mark-paid-inv1"),
+      screen.getByTestId("platform-billing-invoice-record"),
     ).toBeInTheDocument();
     expect(
       screen.queryByTestId("platform-billing-invoice-paid-banner"),
@@ -178,7 +182,7 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
       ).toHaveTextContent(/RZP-PAID-001/);
     });
     expect(
-      screen.queryByTestId("platform-billing-mark-paid-inv1"),
+      screen.queryByTestId("platform-billing-invoice-record"),
     ).toBeNull();
     expect(
       screen.getByTestId("platform-billing-invoice-payment-ref"),
@@ -197,7 +201,7 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
       ).toHaveTextContent(/Draft/);
     });
     expect(
-      screen.queryByTestId("platform-billing-mark-paid-inv1"),
+      screen.queryByTestId("platform-billing-invoice-record"),
     ).toBeNull();
   });
 
@@ -272,10 +276,10 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
     render(<PlatformInvoiceDetailPage />);
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv1"),
+        screen.getByTestId("platform-billing-invoice-record"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("platform-billing-mark-paid-inv1"));
+    fireEvent.click(screen.getByTestId("platform-billing-invoice-record"));
     expect(
       screen.getByTestId("platform-billing-mark-paid-modal"),
     ).toBeInTheDocument();
@@ -294,10 +298,10 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
     render(<PlatformInvoiceDetailPage />);
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv1"),
+        screen.getByTestId("platform-billing-invoice-record"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("platform-billing-mark-paid-inv1"));
+    fireEvent.click(screen.getByTestId("platform-billing-invoice-record"));
     fireEvent.change(
       screen.getByTestId("platform-billing-payment-reference-input"),
       { target: { value: "RZP-OK-12345" } },
@@ -356,10 +360,10 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
     render(<PlatformInvoiceDetailPage />);
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv1"),
+        screen.getByTestId("platform-billing-invoice-record"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("platform-billing-mark-paid-inv1"));
+    fireEvent.click(screen.getByTestId("platform-billing-invoice-record"));
     fireEvent.change(
       screen.getByTestId("platform-billing-payment-reference-input"),
       { target: { value: "BAD-REF" } },
@@ -389,10 +393,10 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
     render(<PlatformInvoiceDetailPage />);
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv1"),
+        screen.getByTestId("platform-billing-invoice-record"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("platform-billing-mark-paid-inv1"));
+    fireEvent.click(screen.getByTestId("platform-billing-invoice-record"));
     expect(
       screen.getByTestId("platform-billing-mark-paid-modal"),
     ).toBeInTheDocument();
@@ -407,10 +411,10 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
     render(<PlatformInvoiceDetailPage />);
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv1"),
+        screen.getByTestId("platform-billing-invoice-record"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("platform-billing-mark-paid-inv1"));
+    fireEvent.click(screen.getByTestId("platform-billing-invoice-record"));
     fireEvent.click(screen.getByTestId("platform-billing-mark-paid-cancel"));
     expect(
       screen.queryByTestId("platform-billing-mark-paid-modal"),
@@ -431,16 +435,16 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
     render(<PlatformInvoiceDetailPage />);
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv1"),
+        screen.getByTestId("platform-billing-invoice-record"),
       ).toBeInTheDocument();
     });
     expect(
       screen.getByTestId("platform-billing-invoice-back").className,
     ).toMatch(/h-11/);
     expect(
-      screen.getByTestId("platform-billing-mark-paid-inv1").className,
+      screen.getByTestId("platform-billing-invoice-record").className,
     ).toMatch(/h-11/);
-    fireEvent.click(screen.getByTestId("platform-billing-mark-paid-inv1"));
+    fireEvent.click(screen.getByTestId("platform-billing-invoice-record"));
     expect(
       screen.getByTestId("platform-billing-mark-paid-cancel").className,
     ).toMatch(/h-11/);

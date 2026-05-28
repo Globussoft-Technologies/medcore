@@ -47,7 +47,16 @@ export async function resetDB() {
     }
   );
 
-  // Seed minimal admin user
+  // Seed minimal admin user. The seed admin is flagged
+  // `isMainSuperAdmin: true` so the post-2026-05 login policy treats it
+  // as the root operator (cross-tenant ADMIN, no tenantId) and exempts
+  // it from mandatory TOTP. Tests that explicitly want to exercise the
+  // TOTP-enforcement path (e.g. `auth-mandatory-totp.test.ts`) update
+  // the row at runtime — pinning the user onto a tenant routes login
+  // down the tenant-bound branch where `Tenant.requireAdminTOTP`
+  // becomes the gate, leaving the main flag irrelevant. Without this
+  // flag the seed admin would be a peer super-admin under the new
+  // policy and every plain `/auth/login` would return 412.
   const prisma = await getPrisma();
   await prisma.user.create({
     data: {
@@ -56,6 +65,7 @@ export async function resetDB() {
       phone: "9999999999",
       passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
       role: "ADMIN",
+      isMainSuperAdmin: true,
     },
   });
 }

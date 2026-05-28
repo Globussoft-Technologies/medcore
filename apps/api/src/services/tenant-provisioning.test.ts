@@ -247,7 +247,15 @@ describe("createTenant — Pearl-billing auto-provisioning", () => {
   const BASE_PARAMS = {
     name: "Sunrise Hospital",
     subdomain: "sunrise",
-    plan: "PRO" as any, // legacy TenantPlan (BASIC/PRO/ENTERPRISE) — unrelated to the new Plan enum
+    // Legacy TenantPlan now drives the new Plan enum via planFromLegacy()
+    // in tenant-provisioning.ts:
+    //   BASIC → STARTER, PRO → GROWTH, ENTERPRISE → ENTERPRISE.
+    // The base fixture below uses BASIC so the default (no explicit
+    // initialPlan) lands on STARTER — which is what every assertion
+    // in this describe block relies on. The PRO→GROWTH and
+    // ENTERPRISE→ENTERPRISE branches are covered by the explicit
+    // `initialPlan` overrides in the tests further down.
+    plan: "BASIC" as any,
     adminEmail: "admin@sunrise.test",
     adminPassword: "S3cure-pass-2026!",
     adminName: "Admin User",

@@ -14,6 +14,9 @@
 
 import fs from "fs";
 import path from "path";
+// `sharp` is loaded lazily inside `overlayCoordinateGrid` so an environment
+// without the optional native binary still boots — we just fall back to
+// the raw image without a grid in that case.
 import type {
   RadiologyStudy,
   RadiologyReport,
@@ -63,6 +66,88 @@ const MAX_VISION_IMAGES_PER_STUDY = 4;
 const VISION_SUPPORTED_MIME = /^image\/(webp|png|jpeg|gif)$/i;
 
 /**
+ * Burn a 10×10 normalised coordinate grid + axis labels onto the image
+ * before sending it to the vision model. The model reads the labels off
+ * the pixels and emits boxes anchored to grid cells — empirically this
+ * cuts mis-localised boxes substantially vs. a bare image, because the
+ * AI no longer has to "imagine" where (0.4, 0.3) sits.
+ *
+ * Layout:
+ *   - 10 vertical lines at x = 0.0, 0.1, … 1.0
+ *   - 10 horizontal lines at y = 0.0, 0.1, … 1.0
+ *   - Top edge labels: "0.0", "0.1", … "0.9" above each vertical line
+ *   - Left edge labels: same, to the left of each horizontal line
+ *   - Lines are faint yellow @ 30% alpha so the diagnostic detail under
+ *     the grid is still readable for the model.
+ *
+ * Failure modes (all non-fatal — fall back to the raw image):
+ *   - sharp not installed / native binary missing
+ *   - Image bytes not a recognised format
+ *   - Any sharp pipeline error
+ */
+async function overlayCoordinateGrid(
+  bytes: Buffer,
+  mime: string,
+): Promise<{ bytes: Buffer; mime: string }> {
+  try {
+    // Lazy require so a missing optional dep doesn't crash module load.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sharp = require("sharp") as typeof import("sharp");
+    const img = sharp(bytes);
+    const meta = await img.metadata();
+    const width = meta.width ?? 0;
+    const height = meta.height ?? 0;
+    if (!width || !height) return { bytes, mime };
+
+    // Build SVG overlay. Stroke width scales with image so the grid is
+    // visible on both tiny and large studies. Font size also scales.
+    const stroke = Math.max(1, Math.round(Math.min(width, height) / 400));
+    const fontSize = Math.max(10, Math.round(Math.min(width, height) / 60));
+    const labelPad = fontSize + 2;
+    const lines: string[] = [];
+    for (let i = 0; i <= 10; i++) {
+      const f = i / 10;
+      const x = Math.round(f * width);
+      const y = Math.round(f * height);
+      // Vertical grid line
+      lines.push(
+        `<line x1="${x}" y1="0" x2="${x}" y2="${height}" stroke="yellow" stroke-opacity="0.30" stroke-width="${stroke}" />`,
+      );
+      // Horizontal grid line
+      lines.push(
+        `<line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="yellow" stroke-opacity="0.30" stroke-width="${stroke}" />`,
+      );
+      // Axis label at the top — slightly inset so f=1.0 doesn't clip
+      const lbl = f.toFixed(1);
+      const xLbl = i === 10 ? width - labelPad : x + 2;
+      lines.push(
+        `<text x="${xLbl}" y="${fontSize + 2}" font-family="monospace" font-size="${fontSize}" fill="yellow" fill-opacity="0.9" stroke="black" stroke-width="0.5">${lbl}</text>`,
+      );
+      // Axis label at the left
+      const yLbl = i === 10 ? height - 4 : y + fontSize + 2;
+      lines.push(
+        `<text x="2" y="${yLbl}" font-family="monospace" font-size="${fontSize}" fill="yellow" fill-opacity="0.9" stroke="black" stroke-width="0.5">${lbl}</text>`,
+      );
+    }
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${lines.join("")}</svg>`;
+
+    // Composite the SVG onto the image, then re-encode as PNG (lossless —
+    // keeps the radiological detail intact for the model).
+    const out = await img
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .png()
+      .toBuffer();
+    return { bytes: out, mime: "image/png" };
+  } catch (err) {
+    console.warn(
+      "[radiology] grid overlay failed (non-fatal, sending raw image):",
+      (err as Error)?.message ?? err,
+    );
+    return { bytes, mime };
+  }
+}
+
+/**
  * Load up to MAX_VISION_IMAGES_PER_STUDY image refs from local storage and
  * return them as base64 data URLs ready for OpenAI's vision API. DICOM and
  * any file that can't be resolved are silently skipped — the caller still
@@ -75,9 +160,9 @@ const VISION_SUPPORTED_MIME = /^image\/(webp|png|jpeg|gif)$/i;
  *   - Caps total bytes loaded per study at ~16MB so a study with four 5MB
  *     images can't blow the LLM request size limit.
  */
-function loadImagesForVision(
+async function loadImagesForVision(
   refs: RadiologyImageRef[] | undefined,
-): Array<{ dataUrl: string; mime: string }> {
+): Promise<Array<{ dataUrl: string; mime: string }>> {
   if (!Array.isArray(refs) || refs.length === 0) return [];
   const out: Array<{ dataUrl: string; mime: string }> = [];
   let bytesUsed = 0;
@@ -106,9 +191,17 @@ function loadImagesForVision(
       const mime = VISION_SUPPORTED_MIME.test(ct) ? ct : fromExt;
       if (!mime) continue;
 
-      const b64 = buf.toString("base64");
-      out.push({ dataUrl: `data:${mime};base64,${b64}`, mime });
-      bytesUsed += buf.length;
+      // Burn a 10×10 normalised coordinate grid + axis labels onto the
+      // image. The vision model reads the labels off the pixels and emits
+      // far more accurate (x, y, w, h) values — this is the single biggest
+      // lever on bounding-box accuracy for general LLMs.
+      const overlaid = await overlayCoordinateGrid(buf, mime);
+      bytesUsed += overlaid.bytes.length;
+      const b64 = overlaid.bytes.toString("base64");
+      out.push({
+        dataUrl: `data:${overlaid.mime};base64,${b64}`,
+        mime: overlaid.mime,
+      });
     } catch (err) {
       console.warn(
         "[radiology] failed to load image for vision:",
@@ -377,10 +470,165 @@ CRITICAL RULES (must follow):
    "Repeat radiograph post-reduction"). Generic "follow up clinically" is
    not acceptable for acute findings.
 5. Recommendations are concrete next steps for the ordering clinician.
-6. The 'region' bounding box on each finding is OPTIONAL. When you set it,
-   estimate x/y/w/h as normalised coordinates (0..1) on the FIRST image
-   provided. Be honest that this is approximate — radiology overlay is
-   used for screen-pointing, not pixel-accurate measurement.
+6. BOUNDING BOXES — draw them like a human radiologist would, one per
+   defect, tightly hugging the abnormality. Think of how a teaching atlas
+   draws a colored box around the finding: it covers the defect with a
+   small margin and NOTHING else. Your boxes must match that quality.
+
+   For EVERY visible defect (fracture line, lucency, opacity, mass,
+   foreign body, dislocation, soft-tissue wound, free air, effusion,
+   pneumothorax, joint subluxation, etc.) emit a SEPARATE finding object
+   with its OWN 'region'. Two defects = two findings = two boxes. Never
+   merge two defects into one box.
+
+   Coordinate system (read carefully — this is the #1 source of error):
+   - Origin (0, 0) is the TOP-LEFT pixel of the image.
+   - Point  (1, 1) is the BOTTOM-RIGHT pixel.
+   - x increases to the RIGHT. y increases DOWNWARD.
+   - x = horizontal offset of the box's LEFT edge.
+   - y = vertical   offset of the box's TOP  edge.
+   - w = box width  as a fraction of the full image width.
+   - h = box height as a fraction of the full image height.
+   - HARD CONSTRAINTS: 0 ≤ x ≤ 1, 0 ≤ y ≤ 1, x + w ≤ 1, y + h ≤ 1.
+   - Coordinates apply to the FIRST image provided. If the defect is only
+     visible on a non-first image, omit the region (do NOT guess a box on
+     the first image).
+
+   COORDINATE GRID OVERLAY (use this — it is your ground truth):
+   - The first image has a faint YELLOW 10×10 grid burned onto it, with
+     numeric labels "0.0", "0.1", "0.2", … "1.0" along the TOP edge
+     (x-axis) and along the LEFT edge (y-axis).
+   - Use the grid to READ the defect's coordinates directly off the image.
+     Do NOT estimate from anatomy — look at which yellow labels the defect
+     sits between.
+   - Procedure:
+       1. Find the defect on the image.
+       2. Read the x-label JUST LEFT of the defect's left edge   → that's x.
+       3. Read the y-label JUST ABOVE the defect's top edge      → that's y.
+       4. Read the x-label JUST RIGHT of the defect's right edge → call it x2.
+       5. Read the y-label JUST BELOW the defect's bottom edge   → call it y2.
+       6. Set w = x2 - x  and  h = y2 - y.
+   - The grid is the primary signal. Trust the yellow labels over any
+     anatomical intuition. If the grid says the defect is at x=0.45, the
+     correct answer is 0.45 — not 0.30, not 0.60.
+
+   Localisation procedure (follow this every time):
+   a. Identify the defect's CENTER on the image — call it (cx, cy) in
+      0..1 image fractions.
+   b. Measure the defect's extent: how wide (dw) and how tall (dh) is
+      the defect itself, as image fractions?
+   c. Pad by ~10% on each side: w = dw * 1.2, h = dh * 1.2.
+   d. Compute the top-left corner: x = cx - w/2, y = cy - h/2.
+   e. Clamp into [0,1] so the box stays inside the image.
+
+   Sizing sanity (the box must HUG the defect, not the region of anatomy):
+   - Fracture line on a finger / small bone: w and h typically 0.04–0.12.
+   - Focal mass / lytic lesion: square-ish, sized to the lesion itself.
+   - Open wound / soft-tissue defect: box around the visible disruption,
+     NOT the whole finger or limb.
+   - Pneumothorax / effusion: box the abnormal lucency / fluid line only.
+   - A box larger than 35% of either image dimension (w > 0.35 OR
+     h > 0.35) is almost certainly wrong — re-measure and shrink, unless
+     the defect genuinely spans that much of the image.
+   - A box that contains mostly normal anatomy with the defect in one
+     corner is wrong — recenter on the defect.
+
+   Per-finding label:
+   - Set 'region.label' to a SHORT noun phrase naming the defect
+     ("Closed fracture", "Open skin wound", "Lytic lesion",
+     "Pneumothorax", "Dislocation"). Maximum 4 words. This is what the
+     radiologist sees on the overlay tooltip.
+
+   Worked example (hand X-ray with a fracture AND an adjacent open wound):
+   - Image shows a transverse fracture of the middle phalanx AND a
+     soft-tissue wound along the lateral aspect of the SAME or an
+     ADJACENT finger.
+   - Because the soft-tissue defect lies next to the fracture, you must
+     NOT label the fracture as "closed". The correct clinical phrasing is
+     "concerning for open fracture" (or "open fracture" if communication
+     is unambiguous on the image — see clinical-reasoning rule 7 below).
+   - Correct output: TWO findings, TWO regions.
+       finding[0]: description "Displaced transverse fracture of the
+                   middle phalanx. Adjacent lateral soft-tissue
+                   disruption is concerning for open fracture.",
+                   confidence: "high",
+                   suggestedFollowUp: "Orthopaedic consultation and
+                                       immobilisation; assess for open
+                                       fracture; consider infection
+                                       prophylaxis",
+                   region { x: 0.42, y: 0.30, w: 0.10, h: 0.12,
+                            label: "Fracture (?open)" }
+       finding[1]: description "Open soft-tissue wound on the lateral
+                   aspect with disruption of the skin contour, lying
+                   adjacent to the fracture site (see finding 1).",
+                   confidence: "high",
+                   suggestedFollowUp: "Surgical/wound evaluation; tetanus
+                                       and infection prophylaxis as
+                                       clinically indicated",
+                   region { x: 0.70, y: 0.38, w: 0.12, h: 0.14,
+                            label: "Open wound" }
+   - WRONG output (do NOT do this):
+       * Calling the bony injury "closed fracture" when a soft-tissue
+         wound sits adjacent on the same image. That is a clinical
+         contradiction and a safety bug.
+       * One finding with a giant box covering both defects.
+       * One finding with a box on the WRONG anatomy.
+       * Two findings but both with the same coordinates.
+
+   Self-check before emitting EVERY finding:
+   1. Did I count the defects? Emit exactly that many findings with regions.
+   2. Is the box anchored from the TOP-LEFT corner of the image (not centre,
+      not bottom-left)?
+   3. Do x + w ≤ 1 and y + h ≤ 1?
+   4. Does the box HUG the defect with ~10% padding, not engulf the anatomy?
+   5. Does the label name the defect, not the body part?
+   If any answer is no, FIX the coordinates before emitting. Do not emit a
+   region you are not confident about — better to omit it than to point at
+   the wrong place.
+
+7. CLINICAL CONSISTENCY — relate findings to each other before emitting.
+   After you have listed all the visible defects, re-read the list and ask:
+   "Do any of these findings interact in a way that changes how I should
+   describe them?" Adjacent findings often imply a single combined
+   diagnosis. Common patterns the report MUST get right:
+
+   a. Fracture + adjacent soft-tissue disruption / open wound on the same
+      bone or finger / limb segment → "OPEN fracture" (NOT closed). If the
+      communication between wound and fracture is not unambiguously
+      visible, use the safer "concerning for open fracture" phrasing. The
+      word "closed" is FORBIDDEN in the same study as a visible adjacent
+      soft-tissue wound.
+
+   b. Fracture + dislocation at the same joint → "fracture-dislocation"
+      (one combined diagnosis), not two unrelated findings.
+
+   c. Lung opacity + pleural effusion + same hemithorax → consider
+      "pneumonia with parapneumonic effusion" rather than two unlinked
+      findings.
+
+   d. Pneumothorax + rib fracture on the same side → relate them: the
+      pneumothorax is likely traumatic from the rib fracture.
+
+   e. Bone lytic lesion + soft-tissue mass adjacent → relate them:
+      "lytic lesion with associated soft-tissue component", suggestive of
+      an aggressive process.
+
+   How to apply:
+   - Each individual finding still gets its own object + region (so the
+     overlay shows each defect).
+   - But the DESCRIPTION text of the related findings must mention the
+     relationship: "lying adjacent to the fracture site (see finding 1)",
+     "concerning for open fracture", "fracture-dislocation", etc.
+   - The IMPRESSION must synthesise the combined diagnosis, not just list
+     the defects. For the fracture + open wound case, the impression
+     should be: "Acute displaced fracture of the <bone> with associated
+     soft-tissue injury, concerning for open fracture. Review with
+     radiologist."
+
+   Safety rationale: a "closed fracture" diagnosis next to an open wound
+   is a clinical contradiction with real management consequences — open
+   fractures need surgical washout and antibiotics within hours. Getting
+   this wrong is a patient-safety bug, not a wording nit.
 
 MODALITY-SPECIFIC CONVENTIONS:
 - XRAY: describe alignment, cortical continuity, fracture lines, joint
@@ -437,13 +685,44 @@ const TOOL_SCHEMA = {
           suggestedFollowUp: { type: "string" },
           region: {
             type: "object",
+            description:
+              "Tight bounding box around ONE visible defect on the FIRST image. Coordinates are normalised image fractions in [0,1]. Origin (0,0) is the TOP-LEFT pixel. Must satisfy x+w ≤ 1 and y+h ≤ 1. The box must HUG the defect (≈10% padding), not engulf the surrounding anatomy. Emit a SEPARATE finding+region per defect; never merge.",
             properties: {
-              x: { type: "number" },
-              y: { type: "number" },
-              w: { type: "number" },
-              h: { type: "number" },
-              label: { type: "string" },
+              x: {
+                type: "number",
+                description:
+                  "Left edge of the box as a fraction of image width. 0 = image's left edge, 1 = image's right edge.",
+                minimum: 0,
+                maximum: 1,
+              },
+              y: {
+                type: "number",
+                description:
+                  "Top edge of the box as a fraction of image height. 0 = image's top edge, 1 = image's bottom edge. y increases DOWNWARD.",
+                minimum: 0,
+                maximum: 1,
+              },
+              w: {
+                type: "number",
+                description:
+                  "Box width as a fraction of image width. Typical defect: 0.04–0.20. A value > 0.35 is almost always wrong.",
+                minimum: 0,
+                maximum: 1,
+              },
+              h: {
+                type: "number",
+                description:
+                  "Box height as a fraction of image height. Typical defect: 0.04–0.20. A value > 0.35 is almost always wrong.",
+                minimum: 0,
+                maximum: 1,
+              },
+              label: {
+                type: "string",
+                description:
+                  "Short noun phrase naming the defect (max 4 words). Examples: 'Closed fracture', 'Open skin wound', 'Lytic lesion', 'Pneumothorax'.",
+              },
             },
+            required: ["x", "y", "w", "h"],
           },
         },
         required: ["description", "confidence"],
@@ -696,7 +975,9 @@ End the impression with "Review with radiologist".`;
   // we have at least one image, route directly to OpenAI's vision model —
   // Sarvam currently has no vision endpoint, so it is skipped for this
   // request only. Other AI features keep using Sarvam-first as before.
-  const visionImages = loadImagesForVision(opts.images);
+  // `loadImagesForVision` is async because it burns a coordinate grid
+  // overlay onto each image (sharp pipeline) for better localisation.
+  const visionImages = await loadImagesForVision(opts.images);
   const useVision = visionImages.length > 0;
 
   // Build the user-message content. Text-only path keeps a plain string.
@@ -717,7 +998,11 @@ End the impression with "Review with radiologist".`;
   //    can't read images.
   //  - Text-only: Sarvam → OpenAI fallback as before.
   const providers: ModelProvider[] = useVision ? ["openai"] : ["sarvam", "openai"];
-  const visionModel = "gpt-4o";
+  // Vision model is the strongest image-capable OpenAI model. `gpt-4o` is
+  // the default; ops can override via OPENAI_VISION_MODEL when a newer /
+  // better localiser becomes available (e.g. `gpt-4o-2024-11-20`) without
+  // a code change.
+  const visionModel = process.env.OPENAI_VISION_MODEL || "gpt-4o";
 
   const t0 = Date.now();
   try {
@@ -729,7 +1014,10 @@ End the impression with "Review with radiologist".`;
         return client.chat.completions.create({
           model,
           max_tokens: 1500,
-          temperature: 0.2,
+          // Vision needs deterministic localisation — temperature 0 stops
+          // the model from "creatively" re-centring boxes. Text-only path
+          // keeps 0.2 for slight phrasing variety in the impression.
+          temperature: useVision ? 0 : 0.2,
           tools: [
             {
               type: "function",

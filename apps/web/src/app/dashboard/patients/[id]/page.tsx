@@ -36,6 +36,7 @@ import {
   Stethoscope,
   BedDouble,
   FlaskConical,
+  ScanLine,
   Scissors,
   Siren,
   TrendingUp,
@@ -346,6 +347,7 @@ type TabKey =
   | "vitals"
   | "billing"
   | "labs"
+  | "radiology"
   | "documents";
 
 export default function PatientDetailPage() {
@@ -572,6 +574,7 @@ export default function PatientDetailPage() {
     { key: "vitals", label: "Vitals Trends", icon: <TrendingUp size={14} /> },
     { key: "billing", label: "Billing", icon: <Receipt size={14} /> },
     { key: "labs", label: "Lab Results", icon: <FlaskConical size={14} /> },
+    { key: "radiology", label: "Radiology", icon: <ScanLine size={14} /> },
     { key: "documents", label: "Documents", icon: <FolderOpen size={14} /> },
   ];
 
@@ -1229,6 +1232,7 @@ export default function PatientDetailPage() {
       {tab === "vitals" && <VitalsTrendsTab patientId={id} />}
       {tab === "billing" && <BillingTab patientId={id} />}
       {tab === "labs" && <LabResultsTab patientId={id} />}
+      {tab === "radiology" && <RadiologyTab patientId={id} />}
       {tab === "documents" && <DocumentsTab patientId={id} canEdit={canEdit} />}
 
       {/* Quick action modals */}
@@ -2446,6 +2450,211 @@ function LabResultsTab({ patientId }: { patientId: string }) {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────
+// Radiology Tab — prior imaging + approved AI/radiologist reports
+// ───────────────────────────────────────────────────────
+//
+// Reads `GET /ai-radiology/patient/:patientId` which returns every study
+// for the patient (DESC by studyDate) with its report (when one exists).
+// Studies with a FINAL/AMENDED report are the "approved" set the doctor
+// can rely on; DRAFT/RADIOLOGIST_REVIEW rows are surfaced too so the
+// reading workflow is visible from here.
+
+interface RadiologyTabImage {
+  key: string;
+  filename?: string;
+  contentType?: string;
+  signedUrl?: string;
+}
+
+interface RadiologyTabReport {
+  id: string;
+  status: "DRAFT" | "RADIOLOGIST_REVIEW" | "FINAL" | "AMENDED";
+  aiImpression: string | null;
+  finalReport: string | null;
+  finalImpression: string | null;
+  approvedAt: string | null;
+}
+
+interface RadiologyTabStudy {
+  id: string;
+  modality: string;
+  bodyPart: string;
+  studyDate: string;
+  notes: string | null;
+  images: RadiologyTabImage[] | null;
+  report: RadiologyTabReport | null;
+}
+
+function RadiologyTab({ patientId }: { patientId: string }) {
+  const [studies, setStudies] = useState<RadiologyTabStudy[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await api.get<{ data: RadiologyTabStudy[] }>(
+          `/ai/radiology/patient/${patientId}`,
+        );
+        setStudies(res.data ?? []);
+      } catch (err) {
+        // Surface the failure instead of swallowing it as empty-state —
+        // a 404 / 403 / network error otherwise looked identical to "no
+        // studies yet" and made the tab impossible to debug.
+        const msg =
+          (err as { message?: string })?.message ??
+          (typeof err === "string" ? err : "Failed to load radiology");
+        setError(msg);
+        // Also log the full error object to the console so the dev tools
+        // network tab + this message line up.
+        console.error("[RadiologyTab] fetch failed:", err);
+      }
+      setLoading(false);
+    })();
+  }, [patientId]);
+
+  if (loading) {
+    return (
+      <div className="p-6 text-gray-500 dark:text-gray-400">
+        Loading radiology...
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200">
+        <p className="font-medium">Could not load radiology studies.</p>
+        <p className="mt-1 font-mono text-xs">{error}</p>
+        <p className="mt-2 text-xs text-red-600 dark:text-red-300">
+          Patient id used: <code>{patientId}</code>. Check the API/network tab for the underlying response.
+        </p>
+      </div>
+    );
+  }
+  if (studies.length === 0) {
+    return (
+      <div className="rounded-xl bg-white p-8 text-center shadow-sm dark:bg-gray-800">
+        <p className="text-gray-400 dark:text-gray-500">No radiology studies yet</p>
+        <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+          Patient id: <code>{patientId}</code>
+        </p>
+      </div>
+    );
+  }
+
+  function toggle(id: string) {
+    setExpanded((e) => ({ ...e, [id]: !e[id] }));
+  }
+
+  return (
+    <div className="space-y-3">
+      {studies.map((s) => {
+        // Default the most-recent study open; everything older collapsed.
+        const isOpen = expanded[s.id] ?? s === studies[0];
+        const status = s.report?.status ?? "NO_REPORT";
+        const previewUrl = s.images?.[0]?.signedUrl ?? null;
+        // FINAL / AMENDED → the clinician-trusted text. DRAFT → AI text only,
+        // labelled as such so a reader knows it's pre-review.
+        const isApproved = status === "FINAL" || status === "AMENDED";
+        const impression = isApproved
+          ? (s.report?.finalImpression ?? s.report?.aiImpression ?? "")
+          : (s.report?.aiImpression ?? "");
+        const body = isApproved
+          ? (s.report?.finalReport ?? "")
+          : "";
+
+        return (
+          <div key={s.id} className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
+            <button
+              onClick={() => toggle(s.id)}
+              className="flex w-full items-center gap-3 px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40"
+            >
+              {isOpen ? (
+                <ChevronDown size={16} className="text-gray-400" />
+              ) : (
+                <ChevronRight size={16} className="text-gray-400" />
+              )}
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <p className="font-medium text-gray-900 dark:text-gray-100">
+                    {s.modality} · {s.bodyPart}
+                  </p>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                      isApproved
+                        ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200"
+                        : status === "DRAFT" || status === "RADIOLOGIST_REVIEW"
+                          ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200"
+                          : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                    }`}
+                  >
+                    {status === "NO_REPORT" ? "no report" : status.replace(/_/g, " ").toLowerCase()}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+                  {new Date(s.studyDate).toLocaleDateString()}
+                  {s.report?.approvedAt
+                    ? ` · approved ${new Date(s.report.approvedAt).toLocaleDateString()}`
+                    : ""}
+                </p>
+              </div>
+            </button>
+            {isOpen && (
+              <div className="border-t border-gray-200 px-5 py-4 dark:border-white/10">
+                <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
+                  {previewUrl ? (
+                    <img
+                      src={previewUrl}
+                      alt={`${s.modality} ${s.bodyPart}`}
+                      className="h-40 w-full rounded-md bg-black object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-40 w-full items-center justify-center rounded-md bg-gray-100 text-xs text-gray-400 dark:bg-gray-900">
+                      no image
+                    </div>
+                  )}
+                  <div className="space-y-3 text-sm">
+                    {impression && (
+                      <div>
+                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Impression {isApproved ? "" : "(AI draft — pending review)"}
+                        </p>
+                        <p className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
+                          {impression}
+                        </p>
+                      </div>
+                    )}
+                    {body && (
+                      <div>
+                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          Report
+                        </p>
+                        <p className="whitespace-pre-wrap text-gray-800 dark:text-gray-200">
+                          {body}
+                        </p>
+                      </div>
+                    )}
+                    {!impression && !body && (
+                      <p className="text-gray-400 dark:text-gray-500">
+                        Report not yet available.
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>

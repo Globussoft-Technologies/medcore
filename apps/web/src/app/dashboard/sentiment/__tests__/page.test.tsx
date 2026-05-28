@@ -386,6 +386,22 @@ describe("Sentiment Analytics dashboard page (admin/reception only)", () => {
   });
 
   it("colours the NPS value green (>50), yellow (0..50), and red (negative) via the npsColor ladder", async () => {
+    // The KPI tile renders unconditionally with a 0-fallback during the
+    // initial loading shell, so `findByTestId` resolves while the tile
+    // still shows nps=0 → yellow class. Wait for the mocked digit to
+    // appear in the tile text before reading the className, so we
+    // assert against the post-commit state, not the placeholder.
+    async function waitForNpsValue(value: string) {
+      return waitFor(
+        () => {
+          const tile = screen.getByTestId("sentiment-kpi-nps");
+          expect(tile).toHaveTextContent(value);
+          return tile;
+        },
+        { timeout: 3000 },
+      );
+    }
+
     // GREEN — score 75
     wireGet({
       list: [],
@@ -393,7 +409,7 @@ describe("Sentiment Analytics dashboard page (admin/reception only)", () => {
       drivers: null,
     });
     let { unmount } = render(<SentimentAnalyticsPage />);
-    let nps = await screen.findByTestId("sentiment-kpi-nps");
+    let nps = await waitForNpsValue("75");
     expect(nps.querySelector("p.text-3xl")?.className).toMatch(/text-green-700/);
     unmount();
     cleanup();
@@ -405,7 +421,7 @@ describe("Sentiment Analytics dashboard page (admin/reception only)", () => {
       drivers: null,
     });
     ({ unmount } = render(<SentimentAnalyticsPage />));
-    nps = await screen.findByTestId("sentiment-kpi-nps");
+    nps = await waitForNpsValue("25");
     expect(nps.querySelector("p.text-3xl")?.className).toMatch(/text-yellow-700/);
     unmount();
     cleanup();
@@ -417,7 +433,7 @@ describe("Sentiment Analytics dashboard page (admin/reception only)", () => {
       drivers: null,
     });
     render(<SentimentAnalyticsPage />);
-    nps = await screen.findByTestId("sentiment-kpi-nps");
+    nps = await waitForNpsValue("-10");
     expect(nps.querySelector("p.text-3xl")?.className).toMatch(/text-red-700/);
   });
 

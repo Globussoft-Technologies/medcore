@@ -34,6 +34,7 @@ export * from "./abo-compatibility";
 export * from "./validation/security";
 export * from "./feature-flags";
 export * from "./validation/leads";
+export * from "./validation/cohorts";
 export * from "./validation/branch";
 export * from "./validation/campaign";
 export * from "./validation/patient-auth";

@@ -975,7 +975,13 @@ export default function AnalyticsPage() {
   return (
     <div className="analytics-page">
       {/* Print styles */}
-      <style jsx global>{`
+      {/* Global print + dark-mode stylesheet. Was `<style jsx global>` but
+          styled-jsx types aren't in the project's TS config — switched
+          to dangerouslySetInnerHTML which behaves identically (global
+          CSS, static template, no JS interpolation). */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         @media print {
           aside,
           header,
@@ -1069,7 +1075,9 @@ export default function AnalyticsPage() {
         .dark .analytics-page .hover\\:bg-gray-50:hover {
           background-color: #374151 !important;
         }
-      `}</style>
+      `,
+        }}
+      />
 
       {/* Header + filter bar */}
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">

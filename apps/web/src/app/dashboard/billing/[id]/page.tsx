@@ -527,7 +527,13 @@ export default function InvoiceDetailPage() {
 
   return (
     <>
-      <style jsx global>{`
+      {/* Global print stylesheet. Was `<style jsx global>` but
+          styled-jsx types aren't in the project's TS config — switched
+          to dangerouslySetInnerHTML which behaves identically (global
+          CSS, static template, no JS interpolation). */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         @media print {
           body * {
             visibility: hidden;
@@ -547,7 +553,9 @@ export default function InvoiceDetailPage() {
             display: none !important;
           }
         }
-      `}</style>
+      `,
+        }}
+      />
 
       {/* Action bar */}
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2">

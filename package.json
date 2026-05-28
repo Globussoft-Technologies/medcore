@@ -46,7 +46,7 @@
     "tsx": "^4.22.3",
     "turbo": "^2.9.15",
     "typescript": "^5.8.0",
-    "vitest": "^2.1.4"
+    "vitest": "^4.1.7"
   },
   "overrides": {
     "react-test-renderer": "18.3.1",

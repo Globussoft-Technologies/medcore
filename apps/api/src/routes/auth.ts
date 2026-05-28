@@ -14,6 +14,7 @@ import {
   sanitizeUserInput,
   isCommonPassword,
   containsHtmlOrScript,
+  canonicalisePhone,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
@@ -615,7 +616,7 @@ router.post(
   validate(strictRegisterSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, phone, password, address, emergencyContact, dateOfBirth, gender, age } = req.body as {
+      const { email, phone: rawPhone, password, address, emergencyContact, dateOfBirth, gender, age } = req.body as {
         email: string;
         phone: string;
         password: string;
@@ -659,6 +660,18 @@ router.post(
       // verifies the caller is an authenticated ADMIN before honouring a
       // non-PATIENT role; everyone else gets PATIENT.
       const role = resolveRegistrationRole(req, req.body.role);
+
+      // Canonicalise phone for PATIENT self-registration so the value stored
+      // in User.phone matches what /patient-auth/firebase-verify (and the
+      // legacy /otp-verify) look up after Firebase Phone Auth returns the
+      // E.164 number. Without this, a patient who registers with
+      // "+91 9876543210" gets that exact string stored on User.phone, then
+      // the OTP-verify lookup canonicalises Firebase's "+919876543210" to
+      // "9876543210" and finds no row → 401. Staff roles (DOCTOR, NURSE,
+      // ADMIN, …) keep the raw value to avoid touching admin staff-creation
+      // flows that may rely on the as-typed form.
+      const phone =
+        role === Role.PATIENT ? canonicalisePhone(rawPhone) : rawPhone.trim();
 
       // Issue #713: PATIENT self-registration must include address and
       // emergencyContact (phone is required for ALL roles by the schema).

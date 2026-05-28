@@ -762,6 +762,12 @@ model Tenant {
   leads          Lead[]
   leadActivities LeadActivity[]
 
+  // SOW row M4 — care cohorts (named patient groups) + their membership
+  // rows, tenant-scoped so cross-tenant queries can't see another
+  // hospital's cohorts.
+  cohorts       Cohort[]
+  cohortMembers CohortMember[]
+
   // Pearl §7.2 + §8.1 (gap item #2 — piece 1 of 3) — branch model.
   // Per-tenant branches (e.g. MAIN, JKR, BTM); the picker + branch
   // scoping on other tables ships in pieces 2 and 3.
@@ -1178,6 +1184,77 @@ model LeadActivity {
   @@map("lead_activities")
 }
 
+// ─── CARE COHORTS ───────────────────────────────────────
+// Named groups of patients ("Diabetic patients on insulin", "ANC 3rd
+// trimester") so operational workflows — outbound calls, batched
+// reminders, follow-up campaigns, reporting — can target the group
+// instead of re-running a filter every time. The join table is
+// explicit (CohortMember) rather than Prisma's implicit many-to-many
+// so we can add per-membership metadata later (joinedReason, addedBy)
+// without a destructive migration.
+
+model Cohort {
+  id          String  @id @default(uuid())
+  name        String
+  description String?
+
+  // Soft-delete: keep historical references intact (campaign rows that
+  // targeted this cohort, audit log entries) even after the cohort is
+  // retired from the active list. Default null = active.
+  archivedAt DateTime?
+
+  // Optional attribution. Nullable so legacy seed rows + system-created
+  // cohorts don't need a creator. SetNull on user deletion so a departed
+  // staff member's cohorts aren't orphan-deleted.
+  createdByUserId String?
+  createdByUser   User?   @relation("CohortCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  members CohortMember[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([createdByUserId])
+  @@index([archivedAt])
+  @@map("cohorts")
+}
+
+model CohortMember {
+  id        String @id @default(uuid())
+  cohortId  String
+  patientId String
+
+  // Optional free-text annotation visible on the member row (e.g.
+  // "HbA1c > 8.0 — enrolled 2026-05-12 by Dr. Rao"). Keeps the join
+  // table useful for clinical context without overloading the cohort
+  // description itself.
+  note String?
+
+  // Attribution + audit. addedByUserId is nullable for system-added
+  // members (a future filter-rule auto-populator). SetNull on user
+  // deletion so the row survives staff turnover.
+  addedByUserId String?
+  addedByUser   User?   @relation("CohortMemberAddedBy", fields: [addedByUserId], references: [id], onDelete: SetNull)
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  cohort  Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  patient Patient @relation("PatientCohortMemberships", fields: [patientId], references: [id], onDelete: Cascade)
+
+  addedAt DateTime @default(now())
+
+  @@unique([cohortId, patientId])
+  @@index([cohortId])
+  @@index([patientId])
+  @@index([tenantId])
+  @@map("cohort_members")
+}
+
 // ─── USERS & AUTH ───────────────────────────────────────
 
 model User {
@@ -1258,6 +1335,10 @@ model User {
   // Pearl §3.3 (gap item #3) — leads this user owns + activities they've logged.
   leadsAssigned  Lead[]         @relation("LeadAssignedTo")
   leadActivities LeadActivity[] @relation("LeadActivityAuthor")
+
+  // SOW row M4 — cohorts this user created + memberships they've added.
+  cohortsCreated      Cohort[]       @relation("CohortCreatedBy")
+  cohortMembersAdded  CohortMember[] @relation("CohortMemberAddedBy")
 
   // Pearl §5.1 (gap item #4 — piece 1 of 4) — campaigns this user created.
   // Named relation so later pieces (A/B variant assignment, etc.) can add
@@ -1635,6 +1716,10 @@ model Patient {
 
   // Pearl §5.1 (gap item #4 — piece 1 of 4) — per-recipient campaign sends.
   campaignSends CampaignSend[]
+
+  // Care cohorts (SOW row M4 closure) — back-relation for membership in
+  // named patient groups. Many-to-many via the CohortMember join table.
+  cohortMemberships CohortMember[] @relation("PatientCohortMemberships")
 
   @@index([mrNumber])
   @@index([tenantId])

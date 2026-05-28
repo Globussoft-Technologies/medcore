@@ -28,6 +28,7 @@ import { authRouter } from "./routes/auth";
 import { patientAuthRouter } from "./routes/patient-auth";
 import { featureFlagsRouter } from "./routes/feature-flags";
 import { leadRouter } from "./routes/leads";
+import { cohortsRouter } from "./routes/cohorts";
 import { patientRouter } from "./routes/patients";
 // Pearl ERP Stage 1 §2.1.1 (gap row 41) — patient duplicate batch-merge
 // endpoint. Mounted on /api/v1/patients BEFORE patientRouter so Express's
@@ -365,6 +366,7 @@ export function buildApp() {
   app.use("/api/v1/patient-auth", patientAuthRouter);
   app.use("/api/v1/feature-flags", featureFlagsRouter);
   app.use("/api/v1/leads", leadRouter);
+  app.use("/api/v1/cohorts", cohortsRouter);
   // Pearl §2.1.1 gap row 41 — merge router MUST mount before patientRouter
   // so /:keepId/merge resolves to the batch handler (Express matches the
   // first router that defines the path).

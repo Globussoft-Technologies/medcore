@@ -18,6 +18,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { HeartPulse, Shield } from "lucide-react";
 import { PatientServiceWorkerRegistration } from "@/components/PatientServiceWorkerRegistration";
 import { InstallPWAButton } from "@/components/InstallPWAButton";
 import DashboardLayout from "@/app/dashboard/layout";
@@ -26,22 +27,32 @@ function BarePatientShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       data-testid="patient-shell"
-      className="flex min-h-screen flex-col bg-white text-slate-900"
+      className="flex min-h-screen flex-col bg-gradient-to-b from-white via-blue-50/30 to-white text-gray-900 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 dark:text-gray-100"
     >
-      <header className="border-b border-slate-200 px-4 py-3">
-        <div className="mx-auto flex max-w-screen-md items-center justify-between">
+      <header className="sticky top-0 z-30 border-b border-gray-200/80 bg-white/80 backdrop-blur-md dark:border-gray-800/80 dark:bg-gray-950/80">
+        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link
             href="/patient"
-            className="text-lg font-semibold tracking-tight"
+            className="group inline-flex items-center gap-2.5"
             data-testid="patient-shell-brand"
           >
-            Patient Portal
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-emerald-500 text-white shadow-sm shadow-blue-600/20 transition group-hover:shadow-blue-600/30">
+              <HeartPulse className="h-5 w-5" />
+            </span>
+            <span className="flex flex-col leading-tight">
+              <span className="text-base font-semibold tracking-tight text-gray-900 dark:text-white">
+                MedCore
+              </span>
+              <span className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Patient Portal
+              </span>
+            </span>
           </Link>
           <div className="flex items-center gap-2">
             <InstallPWAButton />
             <Link
               href="/patient/login"
-              className="inline-flex h-11 min-w-[44px] items-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white"
+              className="inline-flex h-10 min-w-[44px] items-center justify-center rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700"
               data-testid="patient-shell-login-link"
             >
               Sign in
@@ -49,12 +60,14 @@ function BarePatientShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-screen-md flex-1 px-4 py-6">
-        {children}
-      </main>
-      <footer className="border-t border-slate-200 px-4 py-4 text-xs text-slate-500">
-        <div className="mx-auto max-w-screen-md">
-          Patient Portal — secured by your hospital.
+      <main className="flex w-full flex-1 items-stretch">{children}</main>
+      <footer className="border-t border-gray-200 bg-white/60 px-4 py-5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-500">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 sm:flex-row">
+          <span className="inline-flex items-center gap-1.5">
+            <Shield className="h-3.5 w-3.5 text-emerald-500" />
+            Secured by your hospital — DPDP Act 2023 compliant.
+          </span>
+          <span>&copy; {new Date().getFullYear()} MedCore Health.</span>
         </div>
       </footer>
     </div>

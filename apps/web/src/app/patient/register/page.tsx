@@ -38,6 +38,21 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import {
+  User,
+  Mail,
+  Phone,
+  Lock,
+  Calendar,
+  MapPin,
+  UserPlus,
+  Shield,
+  Sparkles,
+  CheckCircle2,
+  HeartPulse,
+  ArrowLeft,
+  ArrowRight,
+} from "lucide-react";
 import { api } from "@/lib/api";
 
 type Step = "basics" | "details";
@@ -243,272 +258,410 @@ export default function PatientRegisterPage() {
   }
 
   return (
-    <section className="mx-auto max-w-sm space-y-6 py-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Create account</h1>
-        <p className="text-sm text-slate-600">
-          {step === "basics"
-            ? "Step 1 of 2 — your contact details and a password."
-            : "Step 2 of 2 — a few extras so we can serve you safely."}
-        </p>
-      </header>
+    <section
+      className="grid w-full flex-1 items-stretch lg:grid-cols-2"
+      data-testid="patient-register-shell"
+    >
+      {/* LEFT — brand panel */}
+      <aside className="relative hidden overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-emerald-600 px-10 py-16 text-white lg:flex lg:flex-col lg:justify-between">
+        <div className="absolute inset-0 -z-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.18),transparent_60%)]" />
+        <div className="relative z-10">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium uppercase tracking-wider backdrop-blur-sm">
+            <Sparkles className="h-3.5 w-3.5" />
+            New here? It only takes a minute
+          </div>
+          <h2 className="mt-6 text-4xl font-extrabold leading-tight tracking-tight">
+            Create your
+            <br />
+            <span className="bg-gradient-to-r from-white to-emerald-200 bg-clip-text text-transparent">
+              patient account.
+            </span>
+          </h2>
+          <p className="mt-5 max-w-md text-base leading-relaxed text-blue-50/90">
+            Book appointments, view prescriptions, download lab reports and pay
+            bills — securely linked to your hospital, all in one place.
+          </p>
+        </div>
+        <ul className="relative z-10 mt-10 space-y-3 text-sm text-blue-50/90">
+          {[
+            "Same record across every visit & department",
+            "Tamper-proof prescription QR for the pharmacy",
+            "Self-serve DPDP data export",
+            "8 Indian languages supported",
+          ].map((f) => (
+            <li key={f} className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-300" />
+              <span>{f}</span>
+            </li>
+          ))}
+        </ul>
+      </aside>
 
-      {step === "basics" ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            nextStep();
-          }}
-          className="space-y-4"
-        >
-          <Field
-            id="patient-register-name"
-            testid="patient-register-name-input"
-            label="Full name"
-            value={form.name}
-            onChange={(v) => update("name", v)}
-            autoComplete="name"
-            error={fieldErrors.name}
-            disabled={busy}
-            required
-          />
-          <Field
-            id="patient-register-phone"
-            testid="patient-register-phone-input"
-            label="Phone number"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            placeholder="+919876543210"
-            value={form.phone}
-            onChange={(v) => update("phone", v)}
-            error={fieldErrors.phone}
-            disabled={busy}
-            required
-          />
-          <Field
-            id="patient-register-email"
-            testid="patient-register-email-input"
-            label="Email"
-            type="email"
-            inputMode="email"
-            autoComplete="email"
-            placeholder="you@example.com"
-            value={form.email}
-            onChange={(v) => update("email", v)}
-            error={fieldErrors.email}
-            disabled={busy}
-            required
-          />
-          <Field
-            id="patient-register-password"
-            testid="patient-register-password-input"
-            label="Password"
-            type="password"
-            autoComplete="new-password"
-            placeholder="12+ characters with a digit"
-            value={form.password}
-            onChange={(v) => update("password", v)}
-            error={fieldErrors.password}
-            disabled={busy}
-            required
-          />
-          <Field
-            id="patient-register-confirm-password"
-            testid="patient-register-confirm-password-input"
-            label="Confirm password"
-            type="password"
-            autoComplete="new-password"
-            value={form.confirmPassword}
-            onChange={(v) => update("confirmPassword", v)}
-            error={fieldErrors.confirmPassword}
-            disabled={busy}
-            required
-          />
-          <button
-            type="submit"
-            data-testid="patient-register-next"
-            disabled={busy}
-            className="inline-flex h-11 w-full min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Continue
-          </button>
-        </form>
-      ) : (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submitRegister();
-          }}
-          className="space-y-4"
-        >
-          <Field
-            id="patient-register-dob"
-            testid="patient-register-dob-input"
-            label="Date of birth"
-            type="date"
-            autoComplete="bday"
-            value={form.dateOfBirth}
-            onChange={(v) => update("dateOfBirth", v)}
-            error={fieldErrors.dateOfBirth}
-            disabled={busy}
-            required
-          />
-          <div className="space-y-1">
-            <label
-              htmlFor="patient-register-gender"
-              className="block text-sm font-medium text-slate-800"
-            >
-              Gender
-            </label>
-            <select
-              id="patient-register-gender"
-              data-testid="patient-register-gender-input"
-              className="block h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-base"
-              value={form.gender}
-              onChange={(e) => update("gender", e.target.value)}
-              disabled={busy}
-              required
-            >
-              <option value="">Select…</option>
-              <option value="MALE">Male</option>
-              <option value="FEMALE">Female</option>
-              <option value="OTHER">Other</option>
-            </select>
-            {fieldErrors.gender ? (
+      {/* RIGHT — registration card */}
+      <div className="flex items-center justify-center px-4 py-12 sm:px-6 lg:px-12">
+        <div className="w-full max-w-lg">
+          {/* Mobile-only compact brand banner */}
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-emerald-500 text-white shadow-sm shadow-blue-600/20">
+              <HeartPulse className="h-6 w-6" />
+            </span>
+            <div>
+              <div className="text-base font-semibold tracking-tight text-gray-900 dark:text-white">
+                Create your MedCore account
+              </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                Takes about a minute
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8 dark:border-gray-800 dark:bg-gray-900">
+            <header className="space-y-3">
+              <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                Create account
+              </h1>
+              {/* Step indicator */}
+              <ol className="flex items-center gap-2 text-xs font-medium">
+                <li
+                  className={`flex items-center gap-1.5 ${step === "basics" ? "text-blue-700 dark:text-blue-400" : "text-gray-500 dark:text-gray-500"}`}
+                >
+                  <span
+                    className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${
+                      step === "basics"
+                        ? "bg-blue-600 text-white"
+                        : "bg-emerald-500 text-white"
+                    }`}
+                  >
+                    {step === "basics" ? "1" : (
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                    )}
+                  </span>
+                  Contact
+                </li>
+                <span
+                  className={`h-px w-8 ${step === "details" ? "bg-emerald-500" : "bg-gray-200 dark:bg-gray-800"}`}
+                  aria-hidden
+                />
+                <li
+                  className={`flex items-center gap-1.5 ${step === "details" ? "text-blue-700 dark:text-blue-400" : "text-gray-500 dark:text-gray-500"}`}
+                >
+                  <span
+                    className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${
+                      step === "details"
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-200 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                    }`}
+                  >
+                    2
+                  </span>
+                  Details
+                </li>
+              </ol>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {step === "basics"
+                  ? "Your contact details and a password."
+                  : "A few extras so we can serve you safely."}
+              </p>
+            </header>
+
+            <div className="mt-6">
+              {step === "basics" ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    nextStep();
+                  }}
+                  className="space-y-4"
+                >
+                  <Field
+                    id="patient-register-name"
+                    testid="patient-register-name-input"
+                    label="Full name"
+                    icon={User}
+                    placeholder="Asha Kumari"
+                    value={form.name}
+                    onChange={(v) => update("name", v)}
+                    autoComplete="name"
+                    error={fieldErrors.name}
+                    disabled={busy}
+                    required
+                  />
+                  <Field
+                    id="patient-register-phone"
+                    testid="patient-register-phone-input"
+                    label="Phone number"
+                    icon={Phone}
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    placeholder="+91 9876543210"
+                    value={form.phone}
+                    onChange={(v) => update("phone", v)}
+                    error={fieldErrors.phone}
+                    disabled={busy}
+                    required
+                  />
+                  <Field
+                    id="patient-register-email"
+                    testid="patient-register-email-input"
+                    label="Email"
+                    icon={Mail}
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    placeholder="you@example.com"
+                    value={form.email}
+                    onChange={(v) => update("email", v)}
+                    error={fieldErrors.email}
+                    disabled={busy}
+                    required
+                  />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field
+                      id="patient-register-password"
+                      testid="patient-register-password-input"
+                      label="Password"
+                      icon={Lock}
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="12+ chars, 1 digit"
+                      value={form.password}
+                      onChange={(v) => update("password", v)}
+                      error={fieldErrors.password}
+                      disabled={busy}
+                      required
+                    />
+                    <Field
+                      id="patient-register-confirm-password"
+                      testid="patient-register-confirm-password-input"
+                      label="Confirm password"
+                      icon={Lock}
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder="Retype password"
+                      value={form.confirmPassword}
+                      onChange={(v) => update("confirmPassword", v)}
+                      error={fieldErrors.confirmPassword}
+                      disabled={busy}
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    data-testid="patient-register-next"
+                    disabled={busy}
+                    className="group mt-2 inline-flex h-12 w-full min-w-[44px] items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Continue
+                    <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+                  </button>
+                </form>
+              ) : (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void submitRegister();
+                  }}
+                  className="space-y-4"
+                >
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field
+                      id="patient-register-dob"
+                      testid="patient-register-dob-input"
+                      label="Date of birth"
+                      icon={Calendar}
+                      type="date"
+                      autoComplete="bday"
+                      value={form.dateOfBirth}
+                      onChange={(v) => update("dateOfBirth", v)}
+                      error={fieldErrors.dateOfBirth}
+                      disabled={busy}
+                      required
+                    />
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor="patient-register-gender"
+                        className="block text-sm font-medium text-gray-800 dark:text-gray-200"
+                      >
+                        Gender
+                      </label>
+                      <select
+                        id="patient-register-gender"
+                        data-testid="patient-register-gender-input"
+                        className="block h-12 w-full rounded-xl border border-gray-300 bg-white px-3 text-base text-gray-900 transition focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                        value={form.gender}
+                        onChange={(e) => update("gender", e.target.value)}
+                        disabled={busy}
+                        required
+                      >
+                        <option value="">Select…</option>
+                        <option value="MALE">Male</option>
+                        <option value="FEMALE">Female</option>
+                        <option value="OTHER">Other</option>
+                      </select>
+                      {fieldErrors.gender ? (
+                        <p
+                          data-testid="patient-register-field-error-gender"
+                          className="text-xs text-red-700 dark:text-red-400"
+                        >
+                          {fieldErrors.gender}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <Field
+                    id="patient-register-address"
+                    testid="patient-register-address-input"
+                    label="Home address"
+                    icon={MapPin}
+                    placeholder="House no., street, city, state"
+                    value={form.address}
+                    onChange={(v) => update("address", v)}
+                    autoComplete="street-address"
+                    error={fieldErrors.address}
+                    disabled={busy}
+                    required
+                  />
+                  <fieldset className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-950/40">
+                    <legend className="inline-flex items-center gap-1.5 px-1 text-sm font-semibold text-gray-800 dark:text-gray-200">
+                      <UserPlus className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      Emergency contact
+                    </legend>
+                    <Field
+                      id="patient-register-ec-name"
+                      testid="patient-register-emergency-name-input"
+                      label="Name"
+                      icon={User}
+                      value={form.emergencyContactName}
+                      onChange={(v) => update("emergencyContactName", v)}
+                      error={fieldErrors.emergencyContactName}
+                      disabled={busy}
+                      required
+                    />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field
+                        id="patient-register-ec-phone"
+                        testid="patient-register-emergency-phone-input"
+                        label="Phone"
+                        icon={Phone}
+                        type="tel"
+                        inputMode="tel"
+                        placeholder="+91 9876543210"
+                        value={form.emergencyContactPhone}
+                        onChange={(v) => update("emergencyContactPhone", v)}
+                        error={fieldErrors.emergencyContactPhone}
+                        disabled={busy}
+                        required
+                      />
+                      <Field
+                        id="patient-register-ec-rel"
+                        testid="patient-register-emergency-rel-input"
+                        label="Relationship"
+                        placeholder="e.g. spouse, parent"
+                        value={form.emergencyContactRelationship}
+                        onChange={(v) =>
+                          update("emergencyContactRelationship", v)
+                        }
+                        error={fieldErrors.emergencyContactRelationship}
+                        disabled={busy}
+                        required
+                      />
+                    </div>
+                  </fieldset>
+                  <label className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-3 text-sm text-gray-700 dark:border-gray-800 dark:bg-gray-950 dark:text-gray-300">
+                    <input
+                      type="checkbox"
+                      data-testid="patient-register-terms-input"
+                      className="mt-0.5 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-900"
+                      checked={acceptedTerms}
+                      onChange={(e) => {
+                        setAcceptedTerms(e.target.checked);
+                        if (e.target.checked) {
+                          setFieldErrors((prev) => {
+                            if (!("acceptedTerms" in prev)) return prev;
+                            const next = { ...prev };
+                            delete next.acceptedTerms;
+                            return next;
+                          });
+                        }
+                      }}
+                      disabled={busy}
+                    />
+                    <span>
+                      I agree to the{" "}
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">
+                        Terms &amp; Conditions
+                      </span>{" "}
+                      and{" "}
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">
+                        Privacy Policy
+                      </span>
+                      .
+                    </span>
+                  </label>
+                  {fieldErrors.acceptedTerms ? (
+                    <p
+                      data-testid="patient-register-field-error-terms"
+                      className="text-xs text-red-700 dark:text-red-400"
+                    >
+                      {fieldErrors.acceptedTerms}
+                    </p>
+                  ) : null}
+                  <button
+                    type="submit"
+                    data-testid="patient-register-submit"
+                    disabled={busy}
+                    className="inline-flex h-12 w-full min-w-[44px] items-center justify-center rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {busy ? "Creating account…" : "Create account"}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="patient-register-back"
+                    onClick={() => {
+                      setStep("basics");
+                      setError(null);
+                    }}
+                    disabled={busy}
+                    className="inline-flex h-11 w-full min-w-[44px] items-center justify-center gap-1.5 text-sm text-gray-600 transition hover:text-gray-900 disabled:opacity-60 dark:text-gray-400 dark:hover:text-gray-100"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Back
+                  </button>
+                </form>
+              )}
+            </div>
+
+            {error ? (
               <p
-                data-testid="patient-register-field-error-gender"
-                className="text-xs text-red-700"
+                role="alert"
+                data-testid="patient-register-error"
+                className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
               >
-                {fieldErrors.gender}
+                {error}
               </p>
             ) : null}
+
+            <div className="mt-6 border-t border-gray-100 pt-5 dark:border-gray-800">
+              <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+                Already have an account?{" "}
+                <Link
+                  href="/patient/login"
+                  data-testid="patient-register-login-link"
+                  className="font-semibold text-blue-600 underline-offset-4 hover:underline dark:text-blue-400"
+                >
+                  Sign in
+                </Link>
+              </p>
+            </div>
           </div>
-          <Field
-            id="patient-register-address"
-            testid="patient-register-address-input"
-            label="Home address"
-            value={form.address}
-            onChange={(v) => update("address", v)}
-            autoComplete="street-address"
-            error={fieldErrors.address}
-            disabled={busy}
-            required
-          />
-          <fieldset className="space-y-3 rounded-md border border-slate-200 p-3">
-            <legend className="px-1 text-sm font-medium text-slate-800">
-              Emergency contact
-            </legend>
-            <Field
-              id="patient-register-ec-name"
-              testid="patient-register-emergency-name-input"
-              label="Name"
-              value={form.emergencyContactName}
-              onChange={(v) => update("emergencyContactName", v)}
-              error={fieldErrors.emergencyContactName}
-              disabled={busy}
-              required
-            />
-            <Field
-              id="patient-register-ec-phone"
-              testid="patient-register-emergency-phone-input"
-              label="Phone"
-              type="tel"
-              inputMode="tel"
-              value={form.emergencyContactPhone}
-              onChange={(v) => update("emergencyContactPhone", v)}
-              error={fieldErrors.emergencyContactPhone}
-              disabled={busy}
-              required
-            />
-            <Field
-              id="patient-register-ec-rel"
-              testid="patient-register-emergency-rel-input"
-              label="Relationship"
-              placeholder="e.g. spouse, parent"
-              value={form.emergencyContactRelationship}
-              onChange={(v) =>
-                update("emergencyContactRelationship", v)
-              }
-              error={fieldErrors.emergencyContactRelationship}
-              disabled={busy}
-              required
-            />
-          </fieldset>
-          <label className="flex items-start gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              data-testid="patient-register-terms-input"
-              className="mt-1 h-5 w-5 rounded border-slate-300"
-              checked={acceptedTerms}
-              onChange={(e) => {
-                setAcceptedTerms(e.target.checked);
-                if (e.target.checked) {
-                  setFieldErrors((prev) => {
-                    if (!("acceptedTerms" in prev)) return prev;
-                    const next = { ...prev };
-                    delete next.acceptedTerms;
-                    return next;
-                  });
-                }
-              }}
-              disabled={busy}
-            />
-            <span>
-              I agree to the Terms &amp; Conditions and Privacy Policy.
-            </span>
-          </label>
-          {fieldErrors.acceptedTerms ? (
-            <p
-              data-testid="patient-register-field-error-terms"
-              className="text-xs text-red-700"
-            >
-              {fieldErrors.acceptedTerms}
-            </p>
-          ) : null}
-          <button
-            type="submit"
-            data-testid="patient-register-submit"
-            disabled={busy}
-            className="inline-flex h-11 w-full min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busy ? "Creating account…" : "Create account"}
-          </button>
-          <button
-            type="button"
-            data-testid="patient-register-back"
-            onClick={() => {
-              setStep("basics");
-              setError(null);
-            }}
-            disabled={busy}
-            className="inline-flex h-11 w-full min-w-[44px] items-center justify-center text-sm text-slate-700 underline-offset-2 hover:underline disabled:opacity-60"
-          >
-            Back
-          </button>
-        </form>
-      )}
 
-      {error ? (
-        <p
-          role="alert"
-          data-testid="patient-register-error"
-          className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800"
-        >
-          {error}
-        </p>
-      ) : null}
-
-      <p className="text-center text-sm text-slate-600">
-        Already have an account?{" "}
-        <Link
-          href="/patient/login"
-          data-testid="patient-register-login-link"
-          className="font-medium text-slate-900 underline-offset-2 hover:underline"
-        >
-          Sign in
-        </Link>
-      </p>
+          <p className="mt-5 flex items-center justify-center gap-1.5 text-xs text-gray-500 dark:text-gray-500">
+            <Shield className="h-3.5 w-3.5 text-emerald-500" />
+            Protected by end-to-end encryption. Your data stays in India.
+          </p>
+        </div>
+      </div>
     </section>
   );
 }
@@ -534,6 +687,7 @@ interface FieldProps {
   error?: string;
   disabled?: boolean;
   required?: boolean;
+  icon?: React.ComponentType<{ className?: string }>;
 }
 
 function Field({
@@ -549,31 +703,44 @@ function Field({
   error,
   disabled,
   required,
+  icon: Icon,
 }: FieldProps) {
   return (
-    <div className="space-y-1">
-      <label htmlFor={id} className="block text-sm font-medium text-slate-800">
+    <div className="space-y-1.5">
+      <label
+        htmlFor={id}
+        className="block text-sm font-medium text-gray-800 dark:text-gray-200"
+      >
         {label}
       </label>
-      <input
-        id={id}
-        data-testid={testid}
-        type={type}
-        inputMode={inputMode}
-        autoComplete={autoComplete}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        required={required}
-        className="block h-11 w-full rounded-md border border-slate-300 px-3 text-base"
-      />
+      <div className="relative">
+        {Icon ? (
+          <Icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        ) : null}
+        <input
+          id={id}
+          data-testid={testid}
+          type={type}
+          inputMode={inputMode}
+          autoComplete={autoComplete}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          required={required}
+          className={`block h-12 w-full rounded-xl border bg-white pr-3 text-base text-gray-900 placeholder:text-gray-400 transition focus:outline-none focus:ring-4 dark:bg-gray-950 dark:text-white ${
+            error
+              ? "border-red-300 focus:border-red-500 focus:ring-red-500/15 dark:border-red-900/60"
+              : "border-gray-300 focus:border-blue-500 focus:ring-blue-500/15 dark:border-gray-700"
+          } ${Icon ? "pl-10" : "pl-3"}`}
+        />
+      </div>
       {error ? (
         <p
           data-testid={`patient-register-field-error-${id
             .replace("patient-register-", "")
             .replace(/-/g, "")}`}
-          className="text-xs text-red-700"
+          className="text-xs text-red-700 dark:text-red-400"
         >
           {error}
         </p>

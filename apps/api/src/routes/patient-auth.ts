@@ -474,11 +474,21 @@ router.post(
 
       // 2. Look up the patient by canonical phone. Firebase returns E.164
       // (+919876543210); our User.phone column stores the bare 10-digit
-      // canonical form. Run the same canonicaliser used by the existing
-      // OTP flow so the two paths converge on the same row.
-      const phone = canonicalisePhone(verified.phoneNumber);
+      // canonical form for accounts created after the register-side
+      // canonicalisation fix landed. Legacy rows (pre-fix) still hold the
+      // as-typed E.164 / spaced / +91-prefixed string the patient entered
+      // at signup. We try both shapes so those accounts can still sign in
+      // — Firebase has already authoritatively proven possession of the
+      // phone, so widening the WHERE adds no enumeration risk: the only
+      // info we leak is whether SOME row matches, which is the same signal
+      // a successful sign-in would carry.
+      const canonical = canonicalisePhone(verified.phoneNumber);
+      const rawE164 = verified.phoneNumber; // e.g. "+919876543210"
+      const phoneCandidates = Array.from(
+        new Set([canonical, rawE164, rawE164.replace(/^\+/, "")]),
+      );
       const user = await prisma.user.findFirst({
-        where: { phone, role: Role.PATIENT },
+        where: { phone: { in: phoneCandidates }, role: Role.PATIENT },
         select: {
           id: true,
           email: true,
@@ -487,6 +497,10 @@ router.post(
           tenantId: true,
         },
       });
+      // Keep `phone` defined for the downstream audit-log payload (suffix
+      // is what gets logged, so canonical vs. raw doesn't matter beyond
+      // pinning to a single value).
+      const phone = canonical;
       if (!user) {
         // No registered patient with this phone. Generic 401 — parity
         // with the otp-verify defence against phone-enumeration.

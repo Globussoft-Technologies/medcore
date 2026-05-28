@@ -59,9 +59,9 @@ const cols = [
   {
     title: "Legal",
     links: [
-      { href: "#", label: "Privacy" },
-      { href: "#", label: "Terms" },
-      { href: "#", label: "Data processing" },
+      { href: "/legal/privacy", label: "Privacy" },
+      { href: "/legal/terms", label: "Terms" },
+      { href: "/legal/data-processing", label: "Data processing" },
     ],
   },
 ];

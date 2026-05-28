@@ -894,18 +894,22 @@ export default function RegisterPage() {
               <span>
                 I agree to the{" "}
                 <Link
-                  href="/terms"
+                  href="/legal/terms"
                   target="_blank"
                   rel="noopener noreferrer"
+                  // Parent <label> hijacks inner clicks to toggle the
+                  // checkbox; stop propagation so the link navigation wins.
+                  onClick={(e) => e.stopPropagation()}
                   className="font-medium text-primary hover:underline"
                 >
                   Terms &amp; Conditions
                 </Link>{" "}
                 and{" "}
                 <Link
-                  href="/privacy"
+                  href="/legal/privacy"
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
                   className="font-medium text-primary hover:underline"
                 >
                   Privacy Policy

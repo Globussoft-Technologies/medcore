@@ -7,7 +7,14 @@
 // rather than a stripped-down dump.
 
 import type { Metadata } from "next";
-import { HeartPulse, Shield } from "lucide-react";
+import Image from "next/image";
+import { Shield } from "lucide-react";
+// Same horizontal MedCore wordmark used by the marketing nav
+// (apps/web/src/app/(marketing)/_components/MarketingNav.tsx). Two
+// variants — light surface gets the dark logo, dark surface gets the
+// light logo — swapped via Tailwind `dark:` utilities.
+import logoHorizontal from "../assets/MedCore_Logo1_0001_Layer-3.png";
+import logoHorizontalDark from "../assets/MedCore_Logo1_0003_Layer-6.png";
 
 export const metadata: Metadata = {
   title: "Legal — MedCore",
@@ -24,17 +31,28 @@ export default function LegalLayout({
     <div className="flex min-h-screen flex-col bg-gradient-to-b from-white via-blue-50/30 to-white text-gray-900 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 dark:text-gray-100">
       <header className="sticky top-0 z-30 border-b border-gray-200/80 bg-white/80 backdrop-blur-md dark:border-gray-800/80 dark:bg-gray-950/80">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <a href="/" className="group inline-flex items-center gap-2.5">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-emerald-500 text-white shadow-sm shadow-blue-600/20">
-              <HeartPulse className="h-5 w-5" />
-            </span>
-            <span className="flex flex-col leading-tight">
-              <span className="text-base font-semibold tracking-tight text-gray-900 dark:text-white">
-                MedCore
-              </span>
-              <span className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Legal
-              </span>
+          <a href="/" className="inline-flex items-center gap-3">
+            {/* Light-surface logo (dark wordmark on light bg) — hidden in
+                dark mode. Mirrors the marketing nav swap pattern. */}
+            <Image
+              src={logoHorizontal}
+              alt="MedCore"
+              width={160}
+              height={32}
+              priority
+              className="h-8 w-auto dark:hidden"
+            />
+            {/* Dark-surface logo (light wordmark on dark bg). */}
+            <Image
+              src={logoHorizontalDark}
+              alt="MedCore"
+              width={160}
+              height={32}
+              priority
+              className="hidden h-8 w-auto dark:block"
+            />
+            <span className="border-l border-gray-300 pl-3 text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:border-gray-700 dark:text-gray-400">
+              Legal
             </span>
           </a>
           <nav className="hidden gap-6 text-sm text-gray-600 sm:flex dark:text-gray-300">

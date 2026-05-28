@@ -182,14 +182,14 @@ export default function DataProcessingPage() {
 
       <LegalH2>10. Contact</LegalH2>
       <LegalP>
-        <strong>Data Protection Officer:</strong> Karan Mehta
+        {/* <strong>Data Protection Officer:</strong> Karan Mehta */}
         <br />
         Email:{" "}
         <a
-          href="mailto:dpo@medcore.health"
+          href="mailto:support@medcore.software"
           className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-400"
         >
-          dpo@medcore.health
+          support@medcore.software
         </a>
         <br />
         Postal address: MedCore Health Technologies Pvt. Ltd., 4th Floor,

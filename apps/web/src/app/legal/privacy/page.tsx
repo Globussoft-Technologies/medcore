@@ -112,8 +112,8 @@ export default function PrivacyPage() {
       </LegalUL>
       <LegalP>
         To exercise these rights, email{" "}
-        <a href="mailto:privacy@medcore.health" className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-400">
-          privacy@medcore.health
+        <a href="mailto:support@medcore.software" className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-400">
+          support@medcore.software
         </a>{" "}
         with the subject line &ldquo;DPDP request&rdquo;. We respond within 30 days.
       </LegalP>
@@ -152,11 +152,11 @@ export default function PrivacyPage() {
 
       <LegalH2>10. Contact</LegalH2>
       <LegalP>
-        <strong>Grievance Officer:</strong> Dr. Anika Reddy
-        <br />
+        {/* <strong>Grievance Officer:</strong> Dr. Anika Reddy */}
+        {/* <br /> */}
         Email:{" "}
-        <a href="mailto:grievance@medcore.health" className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-400">
-          grievance@medcore.health
+        <a href="mailto:support@medcore.software" className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-400">
+          support@medcore.software
         </a>
         <br />
         Postal address: MedCore Health Technologies Pvt. Ltd., 4th Floor, Prestige

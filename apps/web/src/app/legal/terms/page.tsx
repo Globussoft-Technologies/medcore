@@ -168,8 +168,8 @@ export default function TermsPage() {
         Service is subject to the exclusive jurisdiction of the courts at
         Bengaluru, Karnataka. Before litigation, you agree to attempt
         good-faith resolution by emailing{" "}
-        <a href="mailto:grievance@medcore.health" className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-400">
-          grievance@medcore.health
+        <a href="mailto:support@medcore.software" className="text-blue-600 underline-offset-2 hover:underline dark:text-blue-400">
+          support@medcore.software
         </a>
         .
       </LegalP>

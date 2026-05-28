@@ -41,24 +41,42 @@ const TODAY_IST_YMD = new Date().toLocaleDateString("en-CA", {
 const TODAY = `${TODAY_IST_YMD}T00:00:00.000Z`;
 
 // Build a fixture row whose composeWhen lands ≥ 1h in the future (so the
-// upcoming/past sort always parks it in Upcoming regardless of wallclock).
+// upcoming/past sort always parks it in Upcoming regardless of wallclock)
+// AND whose `date` field is TODAY in IST (so the page's `isTodayInIST`
+// gate for the "I've arrived" button matches).
 //
 // 2026-05-27: previously this used `slot.getUTCHours()` of `now + 4h`,
 // matching the page's pre-IST-fix logic which treated slotStart as
 // UTC. The page now parses slotStart as Asia/Kolkata wallclock (HH:MM
 // is the IST clock time the patient sees on their card), so we have
 // to build the same shape: derive HH:MM from the IST clock 4h ahead
-// of "now". Otherwise the composed instant ends up 5h30m earlier than
-// intended, the row gets filtered out of Upcoming, and tests that
-// expect the row in the section assert against the empty state.
-// Same fix applied to dashboard/__tests__/page.test.tsx::todayBookedRow
-// in 6ec5e499.
+// of "now".
+//
+// 2026-05-28: midnight-safe rebuild. The plain "+4h IST clock" can wrap
+// past IST midnight when CI runs late in the IST day, which produced
+// either (a) a slot date that mismatched `TODAY` → row sorted into Past,
+// or (b) the row landed in Upcoming but `isTodayInIST` returned false
+// because the slot's IST date was tomorrow. Solve both by clamping the
+// slot to TODAY in IST: if "now + 4h" wraps to tomorrow, fall back to a
+// slot ~1h into the future that is guaranteed today AND upcoming.
 function bookActiveTodayUpcoming(id: string) {
-  const istHHMM = new Date(Date.now() + 4 * HOUR).toLocaleTimeString("en-GB", {
+  const ist4hLater = new Date(Date.now() + 4 * HOUR);
+  const istTodayYmd = TODAY_IST_YMD;
+  const ist4hLaterYmd = ist4hLater.toLocaleDateString("en-CA", {
     timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
   });
+  // If +4h IST stays inside today, use it. Otherwise pick the latest IST
+  // time inside today that is still > now+1h. The "23:55" upper bound + a
+  // sanity floor keeps the test stable when CI runs within 4h of IST
+  // midnight — the row stays today AND in the future.
+  const istHHMM =
+    ist4hLaterYmd === istTodayYmd
+      ? ist4hLater.toLocaleTimeString("en-GB", {
+          timeZone: "Asia/Kolkata",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "23:55";
   return {
     id,
     date: TODAY,

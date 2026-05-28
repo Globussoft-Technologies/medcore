@@ -148,6 +148,79 @@ export async function createPaymentOrder(
   };
 }
 
+export interface PlatformPaymentLink {
+  paymentLinkId: string;
+  shortUrl: string;
+  amountInPaise: number;
+}
+
+/**
+ * Pearl §8.3 — create a Razorpay Payment Link for a PlatformInvoice. The
+ * platform always uses the env-level Razorpay credentials (the platform
+ * operator's own merchant account), not any tenant's credentials, so we
+ * pass `tenantId: null` to `getRazorpayInstance`.
+ *
+ * Returns a `short_url` the operator opens in a new tab — the customer
+ * (the tenant's billing contact) sees a Razorpay-hosted payment page
+ * pre-filled with the invoice amount + reference. On successful payment
+ * Razorpay fires the platform webhook (routes/webhooks/platform-razorpay.ts)
+ * which flips the PlatformInvoice to PAID via `markInvoicePaid`.
+ *
+ * Non-production with no creds: returns a synthetic mock link so the
+ * UI flow can be exercised end-to-end without Razorpay configured.
+ */
+export async function createPlatformPaymentLink(args: {
+  invoiceId: string;
+  invoiceNumber: string;
+  amountInPaise: number;
+  contactName: string;
+  contactEmail: string | null;
+}): Promise<PlatformPaymentLink> {
+  const instance = await getRazorpayInstance(null);
+
+  if (!instance) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Platform Razorpay not configured (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET missing). " +
+          "Set the env vars or pre-create the payment link in the Razorpay dashboard.",
+      );
+    }
+    return {
+      paymentLinkId: `plink_mock_${Date.now()}_${args.invoiceId.slice(0, 8)}`,
+      shortUrl: `https://rzp.io/i/mock-${args.invoiceNumber}`,
+      amountInPaise: args.amountInPaise,
+    };
+  }
+
+  // Razorpay's `paymentLink.create()` accepts `amount` in paise. `notify`
+  // toggles the built-in email/SMS reminder; we set both false because
+  // the platform mailer already controls invoice notifications. The
+  // `notes.invoiceId` is how the webhook correlates the payment back to
+  // the PlatformInvoice row.
+  const link = await instance.paymentLink.create({
+    amount: args.amountInPaise,
+    currency: "INR",
+    description: `MedCore HMS — Platform Invoice ${args.invoiceNumber}`,
+    customer: {
+      name: args.contactName,
+      ...(args.contactEmail ? { email: args.contactEmail } : {}),
+    },
+    notify: { sms: false, email: false },
+    reminder_enable: false,
+    notes: {
+      invoiceId: args.invoiceId,
+      invoiceNumber: args.invoiceNumber,
+      source: "platform_billing",
+    },
+  });
+
+  return {
+    paymentLinkId: link.id,
+    shortUrl: link.short_url,
+    amountInPaise: args.amountInPaise,
+  };
+}
+
 /**
  * Verifies the Razorpay payment signature.
  *

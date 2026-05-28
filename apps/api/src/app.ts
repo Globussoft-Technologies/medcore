@@ -164,6 +164,8 @@ import { supportTicketsRouter } from "./routes/support-tickets";
 import { superAdminUsersRouter } from "./routes/super-admin-users";
 import { superAdminAuditRouter } from "./routes/super-admin-audit";
 import { superAdminMetricsRouter } from "./routes/super-admin-metrics";
+import { superAdminHealthRouter } from "./routes/super-admin-health";
+import { maintenanceWindowsRouter } from "./routes/maintenance-windows";
 import { superAdminComplianceRouter } from "./routes/super-admin-compliance";
 import { platformBillingRouter } from "./routes/platform-billing";
 import { branchesRouter } from "./routes/branches";
@@ -207,6 +209,7 @@ import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
 import { tenantContextMiddleware } from "./middleware/tenant";
+import { apiMetricsMiddleware } from "./middleware/metrics";
 // Issue #477: cookie-parser populates req.cookies for the auth middleware
 // (which now reads `medcore_at`) and the CSRF guard (which compares the
 // `medcore_csrf` cookie against the X-CSRF-Token header on mutations).
@@ -327,6 +330,11 @@ export function buildApp() {
   // middleware decodes the JWT itself, so it is safe to mount before auth.
   app.use(tenantContextMiddleware);
   app.use(withTenantContext);
+
+  // Pearl §8.4 — per-request health metrics. Logs ONLY slow (≥ 1s) or
+  // 5xx requests to RequestMetric so the table stays sustainable. Drives
+  // the per-tenant error-rate + p95 latency surfaces.
+  app.use(apiMetricsMiddleware);
 
   // Pearl §7.2 — branch context. Resolved from `X-Branch-Id` header
   // (piece 2a, 2026-05-21). No-op when the header is absent so every
@@ -511,6 +519,10 @@ export function buildApp() {
   // metrics + per-tenant health rollup for the super-admin console.
   // Read-only; mounts UI at /super-admin/metrics.
   app.use("/api/v1/super-admin/metrics", superAdminMetricsRouter);
+  // Pearl §8.4 — per-tenant API health (error rate, p95, failed jobs).
+  app.use("/api/v1/super-admin/health", superAdminHealthRouter);
+  // Pearl §8.4 — maintenance windows surfaced on the public status page.
+  app.use("/api/v1/maintenance-windows", maintenanceWindowsRouter);
   // Pearl §8.6 gap row 225 closure (2026-05-23) — per-tenant compliance
   // posture dashboard. ABHA-link adoption, DPDP erasure activity, audit
   // volume, ADMIN-TOTP coverage. Read-only; mounts UI at

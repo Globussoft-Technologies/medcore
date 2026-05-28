@@ -563,6 +563,43 @@ model Tenant {
   razorpayKeySecret String?
   razorpayMode      String? // "live" | "test"
 
+  // Pearl ERP Stage 1 §8.3 piece 3d (2026-05-28) — platform-billing
+  // recipient + tax fields. When `billingContactEmail` is set, the
+  // monthly invoice mailer (services/platform-invoice-mailer.ts) sends
+  // the generated PlatformInvoice to that address; when null we skip
+  // sending and log a warning so the operator can fill it in.
+  // `gstinNumber` + `stateCode` (e.g. "KA") are persisted here so the
+  // invoice generator can stop falling back to `Branch.state` for the
+  // CGST/SGST vs IGST split.
+  billingContactEmail String?
+  gstinNumber         String?
+  stateCode           String?
+
+  // Pearl §8.6 (2026-05-28) — per-tenant compliance posture knobs.
+  // Surfaced on the /super-admin/compliance dashboard so the
+  // operator can demand a tenant turn a feature on (e.g. ABDM
+  // consent enforcement before go-live with a national-scheme
+  // integration) without a code deploy. Each is documented
+  // separately so a future audit can see exactly which knob covers
+  // which regulatory ask.
+  //
+  //   whatsappOptInTrackingEnabled — when true, the WhatsApp send
+  //     path refuses to deliver to numbers that don't have an
+  //     OptInRecord for this tenant. DPDP §15 compliance flag.
+  //   abdmConsentEnforcementRequired — when true, ABDM-bound
+  //     fetches require an active ConsentArtefact before pulling
+  //     records. National-scheme regulatory ask.
+  //   auditLogRetentionDays — floor for the audit-archival cron.
+  //     Default 365d; pushed up to 1825/2555 for NABH-accredited
+  //     tenants per their auditor's findings.
+  //   patientDataRetentionDays — floor for the patient-row purge
+  //     cron. Default 2555d (≈ 7y, MCI guidance). DPDP erasure
+  //     requests bypass this — the floor is for routine purges.
+  whatsappOptInTrackingEnabled   Boolean @default(false)
+  abdmConsentEnforcementRequired Boolean @default(false)
+  auditLogRetentionDays          Int     @default(365)
+  patientDataRetentionDays       Int     @default(2555)
+
   // Pearl ERP Stage 1 gap item #10b — mandatory TOTP for tenant ADMIN.
   // When true, ADMIN users on this tenant who haven't enrolled TOTP are
   // blocked at the login step with a 412 + "TOTP enrolment required"
@@ -823,6 +860,8 @@ model Tenant {
   // the monthly cron in piece 3b).
   tenantSubscription TenantSubscription?
   platformInvoices   PlatformInvoice[]
+  usageEvents        UsageEvent[]
+  requestMetrics     RequestMetric[]
 
   @@map("tenants")
 }
@@ -965,6 +1004,39 @@ model PlatformInvoiceLineItem {
 
   @@index([invoiceId])
   @@map("platform_invoice_line_items")
+}
+
+// Pearl ERP Stage 1 §8.3 piece 3e (2026-05-28) — usage-based billing.
+//
+// Per-tenant counter rows for billable platform actions:
+//   - WHATSAPP_SENT   — outbound WhatsApp message (template or session)
+//   - SMS_SENT        — outbound SMS via the messaging service
+//   - LLM_TOKENS      — Anthropic / OpenAI inference tokens (combined
+//                       input + output); `quantity` is the token count
+//                       and `meta.model` records which model the
+//                       inference ran against
+//   - ABDM_MESSAGE    — ABDM-bound message (consent push, FHIR fetch, …)
+//
+// One row per event keeps the source-of-truth granular for audit (the
+// monthly cron aggregates these into a single line item per usage kind).
+// `meta` is a free-form JSON column for kind-specific context (the LLM
+// model, the WhatsApp template id, etc.) so the schema doesn't need a
+// new column for every meter we add later.
+//
+// Indexed on (tenantId, kind, createdAt) so the monthly aggregator can
+// run `groupBy({ tenantId, kind, where: { createdAt: { gte, lt } } })`
+// cheaply at month-end.
+model UsageEvent {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind      String // WHATSAPP_SENT | SMS_SENT | LLM_TOKENS | ABDM_MESSAGE
+  quantity  Int      @default(1) // 1 per event for messages; token count for LLM
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, kind, createdAt])
+  @@map("usage_events")
 }
 
 // Pearl ERP Stage 1 §7.2 + §8.1 (gap item #2 — pieces 1 + 2a of 3) — branch model.
@@ -1276,6 +1348,13 @@ model User {
   passwordHash         String
   role                 Role
   isActive             Boolean   @default(true)
+  // Pearl §8.2 — root super-admin flag. Exactly one User row is
+  // expected to carry true (the seed `superadmin@medcore.local`).
+  // Only this user can deactivate / reactivate OTHER super-admins;
+  // peer super-admins can still manage tenant ADMINs + billing as
+  // normal, this gate is scoped to mutations against other root-
+  // level operators so a compromised peer can't lock out root.
+  isMainSuperAdmin     Boolean   @default(false)
   photoUrl             String?
   twoFactorEnabled     Boolean   @default(false)
   twoFactorSecret      String?
@@ -6714,6 +6793,14 @@ model SupportTicket {
   priority         SupportTicketPriority @default(NORMAL)
   assignedToUserId String?
   resolvedAt       DateTime?
+  // Pearl §8.5 — plan-aware SLA. `slaDueAt` is computed on create
+  // (and recomputed whenever priority changes) by combining the
+  // tenant's subscription plan with the ticket's priority. See
+  // services/support-ticket-sla.ts:computeSlaDueAt(). `slaPlan` is
+  // the plan name as resolved at creation time so re-pricing later
+  // doesn't retro-shift historical deadlines.
+  slaDueAt         DateTime?
+  slaPlan          String?
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 
@@ -6809,4 +6896,73 @@ model UserInvite {
   @@index([tenantId, email])
   @@index([expiresAt])
   @@map("user_invites")
+}
+
+// Pearl ERP Stage 1 §8.4 (2026-05-28) — per-tenant request health metrics.
+//
+// One row per request that is "interesting" — either slow (≥ 1000 ms) or
+// errored (statusCode ≥ 500). Routine fast requests are NOT logged so
+// the table doesn't grow at request rate (would be millions/day per
+// tenant). The endpoint-level aggregates the operator needs — error
+// rate, p95 latency, top slow endpoints — are computed on top of this
+// sampled-by-condition set.
+//
+// `pathTemplate` is the route's template (`/api/v1/patients/:id`), NOT
+// the realised URL (`/api/v1/patients/abc-123`) so we don't burst the
+// index with cardinality from path params. The metrics middleware
+// (apps/api/src/middleware/metrics.ts) reads `req.route.path` after
+// the matcher resolves; if that's missing it falls back to a
+// best-effort normalisation that replaces UUID-shaped + numeric path
+// segments with `:id`.
+//
+// `tenantId` is nullable for two reasons: (a) unauthenticated /
+// public routes (login, status, payment webhooks) have no tenant
+// context; (b) cross-tenant super-admin operators run with
+// `tenantId=null` on every request. Both cases are useful to log so
+// the platform-wide aggregate works.
+model RequestMetric {
+  id           String   @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  method       String   // GET / POST / PATCH / DELETE / PUT
+  pathTemplate String   // "/api/v1/patients/:id" — normalised, NOT the realised path
+  statusCode   Int
+  durationMs   Int
+  userId       String? // best-effort principal at request time
+  errorMessage String? // short rendering of the thrown error, only set on 5xx
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([pathTemplate, createdAt])
+  @@index([statusCode, createdAt])
+  @@map("request_metrics")
+}
+
+// Pearl ERP Stage 1 §8.4 (2026-05-28) — scheduled maintenance windows.
+//
+// Surfaced on the public status page so visitors see upcoming /
+// in-progress maintenance instead of generic "operational" while the
+// platform is being intentionally taken down. Operators CRUD these
+// through /dashboard/observability. The status route
+// (`apps/api/src/routes/status.ts`) reads upcoming + active windows
+// and merges them into its response.
+//
+// `affectsComponents` is a free-form string array (e.g. ["api",
+// "database"]) — kept as raw strings so the operator can add a new
+// component without a schema change.
+model MaintenanceWindow {
+  id                String   @id @default(uuid())
+  title             String
+  description       String?
+  startsAt          DateTime
+  endsAt            DateTime
+  affectsComponents String[]
+  status            String   @default("scheduled") // scheduled | in_progress | completed | cancelled
+  createdByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([startsAt])
+  @@index([status, endsAt])
+  @@map("maintenance_windows")
 }

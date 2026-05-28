@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Smoke tests for /super-admin/platform-billing — Pearl §8.3
+// Smoke tests for /dashboard/platform-billing — Pearl §8.3
 // (gap rows 215-218 closure piece 3-UI, 2026-05-25).
 //
 // Covers:
@@ -146,7 +146,7 @@ beforeEach(() => {
 
 import PlatformBillingPage from "../page";
 
-describe("/super-admin/platform-billing landing — Pearl §8.3", () => {
+describe("/dashboard/platform-billing landing — Pearl §8.3", () => {
   it("renders both tab buttons and the Subscriptions table by default", async () => {
     render(<PlatformBillingPage />);
     expect(

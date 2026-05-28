@@ -156,6 +156,16 @@ async function consumeTempToken(token: string): Promise<string | null> {
   return entry.userId;
 }
 
+// Same shape as consumeTempToken but DOES NOT delete the row. Used by
+// the enrol-setup endpoint so an operator can refresh the page (or
+// hit Back) and re-fetch the QR code without burning the token —
+// only enrol-verify consumes the token (single-shot on success).
+async function peekTempToken(token: string): Promise<string | null> {
+  const entry = await prisma.twoFactorTempToken.findUnique({ where: { token } });
+  if (!entry || entry.usedAt || entry.expiresAt < new Date()) return null;
+  return entry.userId;
+}
+
 /**
  * Sign an access + refresh JWT pair. The `tenantId` claim is written into
  * both tokens so the refresh-token exchange can repopulate it without needing
@@ -988,18 +998,24 @@ router.post(
         } else {
           // Pearl §8.2 — cross-tenant super-admin (either SUPER_ADMIN
           // or legacy ADMIN+tenantId=null).
-          const flag = await prisma.systemConfig.findUnique({
-            where: { key: `superadmin:${user.id}:require_two_factor` },
-            select: { value: true },
-          });
-          // Default to ON for super-admins per §8.2 ("2FA mandatory for
-          // any super-admin role"). The flag is "false" only if the
-          // operator explicitly opted out (break-glass account).
-          const optedOut = flag?.value === "false";
-          if (!optedOut) {
+          //
+          // Policy (tightened 2026-05): TOTP is mandatory for every
+          // peer super-admin. Only the main (root) super-admin row —
+          // `User.isMainSuperAdmin = true` — is exempt and signs in
+          // without 2FA. There is no per-user opt-out flag check
+          // anymore; the flag is ignored. Raw SQL because the on-disk
+          // Prisma client may not yet know the column on this dev box
+          // (DLL lock during dev).
+          const mainFlagRows = await prisma.$queryRaw<
+            Array<{ isMainSuperAdmin: boolean }>
+          >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${user.id}`;
+          const isMain = mainFlagRows[0]?.isMainSuperAdmin === true;
+          if (!isMain) {
             requireTotp = true;
             reason = "super_admin";
           }
+          // isMain === true → requireTotp stays false; the root account
+          // passes straight through to the normal login response.
         }
 
         if (requireTotp) {
@@ -1011,13 +1027,25 @@ router.post(
             tenantId: user.tenantId,
             reason,
           }).catch(console.error);
+          // The frontend reads `data.totpEnrolmentRequired` and redirects
+          // to /auth/enrol-totp with the enrolToken so the new operator
+          // can scan a QR + enter the first code in a guided flow.
+          // `role` lets the enrolment page tailor copy ("super-admin"
+          // vs "tenant admin"); `email` is shown back so the operator
+          // confirms which account they're enrolling.
           res.status(412).json({
             success: false,
-            data: { totpEnrolmentRequired: true, enrolToken },
+            data: {
+              totpEnrolmentRequired: true,
+              enrolToken,
+              role: user.role,
+              email: user.email,
+              reason,
+            },
             error:
               reason === "super_admin"
-                ? "Super-admin accounts must enrol TOTP before signing in. Use the returned enrolToken to call /auth/2fa/setup."
-                : "This tenant requires ADMIN users to enrol TOTP before signing in. Use the returned enrolToken to call /auth/2fa/setup.",
+                ? "Two-factor authentication is required for super-admin accounts. We'll walk you through setting it up next."
+                : "Your hospital requires admins to use two-factor authentication. We'll walk you through setting it up next.",
           });
           return;
         }
@@ -1649,6 +1677,165 @@ router.post(
       next(err);
     }
   }
+);
+
+// ─── Enrolment-at-login (mandatory TOTP for unenrolled admins) ──────
+//
+// When the login route returns 412 + `enrolToken` because the operator
+// has never set up 2FA, the frontend redirects to /auth/enrol-totp.
+// That page can't call /auth/2fa/setup (which needs a real session it
+// doesn't have) — these two routes accept the enrolToken instead.
+//
+// Flow:
+//   1. enrol-setup: validate enrolToken (peek, not consume), generate
+//      secret + backup codes + otpauth URI + QR PNG data URL. Operator
+//      can refresh the page and re-fetch the QR until the token expires
+//      (5 min).
+//   2. enrol-verify: validate enrolToken (consume — single-shot),
+//      check the 6-digit code, flip twoFactorEnabled=true. Operator
+//      then signs in normally (which will route through verify-login).
+//
+// POST /api/v1/auth/2fa/enrol-setup — body { enrolToken }
+router.post(
+  "/2fa/enrol-setup",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { enrolToken } = req.body as { enrolToken?: string };
+      if (!enrolToken) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "enrolToken is required",
+        });
+        return;
+      }
+      const userId = await peekTempToken(enrolToken);
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          data: null,
+          error:
+            "This enrolment link has expired. Please sign in again to get a fresh one.",
+        });
+        return;
+      }
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Account not found",
+        });
+        return;
+      }
+
+      const otpLabel = user.email || `user-${user.id.slice(0, 8)}@medcore`;
+      const secret = generateSecret();
+      const backupCodes = generateBackupCodes(10);
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          twoFactorSecret: secret,
+          twoFactorBackupCodes: backupCodes as any,
+          twoFactorEnabled: false,
+        },
+      });
+
+      const otpauthUri = buildOtpAuthUri(otpLabel, secret, "MedCore");
+      // Render the otpauth URI as a base64 PNG so the frontend can
+      // <img src={qrDataUrl}> it directly — no client-side QR lib needed.
+      const QRCode = await import("qrcode");
+      const qrDataUrl = await QRCode.toDataURL(otpauthUri, {
+        width: 220,
+        margin: 1,
+      });
+
+      auditLog(req, "2FA_ENROL_SETUP", "user", user.id, {
+        email: user.email,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: {
+          secret,
+          otpauthUri,
+          qrDataUrl,
+          backupCodes,
+          email: user.email,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/auth/2fa/enrol-verify — body { enrolToken, code }
+router.post(
+  "/2fa/enrol-verify",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { enrolToken, code } = req.body as {
+        enrolToken?: string;
+        code?: string;
+      };
+      if (!enrolToken || !code) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "enrolToken and code are required",
+        });
+        return;
+      }
+      // Single-shot: consume the enrol token regardless of verify
+      // outcome. A wrong code burns the token so the operator has to
+      // sign in again — that's the right safety property (otherwise
+      // an attacker who stole the enrol token gets unlimited tries).
+      const userId = await consumeTempToken(enrolToken);
+      if (!userId) {
+        res.status(401).json({
+          success: false,
+          data: null,
+          error:
+            "This enrolment link has expired or already been used. Please sign in again.",
+        });
+        return;
+      }
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (!user || !user.twoFactorSecret) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Two-factor setup wasn't started. Please sign in again.",
+        });
+        return;
+      }
+      if (!verifyTOTP(user.twoFactorSecret, code)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "That code didn't match. Please sign in again and retry.",
+        });
+        return;
+      }
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { twoFactorEnabled: true },
+      });
+      auditLog(req, "2FA_ENABLED", "user", user.id, {
+        via: "enrol-at-login",
+      }).catch(console.error);
+      res.json({
+        success: true,
+        data: { enabled: true },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // POST /api/v1/auth/2fa/verify — confirm secret with first TOTP code

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Colocated unit suite for /super-admin/platform-billing/invoices/[id] — Pearl §8.3
+// Colocated unit suite for /dashboard/platform-billing/invoices/[id] — Pearl §8.3
 // (gap rows 215-218 closure piece 3-UI follow-on, 2026-05-26 test-cron pick).
 //
 // Covers, from the source file:
@@ -11,7 +11,7 @@
 //     of statusBadge() executes including the fallback default.
 //   - PAID banner + "Mark Paid" button gating on invoice.status.
 //   - Empty-line-items render path ("No line items.").
-//   - Back-button calls router.push("/super-admin/platform-billing").
+//   - Back-button calls router.push("/dashboard/platform-billing").
 //   - Mark-Paid modal: opens, validates empty reference, submits POST with
 //     the typed reference, refetches detail on success, and surfaces
 //     server-side error string when the POST returns !success.
@@ -119,7 +119,7 @@ beforeEach(() => {
 
 import PlatformInvoiceDetailPage from "../page";
 
-describe("/super-admin/platform-billing/invoices/[id] — detail page", () => {
+describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
   it("threads the URL id into the detail fetch and renders the invoice number + tenant + period", async () => {
     render(<PlatformInvoiceDetailPage />);
     await waitFor(() => {
@@ -247,7 +247,7 @@ describe("/super-admin/platform-billing/invoices/[id] — detail page", () => {
       ).toBeInTheDocument();
     });
     fireEvent.click(screen.getByTestId("platform-billing-invoice-back"));
-    expect(routerPush).toHaveBeenCalledWith("/super-admin/platform-billing");
+    expect(routerPush).toHaveBeenCalledWith("/dashboard/platform-billing");
   });
 
   it("renders the error banner when the detail fetch returns !success", async () => {

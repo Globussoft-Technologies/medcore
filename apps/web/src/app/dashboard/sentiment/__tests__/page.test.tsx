@@ -348,11 +348,21 @@ describe("Sentiment Analytics dashboard page (admin/reception only)", () => {
 
     render(<SentimentAnalyticsPage />);
 
-    // Wait for the flagged-feedback list to render — proves loading flipped.
-    await screen.findByTestId("sentiment-kpi-nps");
-
-    const npsTile = screen.getByTestId("sentiment-kpi-nps");
-    expect(npsTile).toHaveTextContent("75");
+    // The KPI tile renders unconditionally with 0-fallbacks (so the
+    // loading shell already includes `sentiment-kpi-nps`). Waiting for
+    // the testid only proves the page reached its loaded shell, not
+    // that the summary fetch resolved. Under CI's heavier vitest worker
+    // load the previous wait raced the summary Promise → assertions
+    // hit the 0-placeholder state. Wait for the actual NPS digit so
+    // the assertion runs only after the summary commit.
+    const npsTile = await waitFor(
+      () => {
+        const tile = screen.getByTestId("sentiment-kpi-nps");
+        expect(tile).toHaveTextContent("75");
+        return tile;
+      },
+      { timeout: 3000 },
+    );
     expect(npsTile).toHaveTextContent(/40 promoters/);
     expect(npsTile).toHaveTextContent(/8 detractors/);
     expect(npsTile).toHaveTextContent(/60 responses/);

@@ -379,16 +379,27 @@ describe("Leads dashboard page (CRM pipeline)", () => {
     expect(screen.getByTestId("lead-create-name")).toBeInTheDocument();
   });
 
-  it("does NOT POST and toasts an error when Create is submitted with a blank name", async () => {
+  it("disables the Create button + does NOT POST while the name field is blank", async () => {
+    // 2026-05 (Issue #1002) — the form now live-validates: the Create
+    // button is `disabled={!canSubmit}` where canSubmit requires zero
+    // liveErrors. With a blank name the button is disabled, the click
+    // is swallowed by the browser, and no POST / toast / inline error
+    // appears. The inline error only renders AFTER a submit attempt
+    // (which we can't make while disabled), so this test pins the
+    // disabled state + the no-POST invariant instead.
     apiMock.get.mockResolvedValue(ok([]));
     render(<LeadsPage />);
     await screen.findByText(/No leads match the current filter\./i);
 
     fireEvent.click(screen.getByTestId("leads-create-btn"));
-    fireEvent.click(screen.getByTestId("lead-create-submit"));
+    const submit = screen.getByTestId(
+      "lead-create-submit",
+    ) as HTMLButtonElement;
+    expect(submit).toBeDisabled();
 
+    fireEvent.click(submit);
     expect(apiMock.post).not.toHaveBeenCalled();
-    expect(toastMock.error).toHaveBeenCalledWith("Name is required");
+    expect(toastMock.error).not.toHaveBeenCalled();
     // Modal stays open.
     expect(
       screen.getByRole("heading", { name: /^New lead$/i }),
@@ -435,7 +446,11 @@ describe("Leads dashboard page (CRM pipeline)", () => {
     await screen.findByText("Created Lead");
   });
 
-  it("toasts the error and keeps the modal open when POST /leads rejects", async () => {
+  it("surfaces the server error in the form banner and keeps the modal open when POST /leads rejects", async () => {
+    // 2026-05 (Issue #1001) — POST-rejection errors now render as a
+    // form-level banner (`lead-create-error`) inside the modal rather
+    // than a toast, so the message sits right next to the inputs the
+    // operator is about to retry.
     apiMock.get.mockResolvedValue(ok([]));
     apiMock.post.mockRejectedValue(new Error("400 duplicate phone"));
 
@@ -449,16 +464,19 @@ describe("Leads dashboard page (CRM pipeline)", () => {
 
     fireEvent.click(screen.getByTestId("lead-create-submit"));
 
-    await waitFor(() =>
-      expect(toastMock.error).toHaveBeenCalledWith("400 duplicate phone"),
-    );
+    const banner = await screen.findByTestId("lead-create-error");
+    expect(banner).toHaveTextContent("400 duplicate phone");
+    expect(toastMock.error).not.toHaveBeenCalledWith("400 duplicate phone");
     // Modal still mounted (not closed on failure).
     expect(
       screen.getByRole("heading", { name: /^New lead$/i }),
     ).toBeInTheDocument();
   });
 
-  it('falls back to "Failed to create lead" copy when the POST rejection has no message', async () => {
+  it('falls back to "Failed to create lead" banner copy when the POST rejection has no message', async () => {
+    // 2026-05 — bare-object rejections (no `.message`) fall through to
+    // a default "Failed to create lead" string rendered in the same
+    // form banner instead of a toast.
     apiMock.get.mockResolvedValue(ok([]));
     apiMock.post.mockRejectedValue({});
 
@@ -466,14 +484,16 @@ describe("Leads dashboard page (CRM pipeline)", () => {
     await screen.findByText(/No leads match the current filter\./i);
 
     fireEvent.click(screen.getByTestId("leads-create-btn"));
+    // The name input must clear the banner on edit; type ≥ 2 chars to
+    // satisfy the client-side validator before submission so we
+    // actually reach the POST + the catch branch.
     fireEvent.change(screen.getByTestId("lead-create-name"), {
-      target: { value: "X" },
+      target: { value: "Xy" },
     });
     fireEvent.click(screen.getByTestId("lead-create-submit"));
 
-    await waitFor(() =>
-      expect(toastMock.error).toHaveBeenCalledWith("Failed to create lead"),
-    );
+    const banner = await screen.findByTestId("lead-create-error");
+    expect(banner).toHaveTextContent(/failed to create lead/i);
   });
 
   it("Cancel button on the create modal hides the modal", async () => {

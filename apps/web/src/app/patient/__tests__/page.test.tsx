@@ -60,7 +60,7 @@ describe("PatientLandingPage — probe phase machine", () => {
     // The welcome heading must NOT render while probing — that would mean
     // the page flashed the unauthed surface before the probe settled.
     expect(
-      screen.queryByRole("heading", { name: /welcome to your patient portal/i }),
+      screen.queryByRole("heading", { name: /welcome to your/i }),
     ).not.toBeInTheDocument();
     expect(replaceMock).not.toHaveBeenCalled();
   });
@@ -70,14 +70,15 @@ describe("PatientLandingPage — probe phase machine", () => {
     render(<PatientLandingPage />);
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: /welcome to your patient portal/i }),
+        screen.getByRole("heading", { name: /welcome to your/i }),
       ).toBeInTheDocument();
     });
     const signIn = screen.getByTestId("patient-landing-signin");
     expect(signIn).toHaveAttribute("href", "/patient/login");
-    const book = screen.getByTestId("patient-landing-book");
-    expect(book).toBeDisabled();
-    expect(book).toHaveAttribute("title", "Available after sign in");
+    // 2026-05 redesign — the old disabled "Book an appointment" CTA was
+    // replaced by a Create-account secondary that links to /patient/register.
+    const register = screen.getByTestId("patient-landing-register");
+    expect(register).toHaveAttribute("href", "/patient/register");
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
@@ -95,7 +96,7 @@ describe("PatientLandingPage — probe phase machine", () => {
     // welcome surface mid-bounce.
     expect(pushMock).not.toHaveBeenCalled();
     expect(
-      screen.queryByRole("heading", { name: /welcome to your patient portal/i }),
+      screen.queryByRole("heading", { name: /welcome to your/i }),
     ).not.toBeInTheDocument();
   });
 
@@ -107,7 +108,7 @@ describe("PatientLandingPage — probe phase machine", () => {
     render(<PatientLandingPage />);
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: /welcome to your patient portal/i }),
+        screen.getByRole("heading", { name: /welcome to your/i }),
       ).toBeInTheDocument();
     });
     expect(screen.queryByTestId("patient-landing-probing")).not.toBeInTheDocument();
@@ -129,7 +130,7 @@ describe("PatientLandingPage — probe phase machine", () => {
     render(<PatientLandingPage />);
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: /welcome to your patient portal/i }),
+        screen.getByRole("heading", { name: /welcome to your/i }),
       ).toBeInTheDocument();
     });
     expect(replaceMock).not.toHaveBeenCalled();

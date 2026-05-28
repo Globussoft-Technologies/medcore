@@ -974,8 +974,14 @@ export default function AnalyticsPage() {
 
   return (
     <div className="analytics-page">
-      {/* Print styles */}
-      <style jsx global>{`
+      {/* Print + analytics-page dark-mode shim styles. Plain <style>
+          with dangerouslySetInnerHTML rather than styled-jsx — the App
+          Router doesn't ship styled-jsx types for <style jsx global>
+          (TypeScript rejects the `jsx` + `global` props), and these
+          rules are already written with global selectors anyway. */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         @media print {
           aside,
           header,
@@ -1069,7 +1075,9 @@ export default function AnalyticsPage() {
         .dark .analytics-page .hover\\:bg-gray-50:hover {
           background-color: #374151 !important;
         }
-      `}</style>
+      `,
+        }}
+      />
 
       {/* Header + filter bar */}
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">

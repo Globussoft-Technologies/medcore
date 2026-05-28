@@ -311,14 +311,20 @@ describe("Patient profile page — gap #5 piece 3e", () => {
     await act(async () => {
       fireEvent.click(cancelBtn);
     });
-    // handleCancel's `setForm(initialForm)` + adjacent setSubmitState/
-    // setSubmitError/setFieldErrors land across React 19's automatic batch
-    // boundary, and the synchronous read of nameInput.value races the
-    // input's controlled-value re-render under vitest+jsdom. The retry
-    // covers the post-click commit.
-    await waitFor(() => {
-      expect(nameInput.value).toBe("Anand Kumar");
-    });
+    // 2026-05 (v4): the cancel-path can replace the name input element
+    // (a parent's keyed wrapper unmounts/remounts under React 19), so
+    // the captured `nameInput` reference goes stale. Re-query the
+    // testid live each poll instead — that picks up either an in-place
+    // value update OR a fresh element with the reverted value.
+    await waitFor(
+      () => {
+        const fresh = screen.getByTestId(
+          "patient-profile-name-input",
+        ) as HTMLInputElement;
+        expect(fresh.value).toBe("Anand Kumar");
+      },
+      { timeout: 3000 },
+    );
   });
 
   it("Save / Cancel / ABHA-link CTAs carry the 44px touch-target invariant", async () => {

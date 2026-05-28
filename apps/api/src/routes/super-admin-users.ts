@@ -36,6 +36,8 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { sendEmail } from "../services/messaging/email";
+import { renderSuperAdminInviteEmail } from "../templates/super-admin-invite.html";
 import {
   enforceSuperAdminIdleTimeout,
   getSuperAdminIdleMinutes,
@@ -209,7 +211,7 @@ router.get(
           { email: { contains: q, mode: "insensitive" } },
         ];
       }
-      const rows = await prisma.user.findMany({
+      const rowsRaw = await prisma.user.findMany({
         where,
         orderBy: [{ tenantId: "asc" }, { createdAt: "desc" }],
         select: {
@@ -228,6 +230,25 @@ router.get(
         },
         take: 500,
       });
+
+      // Pearl §8.2 — fetch `isMainSuperAdmin` via raw SQL because the
+      // on-disk Prisma client hasn't been regenerated yet on this dev
+      // box (DLL lock by the running dev server). Once `prisma generate`
+      // runs cleanly the column can move back into the typed `select`
+      // above and this block collapses. We fetch every admin-like row
+      // (the set is bounded by the number of platform operators, which
+      // is small) and join in memory.
+      const mainFlagRows = await prisma.$queryRaw<
+        Array<{ id: string; isMainSuperAdmin: boolean }>
+      >`SELECT id, "isMainSuperAdmin" FROM users WHERE role IN ('ADMIN', 'SUPER_ADMIN')`;
+      const mainFlagById = new Map<string, boolean>();
+      for (const r of mainFlagRows) {
+        mainFlagById.set(r.id, r.isMainSuperAdmin);
+      }
+      const rows = rowsRaw.map((r) => ({
+        ...r,
+        isMainSuperAdmin: mainFlagById.get(r.id) ?? false,
+      }));
 
       // Pearl §8.2 — fan-out the permission grants and the
       // last-login timestamp (from AuditLog action='AUTH_LOGIN') in
@@ -297,6 +318,88 @@ router.get(
   },
 );
 
+// ─── Super-admin session idle-timeout settings ───────────────────────
+// Pearl §8.2 — operator-facing knob for the global super-admin idle
+// window. Returns the current value + the allowed range so the UI
+// can render a slider/input with proper bounds.
+//
+// IMPORTANT: declared BEFORE the `/:id`-shaped routes below. Express
+// matches in registration order, so a literal `/session-idle` must
+// beat the dynamic `/:id` or the `GET /:id` handler swallows the
+// request and returns "Super-admin user not found".
+
+router.get(
+  "/session-idle",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const minutes = await getSuperAdminIdleMinutes();
+      res.status(200).json({
+        success: true,
+        data: {
+          minutes,
+          min: SUPER_ADMIN_IDLE_LIMITS.min,
+          max: SUPER_ADMIN_IDLE_LIMITS.max,
+          default: SUPER_ADMIN_IDLE_LIMITS.default,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const sessionIdleBodySchema = z.object({
+  minutes: z
+    .number()
+    .int()
+    .min(SUPER_ADMIN_IDLE_LIMITS.min)
+    .max(SUPER_ADMIN_IDLE_LIMITS.max),
+});
+
+router.put(
+  "/session-idle",
+  validate(sessionIdleBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // Main-only gate: the idle-timeout is a platform-wide policy
+      // knob — only the root super-admin may change it. Peers can
+      // still GET the current value (read-only), but mutating it is
+      // restricted. UI hides the card; this matches it server-side.
+      const callerRows = await prisma.$queryRaw<
+        Array<{ isMainSuperAdmin: boolean }>
+      >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
+      const callerIsMain = callerRows[0]?.isMainSuperAdmin === true;
+      if (!callerIsMain) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error:
+            "Only the main super-admin can change the auto-sign-out policy.",
+        });
+        return;
+      }
+
+      const body = req.body as z.infer<typeof sessionIdleBodySchema>;
+      const persisted = await setSuperAdminIdleMinutes(body.minutes);
+      await auditLog(
+        req,
+        "SUPER_ADMIN_SESSION_IDLE_UPDATED",
+        "system",
+        undefined,
+        { minutes: persisted },
+      );
+      res.status(200).json({
+        success: true,
+        data: { minutes: persisted },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // PATCH /api/v1/super-admin/users/:id — toggle isActive on a super-admin.
 // Refuses to deactivate the last active super-admin (count guard) so the
 // operator population cannot drop to zero.
@@ -325,13 +428,16 @@ router.patch(
         return;
       }
       // Defence-in-depth: the route guard already enforces super-admin
-      // shape, but PATCH /:id MUST refuse to mutate a non-super-admin
-      // user (otherwise the endpoint is a tenant-user mass-mutation
-      // surface masquerading as a super-admin tool).
-      if (
-        target.tenantId !== null ||
-        (target.role !== Role.ADMIN && target.role !== Role.SUPER_ADMIN)
-      ) {
+      // caller shape, but PATCH /:id MUST refuse to mutate anything that
+      // isn't either (a) a cross-tenant super-admin or (b) a tenant
+      // ADMIN. Otherwise the endpoint becomes a tenant-user mass-mutation
+      // surface masquerading as a super-admin tool.
+      const targetIsCrossTenantSuperAdmin =
+        target.tenantId === null &&
+        (target.role === Role.ADMIN || target.role === Role.SUPER_ADMIN);
+      const targetIsTenantAdmin =
+        target.tenantId !== null && target.role === Role.ADMIN;
+      if (!targetIsCrossTenantSuperAdmin && !targetIsTenantAdmin) {
         res.status(404).json({
           success: false,
           data: null,
@@ -342,6 +448,59 @@ router.patch(
 
       const body = req.body as z.infer<typeof patchUserSchema>;
       const nextActive = body.active;
+
+      const targetingSelf = req.user?.userId === target.id;
+      if (targetingSelf) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "You cannot change your own active state.",
+        });
+        return;
+      }
+
+      // Resolve the caller's main flag once — we use it for the
+      // cross-tenant super-admin gate below, and tenant-admin mutations
+      // are still allowed without it.
+      // Use raw SQL for the same DLL-lock reason as the list endpoint.
+      const callerRows = await prisma.$queryRaw<
+        Array<{ isMainSuperAdmin: boolean }>
+      >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
+      const callerIsMain = callerRows[0]?.isMainSuperAdmin === true;
+
+      if (targetIsCrossTenantSuperAdmin) {
+        // Only the main super-admin may deactivate / reactivate ANOTHER
+        // cross-tenant super-admin. Peers keep every other power; this
+        // gate exists so a compromised or rogue peer can't lock the
+        // root operator out of the platform.
+        if (!callerIsMain) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error:
+              "Only the main super-admin can deactivate or reactivate another super-admin.",
+          });
+          return;
+        }
+        // Refuse to deactivate the main super-admin itself. The
+        // count-guard below would catch the "last active" case but the
+        // root row should be untouchable regardless.
+        const targetMainRows = await prisma.$queryRaw<
+          Array<{ isMainSuperAdmin: boolean }>
+        >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${target.id}`;
+        const targetIsMain = targetMainRows[0]?.isMainSuperAdmin === true;
+        if (targetIsMain && nextActive === false) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: "The main super-admin cannot be deactivated.",
+          });
+          return;
+        }
+      }
+      // Tenant-admin mutations: any cross-tenant super-admin (main or
+      // peer) may toggle a hospital tenant's local admin from this page.
+      // The route guard already proved the caller is cross-tenant.
 
       // No-op short-circuit — return current state without audit churn.
       if (nextActive === target.isActive) {
@@ -359,11 +518,13 @@ router.patch(
         return;
       }
 
-      // Count-guard: deactivating must leave at least one active super-admin.
-      // Pearl §8.2 — counts BOTH Role.SUPER_ADMIN (new invites) and the
-      // legacy Role.ADMIN + tenantId=null shape so we don't accidentally
-      // lock the platform out during the migration window.
-      if (nextActive === false) {
+      // Count-guard: deactivating must leave at least one active
+      // cross-tenant super-admin. Tenant ADMINs don't count — they only
+      // manage their own hospital, so deactivating one never locks the
+      // platform out. Counts BOTH Role.SUPER_ADMIN (new invites) and the
+      // legacy Role.ADMIN + tenantId=null shape so the migration window
+      // can't accidentally bottom out at zero operators.
+      if (nextActive === false && targetIsCrossTenantSuperAdmin) {
         const otherActive = await prisma.user.count({
           where: {
             tenantId: null,
@@ -429,6 +590,26 @@ router.post(
   validate(createSuperAdminSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Main-only gate: peer super-admins can browse the roster but
+      // cannot mint new platform operators. The /dashboard UI hides
+      // the "Add Super-Admin" button for non-main viewers; this is
+      // the matching server-side guard so a direct API hit can't
+      // bypass it. Raw SQL because the on-disk Prisma client may not
+      // yet know the column on this dev box (DLL lock during dev).
+      const callerRows = await prisma.$queryRaw<
+        Array<{ isMainSuperAdmin: boolean }>
+      >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
+      const callerIsMain = callerRows[0]?.isMainSuperAdmin === true;
+      if (!callerIsMain) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error:
+            "Only the main super-admin can invite new platform operators.",
+        });
+        return;
+      }
+
       const body = req.body as z.infer<typeof createSuperAdminSchema>;
 
       const existing = await prisma.user.findUnique({
@@ -508,12 +689,69 @@ router.post(
         requireTwoFactor: body.requireTwoFactor !== false,
       });
 
+      // Pearl §8.2 — send the SendGrid invite email so the new
+      // super-admin gets their temp password + sign-in link in their
+      // inbox. The operator no longer has to share credentials out of
+      // band on Slack / voice. Fire-and-forget: a SendGrid failure
+      // does NOT roll back the user creation (that would leave the
+      // operator with a 5xx and a half-created row). We surface a
+      // `mailSent: boolean` on the response and write a second audit
+      // row so the trail captures the delivery outcome.
+      const appUrl =
+        process.env.APP_URL ||
+        process.env.WEB_APP_URL ||
+        process.env.CORS_ORIGIN ||
+        "http://localhost:3000";
+      const signInUrl = `${appUrl.replace(/\/$/, "")}/login`;
+      // Coerce nullable Prisma columns to strings the template helper
+      // expects — `name` defaults to the email local-part if missing,
+      // `email` is mandatory in the create flow so the fallback is
+      // purely defensive.
+      const inviteeName = created.name ?? created.email?.split("@")[0] ?? "";
+      const inviteeEmail = created.email ?? body.email;
+      const { subject, html, text } = renderSuperAdminInviteEmail({
+        inviteeName,
+        inviteeEmail,
+        temporaryPassword: body.password,
+        signInUrl,
+        requireTwoFactor: body.requireTwoFactor !== false,
+        invitedByName: req.user?.email ?? null,
+      });
+      let mailSent = false;
+      let mailError: string | undefined;
+      try {
+        const mailResult = await sendEmail({
+          to: inviteeEmail,
+          subject,
+          html,
+          text,
+        });
+        mailSent = mailResult.ok;
+        if (!mailResult.ok) mailError = mailResult.error;
+      } catch (err) {
+        mailError = err instanceof Error ? err.message : String(err);
+      }
+      auditLog(
+        req,
+        mailSent
+          ? "SUPER_ADMIN_INVITE_EMAILED"
+          : "SUPER_ADMIN_INVITE_EMAIL_FAILED",
+        "user",
+        created.id,
+        {
+          to: created.email,
+          ...(mailError ? { error: mailError } : {}),
+        },
+      ).catch(console.error);
+
       res.status(201).json({
         success: true,
         data: {
           ...created,
           permissions: body.permissions ?? {},
           requireTwoFactor: body.requireTwoFactor !== false,
+          mailSent,
+          ...(mailError ? { mailError } : {}),
         },
         error: null,
       });
@@ -665,63 +903,10 @@ router.put(
   },
 );
 
-// ─── Super-admin session idle-timeout settings ───────────────────────
-// Pearl §8.2 — operator-facing knob for the global super-admin idle
-// window. Returns the current value + the allowed range so the UI
-// can render a slider/input with proper bounds.
-
-router.get(
-  "/session-idle",
-  async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const minutes = await getSuperAdminIdleMinutes();
-      res.status(200).json({
-        success: true,
-        data: {
-          minutes,
-          min: SUPER_ADMIN_IDLE_LIMITS.min,
-          max: SUPER_ADMIN_IDLE_LIMITS.max,
-          default: SUPER_ADMIN_IDLE_LIMITS.default,
-        },
-        error: null,
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
-
-const sessionIdleBodySchema = z.object({
-  minutes: z
-    .number()
-    .int()
-    .min(SUPER_ADMIN_IDLE_LIMITS.min)
-    .max(SUPER_ADMIN_IDLE_LIMITS.max),
-});
-
-router.put(
-  "/session-idle",
-  validate(sessionIdleBodySchema),
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const body = req.body as z.infer<typeof sessionIdleBodySchema>;
-      const persisted = await setSuperAdminIdleMinutes(body.minutes);
-      await auditLog(
-        req,
-        "SUPER_ADMIN_SESSION_IDLE_UPDATED",
-        "system",
-        undefined,
-        { minutes: persisted },
-      );
-      res.status(200).json({
-        success: true,
-        data: { minutes: persisted },
-        error: null,
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
-);
+// (Session-idle routes moved above `/:id` — see comment near the top
+// of the route table for why. Express matches in registration order
+// and a literal `/session-idle` GET / PUT must beat the dynamic
+// `/:id` declarations or the dynamic handler swallows the request
+// with a "Super-admin user not found" 404.)
 
 export const superAdminUsersRouter = router;

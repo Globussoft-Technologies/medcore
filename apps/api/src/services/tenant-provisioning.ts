@@ -236,6 +236,13 @@ export interface CreateTenantParams {
   adminEmail: string;
   adminPassword: string;
   adminName: string;
+  /**
+   * Pearl §8.1 — human-readable tenant code (e.g. "AHMD-01"). Operator-
+   * supplied via the Create Tenant form; persisted in SystemConfig under
+   * `tenant:<id>:code` and read back by the tenants list endpoint.
+   * Optional — leave blank to fill in later via tenant detail config.
+   */
+  code?: string;
   hospitalConfig?: {
     phone?: string;
     email?: string;
@@ -321,11 +328,24 @@ export async function createTenant(
   const passwordHash = await bcrypt.hash(adminPassword, 10);
 
   // Pearl Stage 1 §8.3 — every freshly-onboarded tenant lands on a
-  // platform-billing plan tier (default STARTER) with a 30-day trial.
-  // The resolved feature-flag set (PLAN_DEFINITIONS[plan].includedFeatures)
-  // is materialised onto Tenant.featureFlags in the same transaction so
-  // requireFeature(...) gates work from day 1 without a separate write.
-  const initialPlan: Plan = params.initialPlan ?? "STARTER";
+  // platform-billing plan tier with a 30-day trial. When the caller
+  // doesn't explicitly pass `initialPlan`, we derive it from the
+  // legacy `Tenant.plan` (BASIC/PRO/ENTERPRISE) so the two plan
+  // fields stay in sync — otherwise the operator picks ENTERPRISE on
+  // the create form and the subscription silently lands on STARTER,
+  // which is what was making /super-admin/platform-billing show
+  // "STARTER" for tenants the operator just created as ENTERPRISE.
+  //
+  //   BASIC      → STARTER
+  //   PRO        → GROWTH
+  //   ENTERPRISE → ENTERPRISE
+  function planFromLegacy(p: TenantPlan | undefined): Plan {
+    if (p === "ENTERPRISE") return "ENTERPRISE";
+    if (p === "PRO") return "GROWTH";
+    return "STARTER";
+  }
+  const initialPlan: Plan =
+    params.initialPlan ?? planFromLegacy(plan as TenantPlan | undefined);
   const planDef = PLAN_DEFINITIONS[initialPlan];
   if (!planDef) {
     throw new Error(`Unknown plan tier: ${initialPlan}`);
@@ -456,6 +476,10 @@ export async function createTenant(
       // 7. SystemConfig rows for hospital identity, namespaced by tenant id.
       //    SystemConfig.key is a global unique, so we prefix with
       //    `tenant:<id>:`. Callers should read via tenantConfigKey().
+      // Pearl §8.1 — `code` is operator-supplied via the Create Tenant
+      // form (NOT auto-generated). When the operator leaves it blank,
+      // we skip the row so the Code column on the tenants list shows
+      // "—" until the operator fills it in later.
       const configEntries: Array<{ key: string; value: string }> = [
         { key: "hospital_name", value: name },
         { key: "hospital_phone", value: hospitalConfig?.phone ?? "" },
@@ -463,6 +487,9 @@ export async function createTenant(
         { key: "hospital_gstin", value: hospitalConfig?.gstin ?? "" },
         { key: "hospital_address", value: hospitalConfig?.address ?? "" },
         { key: "onboarding_started_at", value: new Date().toISOString() },
+        ...(params.code && params.code.trim().length > 0
+          ? [{ key: "code", value: params.code.trim().toUpperCase() }]
+          : []),
       ];
       for (const entry of configEntries) {
         await tx.systemConfig.create({

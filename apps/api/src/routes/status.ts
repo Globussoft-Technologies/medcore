@@ -105,13 +105,61 @@ router.get("/", async (_req: Request, res: Response) => {
     abdmComponent,
   ];
 
+  // ── Maintenance windows (Pearl §8.4) ────────────────────────────
+  // Surface currently-active + upcoming (next 7d) windows so visitors
+  // see scheduled downtime instead of generic "operational" when the
+  // platform is being intentionally taken down. Operator CRUD lives
+  // at /api/v1/maintenance-windows.
+  const now = new Date();
+  const horizon = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  let windowsPayload: StatusPayload["maintenanceWindows"] = [];
+  try {
+    const rows = (await (
+      prisma as unknown as {
+        maintenanceWindow: {
+          findMany: (args: unknown) => Promise<
+            Array<{
+              id: string;
+              title: string;
+              startsAt: Date;
+              endsAt: Date;
+            }>
+          >;
+        };
+      }
+    ).maintenanceWindow.findMany({
+      where: {
+        endsAt: { gte: now },
+        startsAt: { lte: horizon },
+        status: { in: ["scheduled", "in_progress"] },
+      },
+      orderBy: { startsAt: "asc" },
+      take: 10,
+      select: { id: true, title: true, startsAt: true, endsAt: true },
+    })) as Array<{
+      id: string;
+      title: string;
+      startsAt: Date;
+      endsAt: Date;
+    }>;
+    windowsPayload = rows.map((w) => ({
+      id: w.id,
+      title: w.title,
+      scheduledStart: w.startsAt.toISOString(),
+      scheduledEnd: w.endsAt.toISOString(),
+    }));
+  } catch {
+    // Table missing on a cold dev DB or migration lag — fall back to
+    // empty array rather than 5xx the public status page.
+    windowsPayload = [];
+  }
+
   const payload: StatusPayload = {
     service: "MedCore",
     status: rollupStatus(components),
     checkedAt,
     components,
-    // Stage 1: no maintenance-window admin surface yet (deferred).
-    maintenanceWindows: [],
+    maintenanceWindows: windowsPayload,
   };
 
   res.setHeader("Cache-Control", "public, max-age=15");

@@ -527,7 +527,15 @@ export default function InvoiceDetailPage() {
 
   return (
     <>
-      <style jsx global>{`
+      {/* Print-only styles. Plain <style> with dangerouslySetInnerHTML
+          rather than styled-jsx — the App Router's TypeScript config
+          rejects the `jsx` + `global` props on <style> (styled-jsx
+          types aren't bundled), and these rules are already written
+          with body-wide selectors so the styled-jsx `global` flag
+          was redundant anyway. */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         @media print {
           body * {
             visibility: hidden;
@@ -547,7 +555,9 @@ export default function InvoiceDetailPage() {
             display: none !important;
           }
         }
-      `}</style>
+      `,
+        }}
+      />
 
       {/* Action bar */}
       <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2">

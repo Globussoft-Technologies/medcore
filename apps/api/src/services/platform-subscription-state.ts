@@ -315,6 +315,61 @@ export async function cancelSubscription(
   return { changed: true, status: "cancelled", subscriptionId };
 }
 
+export interface TrialExpirationSweepResult {
+  inspected: number;
+  pastDued: number;
+  pastDuedIds: string[];
+  errors: number;
+}
+
+/**
+ * Pearl §8.3 piece 3d (2026-05-28) — trial expiry → past_due sweep.
+ * Walks every `trial` subscription whose `trialEndsAt < now` and flips it
+ * to `past_due`, starting the 7-day grace clock. After the grace window
+ * the existing `checkGracePeriodExpirations` cron will suspend them.
+ *
+ * Pure / idempotent — already-`past_due`/`active`/`suspended` rows are
+ * untouched (filtered by `status: "trial"`). Safe to re-run.
+ */
+export async function checkTrialExpirations(
+  prisma: PrismaClient,
+  now: Date = new Date(),
+): Promise<TrialExpirationSweepResult> {
+  const candidates = await prisma.tenantSubscription.findMany({
+    where: {
+      status: "trial",
+      trialEndsAt: { lt: now, not: null },
+    },
+    select: { id: true },
+  });
+
+  const result: TrialExpirationSweepResult = {
+    inspected: candidates.length,
+    pastDued: 0,
+    pastDuedIds: [],
+    errors: 0,
+  };
+
+  for (const c of candidates) {
+    try {
+      const r = await transitionToPastDue(prisma, c.id, now);
+      if (r.changed) {
+        result.pastDued += 1;
+        result.pastDuedIds.push(c.id);
+      }
+    } catch (err) {
+      result.errors += 1;
+      console.error(
+        "[platform_subscription_state] trial-expiration sweep failed for",
+        c.id,
+        err,
+      );
+    }
+  }
+
+  return result;
+}
+
 export interface GracePeriodSweepResult {
   inspected: number;
   suspended: number;

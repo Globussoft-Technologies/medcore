@@ -32,6 +32,7 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { resolveSlaForTicket } from "../services/support-ticket-sla";
 
 const router = Router();
 
@@ -145,15 +146,28 @@ router.post(
       // can also file tickets (stored with tenantId=null — represents an
       // internal-only ticket).
       const tenantId = req.user?.tenantId ?? null;
+      const priority = (body.priority ?? "NORMAL") as
+        | "LOW"
+        | "NORMAL"
+        | "HIGH"
+        | "URGENT";
+      // Pearl §8.5 — compute the SLA deadline from the tenant's plan +
+      // ticket priority. Persists `slaDueAt` + `slaPlan` so the operator
+      // UI can render the deadline / sort the queue by it.
+      const sla = await resolveSlaForTicket(prisma, tenantId, priority);
+      // Cast required until `prisma generate` re-runs on the dev box
+      // (DLL lock by running dev server). DB columns exist via db push.
       const ticket = await prisma.supportTicket.create({
         data: {
           tenantId,
           openedByUserId: req.user!.userId,
           subject: body.subject,
           body: body.body,
-          priority: body.priority ?? "NORMAL",
+          priority,
           status: "OPEN",
-        },
+          slaDueAt: sla.slaDueAt,
+          slaPlan: sla.slaPlan,
+        } as never,
       });
       await auditLog(
         req,
@@ -164,6 +178,8 @@ router.post(
           tenantId: ticket.tenantId,
           subject: ticket.subject,
           priority: ticket.priority,
+          slaPlan: sla.slaPlan,
+          slaHours: sla.slaHours,
         },
       );
       res.status(201).json({
@@ -374,10 +390,24 @@ router.patch(
   validate(patchTicketSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const ticket = await prisma.supportTicket.findUnique({
+      const ticket = (await prisma.supportTicket.findUnique({
         where: { id: req.params.id },
-        select: { id: true, status: true },
-      });
+        select: {
+          id: true,
+          status: true,
+          tenantId: true,
+          priority: true,
+          slaPlan: true,
+        } as never,
+      })) as
+        | {
+            id: string;
+            status: string;
+            tenantId: string | null;
+            priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+            slaPlan: string | null;
+          }
+        | null;
       if (!ticket) {
         res.status(404).json({
           success: false,
@@ -419,7 +449,35 @@ router.patch(
           data.resolvedAt = null;
         }
       }
-      if (body.priority !== undefined) data.priority = body.priority;
+      if (body.priority !== undefined) {
+        data.priority = body.priority;
+        // Pearl §8.5 — priority changes re-anchor the SLA from NOW so a
+        // legitimate URGENT escalation gets the matching shorter
+        // deadline. Plan is read from the existing slaPlan stamp (or
+        // re-resolved if the ticket pre-dates the SLA fields).
+        const sla = ticket.slaPlan
+          ? {
+              slaDueAt: new Date(
+                Date.now() +
+                  // Re-use the helper so all SLA computation paths
+                  // share one source of truth.
+                  (
+                    await resolveSlaForTicket(
+                      prisma,
+                      ticket.tenantId,
+                      body.priority,
+                    )
+                  ).slaHours *
+                    60 *
+                    60 *
+                    1000,
+              ),
+              slaPlan: ticket.slaPlan,
+            }
+          : await resolveSlaForTicket(prisma, ticket.tenantId, body.priority);
+        data.slaDueAt = sla.slaDueAt;
+        data.slaPlan = sla.slaPlan;
+      }
       if (body.assignedToUserId !== undefined) {
         data.assignedToUserId = body.assignedToUserId;
       }

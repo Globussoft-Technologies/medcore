@@ -65,6 +65,10 @@
  */
 import type { Prisma, PrismaClient } from "@medcore/db";
 import { PLAN_DEFINITIONS, type Plan } from "@medcore/shared";
+import {
+  aggregateUsageForBilling,
+  USAGE_KIND_LABEL,
+} from "./usage-tracker";
 
 /**
  * Platform-operator place-of-supply state used for the CGST+SGST vs
@@ -200,16 +204,54 @@ export async function generateMonthlyPlatformInvoices(
       }
 
       const plan = sub.plan as Plan;
-      const unitPriceInPaise =
+      const planUnitPriceInPaise =
         sub.customPriceMonthlyInPaise ??
         PLAN_DEFINITIONS[plan].monthlyPriceInPaise;
-      const subtotalInPaise = unitPriceInPaise; // qty = 1
 
       const tenantState = sub.tenant.branches?.[0]?.state ?? null;
       const sameState =
         !!tenantState && tenantState.trim().toLowerCase() ===
           PLATFORM_OPERATOR_STATE.toLowerCase();
 
+      // Pearl §8.3 piece 3e — aggregate usage events for the period and
+      // emit one additional line item per usage kind that has activity.
+      // Same GST rates apply per line; per-line `amountInPaise` rolls up
+      // into the invoice subtotal below.
+      const usageRows = await aggregateUsageForBilling(
+        prisma,
+        sub.tenantId,
+        periodStart,
+        periodEnd,
+      );
+
+      const lineItems: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput[] =
+        [
+          {
+            description: `MedCore HMS — ${PLAN_LABEL[plan]} subscription ${monthLabel}`,
+            unitPriceInPaise: planUnitPriceInPaise,
+            quantity: 1,
+            amountInPaise: planUnitPriceInPaise,
+            hsnSacCode: SAAS_HSN_SAC,
+            cgstRate: sameState ? CGST_RATE : 0,
+            sgstRate: sameState ? SGST_RATE : 0,
+            igstRate: sameState ? 0 : IGST_RATE,
+          },
+          ...usageRows.map((u) => ({
+            description: `${USAGE_KIND_LABEL[u.kind]} (${u.totalQuantity.toLocaleString()}) — ${monthLabel}`,
+            unitPriceInPaise: u.unitPriceInPaise,
+            quantity: u.totalQuantity,
+            amountInPaise: u.amountInPaise,
+            hsnSacCode: SAAS_HSN_SAC,
+            cgstRate: sameState ? CGST_RATE : 0,
+            sgstRate: sameState ? SGST_RATE : 0,
+            igstRate: sameState ? 0 : IGST_RATE,
+          })),
+        ];
+
+      const subtotalInPaise = lineItems.reduce(
+        (sum, li) => sum + li.amountInPaise,
+        0,
+      );
       const cgstInPaise = sameState
         ? Math.round((subtotalInPaise * CGST_RATE) / 100)
         : 0;
@@ -229,20 +271,6 @@ export async function generateMonthlyPlatformInvoices(
       });
       const invoiceNumber = `PI-${yyyymm}-${String(monthCount + 1).padStart(4, "0")}`;
 
-      const description = `MedCore HMS — ${PLAN_LABEL[plan]} subscription ${monthLabel}`;
-
-      const lineItemCreate: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput =
-        {
-          description,
-          unitPriceInPaise,
-          quantity: 1,
-          amountInPaise: subtotalInPaise,
-          hsnSacCode: SAAS_HSN_SAC,
-          cgstRate: sameState ? CGST_RATE : 0,
-          sgstRate: sameState ? SGST_RATE : 0,
-          igstRate: sameState ? 0 : IGST_RATE,
-        };
-
       const invoice = await prisma.platformInvoice.create({
         data: {
           invoiceNumber,
@@ -258,7 +286,7 @@ export async function generateMonthlyPlatformInvoices(
           status: "ISSUED",
           issuedAt: now,
           hsnSacCode: SAAS_HSN_SAC,
-          lineItems: { create: [lineItemCreate] },
+          lineItems: { create: lineItems },
         },
         select: { id: true },
       });
@@ -288,6 +316,11 @@ export async function generateMonthlyPlatformInvoices(
               totalInPaise,
               gstSplit: sameState ? "CGST+SGST" : "IGST",
               tenantState,
+              usageLineItems: usageRows.map((u) => ({
+                kind: u.kind,
+                totalQuantity: u.totalQuantity,
+                amountInPaise: u.amountInPaise,
+              })),
             } as Prisma.InputJsonValue,
           },
         });

@@ -40,6 +40,14 @@ async function seedUser(email: string, role: string) {
       phone: "9000000000",
       passwordHash: await bcrypt.hash(PASSWORD, 4),
       role: role as any,
+      // Pearl §8.2 (2026-05) — an ADMIN with `tenantId=null` is now
+      // classified as a peer cross-tenant super-admin under the login
+      // policy, and peers are forced to enrol TOTP on first sign-in
+      // (412 + enrolToken instead of 200). The session-bleed test
+      // needs a clean 200/JWT flow — flag the bleed-ADMIN as a main
+      // super-admin so the TOTP gate is skipped. DOCTOR / PATIENT
+      // rows ignore this column entirely.
+      isMainSuperAdmin: role === "ADMIN",
     },
   });
 }

@@ -19,6 +19,9 @@ import {
   X,
   Smartphone,
   Users,
+  Eye,
+  Check,
+  Minus,
 } from "lucide-react";
 import { extractFieldErrors, type FieldErrorMap } from "@/lib/field-errors";
 import { Role, sanitizeUserInput } from "@medcore/shared";
@@ -31,8 +34,12 @@ import { SkeletonTable } from "@/components/Skeleton";
 // self-register; admins create *staff* here. PHARMACIST + LAB_TECH were
 // missing from the prior hardcoded subset which silently blocked those
 // staff types.
+// Staff-form role choices. PATIENT is excluded (not a staff role).
+// SUPER_ADMIN is excluded too — cross-tenant super-admins are invited
+// through the dedicated /dashboard/users/new-super-admin page, not the
+// inline staff form, so it shouldn't surface here.
 const STAFF_ROLE_OPTIONS = (Object.keys(Role) as Array<keyof typeof Role>)
-  .filter((r) => r !== "PATIENT")
+  .filter((r) => r !== "PATIENT" && r !== "SUPER_ADMIN")
   .map((r) => ({
     value: Role[r],
     // Title-case "LAB_TECH" → "Lab Tech".
@@ -78,6 +85,11 @@ interface SuperAdminRow {
   // "onviqa" → cross-tenant operator; "tenant" → tenant super-admin.
   // Drives the row's UI affordances (deactivate is Onviqa-only).
   kind?: "onviqa" | "tenant";
+  // Pearl §8.2 — root super-admin. When true, this row cannot be
+  // deactivated by anyone; only this user can deactivate other
+  // super-admins. UI uses it to disable the action button + show
+  // the "Main" badge.
+  isMainSuperAdmin?: boolean;
 }
 
 const PERMISSION_LABELS: Array<{ key: string; label: string }> = [
@@ -132,6 +144,19 @@ export default function UsersPage() {
   const [superAdminBusyById, setSuperAdminBusyById] = useState<
     Record<string, boolean>
   >({});
+  // Permissions detail modal — set to the row whose Eye button was
+  // clicked; null hides the modal. Lets operators see the full grant
+  // matrix without overflowing the permissions cell with chips.
+  const [permModalRow, setPermModalRow] = useState<SuperAdminRow | null>(null);
+  // The caller is the main (root) super-admin when their own row in the
+  // loaded roster carries isMainSuperAdmin=true. Page-level platform
+  // controls — Add Super-Admin invite + the auto-sign-out config — are
+  // gated on this flag so peer super-admins can browse the roster but
+  // can't add operators or change the session-timeout policy. False
+  // until the roster loads, which is the safe default (hide controls).
+  const callerIsMainSuperAdmin = superAdmins.some(
+    (r) => r.id === user?.id && r.isMainSuperAdmin === true,
+  );
   // Pearl §8.2 — tab toggle between the regular staff table and the
   // cross-tenant Super-Admin roster. Tenant-bound ADMINs only see the
   // "Staff" tab; super-admins see both. Super-Admin invite is now a
@@ -513,9 +538,9 @@ export default function UsersPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">User Management</h1>
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 sm:text-2xl">User Management</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {activeTab === "super-admins"
               ? "Manage platform operators with access across all hospital tenants."
@@ -526,18 +551,23 @@ export default function UsersPage() {
           // Pearl §8.2 — the Super-Admin invite is a dedicated page, not
           // an inline form. Keeps the roster table visible on this page
           // and the invite form focused on its own URL.
-          <Link
-            href="/dashboard/users/new-super-admin"
-            data-testid="add-super-admin-link"
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-          >
-            <Plus size={16} />
-            Add Super-Admin
-          </Link>
+          // Visibility: only the main (root) super-admin can invite new
+          // platform operators. Peer super-admins see the roster but no
+          // invite affordance — the backend rejects them anyway.
+          callerIsMainSuperAdmin ? (
+            <Link
+              href="/dashboard/users/new-super-admin"
+              data-testid="add-super-admin-link"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark sm:w-auto"
+            >
+              <Plus size={16} />
+              Add Super-Admin
+            </Link>
+          ) : null
         ) : (
           <button
             onClick={() => setShowForm(!showForm)}
-            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark sm:w-auto"
           >
             <Plus size={16} />
             Add Staff User
@@ -921,7 +951,7 @@ export default function UsersPage() {
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               Cancel
             </button>
@@ -964,7 +994,7 @@ export default function UsersPage() {
                         so adding a new enum value only requires touching
                         the lookup maps, not the cell itself. */}
                     <span
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${roleColors[u.role] || "bg-gray-100 text-gray-600"}`}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${roleColors[u.role] || "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"}`}
                       data-testid={`user-role-${u.id}`}
                     >
                       {u.role === "SUPER_ADMIN" ? (
@@ -998,7 +1028,7 @@ export default function UsersPage() {
                       <button
                         onClick={() => openEdit(u)}
                         className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-                        title="Edit user"
+                        title="Edit this user's details"
                         data-testid={`user-edit-${u.id}`}
                       >
                         <Edit2 size={12} /> Edit
@@ -1006,7 +1036,7 @@ export default function UsersPage() {
                       <button
                         onClick={() => sendResetPassword(u)}
                         className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-                        title="Send password reset"
+                        title="Email a password-reset link to this user"
                         data-testid={`user-reset-${u.id}`}
                       >
                         <KeyRound size={12} /> Reset PW
@@ -1019,17 +1049,17 @@ export default function UsersPage() {
                         }`}
                         title={
                           u.id === user?.id
-                            ? "You cannot disable your own account"
+                            ? "You can't disable your own account"
                             : u.isActive !== false
-                            ? "Disable account"
-                            : "Re-enable account"
+                            ? "Disable this user's account"
+                            : "Re-enable this user's account"
                         }
                         aria-label={
                           u.id === user?.id
-                            ? "Cannot disable your own account"
+                            ? "You can't disable your own account"
                             : u.isActive !== false
-                            ? "Disable account"
-                            : "Re-enable account"
+                            ? "Disable this user's account"
+                            : "Re-enable this user's account"
                         }
                         data-testid={`user-toggle-${u.id}`}
                       >
@@ -1041,7 +1071,7 @@ export default function UsersPage() {
                           openPrintEndpoint(`/users/${u.id}/service-certificate`)
                         }
                         className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
-                        title="Service / Experience certificate"
+                        title="Print a service / experience certificate for this user"
                       >
                         <Printer size={12} /> Cert
                       </button>
@@ -1071,8 +1101,10 @@ export default function UsersPage() {
 
       {/* Super-Admin roster — rendered when the Super-Admins tab is
           active AND the viewer is a super-admin. Tenant-bound ADMINs
-          never see this tab. */}
-      {activeTab === "super-admins" && isSuperAdmin && (
+          never see this tab. The auto-sign-out timer is a platform
+          policy knob; only the main super-admin can change it, so
+          peers don't get the card at all. */}
+      {activeTab === "super-admins" && isSuperAdmin && callerIsMainSuperAdmin && (
         <SuperAdminSessionTimeoutCard />
       )}
 
@@ -1097,44 +1129,59 @@ export default function UsersPage() {
             <div className="overflow-x-auto">
               <table
                 data-testid="super-admin-operators-table"
-                className="w-full min-w-[760px]"
+                className="w-full min-w-[1240px]"
               >
                 <thead>
-                  <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                    <th className="px-4 py-3">Name</th>
-                    <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Tenant</th>
-                    <th className="px-4 py-3">2FA</th>
-                    <th className="px-4 py-3">Permissions</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Last login</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
+                  <tr className="border-b text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                    <th className="whitespace-nowrap px-3 py-2.5">Name</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">Email</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">Tenant</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">Role</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">2FA</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">Permissions</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">Status</th>
+                    <th className="whitespace-nowrap px-3 py-2.5">Last login</th>
+                    <th className="whitespace-nowrap px-3 py-2.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {superAdmins.map((row) => {
                     const isSelf = row.id === user?.id;
                     const busy = !!superAdminBusyById[row.id];
-                    const granted = PERMISSION_LABELS.filter(
-                      (p) => row.permissions?.[p.key] === true,
-                    );
-                    const hasPermObj =
-                      row.permissions &&
-                      Object.keys(row.permissions).length > 0;
+                    // Pearl §8.2 — the caller is the "main" super-admin
+                    // if their row in the loaded list carries
+                    // isMainSuperAdmin=true. Reading from the same
+                    // payload keeps backend + UI gates in sync.
+                    const callerIsMain =
+                      superAdmins.find((r) => r.id === user?.id)
+                        ?.isMainSuperAdmin === true;
+                    // Tenant-bound row = a hospital tenant's local ADMIN.
+                    // Any cross-tenant super-admin (main + peer) can
+                    // toggle these directly from this page.
+                    const rowIsTenantBound =
+                      row.kind === "tenant" || !!row.tenantId;
+                    // The main-only rule applies only to mutations of
+                    // OTHER cross-tenant super-admins. Tenant-admin rows
+                    // are exempt — peers can act on them too. The main
+                    // row itself is always blocked (its own pill below).
+                    const blockedByMainRule =
+                      !rowIsTenantBound &&
+                      ((!callerIsMain && !isSelf) ||
+                        row.isMainSuperAdmin === true);
                     return (
                       <tr
                         key={row.id}
                         data-testid={`super-admin-operator-row-${row.id}`}
                         className="border-b last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/50"
                       >
-                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
+                        <td className="whitespace-nowrap px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
                           <span className="inline-flex items-center gap-2">
                             <ShieldCheck
                               size={14}
                               className="text-gray-400"
                               aria-hidden="true"
                             />
-                            {row.name}
+                            <span className="truncate">{row.name}</span>
                             {isSelf && (
                               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                                 You
@@ -1145,7 +1192,7 @@ export default function UsersPage() {
                         <td className="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
                           {row.email ?? "—"}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-4 py-3">
                           {/* Pearl §8.2 — Tenant column. Onviqa
                               operators (cross-tenant) get a violet
                               "Cross-tenant" pill; tenant super-admins
@@ -1163,72 +1210,72 @@ export default function UsersPage() {
                             </div>
                           ) : (
                             <span
-                              className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300"
-                              title="Onviqa platform operator with access across every tenant"
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300"
+                              title="Platform operator — access across every hospital tenant"
                             >
                               <ShieldCheck size={12} aria-hidden="true" />
                               Cross-tenant
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-4 py-3">
+                          {rowIsTenantBound ? (
+                            <span
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200"
+                              title="Hospital tenant's local admin — full control inside their hospital"
+                            >
+                              Tenant Admin
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-300"
+                              title="Platform operator — cross-tenant access. The main super-admin is flagged in the Actions column."
+                            >
+                              Super-Admin
+                            </span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3">
                           {row.twoFactorEnabled ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
                               <Smartphone size={12} aria-hidden="true" />
                               Enrolled
                             </span>
                           ) : (
                             <span
-                              className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
-                              title="TOTP not enrolled — Pearl §8.2 mandates 2FA"
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
+                              title="2FA not set up yet — they'll be prompted to enrol on next sign-in"
                             >
                               <KeyRound size={12} aria-hidden="true" />
                               Required
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
-                          {!hasPermObj ? (
-                            <span
-                              className="inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                              title="No granular permissions — full access"
-                            >
-                              Full access
-                            </span>
-                          ) : granted.length === 0 ? (
-                            <span className="inline-flex rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
-                              No grants
-                            </span>
-                          ) : (
-                            <div className="flex flex-wrap items-center gap-1">
-                              {granted.slice(0, 3).map((p) => (
-                                <span
-                                  key={p.key}
-                                  className="inline-flex rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-800 dark:bg-sky-950/40 dark:text-sky-300"
-                                >
-                                  {p.label}
-                                </span>
-                              ))}
-                              {granted.length > 3 && (
-                                <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">
-                                  +{granted.length - 3}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                        <td className="whitespace-nowrap px-4 py-3">
+                          <button
+                            type="button"
+                            data-testid={`super-admin-perm-view-${row.id}`}
+                            onClick={() => setPermModalRow(row)}
+                            title="View this account's permission matrix"
+                            aria-label="View permission details"
+                            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium text-sky-700 transition hover:border-sky-300 hover:bg-sky-100 hover:shadow-sm dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300 dark:hover:border-sky-700 dark:hover:bg-sky-950/60"
+                          >
+                            <Eye size={12} aria-hidden="true" />
+                            View
+                          </button>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="whitespace-nowrap px-4 py-3">
                           {row.isActive ? (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
                               Active
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
                               Inactive
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
+                        <td className="whitespace-nowrap px-4 py-3 text-xs text-gray-600 dark:text-gray-400">
                           {row.lastLoginAt
                             ? new Date(row.lastLoginAt).toLocaleDateString(
                                 "en-IN",
@@ -1241,32 +1288,39 @@ export default function UsersPage() {
                             : "Never"}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {/* Pearl §8.2 — Deactivate is only available
-                              for Onviqa operators here. Tenant super-
-                              admins are managed via their own tenant's
-                              user admin (the API would 404 anyway —
-                              the PATCH guard rejects non-Onviqa rows). */}
-                          {row.kind === "tenant" || row.tenantId ? (
+                          {/* Cross-tenant super-admins (main + peers) can
+                              toggle tenant-bound hospital admins from
+                              this page; only the main super-admin can
+                              toggle another cross-tenant super-admin.
+                              The main row itself shows a protected pill. */}
+                          {!rowIsTenantBound && row.isMainSuperAdmin ? (
                             <span
-                              className="inline-flex h-9 items-center gap-1 rounded-md bg-gray-50 px-3 text-xs font-medium text-gray-400 dark:bg-gray-700/40 dark:text-gray-500"
-                              title="Managed by the tenant — open that tenant's user admin to change status"
+                              className="inline-flex h-9 min-w-[120px] items-center justify-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-700"
+                              title="Main super-admin — protected, cannot be deactivated"
                             >
-                              Tenant-managed
+                              <ShieldCheck size={12} aria-hidden="true" />
+                              Main
                             </span>
                           ) : (
                             <button
                               type="button"
                               data-testid={`super-admin-operator-toggle-${row.id}`}
-                              disabled={busy || isSelf}
+                              disabled={busy || isSelf || blockedByMainRule}
                               onClick={() => toggleSuperAdminActive(row)}
                               title={
                                 isSelf
-                                  ? "You cannot deactivate yourself"
-                                  : row.isActive
-                                    ? "Deactivate"
-                                    : "Reactivate"
+                                  ? "You can't deactivate your own account"
+                                  : blockedByMainRule
+                                    ? "Only the main super-admin can change other super-admins' status"
+                                    : rowIsTenantBound
+                                      ? row.isActive
+                                        ? "Deactivate this tenant admin"
+                                        : "Reactivate this tenant admin"
+                                      : row.isActive
+                                        ? "Deactivate this super-admin"
+                                        : "Reactivate this super-admin"
                               }
-                              className={`inline-flex h-9 items-center gap-1 rounded-md border px-3 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                              className={`inline-flex h-9 min-w-[120px] items-center justify-center gap-1 rounded-md border px-3 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
                                 row.isActive
                                   ? // Active → button is RED (Deactivate is a destructive action)
                                     "border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-950/60"
@@ -1420,7 +1474,7 @@ export default function UsersPage() {
               <button
                 type="button"
                 onClick={() => setEditing(null)}
-                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
               >
                 Cancel
               </button>
@@ -1469,6 +1523,121 @@ export default function UsersPage() {
           </div>
         </div>
       )}
+
+      {permModalRow &&
+        (() => {
+          const row = permModalRow;
+          const hasPermObj =
+            row.permissions && Object.keys(row.permissions).length > 0;
+          const grantedKeys = new Set(
+            PERMISSION_LABELS.filter(
+              (p) => row.permissions?.[p.key] === true,
+            ).map((p) => p.key),
+          );
+          return (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setPermModalRow(null);
+              }}
+              data-testid="super-admin-perm-modal"
+            >
+              <div className="w-full max-w-sm overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-gray-800 sm:max-w-md">
+                {/* Header */}
+                <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4 dark:border-gray-700">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300">
+                      <Shield size={16} aria-hidden="true" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        {row.name}
+                      </p>
+                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                        {row.email ?? "—"}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPermModalRow(null)}
+                    aria-label="Close"
+                    className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </div>
+
+                {/* Body */}
+                <div className="px-5 py-4">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                    Permission matrix
+                  </p>
+
+                  {!hasPermObj ? (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <Check size={14} aria-hidden="true" />
+                        Full platform access
+                      </div>
+                      <p className="mt-1 text-xs text-emerald-700/90 dark:text-emerald-300/90">
+                        No granular grants are configured for this account — every super-admin surface is enabled.
+                      </p>
+                    </div>
+                  ) : grantedKeys.size === 0 ? (
+                    <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+                      <div className="flex items-center gap-2 font-semibold">
+                        <Minus size={14} aria-hidden="true" />
+                        No grants
+                      </div>
+                      <p className="mt-1 text-xs text-rose-700/90 dark:text-rose-300/90">
+                        This account can sign in but has no operational scope assigned yet.
+                      </p>
+                    </div>
+                  ) : (
+                    <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 dark:divide-gray-700 dark:border-gray-700">
+                      {PERMISSION_LABELS.map((p) => {
+                        const on = grantedKeys.has(p.key);
+                        return (
+                          <li
+                            key={p.key}
+                            className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                          >
+                            <span className="font-medium text-gray-700 dark:text-gray-200">
+                              {p.label}
+                            </span>
+                            {on ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                <Check size={11} aria-hidden="true" />
+                                Granted
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500 dark:bg-gray-700/60 dark:text-gray-400">
+                                <Minus size={11} aria-hidden="true" />
+                                Not granted
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-end border-t border-gray-100 px-5 py-3 dark:border-gray-700">
+                  <button
+                    type="button"
+                    onClick={() => setPermModalRow(null)}
+                    className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }
@@ -1544,22 +1713,23 @@ function SuperAdminSessionTimeoutCard() {
       className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 shadow-sm dark:border-indigo-900/50 dark:bg-indigo-950/20"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
             <KeyRound size={16} aria-hidden="true" />
           </span>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              Super-admin session timeout
+              Auto sign-out for super-admins
             </h3>
             <p className="text-xs text-gray-600 dark:text-gray-300">
-              Sign out inactive super-admin sessions after this many minutes
-              of no activity. Pearl §8.2 — default {limits.default} min,
-              range {limits.min}–{limits.max}.
+              Signs idle super-admins out after this many minutes.{" "}
+              <span className="text-gray-500 dark:text-gray-400">
+                Default {limits.default} · range {limits.min}–{limits.max} min.
+              </span>
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             data-testid="super-admin-session-timeout-input"
             type="number"

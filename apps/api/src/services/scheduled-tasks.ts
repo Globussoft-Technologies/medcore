@@ -13,7 +13,12 @@ import { runChronicCareSequenceSends } from "./chronic-care-scheduler";
 import { dispatchPendingCampaigns } from "./campaign-dispatcher-sweep";
 import { collectYesterdayUsage } from "./tenant-usage-collector";
 import { generateMonthlyPlatformInvoices } from "./platform-invoice-generator";
-import { checkGracePeriodExpirations } from "./platform-subscription-state";
+import { sendMonthlyInvoiceEmails } from "./platform-invoice-mailer";
+import { seedPlatformBillingConfig } from "./platform-billing-config";
+import {
+  checkGracePeriodExpirations,
+  checkTrialExpirations,
+} from "./platform-subscription-state";
 import { runTenantArchiveSweep } from "./tenant-archival";
 
 // ───────────────────────────────────────────────────────
@@ -1231,6 +1236,51 @@ async function platformGracePeriodSweepTask(): Promise<void> {
   }
 }
 
+// ─── Platform-invoice email mailer (Pearl §8.3 piece 3f) ─
+//
+// Daily at 05:00 host-time: walks every ISSUED PlatformInvoice that
+// hasn't been emailed yet (idempotency tracked via AuditLog action
+// `PLATFORM_INVOICE_EMAILED`) and delivers it to the tenant's
+// `billingContactEmail`. Tenants without a contact email are skipped
+// (logged once per row) so the operator can fill it in later. SendGrid
+// failures don't write an audit row, so the next sweep retries.
+async function platformInvoiceMailerTask(): Promise<void> {
+  try {
+    const result = await sendMonthlyInvoiceEmails(prisma);
+    if (
+      result.sent > 0 ||
+      result.skippedNoContact > 0 ||
+      result.errors > 0
+    ) {
+      console.log(
+        `[platform_invoice_mailer] inspected=${result.inspected} sent=${result.sent} alreadyEmailed=${result.skippedAlreadyEmailed} noContact=${result.skippedNoContact} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[platform_invoice_mailer]", err);
+  }
+}
+
+// ─── Platform-subscription trial-expiration sweep (Pearl §8.3 piece 3d) ─
+//
+// Daily at 03:00 host-time (paired with the grace-period sweep so both
+// state-machine checks run back-to-back). Walks every `trial`
+// TenantSubscription whose `trialEndsAt < now` and flips it to
+// `past_due`, starting the 7-day grace clock that the sister sweep
+// above eventually drains to `suspended`. Idempotent.
+async function platformTrialExpirationSweepTask(): Promise<void> {
+  try {
+    const result = await checkTrialExpirations(prisma);
+    if (result.inspected > 0 || result.pastDued > 0 || result.errors > 0) {
+      console.log(
+        `[platform_trial_expiration_sweep] inspected=${result.inspected} pastDued=${result.pastDued} errors=${result.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[platform_trial_expiration_sweep]", err);
+  }
+}
+
 // ─── Tenant 90-day S3 archival sweep (Pearl §8.1 row 233) ──────────
 //
 // Daily at 04:00 host-time: find every tenant currently SUSPENDED
@@ -1491,6 +1541,26 @@ const TASKS: ScheduledTask[] = [
     runAtHour: 3,
     run: platformGracePeriodSweepTask,
   },
+  // Pearl §8.3 piece 3d — daily at 03:00 host-time. Walks every `trial`
+  // TenantSubscription whose `trialEndsAt < now` and flips it to
+  // `past_due`. Runs back-to-back with the grace-period sweep so the
+  // entire state-machine chain (trial → past_due → suspended) settles
+  // in one daily window.
+  {
+    name: "platform_trial_expiration_sweep",
+    intervalMinutes: 24 * 60,
+    runAtHour: 3,
+    run: platformTrialExpirationSweepTask,
+  },
+  // Pearl §8.3 piece 3f — daily at 05:00 host-time. Mails every ISSUED
+  // PlatformInvoice that hasn't already been delivered to the tenant's
+  // billingContactEmail. Idempotent — audit log gates re-sends.
+  {
+    name: "platform_invoice_mailer",
+    intervalMinutes: 24 * 60,
+    runAtHour: 5,
+    run: platformInvoiceMailerTask,
+  },
   // Pearl §8.1 row 233 — daily at 04:00 host-time. Finds every tenant
   // suspended (`active=false`) for >=90 days and uploads a gzipped JSON
   // export of their tenant-scoped data to S3 (key:
@@ -1621,6 +1691,21 @@ async function tick(): Promise<void> {
 export function registerScheduledTasks(): void {
   if (intervalHandle) return;
   console.log(`[scheduler] registering ${TASKS.length} scheduled tasks`);
+  // Pearl §8.3 piece 3g — idempotently seed the operator-tunable
+  // platform-billing config rows (usage unit prices, GST state + rates,
+  // grace window). Safe to run on every boot — existing rows are left
+  // alone so prior operator edits survive restarts.
+  seedPlatformBillingConfig()
+    .then((r) => {
+      if (r.inserted > 0) {
+        console.log(
+          `[platform_billing_config] seeded ${r.inserted} default row(s); ${r.alreadyPresent} already present`,
+        );
+      }
+    })
+    .catch((err) =>
+      console.error("[platform_billing_config] seed failed", err),
+    );
   // First tick after 10s grace so the server finishes booting
   setTimeout(() => {
     tick().catch((err) => console.error("[scheduler] initial tick", err));

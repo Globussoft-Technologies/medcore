@@ -60,7 +60,11 @@ describeIfDB("Mandatory ADMIN TOTP enforcement on login (Pearl §8.2 row 211)", 
     expect(res.body.success).toBe(false);
     expect(res.body.data?.totpEnrolmentRequired).toBe(true);
     expect(typeof res.body.data?.enrolToken).toBe("string");
-    expect(res.body.error).toMatch(/TOTP|2FA|enroll/i);
+    // 2026-05 — the user-facing message was rewritten to drop internal
+    // jargon ("TOTP / enrolToken") in favour of plain language. The
+    // regex now matches either the legacy keywords or "two-factor" /
+    // "two factor authentication" so both eras of message pass.
+    expect(res.body.error).toMatch(/TOTP|2FA|enroll|two[- ]factor/i);
 
     // Pre-auth login path doesn't have req.user set, so the audit row's
     // userId column is null. Only match on action+entity+entityId.

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Smoke tests for /super-admin/platform-billing — Pearl §8.3
+// Smoke tests for /dashboard/platform-billing — Pearl §8.3
 // (gap rows 215-218 closure piece 3-UI, 2026-05-25).
 //
 // Covers:
@@ -95,6 +95,10 @@ const fetchMock = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useParams: () => ({}),
+  // The billing landing reads `?from=tenants` to decide whether to
+  // render the breadcrumb back-link. Tests don't supply the param, so
+  // the mock returns null for every key → no breadcrumb branch.
+  useSearchParams: () => ({ get: () => null }),
 }));
 
 vi.mock("next/link", () => ({
@@ -146,7 +150,7 @@ beforeEach(() => {
 
 import PlatformBillingPage from "../page";
 
-describe("/super-admin/platform-billing landing — Pearl §8.3", () => {
+describe("/dashboard/platform-billing landing — Pearl §8.3", () => {
   it("renders both tab buttons and the Subscriptions table by default", async () => {
     render(<PlatformBillingPage />);
     expect(
@@ -197,15 +201,18 @@ describe("/super-admin/platform-billing landing — Pearl §8.3", () => {
 
   it("clicking Mark Paid opens the modal and POSTs the entered paymentReference", async () => {
     render(<PlatformBillingPage />);
-    // Switch to the Invoices tab so the row + button are mounted.
+    // Switch to the Invoices tab so the row + kebab are mounted.
     fireEvent.click(screen.getByTestId("platform-billing-tab-invoices"));
+    // 2026-05 — Mark Paid moved into a per-row kebab action menu.
+    // The row now exposes a single kebab button; the operator opens
+    // the menu and picks "Record Payment" which opens the modal.
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv-1"),
+        screen.getByTestId("platform-billing-actions-inv-1"),
       ).toBeInTheDocument();
     });
-
-    fireEvent.click(screen.getByTestId("platform-billing-mark-paid-inv-1"));
+    fireEvent.click(screen.getByTestId("platform-billing-actions-inv-1"));
+    fireEvent.click(screen.getByTestId("platform-billing-action-record-inv-1"));
     // Modal is now open.
     expect(
       screen.getByTestId("platform-billing-mark-paid-modal"),
@@ -264,10 +271,11 @@ describe("/super-admin/platform-billing landing — Pearl §8.3", () => {
     fireEvent.click(screen.getByTestId("platform-billing-tab-invoices"));
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv-1"),
+        screen.getByTestId("platform-billing-actions-inv-1"),
       ).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByTestId("platform-billing-mark-paid-inv-1"));
+    fireEvent.click(screen.getByTestId("platform-billing-actions-inv-1"));
+    fireEvent.click(screen.getByTestId("platform-billing-action-record-inv-1"));
     // Click submit immediately without typing anything.
     fireEvent.click(screen.getByTestId("platform-billing-mark-paid-submit"));
 
@@ -282,12 +290,12 @@ describe("/super-admin/platform-billing landing — Pearl §8.3", () => {
     ).toBe(false);
   });
 
-  it("uses 44px (h-11) touch targets on tab buttons, filter chips, and Mark Paid button", async () => {
+  it("uses 44px (h-11) touch targets on tab buttons + filter chips; the per-row kebab uses h-9", async () => {
     render(<PlatformBillingPage />);
     fireEvent.click(screen.getByTestId("platform-billing-tab-invoices"));
     await waitFor(() => {
       expect(
-        screen.getByTestId("platform-billing-mark-paid-inv-1"),
+        screen.getByTestId("platform-billing-actions-inv-1"),
       ).toBeInTheDocument();
     });
 
@@ -297,11 +305,19 @@ describe("/super-admin/platform-billing landing — Pearl §8.3", () => {
     expect(
       screen.getByTestId("platform-billing-tab-invoices").className,
     ).toMatch(/h-11/);
+    // 2026-05 — the Unpaid/Paid/All filter shipped as a compact
+    // segmented control (h-8 min-w-[88px]); it sits visually inside
+    // the tab header so the per-pill height is smaller than the
+    // primary tab buttons by design.
     expect(
       screen.getByTestId("platform-billing-invoice-filter-ISSUED").className,
-    ).toMatch(/h-11/);
+    ).toMatch(/h-8/);
+    // 2026-05 — the per-row Mark Paid button became a compact kebab
+    // (h-9 w-9) that opens a menu. Primary nav controls (tabs)
+    // remain at h-11; the row-level action stays smaller so it
+    // doesn't dominate dense tables.
     expect(
-      screen.getByTestId("platform-billing-mark-paid-inv-1").className,
-    ).toMatch(/h-11/);
+      screen.getByTestId("platform-billing-actions-inv-1").className,
+    ).toMatch(/h-9/);
   });
 });

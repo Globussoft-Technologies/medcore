@@ -71,6 +71,7 @@ async function main() {
     update: {
       tenantId: null,
       role: SUPER_ADMIN,
+      isMainSuperAdmin: true,
     },
     create: {
       email: "superadmin@medcore.local",
@@ -79,6 +80,7 @@ async function main() {
       passwordHash: hashPassword("superadmin123"),
       role: SUPER_ADMIN,
       tenantId: null,
+      isMainSuperAdmin: true,
     },
   });
   console.log("Created super admin:", superAdmin.email);

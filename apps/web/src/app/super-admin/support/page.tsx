@@ -43,6 +43,11 @@ interface SupportTicketRow {
   priority: TicketPriority;
   updatedAt: string;
   createdAt: string;
+  // Pearl §8.5 — plan-aware SLA stamps set on create (and recomputed
+  // on priority change). `slaDueAt` is the operator's response
+  // deadline; `slaPlan` is the plan that resolved it.
+  slaDueAt?: string | null;
+  slaPlan?: "STARTER" | "GROWTH" | "ENTERPRISE" | null;
   tenant: { id: string; name: string; subdomain: string } | null;
   openedBy: { id: string; name: string; email: string | null } | null;
   assignedTo: { id: string; name: string; email: string | null } | null;
@@ -311,6 +316,9 @@ export default function SuperAdminSupportPage() {
                 Status
               </th>
               <th scope="col" className="px-4 py-3 font-medium">
+                SLA
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
                 Updated
               </th>
               <th
@@ -325,7 +333,7 @@ export default function SuperAdminSupportPage() {
             {filteredTickets.length === 0 && !loading ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-4 py-8 text-center text-sm text-slate-500"
                   data-testid="support-empty"
                 >
@@ -384,6 +392,13 @@ export default function SuperAdminSupportPage() {
                       {ticket.status}
                     </span>
                   </td>
+                  <td className="px-4 py-3">
+                    <SlaBadge
+                      slaDueAt={ticket.slaDueAt ?? null}
+                      slaPlan={ticket.slaPlan ?? null}
+                      status={ticket.status}
+                    />
+                  </td>
                   <td className="px-4 py-3 text-xs text-slate-500">
                     {formatTs(ticket.updatedAt)}
                   </td>
@@ -431,4 +446,83 @@ export default function SuperAdminSupportPage() {
       ) : null}
     </section>
   );
+}
+
+// Pearl §8.5 — SLA badge. Renders "On track" / "Due in 2h" / "Breached
+// 3h ago" with a plan-coloured strip so operators see plan-tier
+// commitments at a glance.
+//
+// Resolved tickets show a muted "Met" / "Missed" past-tense badge — no
+// urgency once a ticket is done.
+function SlaBadge({
+  slaDueAt,
+  slaPlan,
+  status,
+}: {
+  slaDueAt: string | null;
+  slaPlan: "STARTER" | "GROWTH" | "ENTERPRISE" | null;
+  status: TicketStatus;
+}): React.ReactNode {
+  if (!slaDueAt) {
+    return <span className="text-xs text-slate-400">—</span>;
+  }
+  const due = new Date(slaDueAt);
+  const ms = due.getTime() - Date.now();
+  const closed = status === "RESOLVED" || status === "CLOSED";
+
+  // Plan strip — colour the left edge by tier so an operator scanning
+  // the list spots ENTERPRISE rows fast (those carry the tightest
+  // commitments and the biggest revenue at stake).
+  const planCls =
+    slaPlan === "ENTERPRISE"
+      ? "border-l-4 border-violet-500"
+      : slaPlan === "GROWTH"
+        ? "border-l-4 border-sky-500"
+        : "border-l-4 border-slate-300";
+
+  let label: string;
+  let tone: string;
+  if (closed) {
+    if (ms < 0) {
+      label = "Missed";
+      tone = "bg-rose-50 text-rose-700";
+    } else {
+      label = "Met";
+      tone = "bg-emerald-50 text-emerald-700";
+    }
+  } else if (ms <= 0) {
+    label = `Breached ${formatRelativeDuration(-ms)} ago`;
+    tone = "bg-rose-100 text-rose-700 font-semibold";
+  } else if (ms < 60 * 60 * 1000) {
+    label = `Due in ${formatRelativeDuration(ms)}`;
+    tone = "bg-amber-100 text-amber-800 font-semibold";
+  } else {
+    label = `Due in ${formatRelativeDuration(ms)}`;
+    tone = "bg-slate-50 text-slate-700";
+  }
+
+  return (
+    <div className={`inline-flex flex-col rounded-md ${planCls} pl-2`}>
+      <span
+        className={`inline-flex items-center rounded px-2 py-0.5 text-[11px] ${tone}`}
+        title={`${slaPlan ?? "STARTER"} plan · due ${due.toLocaleString("en-IN")}`}
+      >
+        {label}
+      </span>
+      {slaPlan ? (
+        <span className="px-2 pt-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+          {slaPlan}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function formatRelativeDuration(ms: number): string {
+  const min = Math.floor(ms / 60_000);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h`;
+  const days = Math.floor(hr / 24);
+  return `${days}d`;
 }

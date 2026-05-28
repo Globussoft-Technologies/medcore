@@ -48,6 +48,20 @@ const CSRF_BYPASS_PATHS = [
   "/api/v1/auth/2fa-validate",
   "/api/v1/auth/forgot-password",
   "/api/v1/auth/reset-password",
+  // Login-time second factor for already-enrolled users. /auth/login
+  // returns { twoFactorRequired: true, tempToken } and the operator
+  // POSTs back to /auth/2fa/verify-login with the 6-digit code. They
+  // still don't have a session cookie at this point — the tempToken
+  // is the auth factor; it's single-shot with a 5-min TTL.
+  "/api/v1/auth/2fa/verify-login",
+  // Pearl §8.2 mandatory-TOTP enrolment-at-login. Caller has no
+  // session yet (the login response was 412 + enrolToken), so the
+  // medcore_csrf cookie doesn't exist. Defence in lieu of CSRF: the
+  // `enrolToken` is minted only after valid credentials at /auth/login,
+  // has a 5-minute TTL, and is single-shot on verify (consumed on
+  // every verify attempt — wrong code burns it).
+  "/api/v1/auth/2fa/enrol-setup",
+  "/api/v1/auth/2fa/enrol-verify",
   // Patient bootstrap endpoints — these MINT the medcore_csrf cookie
   // themselves so they cannot require it. Each has its own defence:
   //   - otp-request: per-phone rate limiter (3/10min) — see patient-auth.ts

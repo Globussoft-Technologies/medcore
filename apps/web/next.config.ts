@@ -3,7 +3,17 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   transpilePackages: ["@medcore/shared"],
   images: {
-    remotePatterns: [{ protocol: "https", hostname: "media.licdn.com" }],
+    remotePatterns: [
+      { protocol: "https", hostname: "media.licdn.com" },
+      // Team photos for the marketing About page are hosted on the
+      // company WordPress instance. Pattern matches /wp-content/uploads/**
+      // so future asset paths under the same host don't need a config bump.
+      {
+        protocol: "https",
+        hostname: "globussoft.com",
+        pathname: "/wp-content/uploads/**",
+      },
+    ],
   },
   // Sentry's Node SDK (@sentry/node, pulled in by @sentry/nextjs) wires up
   // OpenTelemetry auto-instrumentation. Its instrumentation classes and the

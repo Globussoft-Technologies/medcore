@@ -59,7 +59,13 @@
  *   shows up as a test failure rather than a silent product bug.
  */
 import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
-import { API_BASE, expectNotForbidden, seedPatient } from "./helpers";
+import {
+  API_BASE,
+  CREDS,
+  expectNotForbidden,
+  seedAppointment,
+  seedPatient,
+} from "./helpers";
 
 const TAB_TIMEOUT = 15_000;
 
@@ -70,6 +76,38 @@ test.describe("Patient chart [id] — /dashboard/patients/[id] (DOCTOR deep pane
   }) => {
     const page = doctorPage;
     const patient = await seedPatient(adminApi);
+
+    // Pearl §2.1.3 — the "Start Consultation" button only renders when
+    // the logged-in doctor has a live appointment with THIS patient
+    // today (page.tsx:469 fetches /appointments?patientId&date=today
+    // which is auto-scoped to the calling doctor on the server). Seed
+    // a walk-in for the test doctor (CREDS.DOCTOR.email) so the gate
+    // opens. Without this, activeAppointment stays null and the button
+    // hides — which is the production behavior, not a regression.
+    const doctorsRes = await adminApi.get(`${API_BASE}/doctors`);
+    if (!doctorsRes.ok()) {
+      throw new Error(
+        `Cannot list doctors to anchor Start-Consultation seed: ${doctorsRes.status()}`,
+      );
+    }
+    const doctorsJson = await doctorsRes.json();
+    const doctorList = (doctorsJson.data ?? doctorsJson) as Array<{
+      id: string;
+      user?: { email?: string };
+    }>;
+    const testDoctor = doctorList.find(
+      (d) => d.user?.email === CREDS.DOCTOR.email,
+    );
+    expect(
+      testDoctor,
+      `seeded doctor row for ${CREDS.DOCTOR.email} not found in /doctors — ` +
+        "the Start Consultation gate requires the appointment to be anchored " +
+        "to the doctor that doctorPage is logged in as.",
+    ).toBeDefined();
+    await seedAppointment(adminApi, {
+      patientId: patient.id,
+      doctorId: testDoctor!.id,
+    });
 
     await page.goto(`/dashboard/patients/${patient.id}`, {
       waitUntil: "domcontentloaded",

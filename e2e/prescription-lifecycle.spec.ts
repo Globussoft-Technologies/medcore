@@ -158,7 +158,7 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
 
     // Two medicines that the stub will report as CONTRAINDICATED.
     await page.getByPlaceholder("Medicine name").first().fill("Warfarin");
-    await page.getByPlaceholder("Dosage").first().fill("5mg");
+    await page.getByPlaceholder(/^dosage/i).first().fill("5mg");
     await page
       .locator('select:has(option[value="0-0-1 (Night)"])')
       .first()
@@ -355,7 +355,7 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
 
     await page.getByPlaceholder(/Search ICD-10/i).fill("E11.9 — Type 2 diabetes");
     await page.getByPlaceholder("Medicine name").first().fill("Metformin");
-    await page.getByPlaceholder("Dosage").first().fill("500mg");
+    await page.getByPlaceholder(/^dosage/i).first().fill("500mg");
     await page
       .locator('select:has(option[value="1-0-1 (Morning-Night)"])')
       .first()

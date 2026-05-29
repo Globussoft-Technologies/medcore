@@ -107,6 +107,39 @@ test.describe("Pearl §6 row 326 — patient PWA's Share-via-WhatsApp button gen
     const page = await ctx.newPage();
 
     try {
+      // /patient/prescriptions is wrapped by the staff DashboardLayout
+      // (PatientLayoutShell.tsx:96-100 routes everything except /patient,
+      // /patient/login, /patient/register through staff chrome). The
+      // DashboardLayout probes /auth/me and bounces unauthed visitors
+      // to /login — when the test only mocked /prescriptions, the
+      // /auth/me probe got a real 401 and the page never mounted, so
+      // the seeded share-row never appeared. Mock /auth/me to return a
+      // PATIENT user so the layout's auth gate passes and the page
+      // renders. The shape mirrors `apps/web/src/lib/store.ts:coerceUser`'s
+      // expectations.
+      await page.route("**/api/v1/auth/me", async (route) => {
+        if (route.request().method() === "GET") {
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              success: true,
+              data: {
+                id: "pearl-row-326-patient",
+                email: "pearl.row.326@example.com",
+                name: "Pearl Row 326 Patient",
+                role: "PATIENT",
+                tenantId: null,
+                patient: { id: "pearl-row-326-patient-row", abhaId: null },
+              },
+              error: null,
+            }),
+          });
+          return;
+        }
+        await route.continue();
+      });
+
       // Route-intercept the prescriptions list endpoint with a known row.
       // Matches the page's fetch shape: GET /api/v1/prescriptions?page=1&limit=20
       // (page.tsx:138-140). We don't differentiate page numbers — the spec only

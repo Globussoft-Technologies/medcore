@@ -343,12 +343,16 @@ test.describe("Antenatal chart [id] — /dashboard/antenatal/[id] (DOCTOR primar
     // No client-side gate redirect — the page stays mounted on the URL.
     expect(page.url()).toContain(`/dashboard/antenatal/${STUB_CASE_ID}`);
 
-    // page.tsx:222-224 short-circuits to "Loading..." while caseData is null.
-    // After the catch-and-swallow at page.tsx:123-125, caseData stays null,
-    // setLoading(false) fires, but `!caseData` keeps the loading branch.
-    // We anchor on the literal copy.
+    // The page's loading branch (page.tsx:223 `if (loading || !caseData)`)
+    // now renders a skeleton-card cluster wrapped in
+    // <div data-testid="antenatal-detail-loading" aria-busy="true"> —
+    // the literal "Loading..." copy was retired when the skeleton
+    // cluster landed. After the catch-and-swallow on the 403, caseData
+    // stays null, setLoading(false) fires, but !caseData keeps this
+    // branch mounted. Anchor on the testid so we don't depend on the
+    // exact skeleton markup.
     await expect(
-      page.getByText(/^loading\.\.\.$/i).first()
+      page.getByTestId("antenatal-detail-loading")
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
 
     // No header heading (the caseNumber h1) ever rendered. We do NOT use
@@ -380,11 +384,14 @@ test.describe("Antenatal chart [id] — /dashboard/antenatal/[id] (DOCTOR primar
     expect(page.url()).toContain(`/dashboard/antenatal/${STUB_BAD_ID}`);
     expect(page.url()).not.toContain("/dashboard/not-authorized");
 
-    // Loading state holds because caseData stayed null (page.tsx:122-126
-    // catches and swallows the 404, but loading flips off — the !caseData
-    // guard at line 222 keeps the Loading copy).
+    // The skeleton-cluster loading branch (testid
+    // "antenatal-detail-loading") holds because caseData stayed null —
+    // page.tsx catches + swallows the 404, loading flips off, but the
+    // `!caseData` half of the guard keeps this branch rendered. See
+    // the parallel assertion comment above for why we no longer match
+    // the literal "Loading..." text.
     await expect(
-      page.getByText(/^loading\.\.\.$/i).first()
+      page.getByTestId("antenatal-detail-loading")
     ).toBeVisible({ timeout: PAGE_TIMEOUT });
   });
 });

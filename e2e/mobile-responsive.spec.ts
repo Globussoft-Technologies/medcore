@@ -144,29 +144,34 @@ test.describe("Mobile / responsive — dashboard subroutes beyond /dashboard (§
     const ctx = await browser.newContext({ viewport: { ...MOBILE_VIEWPORT } });
     const page = await ctx.newPage();
     await loginAs(page, request, "PATIENT");
-    await page.goto("/dashboard/appointments", { waitUntil: "domcontentloaded" });
+    // PATIENT bottom-nav points at /patient/* hrefs, not /dashboard/* —
+    // bottomNavByRole.PATIENT in layout.tsx (Home → /patient/dashboard,
+    // Appts → /patient/appointments, Rx → /patient/prescriptions,
+    // Bills → /patient/bills, Profile → /patient/profile). Navigate to
+    // /patient/appointments so the active-state assertion below has a
+    // matching link.
+    await page.goto("/patient/appointments", { waitUntil: "domcontentloaded" });
     await dismissTourIfPresent(page);
 
     const bottomNav = page.locator('[aria-label="Bottom navigation"]');
     await expect(bottomNav).toBeVisible();
 
-    // PATIENT's bottom-nav items ALL by href — these are the exact 5 from
-    // bottomNavByRole.PATIENT (layout.tsx:131-137).
+    // The exact 5 PATIENT shortcuts. If anyone re-shuffles them, this list
+    // (and the active-state assertion) must move in lockstep.
     for (const href of [
-      "/dashboard",
-      "/dashboard/appointments",
-      "/dashboard/prescriptions",
-      "/dashboard/billing",
-      "/dashboard/settings",
+      "/patient/dashboard",
+      "/patient/appointments",
+      "/patient/prescriptions",
+      "/patient/bills",
+      "/patient/profile",
     ]) {
       await expect(bottomNav.locator(`a[href="${href}"]`)).toBeVisible();
     }
 
-    // Active state: the current path is /dashboard/appointments, so the
-    // matching link should carry aria-current="page" per the layout's
-    // isActive computation (layout.tsx:954-956).
+    // Active state: the current path is /patient/appointments, so that
+    // link carries aria-current="page" per layout.tsx's isActive computation.
     await expect(
-      bottomNav.locator('a[href="/dashboard/appointments"]')
+      bottomNav.locator('a[href="/patient/appointments"]')
     ).toHaveAttribute("aria-current", "page");
 
     await ctx.close();

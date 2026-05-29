@@ -156,8 +156,19 @@ function staffFixture(overrides: Partial<StaffUser> = {}): StaffUser {
 }
 
 function asAdmin(id = "u-admin") {
+  // Pin tenantId so the page recognises this as a TENANT admin (not a
+  // cross-tenant super-admin). Without it, the page's super-admin
+  // gate fires (`role === "ADMIN" && tenantId === null` → super-admin)
+  // and an extra GET /super-admin/users runs alongside GET /users,
+  // breaking every test that asserts `apiMock.get` was called once.
   authMock.mockReturnValue({
-    user: { id, role: "ADMIN", name: "Admin", email: "admin@test.local" },
+    user: {
+      id,
+      role: "ADMIN",
+      name: "Admin",
+      email: "admin@test.local",
+      tenantId: "t-test",
+    },
   });
 }
 
@@ -666,9 +677,12 @@ describe("Users dashboard page (admin staff management)", () => {
     // click. So we directly hit the handler path via re-enable. Instead,
     // assert it is disabled + has the explainer aria-label.
     expect(btn).toBeDisabled();
+    // aria-label updated 2026-05 to match the tooltip rewrite —
+    // shorter, contraction, person-tense consistent with sibling
+    // controls on the page.
     expect(btn).toHaveAttribute(
       "aria-label",
-      "Cannot disable your own account",
+      "You can't disable your own account",
     );
     expect(apiMock.patch).not.toHaveBeenCalled();
   });

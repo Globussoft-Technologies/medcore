@@ -50,6 +50,17 @@ const createTenantSchema = z.object({
         "Invalid subdomain: 3-30 chars, lowercase letters/digits/hyphens, not reserved",
     }),
   plan: planEnum,
+  // Pearl §8.1 — operator-supplied tenant code (e.g. "AHMD-01").
+  // Optional; format validated as 2–12 alphanumerics + hyphens so
+  // SystemConfig stores something readable. Empty string clears.
+  code: z
+    .string()
+    .trim()
+    .max(12)
+    .regex(/^$|^[A-Za-z0-9-]{2,12}$/, {
+      message: "Code must be 2–12 letters / digits / hyphens",
+    })
+    .optional(),
   adminEmail: z.string().email(),
   adminPassword: z.string().min(8, "Password must be at least 8 characters"),
   adminName: z.string().trim().min(2).max(120),
@@ -82,6 +93,24 @@ const updateTenantSchema = z.object({
   // effectively-never-expires). JWT TTL enforcement deferred — this
   // PATCH only persists the configured value for now.
   sessionIdleMinutes: z.number().int().min(5).max(1440).optional(),
+  // Pearl §8.3 piece 3d — recipient for the monthly invoice mailer.
+  // Empty string clears the value (operator wants to stop emailing).
+  // Format-validate via Zod's email() when non-empty.
+  billingContactEmail: z
+    .string()
+    .trim()
+    .max(254)
+    .refine((v) => v === "" || /.+@.+\..+/.test(v), {
+      message: "Must be a valid email or empty",
+    })
+    .optional(),
+  // Pearl §8.6 — per-tenant compliance posture knobs. Surfaced on the
+  // /super-admin/compliance dashboard and editable from the tenant
+  // detail drawer.
+  whatsappOptInTrackingEnabled: z.boolean().optional(),
+  abdmConsentEnforcementRequired: z.boolean().optional(),
+  auditLogRetentionDays: z.number().int().min(30).max(3650).optional(),
+  patientDataRetentionDays: z.number().int().min(365).max(7300).optional(),
 });
 
 // ─── Guards ──────────────────────────────────────────────────────────
@@ -275,6 +304,7 @@ router.post(
         name: body.name,
         subdomain: body.subdomain,
         plan: body.plan,
+        code: body.code,
         adminEmail: body.adminEmail,
         adminPassword: body.adminPassword,
         adminName: body.adminName,
@@ -452,6 +482,59 @@ router.patch(
           error: "Cannot deactivate the default tenant",
         });
         return;
+      }
+
+      // Pearl §8.6 — write the four compliance/billing columns via
+      // raw SQL because the on-disk Prisma client on this dev box
+      // hasn't been regenerated since `db push` (the running dev
+      // server holds a lock on query_engine-windows.dll.node, blocking
+      // `prisma generate`). The columns exist in the DB (via db push)
+      // so raw SQL works at runtime; once the dev server restarts and
+      // `prisma generate` lands, this block can collapse back into the
+      // typed `prisma.tenant.update({ data })` call below.
+      const newColumnUpdates: Array<{ sql: string; value: unknown }> = [];
+      if (body.whatsappOptInTrackingEnabled !== undefined) {
+        newColumnUpdates.push({
+          sql: `"whatsappOptInTrackingEnabled" = $1`,
+          value: body.whatsappOptInTrackingEnabled,
+        });
+      }
+      if (body.abdmConsentEnforcementRequired !== undefined) {
+        newColumnUpdates.push({
+          sql: `"abdmConsentEnforcementRequired" = $1`,
+          value: body.abdmConsentEnforcementRequired,
+        });
+      }
+      if (body.auditLogRetentionDays !== undefined) {
+        newColumnUpdates.push({
+          sql: `"auditLogRetentionDays" = $1`,
+          value: body.auditLogRetentionDays,
+        });
+      }
+      if (body.patientDataRetentionDays !== undefined) {
+        newColumnUpdates.push({
+          sql: `"patientDataRetentionDays" = $1`,
+          value: body.patientDataRetentionDays,
+        });
+      }
+      if (body.billingContactEmail !== undefined) {
+        newColumnUpdates.push({
+          sql: `"billingContactEmail" = $1`,
+          value:
+            body.billingContactEmail.length > 0
+              ? body.billingContactEmail.toLowerCase()
+              : null,
+        });
+      }
+      for (const upd of newColumnUpdates) {
+        // Table is mapped via `@@map("tenants")` in schema.prisma —
+        // Postgres identifiers are case-sensitive when quoted, so we
+        // must use the lowercase mapped name, not the model name.
+        await prisma.$executeRawUnsafe(
+          `UPDATE "tenants" SET ${upd.sql.replace("$1", "$2")} WHERE id = $1`,
+          tenant.id,
+          upd.value,
+        );
       }
 
       const updated = await prisma.tenant.update({

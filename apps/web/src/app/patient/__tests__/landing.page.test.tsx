@@ -45,7 +45,7 @@ describe("Patient PWA scaffold — gap #5 piece 1 + 3a", () => {
     render(<PatientLandingPage />);
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: /welcome to your patient portal/i }),
+        screen.getByRole("heading", { name: /welcome to your/i }),
       ).toBeInTheDocument();
     });
     const signIn = screen.getByTestId("patient-landing-signin");
@@ -54,15 +54,21 @@ describe("Patient PWA scaffold — gap #5 piece 1 + 3a", () => {
     expect(replaceMock).not.toHaveBeenCalled();
   });
 
-  it("renders the disabled Book-an-appointment CTA with the post-sign-in tooltip", async () => {
+  it("renders both Sign-in and Create-account CTAs in the unauthed hero", async () => {
+    // 2026-05 redesign — the old "Book an appointment (disabled, available
+    // after sign-in)" CTA was replaced by a sign-in primary + a create-
+    // account secondary so the unauthed surface points at the two real
+    // next steps instead of dangling a disabled button. This test pins
+    // the new pair so a regression flips us back to a single disabled
+    // CTA.
     apiGetMock.mockRejectedValueOnce(
       Object.assign(new Error("Unauthorized"), { status: 401 }),
     );
     render(<PatientLandingPage />);
-    const book = await screen.findByTestId("patient-landing-book");
-    expect(book).toBeInTheDocument();
-    expect(book).toBeDisabled();
-    expect(book).toHaveAttribute("title", "Available after sign in");
+    const signIn = await screen.findByTestId("patient-landing-signin");
+    expect(signIn).toHaveAttribute("href", "/patient/login");
+    const register = screen.getByTestId("patient-landing-register");
+    expect(register).toHaveAttribute("href", "/patient/register");
   });
 
   it("redirects to /patient/dashboard when /auth/me returns a PATIENT", async () => {
@@ -84,7 +90,7 @@ describe("Patient PWA scaffold — gap #5 piece 1 + 3a", () => {
     render(<PatientLandingPage />);
     await waitFor(() => {
       expect(
-        screen.getByRole("heading", { name: /welcome to your patient portal/i }),
+        screen.getByRole("heading", { name: /welcome to your/i }),
       ).toBeInTheDocument();
     });
     expect(replaceMock).not.toHaveBeenCalled();

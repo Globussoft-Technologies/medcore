@@ -72,6 +72,84 @@ describe("useAuthStore", () => {
     expect(useAuthStore.getState().user).toBeNull();
   });
 
+  // Pearl §8.2 — when /auth/login responds 412 with
+  // `data.totpEnrolmentRequired`, the api wrapper throws (non-2xx) and
+  // attaches `status` + `payload` on the Error. The store must:
+  //   1. Catch the thrown error
+  //   2. Recognise it as the enrolment branch
+  //   3. Return { totpEnrolmentRequired, enrolToken, enrolRole, enrolEmail }
+  //   4. Leave user state untouched
+  it("login surfaces the TOTP-enrolment branch on a 412 throw (Pearl §8.2)", async () => {
+    const thrown: Error & { status?: number; payload?: unknown } = Object.assign(
+      new Error(
+        "Two-factor authentication is required for super-admin accounts.",
+      ),
+      {
+        status: 412,
+        payload: {
+          success: false,
+          data: {
+            totpEnrolmentRequired: true,
+            enrolToken: "enrol-abc-123",
+            role: "SUPER_ADMIN",
+            email: "alice@medcore.local",
+            reason: "super_admin",
+          },
+          error:
+            "Two-factor authentication is required for super-admin accounts.",
+        },
+      },
+    );
+    mockedPost.mockRejectedValueOnce(thrown);
+
+    const res = await useAuthStore
+      .getState()
+      .login("alice@medcore.local", "temp-pw");
+
+    expect(res.totpEnrolmentRequired).toBe(true);
+    expect(res.enrolToken).toBe("enrol-abc-123");
+    expect(res.enrolRole).toBe("SUPER_ADMIN");
+    expect(res.enrolEmail).toBe("alice@medcore.local");
+    // User state must NOT be set — they haven't enrolled yet.
+    expect(useAuthStore.getState().user).toBeNull();
+    // The enrolment branch must NOT be confused with the existing
+    // already-enrolled 2FA path.
+    expect(res.twoFactorRequired).toBeUndefined();
+    expect(res.tempToken).toBeUndefined();
+  });
+
+  // Belt-and-braces: any OTHER 412 shape (e.g. some other middleware
+  // rejecting the request with the same status) MUST re-throw and NOT
+  // be silently swallowed as an enrolment success.
+  it("login re-throws a 412 that lacks totpEnrolmentRequired", async () => {
+    const thrown: Error & { status?: number; payload?: unknown } = Object.assign(
+      new Error("Some other precondition failed"),
+      {
+        status: 412,
+        payload: { success: false, data: null, error: "other_precondition" },
+      },
+    );
+    mockedPost.mockRejectedValueOnce(thrown);
+
+    await expect(
+      useAuthStore.getState().login("a@b.com", "pwd"),
+    ).rejects.toMatchObject({ status: 412 });
+  });
+
+  // 401 (wrong password) must continue to re-throw so the login page's
+  // "Invalid email or password" toast keeps firing for plain creds errors.
+  it("login re-throws non-enrolment errors (401 wrong password)", async () => {
+    const thrown: Error & { status?: number; payload?: unknown } = Object.assign(
+      new Error("Invalid credentials"),
+      { status: 401, payload: { error: "Invalid credentials" } },
+    );
+    mockedPost.mockRejectedValueOnce(thrown);
+
+    await expect(
+      useAuthStore.getState().login("a@b.com", "wrong"),
+    ).rejects.toMatchObject({ status: 401 });
+  });
+
   it("verify2FA completes login with user (Issue #477: cookie-only)", async () => {
     mockedPost.mockResolvedValueOnce({
       success: true,

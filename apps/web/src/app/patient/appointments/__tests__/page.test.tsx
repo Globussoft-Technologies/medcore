@@ -9,7 +9,7 @@
 //   • Every CTA satisfies the 44px (h-11 + min-w-[44px]) touch-target floor.
 //   • Reschedule submit posts to the right endpoint with the right body.
 //   • Cancel submit posts to /:id/status with { status: "CANCELLED" }.
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 
 const { apiGetMock, apiPatchMock } = vi.hoisted(() => ({
@@ -77,9 +77,33 @@ function bookActiveTodayUpcoming(id: string) {
           minute: "2-digit",
         })
       : "23:55";
+
+// Pinned wall clock for the whole file. The page does IST-tz math on
+// `slotStart` so an unpinned `Date.now()` made the today-upcoming row
+// roll past IST midnight on CI runs between ~14:30 and 18:30 UTC —
+// silently filtering it out of Upcoming and breaking every "I've
+// arrived" assertion. 2026-05-27T06:00:00Z = 2026-05-27 11:30 IST,
+// well clear of both midnight boundaries.
+const PINNED_NOW = new Date("2026-05-27T06:00:00.000Z");
+const FUTURE = new Date(PINNED_NOW.getTime() + 48 * HOUR).toISOString();
+const PAST = new Date(PINNED_NOW.getTime() - 48 * HOUR).toISOString();
+
+// Build a fixture row whose composeWhen lands 4h in the future of the
+// pinned clock, while still staying inside today's IST calendar day so
+// `isTodayInIST(date)` returns true and the active arrive-button path
+// renders.
+function bookActiveTodayUpcoming(id: string) {
+  const todayIstYmd = PINNED_NOW.toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
+  const todayMidnightUtc = `${todayIstYmd}T00:00:00.000Z`;
+  const istHHMM = new Date(PINNED_NOW.getTime() + 4 * HOUR).toLocaleTimeString(
+    "en-GB",
+    { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" },
+  );
   return {
     id,
-    date: TODAY,
+    date: todayMidnightUtc,
     slotStart: `${istHHMM}:00`,
     tokenNumber: 12,
     status: "BOOKED",
@@ -121,6 +145,15 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
   beforeEach(() => {
     apiGetMock.mockReset();
     apiPatchMock.mockReset();
+    // Pin Date.now() so the IST tz math in `bookActiveTodayUpcoming`
+    // and the page's `ymdInIST(new Date())` see the same instant. See
+    // the comment above PINNED_NOW for why this matters.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(PINNED_NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders Upcoming + Past sections with mocked data", async () => {

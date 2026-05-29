@@ -114,11 +114,40 @@ export const tenantOnboardingAdminSchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters").max(128),
 });
 
+// ─── Step 4 (optional) — WhatsApp config ─────────────────────────────
+// Pearl §8.7 acceptance: day-zero wizard MAY include WhatsApp creds so
+// the tenant can send patient notifications immediately. Operator can
+// skip — empty object accepted; the section is wired post-onboarding
+// via /dashboard/settings/whatsapp if skipped here.
+export const tenantOnboardingWhatsappSchema = z.object({
+  apiUrl: z.string().trim().url().max(500).optional().or(z.literal("")),
+  apiKey: z.string().trim().max(500).optional().or(z.literal("")),
+  appName: z.string().trim().max(120).optional().or(z.literal("")),
+  sourceNumber: z
+    .string()
+    .trim()
+    .regex(PHONE_REGEX, "Invalid sender number (7-15 digits, optional leading +)")
+    .optional()
+    .or(z.literal("")),
+});
+
+// ─── Step 5 (optional) — Razorpay payment gateway ────────────────────
+// Per Pearl gap #10b, tenant-scoped Razorpay creds enable multi-tenant
+// payment processing. Same skip-friendly shape as WhatsApp.
+export const tenantOnboardingRazorpaySchema = z.object({
+  keyId: z.string().trim().max(120).optional().or(z.literal("")),
+  keySecret: z.string().trim().max(500).optional().or(z.literal("")),
+  mode: z.enum(["test", "live"]).optional(),
+});
+
 // ─── Combined wizard payload ─────────────────────────────────────────
 export const tenantOnboardingSchema = z.object({
   tenant: tenantOnboardingTenantSchema,
   branch: tenantOnboardingBranchSchema,
   admin: tenantOnboardingAdminSchema,
+  // Optional integrations — wizard may skip; operator finishes later.
+  whatsapp: tenantOnboardingWhatsappSchema.optional(),
+  razorpay: tenantOnboardingRazorpaySchema.optional(),
 });
 
 export type TenantOnboardingInput = z.infer<typeof tenantOnboardingSchema>;
@@ -130,6 +159,12 @@ export type TenantOnboardingBranchInput = z.infer<
 >;
 export type TenantOnboardingAdminInput = z.infer<
   typeof tenantOnboardingAdminSchema
+>;
+export type TenantOnboardingWhatsappInput = z.infer<
+  typeof tenantOnboardingWhatsappSchema
+>;
+export type TenantOnboardingRazorpayInput = z.infer<
+  typeof tenantOnboardingRazorpaySchema
 >;
 
 // Re-exports of the constants so consumers (UI client-side validation)

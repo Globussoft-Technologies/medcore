@@ -98,6 +98,13 @@ describe("csrfProtection — path-based bypass for auth bootstrap routes", () =>
     "/api/v1/auth/2fa-validate",
     "/api/v1/auth/forgot-password",
     "/api/v1/auth/reset-password",
+    // Pearl §8.2 — the login-time 2FA code-entry + the mandatory TOTP
+    // enrolment endpoints. All three run BEFORE the caller has a
+    // session cookie (so no medcore_csrf to echo back); each has its
+    // own one-shot temp-token defence.
+    "/api/v1/auth/2fa/verify-login",
+    "/api/v1/auth/2fa/enrol-setup",
+    "/api/v1/auth/2fa/enrol-verify",
     "/api/v1/billing/webhooks/razorpay",
   ];
 

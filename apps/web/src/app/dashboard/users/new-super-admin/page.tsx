@@ -93,7 +93,11 @@ export default function DashboardInviteSuperAdminPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [requireTwoFactor, setRequireTwoFactor] = useState(true);
+  // TOTP enrolment is mandatory for every peer super-admin (backend
+  // policy 2026-05). The invite form no longer exposes a toggle for it;
+  // we send `requireTwoFactor: true` so the SystemConfig flag stays in
+  // sync with the enforced rule.
+  const requireTwoFactor = true;
   const [permissions, setPermissions] = useState<PermissionsState>({
     canManageTenants: true,
     canOnboardTenant: true,
@@ -135,15 +139,36 @@ export default function DashboardInviteSuperAdminPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await api.post("/super-admin/users", {
+      const res = (await api.post("/super-admin/users", {
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim(),
         password,
         requireTwoFactor,
         permissions,
-      });
-      toast.success("Super-admin invited");
+      })) as {
+        success: boolean;
+        data: { mailSent?: boolean; mailError?: string } | null;
+        error: string | null;
+      };
+      // Pearl §8.2 — the backend now sends a SendGrid invite with the
+      // sign-in URL + temp password. Surface delivery status so the
+      // operator knows whether they still need to share creds out of
+      // band when SendGrid is mis-configured.
+      const mailSent = res?.data?.mailSent === true;
+      if (mailSent) {
+        toast.success(
+          `Super-admin invited. Invite email sent to ${email.trim()}.`,
+        );
+      } else {
+        const reason = res?.data?.mailError
+          ? ` (${res.data.mailError})`
+          : "";
+        toast.warning(
+          `Super-admin created, but invite email was NOT delivered${reason}. Share the temporary password with the user directly.`,
+          8000,
+        );
+      }
       router.push("/dashboard/users?tab=super-admins");
     } catch (err) {
       const e = err as { status?: number; message?: string };
@@ -194,7 +219,7 @@ export default function DashboardInviteSuperAdminPage() {
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
               <Smartphone size={12} aria-hidden="true" />
-              2FA {requireTwoFactor ? "required" : "optional"}
+              2FA required
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300">
               <ShieldCheck size={12} aria-hidden="true" />
@@ -359,25 +384,31 @@ export default function DashboardInviteSuperAdminPage() {
             step={2}
           />
           <div className="p-6 pt-4">
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 transition hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/40 dark:hover:bg-gray-700/30">
-              <input
-                type="checkbox"
-                data-testid="invite-2fa"
-                checked={requireTwoFactor}
-                onChange={(e) => setRequireTwoFactor(e.target.checked)}
-                className="mt-0.5 h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-              />
+            {/* TOTP is now mandatory for every peer super-admin — the
+                backend ignores any opt-out flag on non-main rows. The
+                form keeps the existing UI rhythm with an informational
+                card so the operator knows what will happen on first
+                sign-in. */}
+            <div
+              data-testid="invite-2fa-locked"
+              className="flex items-start gap-3 rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900 dark:bg-indigo-950/30"
+            >
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white">
+                <KeySquare size={11} aria-hidden="true" />
+              </span>
               <span className="flex-1">
-                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  Require TOTP on first login
+                <span className="text-sm font-semibold text-indigo-900 dark:text-indigo-100">
+                  TOTP enrolment is mandatory
                 </span>
-                <span className="mt-1 block text-xs text-gray-600 dark:text-gray-400">
-                  Two-factor authentication is required for all super-admin
-                  accounts. Keep this enabled unless you are creating a
-                  break-glass recovery account.
+                <span className="mt-1 block text-xs text-indigo-800/90 dark:text-indigo-200/90">
+                  On first sign-in this operator will be walked through
+                  scanning a QR code with an authenticator app
+                  (Google Authenticator, Authy, 1Password). They can&apos;t
+                  reach the console until two-factor is set up. Only the
+                  main super-admin is allowed to sign in without TOTP.
                 </span>
               </span>
-            </label>
+            </div>
           </div>
         </section>
 

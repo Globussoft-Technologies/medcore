@@ -1,10 +1,5 @@
-import { test, expect } from "./fixtures";
-import {
-  API_BASE,
-  E2E_CSRF_TOKEN,
-  seedAppointment,
-  seedPatient,
-} from "./helpers";
+import { test, expect, E2E_CSRF_TOKEN } from "./fixtures";
+import { API_BASE, seedAppointment, seedPatient } from "./helpers";
 import { request as playwrightRequest } from "@playwright/test";
 
 /**

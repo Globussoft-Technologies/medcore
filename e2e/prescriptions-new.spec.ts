@@ -171,9 +171,12 @@ test.describe("Prescriptions — /dashboard/prescriptions/new (Rx creation FORM 
     // <select> | Duration | Remove. We hit the first matching input by
     // placeholder so the test stays robust if the row layout shuffles.
     await page.getByPlaceholder("Medicine name").first().fill("Paracetamol");
-    // Production placeholder is now "Dosage (e.g. 750mg)" — use a regex
-    // that matches any string starting with "Dosage" so a future UX
-    // copy tweak (different example dose) doesn't break the test again.
+    // Pearl §2.1.4 row 49 — dose is a chip selector; the free-text "Dosage"
+    // input only renders after the "Custom…" chip is active (page.tsx:1639-
+    // 1647, conditional on dosagePreset === "custom"). Click it first, then
+    // fill. The placeholder regex stays loose so a future copy tweak
+    // (different example dose) doesn't break this again.
+    await page.getByTestId("rx-dose-chip-0-custom").click();
     await page.getByPlaceholder(/^dosage/i).first().fill("500mg");
     // Frequency is a native <select> with FREQUENCY_OPTIONS values
     // (constants.ts:17). "1-0-1 (Morning-Night)" is a valid BD-style entry.

@@ -726,9 +726,10 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     fireEvent.click(
       (await screen.findByText("Dr Other")).closest("button")!,
     );
-    await screen.findByText("hello there");
-
-    fireEvent.click(screen.getByText("👍").closest("button")!);
+    // Wait on the reaction emoji directly — "hello there" also appears in the
+    // sidebar lastMessage preview (roomFixture default), so awaiting that text
+    // resolves before the chat panel finishes rendering the message bubble.
+    fireEvent.click((await screen.findByText("👍")).closest("button")!);
 
     await waitFor(() =>
       expect(toastMock.error).toHaveBeenCalledWith("Rxn fail"),

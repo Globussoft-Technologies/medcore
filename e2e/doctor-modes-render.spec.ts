@@ -108,9 +108,22 @@ async function pickDoctor(
   page: import("@playwright/test").Page,
   doctorId: string
 ): Promise<void> {
-  const doctorSelect = page.locator("select#appt-book-doctor");
-  await expect(doctorSelect).toBeVisible({ timeout: 5_000 });
-  await doctorSelect.selectOption(doctorId);
+  // DoctorSelect was rewritten from a native <select> to a custom
+  // dropdown: <button id="appt-book-doctor" aria-haspopup="listbox"> that
+  // opens a <ul role="listbox"> of <button role="option" data-doctor-id>
+  // entries. The id is exposed via `data-doctor-id` on each option (see
+  // apps/web/src/app/dashboard/appointments/page.tsx DoctorSelect) so the
+  // test can lock onto a specific seeded doctor — all three test doctors
+  // share the same `name` per CLAUDE.md gotcha #8 (digits rejected), so
+  // picking by visible text would be ambiguous.
+  const doctorTrigger = page.locator("#appt-book-doctor");
+  await expect(doctorTrigger).toBeVisible({ timeout: 5_000 });
+  await doctorTrigger.click();
+  const option = page.locator(
+    `[role="option"][data-doctor-id="${doctorId}"]`,
+  );
+  await expect(option).toBeVisible({ timeout: 5_000 });
+  await option.click();
 }
 
 test.describe("Pearl §6 row 324 — all 3 doctor modes (CALLING / TOKEN / SLOT) render their mode-specific UI on the same hospital", () => {

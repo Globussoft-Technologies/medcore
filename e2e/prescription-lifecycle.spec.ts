@@ -158,6 +158,10 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
 
     // Two medicines that the stub will report as CONTRAINDICATED.
     await page.getByPlaceholder("Medicine name").first().fill("Warfarin");
+    // Pearl §2.1.4 row 49 — dose is now a chip selector; the free-text
+    // "Dosage" input only renders after clicking the "Custom…" chip
+    // (page.tsx:1639-1647, conditional on dosagePreset === "custom").
+    await page.getByTestId("rx-dose-chip-0-custom").click();
     await page.getByPlaceholder(/^dosage/i).first().fill("5mg");
     await page
       .locator('select:has(option[value="0-0-1 (Night)"])')
@@ -355,6 +359,9 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
 
     await page.getByPlaceholder(/Search ICD-10/i).fill("E11.9 — Type 2 diabetes");
     await page.getByPlaceholder("Medicine name").first().fill("Metformin");
+    // Pearl §2.1.4 row 49 — same chip-selector gate as above: the free-text
+    // "Dosage" input only renders after the "Custom…" chip is active.
+    await page.getByTestId("rx-dose-chip-0-custom").click();
     await page.getByPlaceholder(/^dosage/i).first().fill("500mg");
     await page
       .locator('select:has(option[value="1-0-1 (Morning-Night)"])')

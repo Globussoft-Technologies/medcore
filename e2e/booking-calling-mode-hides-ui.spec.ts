@@ -216,11 +216,25 @@ test.describe("Pearl §6 row 328 — CALLING-mode doctor: booking form hides slo
     }
 
     // ─── Step 1 — pick the CALLING-only doctor. ──────────────────────────
-    // DoctorSelect is scoped by id (#appt-book-doctor) to avoid the global
-    // LanguageDropdown (CLAUDE.md gotcha #9).
-    const doctorSelect = page.locator("select#appt-book-doctor");
-    await expect(doctorSelect).toBeVisible({ timeout: 5_000 });
-    await doctorSelect.selectOption(callingDoctorId);
+    // DoctorSelect was rewritten from a native <select> to a custom
+    // dropdown: <button id="appt-book-doctor" aria-haspopup="listbox">
+    // that opens a <ul role="listbox"> of <button role="option"
+    // data-doctor-id> entries. The per-doctor id is exposed via
+    // `data-doctor-id` (apps/web/src/app/dashboard/appointments/page.tsx
+    // DoctorSelect) so the test can lock onto a specific seeded doctor.
+    // `#appt-book-doctor` still scopes against the global LanguageDropdown
+    // (CLAUDE.md gotcha #9).
+    const pickDoctor = async (doctorId: string) => {
+      const doctorTrigger = page.locator("#appt-book-doctor");
+      await expect(doctorTrigger).toBeVisible({ timeout: 5_000 });
+      await doctorTrigger.click();
+      const option = page.locator(
+        `[role="option"][data-doctor-id="${doctorId}"]`,
+      );
+      await expect(option).toBeVisible({ timeout: 5_000 });
+      await option.click();
+    };
+    await pickDoctor(callingDoctorId);
 
     // The CALLING-mode hint panel MUST render with the "Add to today's
     // queue" button. This is the affirmative half of the assertion.
@@ -250,7 +264,7 @@ test.describe("Pearl §6 row 328 — CALLING-mode doctor: booking form hides slo
     // CALLING-mode panel and (b) reveal the slot-picker (or the no-slots
     // empty-state in the unlikely case the schedule produced zero
     // bookable slots — either way, the CALLING panel must be gone).
-    await doctorSelect.selectOption(slotDoctorId);
+    await pickDoctor(slotDoctorId);
 
     await expect(page.getByTestId("appt-book-calling-mode")).toHaveCount(0);
     await expect(page.getByTestId("appt-book-calling-add")).toHaveCount(0);

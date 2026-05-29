@@ -421,6 +421,11 @@ function DoctorSelect({
                 type="button"
                 role="option"
                 aria-selected={value === d.id}
+                // Stable per-doctor handle for e2e (replaces the
+                // `value={d.id}` that the legacy native <select>
+                // exposed). Picked up by pickDoctor() in
+                // e2e/doctor-modes-render.spec.ts.
+                data-doctor-id={d.id}
                 onClick={() => {
                   onChange(d.id);
                   setOpen(false);

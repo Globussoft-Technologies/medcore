@@ -18,7 +18,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HeartPulse, Shield } from "lucide-react";
+import { HeartPulse } from "lucide-react";
 import { PatientServiceWorkerRegistration } from "@/components/PatientServiceWorkerRegistration";
 import { InstallPWAButton } from "@/components/InstallPWAButton";
 import DashboardLayout from "@/app/dashboard/layout";
@@ -61,60 +61,6 @@ function BarePatientShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="flex w-full flex-1 items-stretch">{children}</main>
-      <footer className="border-t border-gray-200 bg-white/60 px-4 py-8 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-500">
-        <div className="mx-auto max-w-6xl">
-          {/* Legal column — mirrors the standard footer "Legal" group with
-              the three statutory documents linked. These pages live at
-              /legal/* and are accessible without an auth session so a
-              prospective patient can read them before signing up. */}
-          <div className="mb-6 grid grid-cols-1 gap-6 sm:grid-cols-3">
-            <div>
-              <p className="mb-2 text-sm font-semibold text-gray-800 dark:text-gray-200">
-                Legal
-              </p>
-              {/* Plain <a> tags (not next/link) so the navigation is a
-                  full-page load that the patient route-group's client
-                  layout can't intercept. The legal pages live in a
-                  separate route segment with its own layout — soft-nav
-                  was failing because Next was trying to keep the patient
-                  shell mounted while swapping in a sibling layout. */}
-              <ul className="space-y-1.5">
-                <li>
-                  <a
-                    href="/legal/privacy"
-                    className="hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    Privacy
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/legal/terms"
-                    className="hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    Terms
-                  </a>
-                </li>
-                <li>
-                  <a
-                    href="/legal/data-processing"
-                    className="hover:text-blue-600 dark:hover:text-blue-400"
-                  >
-                    Data processing
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
-          <div className="flex flex-col items-center justify-between gap-2 border-t border-gray-200/70 pt-4 sm:flex-row dark:border-gray-800/70">
-            <span className="inline-flex items-center gap-1.5">
-              <Shield className="h-3.5 w-3.5 text-emerald-500" />
-              Secured by your hospital — DPDP Act 2023 compliant.
-            </span>
-            <span>&copy; {new Date().getFullYear()} MedCore Health.</span>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }

@@ -39,6 +39,7 @@ import {
   Phone as PhoneIcon,
   Lock,
   IndianRupee,
+  ShieldCheck,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -502,6 +503,40 @@ export default function TenantsAdminPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Pearl §8.1 wizard step 3 — direct entry into the global
+              role-permission catalog. The page is mounted under
+              /dashboard/tenants/[id]/role-permissions because the
+              onboarding step also deep-links to it, but the rows in
+              role_catalog_entries are global, so we route through
+              whichever tenant rendered first in the list. Disabled
+              while tenants are still loading. */}
+          {(() => {
+            const firstTenantId = tenants[0]?.id;
+            // `?from=tenants` tells the role-permissions page to send the
+            // "Back" link to /dashboard/tenants instead of the per-tenant
+            // onboarding checklist (which is the default destination when
+            // the same page is reached from the onboarding flow).
+            const href = firstTenantId
+              ? `/dashboard/tenants/${firstTenantId}/role-permissions?from=tenants`
+              : "#";
+            const disabled = !firstTenantId;
+            return (
+              <Link
+                href={href}
+                aria-disabled={disabled}
+                onClick={(e) => {
+                  if (disabled) e.preventDefault();
+                }}
+                data-testid="tenants-role-permissions-link"
+                className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 ${
+                  disabled ? "pointer-events-none opacity-50" : ""
+                }`}
+              >
+                <ShieldCheck size={16} />{" "}
+                {t("tenants.rolePermissions", "Permissions catalog")}
+              </Link>
+            );
+          })()}
           {/* Pearl §8.3 — secondary entry into the platform-billing
               operator surface (subscriptions, invoices, plan changes,
               usage). Kept next to "Create Tenant" instead of a

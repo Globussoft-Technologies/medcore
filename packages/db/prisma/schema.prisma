@@ -2636,7 +2636,7 @@ model SystemConfig {
 }
 model RoleCatalogEntry {
   id           String               @id @default(uuid())
-  role         Role                 @unique
+  role         String               @unique
   label        String
   summary      String
   displayOrder Int                  @default(0)

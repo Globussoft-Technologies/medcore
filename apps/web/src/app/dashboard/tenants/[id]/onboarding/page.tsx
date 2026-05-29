@@ -67,11 +67,15 @@ interface TenantDetail {
   config: Record<string, string>;
 }
 
+// Secondary links are always external (e.g. ABDM HPR portal) — the
+// `external` field is intentionally not on the type because the
+// renderer always uses `<a target="_blank">`. If a future step needs
+// an internal `<Link>` secondary, reintroduce the flag here + the
+// conditional in the renderer with its own test coverage.
 interface StepLink {
   href: string;
   labelKey: string;
   labelDefault: string;
-  external?: boolean;
 }
 
 interface Step {
@@ -141,7 +145,6 @@ const STEPS: Step[] = [
       href: "https://hpr.abdm.gov.in",
       labelKey: "tenants.onb.abdm.linkHpr",
       labelDefault: "Open HPR portal",
-      external: true,
     },
     checklistItems: [
       {
@@ -462,33 +465,19 @@ export default function TenantOnboardingPage() {
                       </Link>
                     )}
                     {step.secondaryLink && secondaryHref && (
-                      step.secondaryLink.external ? (
-                        <a
-                          href={secondaryHref}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
-                          data-testid={`tenant-onboarding-link2-${step.key}`}
-                        >
-                          {t(
-                            step.secondaryLink.labelKey,
-                            step.secondaryLink.labelDefault,
-                          )}{" "}
-                          <ArrowRight size={12} />
-                        </a>
-                      ) : (
-                        <Link
-                          href={secondaryHref}
-                          className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
-                          data-testid={`tenant-onboarding-link2-${step.key}`}
-                        >
-                          {t(
-                            step.secondaryLink.labelKey,
-                            step.secondaryLink.labelDefault,
-                          )}{" "}
-                          <ArrowRight size={12} />
-                        </Link>
-                      )
+                      <a
+                        href={secondaryHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                        data-testid={`tenant-onboarding-link2-${step.key}`}
+                      >
+                        {t(
+                          step.secondaryLink.labelKey,
+                          step.secondaryLink.labelDefault,
+                        )}{" "}
+                        <ArrowRight size={12} />
+                      </a>
                     )}
                     {!complete && step.key !== "account_created" && (
                       <>

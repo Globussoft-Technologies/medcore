@@ -178,12 +178,12 @@ test.describe("Prescriptions — /dashboard/prescriptions/new (Rx creation FORM 
     // (different example dose) doesn't break this again.
     await page.getByTestId("rx-dose-chip-0-custom").click();
     await page.getByPlaceholder(/^dosage/i).first().fill("500mg");
-    // Frequency is a native <select> with FREQUENCY_OPTIONS values
-    // (constants.ts:17). "1-0-1 (Morning-Night)" is a valid BD-style entry.
-    await page
-      .locator('select:has(option[value="1-0-1 (Morning-Night)"])')
-      .first()
-      .selectOption("1-0-1 (Morning-Night)");
+    // Pearl §2.1.4 row 49 — frequency is now a segmented control of
+    // <button> options keyed by `rx-frequency-option-${idx}-${first-token}`
+    // (page.tsx:1661-1681), not a native <select>. The label
+    // "1-0-1 (Morning-Night)" split on " " yields token "1-0-1" →
+    // testid rx-frequency-option-0-1-0-1.
+    await page.getByTestId("rx-frequency-option-0-1-0-1").click();
     await page.getByPlaceholder("Duration").first().fill("5 days");
 
     // ── Step 5: Submit. The form fires

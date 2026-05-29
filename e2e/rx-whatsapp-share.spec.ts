@@ -243,6 +243,28 @@ test.describe("Pearl §6 row 326 — patient PWA's Share-via-WhatsApp button POS
         await route.continue();
       });
 
+      // Suppress the OnboardingTour modal that DashboardLayout auto-opens
+      // for every never-seen-this-role user (layout.tsx:679 calls
+      // `hasCompletedTour(user.role, user.id)`). Without this, the
+      // tour's z-100 overlay intercepts pointer events on top of the
+      // share button and the click times out under webkit (Chromium
+      // happened to mount + fire the API faster than the tour rendered,
+      // masking the same race). The v1 global key suppresses the tour
+      // for ALL roles (OnboardingTour.tsx:75 + hasCompletedTour's
+      // `if (hasCompletedTourV1()) return true` early-out).
+      await page.addInitScript(() => {
+        try {
+          // OnboardingTour.tsx:100 — hasCompletedTourV1() checks for the
+          // LITERAL string "true" (not "1"); seeding any other value
+          // silently fails to suppress.
+          localStorage.setItem("medcore_tour_completed_v1", "true");
+        } catch {
+          // localStorage may not be writable in webkit private contexts —
+          // best-effort; the tour just won't be suppressed and the click
+          // will fail the same way it did before this guard.
+        }
+      });
+
       // The PWA shell + page render unconditionally; the page's auth state
       // machine probes /api/v1/prescriptions and decodes the 200 above as
       // a happy-path "ready" state with one row. No OTP cookie needed —

@@ -793,8 +793,14 @@ describe("Admin Console dashboard page", () => {
 
     render(<AdminConsolePage />);
 
+    // The tile mounts as soon as `loaded` flips true (via setLoaded in the
+    // mount-effect), but the 18 state-setters that precede it (including
+    // setVisitorsToday) are React 19 batched updates that may not have
+    // flushed by the time findByTestId resolves under heavy CI load. Poll
+    // the textContent until visitorsToday lands rather than reading it
+    // once on the loading-state snapshot.
     const tile = await screen.findByTestId("admin-console-visitors-today");
-    expect(tile.textContent).toMatch(/12/);
+    await waitFor(() => expect(tile.textContent).toMatch(/12/));
     expect(tile.textContent).not.toMatch(/in\)/);
   });
 

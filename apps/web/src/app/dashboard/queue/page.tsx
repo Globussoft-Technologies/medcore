@@ -92,8 +92,6 @@ export default function QueuePage() {
     }
   }, [isAuthLoading, user, router, pathname]);
   const [display, setDisplay] = useState<QueueDoctor[]>([]);
-  const [selectedDoctor, setSelectedDoctor] = useState<string | null>(null);
-  const [doctorQueue, setDoctorQueue] = useState<DoctorQueue | null>(null);
   // Pearl §2.1.2 — doctor view splits queue data into two slots:
   //   myDoctorQueue:    pinned to the doctor's own queue, shown in the
   //                     top-split right panel; never overwritten when
@@ -136,27 +134,22 @@ export default function QueuePage() {
     [display, myDoctor],
   );
 
-  // Refs mirror `myDoctor` / `otherDoctorPreview` / `selectedDoctor` so
-  // the live-refresh socket+poll effect can read the LATEST values
-  // without listing them in its dependency array. Listing them would
-  // re-register the socket on every state change, AND because the
-  // effect itself calls `loadDisplay()` which mutates `display` →
-  // `myDoctor` (useMemo) → new ref → re-run, you get an unbounded
-  // loop of /queue fetches (the bug surfaced 2026-05-25 in the
-  // network tab). Refs keep the effect's deps stable while the
-  // callbacks still see fresh data.
+  // Refs mirror `myDoctor` / `otherDoctorPreview` so the live-refresh
+  // socket+poll effect can read the LATEST values without listing them
+  // in its dependency array. Listing them would re-register the socket
+  // on every state change, AND because the effect itself calls
+  // `loadDisplay()` which mutates `display` → `myDoctor` (useMemo) →
+  // new ref → re-run, you get an unbounded loop of /queue fetches (the
+  // bug surfaced 2026-05-25 in the network tab). Refs keep the effect's
+  // deps stable while the callbacks still see fresh data.
   const myDoctorRef = useRef(myDoctor);
   const otherDoctorPreviewRef = useRef(otherDoctorPreview);
-  const selectedDoctorRef = useRef(selectedDoctor);
   useEffect(() => {
     myDoctorRef.current = myDoctor;
   }, [myDoctor]);
   useEffect(() => {
     otherDoctorPreviewRef.current = otherDoctorPreview;
   }, [otherDoctorPreview]);
-  useEffect(() => {
-    selectedDoctorRef.current = selectedDoctor;
-  }, [selectedDoctor]);
 
   // Auto-load my own queue detail on first identification (and re-load
   // if my doctorId flips, e.g. on profile re-bind). Populates
@@ -252,7 +245,10 @@ export default function QueuePage() {
       setTransferDoctorId("");
       setTransferReason("");
       loadDisplay();
-      if (selectedDoctor) loadDoctorQueue(selectedDoctor);
+      // Refresh the drawer if it's currently previewing the doctor whose
+      // queue this transfer mutated, so the patient row reflects the move.
+      const previewing = otherDoctorPreviewRef.current;
+      if (previewing) void openOtherDoctorPreview(previewing.doctor);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Transfer failed");
     }
@@ -289,7 +285,6 @@ export default function QueuePage() {
       loadDisplay();
       const currentMyDoctor = myDoctorRef.current;
       const currentPreview = otherDoctorPreviewRef.current;
-      const currentSelected = selectedDoctorRef.current;
       if (currentMyDoctor) void loadMyQueue(currentMyDoctor.doctorId);
       // Skip the drawer fetch when the drawer is previewing my own
       // doctor — `loadMyQueue` above already mirrors its response
@@ -319,7 +314,6 @@ export default function QueuePage() {
             /* keep stale data on transient errors */
           });
       }
-      if (currentSelected && !currentMyDoctor) loadDoctorQueue(currentSelected);
     };
     const refreshAllQueues = () => {
       if (refreshDebounce) clearTimeout(refreshDebounce);
@@ -364,18 +358,6 @@ export default function QueuePage() {
     setLoading(false);
   }
 
-  async function loadDoctorQueue(doctorId: string) {
-    try {
-      const today = new Date().toISOString().split("T")[0];
-      const res = await api.get<{ data: DoctorQueue }>(
-        `/queue/${doctorId}?date=${today}`
-      );
-      setDoctorQueue(res.data);
-    } catch {
-      // empty
-    }
-  }
-
   const statusColors: Record<string, string> = {
     BOOKED: "bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800",
     CHECKED_IN: "bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800",
@@ -401,36 +383,24 @@ export default function QueuePage() {
         : mode === "SLOT"
           ? t("dashboard.queue.todaysSlot", "Today's Slot")
           : t("dashboard.queue.currentToken");
-    // Click router:
-    //   - Doctor user clicking their own card → refresh `myDoctorQueue`
-    //     (so the Next Patient panel stays current) AND open the right-
-    //     side drawer with the FULL patient list. Mirrors the same
-    //     "click → drawer" UX users get on any other doctor's card.
-    //   - Doctor user clicking another doctor's card → open the drawer
-    //     with that doctor's queue.
-    //   - Non-doctor user → legacy flow: selectedDoctor + doctorQueue
-    //     drive the detail block below the grid.
+    // Click router — UNIFIED: every role now opens the right-side
+    // drawer with the clicked doctor's queue. Previously non-doctors
+    // (ADMIN / RECEPTION / NURSE) got a separate detail-block-below-grid
+    // layout, but that left admins with no concept of a "current
+    // selection" while peeking at multiple doctors. The drawer pattern
+    // matches the doctor view and gives every role the same single-
+    // surface model for inspecting a doctor's queue.
     const isOwnCard = !!myDoctor && doc.doctorId === myDoctor.doctorId;
     const onCardClick = () => {
-      if (myDoctor) {
-        if (isOwnCard) {
-          void loadMyQueue(doc.doctorId);
-        }
-        // For both self-click and other-click, open the drawer with
-        // the clicked doctor's full queue. The function name is a
-        // historical artefact — it works for "self" too because the
-        // payload (a QueueDoctor row) is identity-agnostic.
-        void openOtherDoctorPreview(doc);
-      } else {
-        setSelectedDoctor(doc.doctorId);
-        loadDoctorQueue(doc.doctorId);
+      if (isOwnCard) {
+        // Doctor previewing their own card — refresh the pinned
+        // myDoctorQueue too so the Next Patient panel stays current.
+        void loadMyQueue(doc.doctorId);
       }
+      void openOtherDoctorPreview(doc);
     };
     const isHighlighted =
-      opts.featured ||
-      (myDoctor
-        ? otherDoctorPreview?.doctor.doctorId === doc.doctorId
-        : selectedDoctor === doc.doctorId);
+      opts.featured || otherDoctorPreview?.doctor.doctorId === doc.doctorId;
     return (
       <button
         key={doc.doctorId}
@@ -752,19 +722,14 @@ export default function QueuePage() {
                       return a.tokenNumber - b.tokenNumber;
                     })
                     .map((entry) => (
-                    <Link
+                    <div
                       key={entry.appointmentId}
-                      // Append `previewDoctor=<id>` so the patient detail
-                      // page can echo it back via its "Back to Queue"
-                      // link — clicking back restores this drawer.
-                      href={`/dashboard/patients/${entry.patientId}?from=queue&previewDoctor=${otherDoctorPreview.doctor.doctorId}`}
-                      className={`relative flex items-center justify-between overflow-hidden rounded-lg border p-3 text-sm transition hover:shadow-md hover:border-primary/60 ${
+                      className={`relative overflow-hidden rounded-lg border p-3 text-sm transition ${
                         entry.status === "IN_CONSULTATION"
                           ? "border-emerald-400 bg-emerald-50 shadow-sm ring-1 ring-emerald-200 dark:border-emerald-600 dark:bg-emerald-900/20 dark:ring-emerald-800"
                           : statusColors[entry.status] ||
                             "bg-white dark:bg-gray-800 dark:border-gray-700"
                       }`}
-                      aria-label={`Open patient detail for ${entry.patientName}`}
                     >
                       {/* "Currently consulting" marker — a 4-px emerald
                           left bar + pulsing dot make the active row
@@ -775,178 +740,151 @@ export default function QueuePage() {
                           aria-hidden="true"
                         />
                       )}
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-base font-bold text-white">
-                          {entry.tokenNumber}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className="truncate font-medium text-gray-900 dark:text-gray-100">
-                              {entry.patientName}
-                            </p>
-                            {entry.status === "IN_CONSULTATION" && (
-                              <span
-                                className="relative flex h-2 w-2 shrink-0"
-                                aria-label="Currently consulting"
-                                title="Currently consulting"
-                              >
-                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                              </span>
-                            )}
+                      <Link
+                        // Append `previewDoctor=<id>` so the patient detail
+                        // page can echo it back via its "Back to Queue"
+                        // link — clicking back restores this drawer.
+                        href={`/dashboard/patients/${entry.patientId}?from=queue&previewDoctor=${otherDoctorPreview.doctor.doctorId}`}
+                        className="flex items-center justify-between gap-2 hover:opacity-90"
+                        aria-label={`Open patient detail for ${entry.patientName}`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-base font-bold text-white">
+                            {entry.tokenNumber}
                           </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {entry.type === "WALK_IN" ? "Walk-in" : `Slot: ${entry.slotTime}`}
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-1.5 truncate font-medium text-gray-900 dark:text-gray-100">
+                              <span className="truncate">{entry.patientName}</span>
+                              {entry.status === "IN_CONSULTATION" && (
+                                <span
+                                  className="relative flex h-2 w-2 shrink-0"
+                                  aria-label="Currently consulting"
+                                  title="Currently consulting"
+                                >
+                                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                                </span>
+                              )}
+                              {entry.vulnerableFlags?.isChild && (
+                                <span
+                                  title="Child under 5"
+                                  className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-semibold text-pink-700"
+                                >
+                                  👶 CHILD
+                                </span>
+                              )}
+                              {entry.vulnerableFlags?.isPregnant && (
+                                <span
+                                  title="Active antenatal case"
+                                  className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700"
+                                >
+                                  🤰 ANC
+                                </span>
+                              )}
+                              {entry.vulnerableFlags?.isSenior && (
+                                <span
+                                  title="Senior citizen (65+)"
+                                  className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                                >
+                                  🧓 SENIOR
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                              {entry.type === "WALK_IN" ? "Walk-in" : `Slot: ${entry.slotTime}`}
+                              {entry.priority !== "NORMAL" && (
+                                <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
+                                  {entry.priority}
+                                </span>
+                              )}
+                              {entry.vulnerableFlags?.ageYears !== null &&
+                                entry.vulnerableFlags?.ageYears !== undefined && (
+                                  <span className="ml-2 text-gray-400">
+                                    · Age {entry.vulnerableFlags.ageYears}
+                                  </span>
+                                )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-0.5 text-right">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                              entry.status === "IN_CONSULTATION"
+                                ? "bg-emerald-600 text-white dark:bg-emerald-500"
+                                : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+                            }`}
+                          >
+                            {entry.status === "IN_CONSULTATION"
+                              ? "NOW"
+                              : entry.status}
+                          </span>
+                          {entry.status !== "COMPLETED" &&
+                            entry.status !== "IN_CONSULTATION" && (
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                                ~{entry.estimatedWaitMinutes} min wait
+                              </p>
+                            )}
+                          <p className="text-[10px] text-gray-400">
+                            {entry.hasVitals ? "Vitals recorded" : "No vitals"}
                           </p>
                         </div>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                          entry.status === "IN_CONSULTATION"
-                            ? "bg-emerald-600 text-white dark:bg-emerald-500"
-                            : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
-                        }`}
-                      >
-                        {entry.status === "IN_CONSULTATION"
-                          ? "NOW"
-                          : entry.status}
-                      </span>
-                    </Link>
+                      </Link>
+                      {canTransfer &&
+                        ["BOOKED", "CHECKED_IN"].includes(entry.status) && (
+                          <div className="mt-2 flex justify-end gap-1.5">
+                            <button
+                              onClick={() =>
+                                setTransferTarget({
+                                  appointmentId: entry.appointmentId,
+                                  patientName: entry.patientName,
+                                  currentDoctorId:
+                                    otherDoctorPreview.doctor.doctorId,
+                                })
+                              }
+                              aria-label={`Transfer ${entry.patientName} to another doctor`}
+                              className="touch-target rounded border border-indigo-400 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
+                            >
+                              {t("dashboard.actions.transfer")}
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const reason = await promptUser({
+                                  title: "Left Without Being Seen",
+                                  label: "LWBS reason",
+                                  placeholder:
+                                    "e.g., Long wait, Emergency, Patient left",
+                                  required: true,
+                                });
+                                if (!reason) return;
+                                try {
+                                  await api.patch(
+                                    `/appointments/${entry.appointmentId}/lwbs`,
+                                    { reason }
+                                  );
+                                  loadDisplay();
+                                  void openOtherDoctorPreview(
+                                    otherDoctorPreview.doctor
+                                  );
+                                } catch (err) {
+                                  toast.error(
+                                    err instanceof Error ? err.message : "Failed"
+                                  );
+                                }
+                              }}
+                              className="touch-target rounded border border-red-400 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-100"
+                              aria-label={`Mark ${entry.patientName} as left without being seen`}
+                            >
+                              {t("dashboard.actions.lwbs")}
+                            </button>
+                          </div>
+                        )}
+                    </div>
                   ))}
                 </div>
               )}
             </div>
           </aside>
         </>
-      )}
-
-      {/* Doctor queue detail — only rendered in the legacy layout
-          (non-doctor users). Doctors get the same data in the top-split
-          panel above, so suppress this block to avoid duplication. */}
-      {!myDoctor && doctorQueue && (
-        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
-          <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">{t("dashboard.queue.queueDetail")}</h2>
-          {doctorQueue.queue.length === 0 ? (
-            <p className="text-gray-700 dark:text-gray-300">{t("dashboard.queue.noPatients")}</p>
-          ) : (
-            <div className="space-y-2">
-              {doctorQueue.queue.map((entry) => (
-                <div
-                  key={entry.appointmentId}
-                  className={`flex items-center justify-between rounded-lg border p-4 ${statusColors[entry.status] || "bg-white dark:bg-gray-800 dark:border-gray-700"}`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-lg font-bold text-white">
-                      {entry.tokenNumber}
-                    </div>
-                    <div>
-                      <p className="flex items-center gap-2 font-medium">
-                        {entry.patientName}
-                        {entry.vulnerableFlags?.isChild && (
-                          <span
-                            title="Child under 5"
-                            className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-semibold text-pink-700"
-                          >
-                            👶 CHILD
-                          </span>
-                        )}
-                        {entry.vulnerableFlags?.isPregnant && (
-                          <span
-                            title="Active antenatal case"
-                            className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700"
-                          >
-                            🤰 ANC
-                          </span>
-                        )}
-                        {entry.vulnerableFlags?.isSenior && (
-                          <span
-                            title="Senior citizen (65+)"
-                            className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
-                          >
-                            🧓 SENIOR
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        {entry.type === "WALK_IN" ? "Walk-in" : `Slot: ${entry.slotTime}`}
-                        {entry.priority !== "NORMAL" && (
-                          <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700">
-                            {entry.priority}
-                          </span>
-                        )}
-                        {entry.vulnerableFlags?.ageYears !== null && entry.vulnerableFlags?.ageYears !== undefined && (
-                          <span className="ml-2 text-gray-400">
-                            · Age {entry.vulnerableFlags.ageYears}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium">
-                      {entry.status.replace(/_/g, " ")}
-                    </p>
-                    {entry.status !== "COMPLETED" &&
-                      entry.status !== "IN_CONSULTATION" && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">
-                          ~{entry.estimatedWaitMinutes} min wait
-                        </p>
-                      )}
-                    <p className="text-xs text-gray-400">
-                      {entry.hasVitals ? "Vitals recorded" : "No vitals"}
-                    </p>
-                    {canTransfer &&
-                      ["BOOKED", "CHECKED_IN"].includes(entry.status) &&
-                      selectedDoctor && (
-                        <div className="mt-2 flex justify-end gap-1">
-                          <button
-                            onClick={() =>
-                              setTransferTarget({
-                                appointmentId: entry.appointmentId,
-                                patientName: entry.patientName,
-                                currentDoctorId: selectedDoctor,
-                              })
-                            }
-                            aria-label={`Transfer ${entry.patientName} to another doctor`}
-                            className="touch-target rounded border border-indigo-400 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
-                          >
-                            {t("dashboard.actions.transfer")}
-                          </button>
-                          <button
-                            onClick={async () => {
-                              const reason = await promptUser({
-                                title: "Left Without Being Seen",
-                                label: "LWBS reason",
-                                placeholder: "e.g., Long wait, Emergency, Patient left",
-                                required: true,
-                              });
-                              if (!reason) return;
-                              try {
-                                await api.patch(
-                                  `/appointments/${entry.appointmentId}/lwbs`,
-                                  { reason }
-                                );
-                                loadDisplay();
-                                if (selectedDoctor) loadDoctorQueue(selectedDoctor);
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof Error ? err.message : "Failed"
-                                );
-                              }
-                            }}
-                            className="touch-target rounded border border-red-400 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-100"
-                            aria-label={`Mark ${entry.patientName} as left without being seen`}
-                          >
-                            {t("dashboard.actions.lwbs")}
-                          </button>
-                        </div>
-                      )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       )}
 
       {/* Transfer modal */}

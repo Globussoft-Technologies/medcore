@@ -194,8 +194,15 @@ test.describe("Pearl §6 row 326 — patient PWA's Share-via-WhatsApp button POS
       // AND the share POST. Matches the page's fetch shapes:
       //   GET  /api/v1/prescriptions?page=1&limit=20 (list — page.tsx:165-168)
       //   POST /api/v1/prescriptions/:id/share       (share — page.tsx:141)
+      //
+      // Regex (not glob) because Playwright's `*` does not cross `/` — a
+      // glob like `**/api/v1/prescriptions*` matches the LIST endpoint
+      // (`/prescriptions?...`) but NOT the deeper share path
+      // (`/prescriptions/<id>/share`). Without this fix the share POST
+      // fell through to the dev server and returned a real 403, which is
+      // what surfaced in the chromium full shard.
       const mockedRx = buildMockedRx();
-      await page.route("**/api/v1/prescriptions*", async (route) => {
+      await page.route(/\/api\/v1\/prescriptions/, async (route) => {
         const req = route.request();
         const url = req.url();
         const method = req.method();

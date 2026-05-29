@@ -10,7 +10,6 @@
  *
  * Step meanings:
  *   - account_created: auto-completed the moment the tenant + admin exist.
- *   - hospital_config: hospital-identity SystemConfig keys are all non-empty.
  *   - first_doctor: mark complete once the operator has added a doctor.
  *   - duty_roster: mark complete once at least one DoctorSchedule row exists.
  *   - notification_templates: mark complete once the admin has reviewed.
@@ -65,27 +64,12 @@ const STEPS: Step[] = [
     titleKey: "tenants.onb.accountCreated",
     titleDefault: "Account created",
     descriptionKey: "tenants.onb.accountCreated.desc",
-    descriptionDefault: "Tenant record and first admin user have been provisioned.",
+    descriptionDefault:
+      "Tenant record and first admin user have been provisioned — name and email captured for invoices, prescriptions and notifications.",
     linkHref: "/dashboard/tenants",
     linkLabelKey: "tenants.onb.accountCreated.link",
     linkLabelDefault: "View tenants list",
     autoDetect: (d) => !!d,
-  },
-  {
-    key: "hospital_config",
-    titleKey: "tenants.onb.hospitalConfig",
-    titleDefault: "Configure hospital details",
-    descriptionKey: "tenants.onb.hospitalConfig.desc",
-    descriptionDefault:
-      "Name, phone, email, GSTIN and address — shown on invoices, prescriptions and notifications.",
-    linkHref: "/dashboard/settings",
-    linkLabelKey: "tenants.onb.hospitalConfig.link",
-    linkLabelDefault: "Open hospital settings",
-    autoDetect: (d) => {
-      if (!d) return false;
-      const required = ["hospital_name", "hospital_phone", "hospital_email", "hospital_address"];
-      return required.every((k) => (d.config[k] || "").trim().length > 0);
-    },
   },
   {
     key: "first_doctor",

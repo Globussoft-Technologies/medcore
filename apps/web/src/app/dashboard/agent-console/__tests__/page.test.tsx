@@ -1007,6 +1007,12 @@ describe("Agent Console dashboard page (3-pane handoff workstation)", () => {
       (await screen.findByText("Asha Patel")).closest("button")!,
     );
 
+    // escalate() bails out early on `!context`, so wait for the context
+    // GET to land (transcript section only renders after setContext) before
+    // clicking — otherwise the click is a silent no-op and promptMock
+    // is never called.
+    await screen.findByTestId("agent-console-transcript");
+
     promptMock.mockResolvedValueOnce(null);
 
     fireEvent.click(

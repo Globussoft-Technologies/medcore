@@ -192,8 +192,16 @@ describe("LiveQueuePage", () => {
     );
     expect(screen.getByTestId("live-queue-in-consult")).toHaveTextContent("0");
     expect(screen.getByTestId("live-queue-done")).toHaveTextContent("0");
-    // After load, skeleton is removed.
-    expect(screen.queryByTestId("live-queue-loading")).not.toBeInTheDocument();
+    // After load, skeleton is removed. The first waitFor pinned the
+    // tiles' state but not the skeleton's removal (it's gated on the
+    // same `loading` flag the parent flips, which fires in a separate
+    // microtask). Poll for the skeleton actually going away rather
+    // than asserting synchronously.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("live-queue-loading"),
+      ).not.toBeInTheDocument(),
+    );
     // No error banner.
     expect(
       document.querySelector('[role="alert"]:not(#__next-route-announcer__)')

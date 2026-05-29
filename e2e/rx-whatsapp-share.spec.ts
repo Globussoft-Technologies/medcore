@@ -1,27 +1,37 @@
 // Pearl PRD Stage 1 §6 / gap-doc row 326 — "WhatsApp share of printed Rx
 // sends signed-PDF link". Closes the row that previously read
 // "Functional but not timed: share button + signed-PDF URL exist; no e2e
-// that asserts the WhatsApp deep-link triggers".
+// that asserts the WhatsApp share triggers".
 //
 // What this exercises:
 //   - apps/web/src/app/patient/prescriptions/page.tsx — the patient PWA's
-//     My-Prescriptions list. Each shareable row (signatureUrl set AND
-//     status not in CANCELLED/REJECTED/DRAFT) renders an `<a>` with
-//     `data-testid="patient-prescriptions-share-btn"` whose `href` is
-//     `https://wa.me/?text=<encoded message containing the verify URL>`.
-//   - The verify URL points at `/verify/rx/<rxId>` on the same origin —
-//     the public verify page where any third-party can confirm the
-//     signed-PDF authenticity (qrcode + hash, prescriptions.ts:1396+).
+//     My-Prescriptions list. Each row renders a `<button>` with
+//     `data-testid="patient-prescriptions-share-btn"` that, on click,
+//     POSTs `/api/v1/prescriptions/:id/share` with `{ channel: "WHATSAPP" }`
+//     (page.tsx:134-155 `shareViaWhatsApp`). The server delivers the
+//     signed-Rx verify link to the patient's registered phone number via
+//     Meta Cloud API (prescriptions.ts:1396+ — the public verify page
+//     where any third-party can confirm the signed-PDF authenticity).
+//   - This is the same protocol the staff `/dashboard/prescriptions`
+//     "Share via WhatsApp" CTA uses — server-side delivery, audit-logged,
+//     and bound to the patient's registered phone (no client-side
+//     `wa.me/?text=` deep-link).
 //
-// Why this is the right surface:
-//   The staff `/dashboard/prescriptions` "Share via WhatsApp" button hits
-//   `POST /prescriptions/:id/share` which delivers via Meta Cloud API
-//   server-side — no `wa.me/?text=` deep-link generated client-side.
-//   The actual `wa.me/?text=` deep-link with the signed-Rx URL embedded
-//   lives ONLY on the patient PWA (see also `/patient/dashboard` for the
-//   most-recent-Rx tile). The Pearl §6.1 patient-facing PWA is the
-//   surface row 326's "WhatsApp share of printed Rx sends signed-PDF
-//   link" actually describes — staff share is a different protocol.
+// Why server-side delivery, not a client-side wa.me deep-link:
+//   The previous patient-PWA implementation rendered an `<a href="wa.me/
+//   ?text=<encoded verify URL>">` that opened whichever WhatsApp client
+//   the device picked. That worked but had three failure modes:
+//     1. The send was UNAUDITED — no record on the server that the
+//        patient was offered the share, only that they tapped a deep-link.
+//     2. The verify URL leaked into browser history + referrer headers
+//        of whatever app opened next.
+//     3. The recipient phone was whoever the patient picked in WhatsApp,
+//        not necessarily the one registered with the clinic — which
+//        defeats the point of an Rx delivery audit-trail.
+//   The current server-delivered flow (POST /:id/share with channel
+//   "WHATSAPP", routed through Meta Cloud API) fixes all three: the
+//   share is logged, the verify URL never touches the client URL bar,
+//   and the recipient is the registered phone (NOT a wa.me-picked one).
 //
 // Why route-intercept rather than a real seeded patient JWT:
 //   The patient PWA gates content on the patient-OTP cookie set by
@@ -31,20 +41,23 @@
 //   role=PATIENT) which does not mint the patient-auth cookies the page
 //   probes. Adding an OTP fixture is deferred to a separate piece (see
 //   touch-target-audit.spec.ts:35-43 scope-cut). We instead route-
-//   intercept `**/api/v1/prescriptions*` with a known-shaped list so the
-//   page renders the deterministic row we want to inspect — a REAL DOM
-//   assertion against the real page bundle, not a vitest unit test.
+//   intercept the prescriptions list + share endpoint with a known-
+//   shaped pair so the page renders the deterministic row we want to
+//   click — a REAL DOM assertion against the real page bundle, not a
+//   vitest unit test.
 //
 // Scope-cuts vs the PRD prose:
-//   - "Sends" — we assert the deep-link's existence + shape (verify URL
-//     embedded, https://wa.me/ host), not that the patient's WhatsApp
-//     client actually opens. Asserting OS-level handler launch is out of
-//     scope for a browser e2e — the deep-link contract IS the wa.me URL
-//     shape, and Meta + iOS/Android handle the rest.
+//   - "Sends" — we assert that clicking the share button fires a POST
+//     with `{ channel: "WHATSAPP" }` to the share endpoint. Asserting
+//     that Meta Cloud API actually delivers the WhatsApp template is
+//     out of scope for a browser e2e (no Meta sandbox in CI). The
+//     server-side delivery is covered by route-handler tests against
+//     a mocked Meta client (apps/api/src/routes/__tests__/
+//     prescriptions.share.test.ts).
 //   - "Printed Rx" — Pearl groups print + share as sister flows. The
 //     printed PDF surface is covered by row 323 (new-patient-OPD-timed)
 //     which asserts the `application/pdf` Content-Type + `%PDF-` magic
-//     bytes. This spec is the share-link sibling.
+//     bytes. This spec is the share sibling.
 //
 // Per CLAUDE.md gotchas:
 //   - #10: only one role=alert (the error state) — no global route
@@ -80,9 +93,9 @@ function buildMockedRx(): MockedRx {
     id: KNOWN_RX_ID,
     createdAt: "2026-05-15T10:00:00Z",
     diagnosis: "Pearl §6 row 326 — share-link e2e fixture",
-    // ISSUED ∉ NON_SHAREABLE_STATUSES → share CTA visible.
+    // ISSUED → share CTA visible (page renders unconditionally now and
+    // surfaces server-side 409s as toasts).
     status: "ISSUED",
-    // signatureUrl populated → isShareable === true (page.tsx:288-290).
     signatureUrl: "https://example.com/sig.png",
     doctor: {
       user: { name: KNOWN_DOCTOR_NAME },
@@ -99,8 +112,8 @@ function buildMockedRx(): MockedRx {
   };
 }
 
-test.describe("Pearl §6 row 326 — patient PWA's Share-via-WhatsApp button generates a wa.me deep-link carrying the signed-Rx verify URL", () => {
-  test("the share <a> on /patient/prescriptions has href starting with https://wa.me/?text= AND the encoded message body contains the /verify/rx/<id> URL pointing at the prescription's public verify page", async ({
+test.describe("Pearl §6 row 326 — patient PWA's Share-via-WhatsApp button POSTs the server-side share endpoint with channel=WHATSAPP", () => {
+  test("clicking the share <button> on /patient/prescriptions fires POST /api/v1/prescriptions/:id/share with body { channel: 'WHATSAPP' } — the server delivers the verify link to the patient's registered phone via Meta Cloud API", async ({
     browser,
   }) => {
     const ctx = await browser.newContext();
@@ -117,6 +130,38 @@ test.describe("Pearl §6 row 326 — patient PWA's Share-via-WhatsApp button gen
       // PATIENT user so the layout's auth gate passes and the page
       // renders. The shape mirrors `apps/web/src/lib/store.ts:coerceUser`'s
       // expectations.
+      //
+      // Catch-all guard against the global 401 redirect. Any unmocked
+      // /api/v1/* call (e.g. DashboardLayout's /branches sidebar probe,
+      // /chat/unread polls, /branding lookup) returns an empty 200 —
+      // this prevents the global 401 redirect in lib/api.ts:90-94
+      // (`window.location.replace(/login?next=...)`) from firing on a
+      // single un-routed background poll and trashing the page
+      // mid-render. Without this guard, webkit shards flake with a
+      // navigation to /login?next=/patient/prescriptions before the
+      // seeded row ever paints.
+      //
+      // Order-independent via route.fallback(): the catch-all defers to
+      // any later-registered specific handler whose URL matches, so the
+      // specific /auth/me + /prescriptions* routes below always take
+      // precedence regardless of Playwright's handler order semantics.
+      const SPECIFIC_PATTERNS = [
+        /\/api\/v1\/auth\/me(\?|$)/,
+        /\/api\/v1\/prescriptions(\?|\/|$)/,
+      ];
+      await page.route("**/api/v1/**", async (route) => {
+        const url = route.request().url();
+        if (SPECIFIC_PATTERNS.some((rx) => rx.test(url))) {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ success: true, data: null, error: null }),
+        });
+      });
+
       await page.route("**/api/v1/auth/me", async (route) => {
         if (route.request().method() === "GET") {
           await route.fulfill({
@@ -140,21 +185,49 @@ test.describe("Pearl §6 row 326 — patient PWA's Share-via-WhatsApp button gen
         await route.continue();
       });
 
-      // Route-intercept the prescriptions list endpoint with a known row.
-      // Matches the page's fetch shape: GET /api/v1/prescriptions?page=1&limit=20
-      // (page.tsx:138-140). We don't differentiate page numbers — the spec only
-      // needs the first page to render the share row.
+      // Capture the share POST so the assertions can inspect body shape.
+      // Declared before the route registration so the closure can mutate it.
+      let sharePostBody: unknown = null;
+      let sharePostUrl: string | null = null;
+
+      // Route-intercept the prescriptions list endpoint with a known row
+      // AND the share POST. Matches the page's fetch shapes:
+      //   GET  /api/v1/prescriptions?page=1&limit=20 (list — page.tsx:165-168)
+      //   POST /api/v1/prescriptions/:id/share       (share — page.tsx:141)
       const mockedRx = buildMockedRx();
       await page.route("**/api/v1/prescriptions*", async (route) => {
-        const url = route.request().url();
-        // Only handle the LIST endpoint; let any other prescription sub-path
-        // (e.g. /:id/pdf — the share button never hits this, but the page's
-        // download CTA is `<a href>` and doesn't fetch) fall through. The
-        // share <a> is href-only, no fetch fires when we read its href.
-        if (
-          route.request().method() === "GET" &&
-          /\/api\/v1\/prescriptions(\?|$)/.test(url)
-        ) {
+        const req = route.request();
+        const url = req.url();
+        const method = req.method();
+
+        // Share POST — match `/prescriptions/<id>/share` regardless of the
+        // id used (the test only seeds KNOWN_RX_ID so the only post path
+        // exercised is that one, but matching by `/share$` keeps the
+        // matcher robust against a future client-side query param tweak).
+        if (method === "POST" && /\/prescriptions\/[^/]+\/share$/.test(url)) {
+          sharePostUrl = url;
+          try {
+            sharePostBody = req.postDataJSON();
+          } catch {
+            sharePostBody = req.postData();
+          }
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              success: true,
+              data: { ok: true, channel: "WHATSAPP" },
+              error: null,
+            }),
+          });
+          return;
+        }
+
+        // List GET — only handle the LIST endpoint; let any other
+        // prescription sub-path (e.g. /:id/pdf — a real <a> click that the
+        // share spec doesn't drive) fall through. The list shape mirrors
+        // the route's `{ success, data, meta }` envelope.
+        if (method === "GET" && /\/api\/v1\/prescriptions(\?|$)/.test(url)) {
           await route.fulfill({
             status: 200,
             contentType: "application/json",
@@ -194,55 +267,62 @@ test.describe("Pearl §6 row 326 — patient PWA's Share-via-WhatsApp button gen
       );
       await row.waitFor({ state: "visible", timeout: 10_000 });
 
-      // Lock onto the share <a> scoped to this row so future fixtures
+      // Lock onto the share <button> scoped to this row so future fixtures
       // (multiple rows) don't break the assertion.
-      const shareAnchor = row.locator(
+      const shareButton = row.locator(
         '[data-testid="patient-prescriptions-share-btn"]'
       );
-      await expect(shareAnchor).toBeVisible();
+      await expect(shareButton).toBeVisible();
 
-      const href = await shareAnchor.getAttribute("href");
-      expect(
-        href,
-        "patient-prescriptions-share-btn must carry an href attribute (page.tsx renders an <a>, not a button)"
-      ).toBeTruthy();
+      // The CTA is now a <button> (not an <a>) — defends against a
+      // regression that flips back to the old client-side wa.me deep-link
+      // shape (which leaked the verify URL into browser history and went
+      // out un-audited; see header comment for the full rationale).
+      await expect(shareButton).toHaveJSProperty("tagName", "BUTTON");
 
-      // Assertion 1 — wa.me deep-link host shape.
+      // Trigger the share. Wait for the POST response in parallel so the
+      // assertion that follows has a deterministic anchor — the page's
+      // success toast fires AFTER the await resolves (page.tsx:141-142),
+      // so awaiting the response here also rules out a fire-and-forget
+      // regression that drops the POST entirely.
+      const sharePromise = page.waitForResponse(
+        (r) =>
+          /\/api\/v1\/prescriptions\/[^/]+\/share$/.test(new URL(r.url()).pathname) &&
+          r.request().method() === "POST",
+        { timeout: 10_000 }
+      );
+      await shareButton.click();
+      const shareRes = await sharePromise;
+
+      // Assertion 1 — server-side share endpoint was hit, not a wa.me
+      // deep-link. Defends against a regression that flips the button
+      // back to an <a href="wa.me/...">.
       expect(
-        href!.startsWith("https://wa.me/?text="),
-        `Pearl §6 row 326: share href must be a wa.me deep-link of the shape ` +
-          `https://wa.me/?text=<encoded>. Got: ${href}`
+        shareRes.ok(),
+        `Pearl §6 row 326: share POST must succeed (the page surfaces ` +
+          `non-2xx responses as toast.error and the verify URL never gets ` +
+          `delivered). Got status ${shareRes.status()}.`
       ).toBe(true);
 
-      // Assertion 2 — decoded message body contains the verify URL with the
-      // prescription id baked in. encodeURIComponent doesn't escape ":" or
-      // "/" so we can grep for the path directly. The host varies by origin
-      // (localhost / staging / prod) — we only assert the path.
-      const decoded = decodeURIComponent(
-        href!.replace("https://wa.me/?text=", "")
-      );
+      // Assertion 2 — request URL targets the seeded prescription's id.
+      // Catches a regression that POSTs a stale id (e.g. cached from a
+      // prior list, the wrong row in a multi-row list, etc.).
       expect(
-        decoded,
-        `Pearl §6 row 326: decoded wa.me message body must contain the verify ` +
-          `URL path /verify/rx/${KNOWN_RX_ID} so the recipient can verify the ` +
-          `signed Rx. Got: ${decoded}`
-      ).toContain(`/verify/rx/${KNOWN_RX_ID}`);
+        sharePostUrl,
+        `Pearl §6 row 326: share POST URL must include /prescriptions/<id>/share ` +
+          `with the seeded id. Got: ${sharePostUrl}`
+      ).toMatch(new RegExp(`/prescriptions/${KNOWN_RX_ID}/share$`));
 
-      // Assertion 3 — message body names the doctor so the recipient knows
-      // who issued the script (page.tsx:294-296). Defensive: catches the
-      // class of regression where a refactor drops the doctor-name prefix
-      // and the patient gets an anonymous "My prescription: <url>" blob.
+      // Assertion 3 — request body carries channel: "WHATSAPP". The server
+      // multiplexes the same endpoint for SMS / EMAIL / WHATSAPP based on
+      // this field; missing or wrong channel means the patient gets the
+      // verify link in the wrong protocol (or not at all).
       expect(
-        decoded,
-        `Pearl §6 row 326: decoded wa.me message body should reference the ` +
-          `prescribing doctor name. Got: ${decoded}`
-      ).toContain(`Dr. ${KNOWN_DOCTOR_NAME}`);
-
-      // Assertion 4 — opens in a new tab + no opener leak. Defense against
-      // a regression that turns the <a> into a same-tab navigation (which
-      // would nuke the patient's PWA state on iOS/Android).
-      await expect(shareAnchor).toHaveAttribute("target", "_blank");
-      await expect(shareAnchor).toHaveAttribute("rel", "noopener noreferrer");
+        sharePostBody,
+        `Pearl §6 row 326: share POST body must carry { channel: "WHATSAPP" } ` +
+          `so the API routes through Meta Cloud delivery. Got: ` +
+          `${JSON.stringify(sharePostBody)}`
+      ).toMatchObject({ channel: "WHATSAPP" });
     } finally {
       await ctx.close();
     }

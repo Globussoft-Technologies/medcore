@@ -925,6 +925,11 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
 
+    // Wait for the modal's async /suppliers fetch to populate options — without
+    // this, fireEvent.change(value:"sup-1") fires before <option value="sup-1">
+    // exists in the DOM and React's controlled <select> silently drops it.
+    await screen.findByRole("option", { name: "Acme" });
+
     // Fill supplier + expected date + notes.
     fireEvent.change(screen.getByLabelText(/Supplier/), {
       target: { value: "sup-1" },

@@ -32,6 +32,11 @@ const CUID_2 = "ckvabcd9876543210zyxwvutsr";
 
 describe("BULK_UPDATE_ALLOWED_FIELDS", () => {
   it("contains each documented bulk-editable column", () => {
+    // Pearl §3.1 (gap closed 2026-05-29) — `enabledChannels` and
+    // `bufferMinutes` joined the allowlist so admins can batch-set them
+    // alongside the original 6 mode knobs. Updating this pinned list
+    // forces every additional bulk-editable column to land here as an
+    // intentional, reviewed change.
     expect(BULK_UPDATE_ALLOWED_FIELDS).toEqual([
       "appointmentMode",
       "tokenPrefix",
@@ -39,10 +44,12 @@ describe("BULK_UPDATE_ALLOWED_FIELDS", () => {
       "dailyAppointmentLimit",
       "nearTurnAlertThreshold",
       "lastHourPolicy",
+      "enabledChannels",
+      "bufferMinutes",
     ]);
   });
-  it("exports a readonly tuple (length 6)", () => {
-    expect(BULK_UPDATE_ALLOWED_FIELDS.length).toBe(6);
+  it("exports a readonly tuple (length 8)", () => {
+    expect(BULK_UPDATE_ALLOWED_FIELDS.length).toBe(8);
   });
   it("every entry is a string", () => {
     for (const f of BULK_UPDATE_ALLOWED_FIELDS) {

@@ -74,14 +74,43 @@ describe("walkInSchema", () => {
 });
 
 describe("rescheduleAppointmentSchema", () => {
+  // Pearl §3.1 (gap closed 2026-05-29) — reschedule now requires a reason
+  // (3-500 chars). Tests must include it in the happy-path payload; the
+  // sad-path tests still send a valid reason so the assertion isolates
+  // the field being tested.
   it("accepts valid date and time", () => {
     expect(
-      rescheduleAppointmentSchema.safeParse({ date: "2099-05-01", slotStart: "10:30" }).success
+      rescheduleAppointmentSchema.safeParse({
+        date: "2099-05-01",
+        slotStart: "10:30",
+        reason: "Patient requested a later slot",
+      }).success
     ).toBe(true);
   });
   it("rejects bad time format", () => {
     expect(
-      rescheduleAppointmentSchema.safeParse({ date: "2099-05-01", slotStart: "10am" }).success
+      rescheduleAppointmentSchema.safeParse({
+        date: "2099-05-01",
+        slotStart: "10am",
+        reason: "Patient requested a later slot",
+      }).success
+    ).toBe(false);
+  });
+  it("rejects missing reason", () => {
+    expect(
+      rescheduleAppointmentSchema.safeParse({
+        date: "2099-05-01",
+        slotStart: "10:30",
+      }).success
+    ).toBe(false);
+  });
+  it("rejects reason shorter than 3 chars", () => {
+    expect(
+      rescheduleAppointmentSchema.safeParse({
+        date: "2099-05-01",
+        slotStart: "10:30",
+        reason: "ab",
+      }).success
     ).toBe(false);
   });
 });

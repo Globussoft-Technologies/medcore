@@ -38,6 +38,7 @@ import {
   Sparkles,
   Phone as PhoneIcon,
   Lock,
+  IndianRupee,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -87,6 +88,14 @@ interface Tenant {
   // Pearl §8.2 row 212 — per-tenant idle session timeout (minutes).
   // PATCH /api/v1/tenants/:id accepts integers in [5, 1440].
   sessionIdleMinutes?: number;
+  // Pearl §8.3 piece 3d — recipient for the monthly platform-invoice
+  // mailer. Editable via the detail drawer; PATCH /tenants/:id persists.
+  billingContactEmail?: string | null;
+  // Pearl §8.6 — compliance posture knobs (editable in drawer).
+  whatsappOptInTrackingEnabled?: boolean;
+  abdmConsentEnforcementRequired?: boolean;
+  auditLogRetentionDays?: number;
+  patientDataRetentionDays?: number;
 }
 
 interface TenantAdmin {
@@ -368,6 +377,61 @@ export default function TenantsAdminPage() {
     }
   }
 
+  // Pearl §8.6 — PATCH per-tenant compliance posture knobs.
+  // Mirrors the session-idle / billing-contact pattern.
+  async function updateCompliance(
+    id: string,
+    patch: {
+      whatsappOptInTrackingEnabled?: boolean;
+      abdmConsentEnforcementRequired?: boolean;
+      auditLogRetentionDays?: number;
+      patientDataRetentionDays?: number;
+    },
+  ) {
+    try {
+      await api.patch(`/tenants/${id}`, patch);
+      toast.success(
+        t("tenants.compliance.ok", "Compliance setting saved"),
+      );
+      load();
+      if (detailOpen) loadDetail(detailOpen);
+    } catch (err) {
+      const e = err as { status?: number; message?: string };
+      toast.error(
+        e.message ||
+          t(
+            "tenants.compliance.error",
+            "Failed to save compliance setting",
+          ),
+      );
+    }
+  }
+
+  // Pearl §8.3 piece 3d — PATCH the per-tenant billing contact email.
+  // Empty string clears the value (the monthly mailer will skip until
+  // it's filled in again). Server lowercases + format-validates.
+  async function updateBillingContact(id: string, email: string) {
+    try {
+      await api.patch(`/tenants/${id}`, { billingContactEmail: email });
+      toast.success(
+        email
+          ? t("tenants.billingContact.ok", "Billing contact saved")
+          : t("tenants.billingContact.cleared", "Billing contact cleared"),
+      );
+      load();
+      if (detailOpen) loadDetail(detailOpen);
+    } catch (err) {
+      const e = err as { status?: number; message?: string };
+      toast.error(
+        e.message ||
+          t(
+            "tenants.billingContact.error",
+            "Failed to save billing contact",
+          ),
+      );
+    }
+  }
+
   // Pearl §8.1 row 206 — restore flips Tenant.active=true via the dedicated
   // POST /:id/restore endpoint (emits TENANT_RESTORED audit row). Mirrors
   // suspend so audit pairs cleanly per the gap-doc closure annotation.
@@ -437,13 +501,27 @@ export default function TenantsAdminPage() {
             )}
           </p>
         </div>
-        <button
-          data-testid="tenants-create-open"
-          onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-        >
-          <Plus size={16} /> {t("tenants.create", "Create Tenant")}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Pearl §8.3 — secondary entry into the platform-billing
+              operator surface (subscriptions, invoices, plan changes,
+              usage). Kept next to "Create Tenant" instead of a
+              separate sidebar item per the operator's preference. */}
+          <Link
+            href="/dashboard/platform-billing?from=tenants"
+            data-testid="tenants-platform-billing-link"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <IndianRupee size={16} />{" "}
+            {t("tenants.platformBilling", "Platform Billing")}
+          </Link>
+          <button
+            data-testid="tenants-create-open"
+            onClick={() => setCreateOpen(true)}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          >
+            <Plus size={16} /> {t("tenants.create", "Create Tenant")}
+          </button>
+        </div>
       </div>
 
       {/* Filters — search + plan dropdown + segmented status filter, all
@@ -735,7 +813,18 @@ export default function TenantsAdminPage() {
                           we don't render the button to avoid a confusing
                           400). 44px touch targets per spec. */}
                       {tt.active ? (
-                        tt.subdomain === "default" ? null : (
+                        tt.subdomain === "default" ? (
+                          // Invisible placeholder — keeps the actions
+                          // column aligned across rows. The default
+                          // tenant cannot be suspended (server-side
+                          // guard), but rendering `null` here would
+                          // shift its 4 icons left relative to the
+                          // 5-icon rows above.
+                          <span
+                            aria-hidden="true"
+                            className="inline-flex h-11 w-11"
+                          />
+                        ) : (
                           <button
                             data-testid={`tenant-row-suspend-${tt.subdomain}`}
                             onClick={() => deactivateTenant(tt.id, tt.name)}
@@ -816,6 +905,8 @@ export default function TenantsAdminPage() {
           onDeactivate={deactivateTenant}
           onReactivate={reactivateTenant}
           onUpdateSessionIdle={updateSessionIdle}
+          onUpdateBillingContact={updateBillingContact}
+          onUpdateCompliance={updateCompliance}
         />
       )}
     </div>
@@ -902,6 +993,7 @@ function CreateTenantModal({
   const { t } = useTranslation();
   const [form, setForm] = useState({
     name: "",
+    code: "",
     plan: "BASIC" as Plan,
     adminEmail: "",
     adminPassword: "",
@@ -963,6 +1055,7 @@ function CreateTenantModal({
           name: form.name.trim(),
           subdomain: deriveSubdomain(form.name),
           plan: form.plan,
+          code: form.code.trim() || undefined,
           adminEmail: form.adminEmail.trim(),
           adminPassword: form.adminPassword,
           adminName: form.adminName.trim(),
@@ -1081,7 +1174,30 @@ function CreateTenantModal({
                   className={inputCls}
                 />
               </Field>
-              <div className="sm:max-w-xs">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field
+                  label={t("tenants.create.code", "Tenant Code")}
+                  hint={t(
+                    "tenants.create.code.hint",
+                    "Short label (2–12 letters/digits/hyphens). e.g. AHMD-01",
+                  )}
+                >
+                  <input
+                    data-testid="tenants-create-code"
+                    value={form.code}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        code: e.target.value
+                          .toUpperCase()
+                          .replace(/[^A-Z0-9-]/g, "")
+                          .slice(0, 12),
+                      })
+                    }
+                    placeholder="AHMD-01"
+                    className={`${inputCls} font-mono uppercase`}
+                  />
+                </Field>
                 <Field label={t("tenants.create.plan", "Plan")}>
                   <select
                     data-testid="tenants-create-plan"
@@ -1328,6 +1444,8 @@ function TenantDetailDrawer({
   onDeactivate,
   onReactivate,
   onUpdateSessionIdle,
+  onUpdateBillingContact,
+  onUpdateCompliance,
 }: {
   tenantId: string;
   detail: TenantDetail | null;
@@ -1335,6 +1453,16 @@ function TenantDetailDrawer({
   onDeactivate: (id: string, name: string) => void;
   onReactivate: (id: string, name?: string) => void;
   onUpdateSessionIdle: (id: string, minutes: number) => void;
+  onUpdateBillingContact: (id: string, email: string) => void;
+  onUpdateCompliance: (
+    id: string,
+    patch: {
+      whatsappOptInTrackingEnabled?: boolean;
+      abdmConsentEnforcementRequired?: boolean;
+      auditLogRetentionDays?: number;
+      patientDataRetentionDays?: number;
+    },
+  ) => void;
 }) {
   const { t } = useTranslation();
 
@@ -1342,11 +1470,26 @@ function TenantDetailDrawer({
   // (controlled). Resets on detail change so opening a different
   // tenant shows that tenant's persisted value.
   const [sessionIdleDraft, setSessionIdleDraft] = useState<string>("");
+  // Pearl §8.3 piece 3d — staging value for the billing contact email.
+  const [billingContactDraft, setBillingContactDraft] = useState<string>("");
   useEffect(() => {
     if (detail) {
       setSessionIdleDraft(String(detail.sessionIdleMinutes ?? 30));
+      setBillingContactDraft(detail.billingContactEmail ?? "");
     }
   }, [detail]);
+
+  const billingContactError = (() => {
+    const v = billingContactDraft.trim();
+    if (v === "") return null; // empty == clear, allowed
+    if (!/.+@.+\..+/.test(v)) return "Enter a valid email";
+    if (v.length > 254) return "Email too long";
+    return null;
+  })();
+  const canSaveBillingContact =
+    !billingContactError &&
+    detail !== null &&
+    billingContactDraft.trim() !== (detail.billingContactEmail ?? "");
 
   const sessionIdleError = (() => {
     if (sessionIdleDraft.trim() === "") return null;
@@ -1479,6 +1622,152 @@ function TenantDetailDrawer({
               )}
             </div>
 
+            {/* Pearl §8.3 piece 3d — billing contact email. The monthly
+                platform-invoice mailer (services/platform-invoice-mailer.ts)
+                sends ISSUED invoices to this address; tenants without a
+                contact are silently skipped + flagged in the cron log.
+                The Send Reminder operator action 412s with a helpful
+                message until this is filled in. */}
+            <div>
+              <h4 className="mb-2 text-sm font-semibold">
+                {t(
+                  "tenants.detail.billingContact.title",
+                  "Billing contact email",
+                )}
+              </h4>
+              <div className="flex items-start gap-2">
+                <input
+                  data-testid="tenants-detail-billing-contact-input"
+                  type="email"
+                  value={billingContactDraft}
+                  onChange={(e) => setBillingContactDraft(e.target.value)}
+                  placeholder="billing@hospital.com"
+                  maxLength={254}
+                  className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                  aria-label={t(
+                    "tenants.detail.billingContact.aria",
+                    "Billing contact email",
+                  )}
+                />
+                <button
+                  data-testid="tenants-detail-billing-contact-save"
+                  disabled={!canSaveBillingContact}
+                  onClick={() =>
+                    onUpdateBillingContact(
+                      tenantId,
+                      billingContactDraft.trim(),
+                    )
+                  }
+                  className="rounded-lg bg-primary px-3 py-2 text-sm text-white hover:bg-primary-dark disabled:opacity-50"
+                >
+                  {t("common.save", "Save")}
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-gray-500">
+                {t(
+                  "tenants.detail.billingContact.hint",
+                  "Recipient of the monthly platform invoice + manual reminders. Leave blank to disable invoice email delivery.",
+                )}
+              </p>
+              {billingContactError && (
+                <p
+                  data-testid="tenants-detail-billing-contact-error"
+                  className="mt-1 text-[11px] text-red-600"
+                >
+                  {billingContactError}
+                </p>
+              )}
+            </div>
+
+            {/* Pearl §8.6 — compliance posture knobs. Each row is a
+                self-contained toggle/number input that PATCHes the
+                tenant immediately on change. Mirrors the inline-edit
+                pattern the compliance dashboard expects so the
+                operator can flip a flag and see it reflected on
+                /super-admin/compliance on the next refresh. */}
+            <div>
+              <h4 className="mb-2 text-sm font-semibold">
+                {t(
+                  "tenants.detail.compliance.title",
+                  "Compliance posture",
+                )}
+              </h4>
+              <div className="space-y-2 rounded-lg border p-3">
+                <ComplianceToggle
+                  label={t(
+                    "tenants.detail.compliance.whatsapp",
+                    "WhatsApp opt-in tracking",
+                  )}
+                  hint={t(
+                    "tenants.detail.compliance.whatsapp.hint",
+                    "When on, outbound WhatsApp refuses numbers without an OptInRecord.",
+                  )}
+                  testid="tenants-detail-whatsapp-optin"
+                  value={detail.whatsappOptInTrackingEnabled ?? false}
+                  onChange={(v) =>
+                    onUpdateCompliance(tenantId, {
+                      whatsappOptInTrackingEnabled: v,
+                    })
+                  }
+                />
+                <ComplianceToggle
+                  label={t(
+                    "tenants.detail.compliance.abdm",
+                    "ABDM consent enforcement",
+                  )}
+                  hint={t(
+                    "tenants.detail.compliance.abdm.hint",
+                    "When on, ABDM fetches require an active ConsentArtefact.",
+                  )}
+                  testid="tenants-detail-abdm-consent"
+                  value={detail.abdmConsentEnforcementRequired ?? false}
+                  onChange={(v) =>
+                    onUpdateCompliance(tenantId, {
+                      abdmConsentEnforcementRequired: v,
+                    })
+                  }
+                />
+                <ComplianceNumber
+                  label={t(
+                    "tenants.detail.compliance.auditRetention",
+                    "Audit-log retention (days)",
+                  )}
+                  hint={t(
+                    "tenants.detail.compliance.auditRetention.hint",
+                    "30–3650. NABH-accredited tenants typically run 1825+.",
+                  )}
+                  testid="tenants-detail-audit-retention"
+                  value={detail.auditLogRetentionDays ?? 365}
+                  min={30}
+                  max={3650}
+                  onCommit={(v) =>
+                    onUpdateCompliance(tenantId, {
+                      auditLogRetentionDays: v,
+                    })
+                  }
+                />
+                <ComplianceNumber
+                  label={t(
+                    "tenants.detail.compliance.phiRetention",
+                    "Patient data retention (days)",
+                  )}
+                  hint={t(
+                    "tenants.detail.compliance.phiRetention.hint",
+                    "365–7300. MCI guidance is 2555 (≈ 7 years).",
+                  )}
+                  testid="tenants-detail-phi-retention"
+                  value={detail.patientDataRetentionDays ?? 2555}
+                  min={365}
+                  max={7300}
+                  onCommit={(v) =>
+                    onUpdateCompliance(tenantId, {
+                      patientDataRetentionDays: v,
+                    })
+                  }
+                />
+              </div>
+            </div>
+
             <div>
               <h4 className="mb-2 text-sm font-semibold">
                 {t("tenants.detail.admins", "Admin Users")}
@@ -1548,6 +1837,108 @@ function Stat({ label, value }: { label: string; value: string | number }) {
     <div>
       <div className="text-xs text-gray-500">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
+    </div>
+  );
+}
+
+// Pearl §8.6 — compact toggle for the compliance posture rows in the
+// tenant detail drawer. Optimistic UI (no spinner) — the parent does
+// the PATCH and refreshes the detail on resolve so the next render
+// shows the persisted state.
+function ComplianceToggle({
+  label,
+  hint,
+  testid,
+  value,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  testid: string;
+  value: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1">
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-gray-800">{label}</div>
+        <p className="mt-0.5 text-[11px] text-gray-500">{hint}</p>
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={value}
+        data-testid={testid}
+        onClick={() => onChange(!value)}
+        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition ${
+          value ? "bg-primary" : "bg-gray-300"
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${
+            value ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
+// Pearl §8.6 — controlled number input for retention windows. Commits
+// on blur or Enter; doesn't fire PATCH on every keystroke. Clamps to
+// the [min, max] range; resets to the persisted value if the operator
+// types something out-of-range and blurs.
+function ComplianceNumber({
+  label,
+  hint,
+  testid,
+  value,
+  min,
+  max,
+  onCommit,
+}: {
+  label: string;
+  hint: string;
+  testid: string;
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (next: number) => void;
+}) {
+  const [draft, setDraft] = useState<string>(String(value));
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  function commit() {
+    const n = Number(draft);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < min || n > max) {
+      setDraft(String(value));
+      return;
+    }
+    if (n !== value) onCommit(n);
+  }
+
+  return (
+    <div className="flex items-start justify-between gap-3 py-1">
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-gray-800">{label}</div>
+        <p className="mt-0.5 text-[11px] text-gray-500">{hint}</p>
+      </div>
+      <input
+        type="number"
+        data-testid={testid}
+        value={draft}
+        min={min}
+        max={max}
+        step={1}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        className="w-20 rounded-md border px-2 py-1 text-right text-xs tabular-nums"
+      />
     </div>
   );
 }

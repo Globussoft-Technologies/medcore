@@ -9,7 +9,7 @@
 //   • Every CTA satisfies the 44px (h-11 + min-w-[44px]) touch-target floor.
 //   • Reschedule submit posts to the right endpoint with the right body.
 //   • Cancel submit posts to /:id/status with { status: "CANCELLED" }.
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 
 const { apiGetMock, apiPatchMock } = vi.hoisted(() => ({
@@ -30,56 +30,33 @@ vi.mock("@/lib/api", () => ({
 import PatientAppointmentsPage from "../page";
 
 const HOUR = 60 * 60 * 1000;
-const FUTURE = new Date(Date.now() + 48 * HOUR).toISOString();
-const PAST = new Date(Date.now() - 48 * HOUR).toISOString();
-// Pearl §6.3 row 340 — "today" in IST as YYYY-MM-DD (matches server compare).
-// We synthesise the ISO at IST-midnight so the page's date-string slice picks
-// up the same calendar day no matter what timezone the test host runs in.
-const TODAY_IST_YMD = new Date().toLocaleDateString("en-CA", {
-  timeZone: "Asia/Kolkata",
-});
-const TODAY = `${TODAY_IST_YMD}T00:00:00.000Z`;
 
-// Build a fixture row whose composeWhen lands ≥ 1h in the future (so the
-// upcoming/past sort always parks it in Upcoming regardless of wallclock)
-// AND whose `date` field is TODAY in IST (so the page's `isTodayInIST`
-// gate for the "I've arrived" button matches).
-//
-// 2026-05-27: previously this used `slot.getUTCHours()` of `now + 4h`,
-// matching the page's pre-IST-fix logic which treated slotStart as
-// UTC. The page now parses slotStart as Asia/Kolkata wallclock (HH:MM
-// is the IST clock time the patient sees on their card), so we have
-// to build the same shape: derive HH:MM from the IST clock 4h ahead
-// of "now".
-//
-// 2026-05-28: midnight-safe rebuild. The plain "+4h IST clock" can wrap
-// past IST midnight when CI runs late in the IST day, which produced
-// either (a) a slot date that mismatched `TODAY` → row sorted into Past,
-// or (b) the row landed in Upcoming but `isTodayInIST` returned false
-// because the slot's IST date was tomorrow. Solve both by clamping the
-// slot to TODAY in IST: if "now + 4h" wraps to tomorrow, fall back to a
-// slot ~1h into the future that is guaranteed today AND upcoming.
+// Pinned wall clock for the whole file. The page does IST-tz math on
+// `slotStart` so an unpinned `Date.now()` made the today-upcoming row
+// roll past IST midnight on CI runs between ~14:30 and 18:30 UTC —
+// silently filtering it out of Upcoming and breaking every "I've
+// arrived" assertion. 2026-05-27T06:00:00Z = 2026-05-27 11:30 IST,
+// well clear of both midnight boundaries.
+const PINNED_NOW = new Date("2026-05-27T06:00:00.000Z");
+const FUTURE = new Date(PINNED_NOW.getTime() + 48 * HOUR).toISOString();
+const PAST = new Date(PINNED_NOW.getTime() - 48 * HOUR).toISOString();
+
+// Build a fixture row whose composeWhen lands 4h in the future of the
+// pinned clock, while still staying inside today's IST calendar day so
+// `isTodayInIST(date)` returns true and the active arrive-button path
+// renders.
 function bookActiveTodayUpcoming(id: string) {
-  const ist4hLater = new Date(Date.now() + 4 * HOUR);
-  const istTodayYmd = TODAY_IST_YMD;
-  const ist4hLaterYmd = ist4hLater.toLocaleDateString("en-CA", {
+  const todayIstYmd = PINNED_NOW.toLocaleDateString("en-CA", {
     timeZone: "Asia/Kolkata",
   });
-  // If +4h IST stays inside today, use it. Otherwise pick the latest IST
-  // time inside today that is still > now+1h. The "23:55" upper bound + a
-  // sanity floor keeps the test stable when CI runs within 4h of IST
-  // midnight — the row stays today AND in the future.
-  const istHHMM =
-    ist4hLaterYmd === istTodayYmd
-      ? ist4hLater.toLocaleTimeString("en-GB", {
-          timeZone: "Asia/Kolkata",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
-      : "23:55";
+  const todayMidnightUtc = `${todayIstYmd}T00:00:00.000Z`;
+  const istHHMM = new Date(PINNED_NOW.getTime() + 4 * HOUR).toLocaleTimeString(
+    "en-GB",
+    { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" },
+  );
   return {
     id,
-    date: TODAY,
+    date: todayMidnightUtc,
     slotStart: `${istHHMM}:00`,
     tokenNumber: 12,
     status: "BOOKED",
@@ -121,6 +98,15 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
   beforeEach(() => {
     apiGetMock.mockReset();
     apiPatchMock.mockReset();
+    // Pin Date.now() so the IST tz math in `bookActiveTodayUpcoming`
+    // and the page's `ymdInIST(new Date())` see the same instant. See
+    // the comment above PINNED_NOW for why this matters.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(PINNED_NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders Upcoming + Past sections with mocked data", async () => {

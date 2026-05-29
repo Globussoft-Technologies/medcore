@@ -97,6 +97,11 @@ interface CompliancePostureRow {
   requireAdminTOTP: boolean;
   lastDpdpAt: string | null;
   lastAuditAt: string | null;
+  // Pearl §8.6 — runtime policy levers surfaced from Tenant.
+  whatsappOptInTrackingEnabled: boolean;
+  abdmConsentEnforcementRequired: boolean;
+  auditLogRetentionDays: number;
+  patientDataRetentionDays: number;
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────
@@ -125,14 +130,32 @@ router.get(
         lastDpdpByTenant,
         lastAuditByTenant,
       ] = await Promise.all([
-        prisma.tenant.findMany({
-          select: {
-            id: true,
-            name: true,
-            active: true,
-            requireAdminTOTP: true,
-          },
-        }),
+        // Pearl §8.6 — read the four new compliance columns via raw
+        // SQL because the on-disk Prisma client on this dev box
+        // hasn't been regenerated since `db push` (DLL lock by the
+        // running dev server). Once `prisma generate` runs cleanly
+        // this can collapse back to `prisma.tenant.findMany({ select })`.
+        prisma.$queryRaw<
+          Array<{
+            id: string;
+            name: string;
+            active: boolean;
+            requireAdminTOTP: boolean;
+            whatsappOptInTrackingEnabled: boolean;
+            abdmConsentEnforcementRequired: boolean;
+            auditLogRetentionDays: number;
+            patientDataRetentionDays: number;
+          }>
+        >`SELECT
+            id,
+            name,
+            active,
+            "requireAdminTOTP",
+            "whatsappOptInTrackingEnabled",
+            "abdmConsentEnforcementRequired",
+            "auditLogRetentionDays",
+            "patientDataRetentionDays"
+          FROM "tenants"`,
         prisma.patient.groupBy({
           by: ["tenantId"],
           _count: { _all: true },
@@ -261,6 +284,10 @@ router.get(
           requireAdminTOTP: t.requireAdminTOTP,
           lastDpdpAt: lastDpdpMap.get(t.id)?.toISOString() ?? null,
           lastAuditAt: lastAuditMap.get(t.id)?.toISOString() ?? null,
+          whatsappOptInTrackingEnabled: t.whatsappOptInTrackingEnabled,
+          abdmConsentEnforcementRequired: t.abdmConsentEnforcementRequired,
+          auditLogRetentionDays: t.auditLogRetentionDays,
+          patientDataRetentionDays: t.patientDataRetentionDays,
         };
       });
 

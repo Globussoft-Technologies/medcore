@@ -28,8 +28,13 @@ import {
   Users,
   UserPlus,
   CreditCard,
+  IndianRupee,
   FileText,
   Activity,
+  LayoutGrid,
+  MessageCircleQuestion,
+  Building2,
+  Gauge,
   Monitor,
   LogOut,
   Stethoscope,
@@ -153,8 +158,18 @@ const navByRole: Record<
 > = {
   ADMIN: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { href: "/dashboard/admin-console", label: "Admin Console", icon: LayoutDashboard },
-    { href: "/dashboard/tenants", label: "Tenants", icon: Building },
+    { href: "/dashboard/admin-console", label: "Admin Console", icon: LayoutGrid },
+    { href: "/dashboard/tenants", label: "Tenants", icon: Building2 },
+    {
+      href: "/dashboard/platform-billing",
+      label: "Platform Billing",
+      icon: IndianRupee,
+    },
+    {
+      href: "/dashboard/observability",
+      label: "Observability",
+      icon: Gauge,
+    },
     { href: "/dashboard/agent-console", label: "Agent Console", icon: HeartPulse },
     { href: "/dashboard/calendar", label: "Calendar", icon: CalendarRange },
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
@@ -228,6 +243,7 @@ const navByRole: Record<
     { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
     { href: "/dashboard/fhir-export", label: "FHIR Export", icon: FileJson },
     { href: "/dashboard/insurance-claims", label: "Insurance Claims", icon: Workflow },
+    { href: "/dashboard/support", label: "Support", icon: MessageCircleQuestion },
   ],
   DOCTOR: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -928,7 +944,11 @@ export default function DashboardLayout({
   const isSuperAdmin =
     user.role === "SUPER_ADMIN" ||
     (user.role === "ADMIN" && (user.tenantId ?? null) === null);
-  const SUPER_ADMIN_ONLY_ROUTES = new Set<string>(["/dashboard/tenants"]);
+  const SUPER_ADMIN_ONLY_ROUTES = new Set<string>([
+    "/dashboard/tenants",
+    "/dashboard/platform-billing",
+    "/dashboard/observability",
+  ]);
   const nav = rawNav.filter((item) => {
     if (SUPER_ADMIN_ONLY_ROUTES.has(item.href) && !isSuperAdmin) return false;
     const key = FEATURE_GATED_ROUTES[item.href];

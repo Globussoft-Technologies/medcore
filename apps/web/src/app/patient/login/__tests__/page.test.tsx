@@ -112,8 +112,12 @@ describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
 
   it("renders step 1 with the phone input and a register CTA link", () => {
     render(<PatientLoginPage />);
+    // 2026-05 redesign added a hero "Welcome back. Sign in securely."
+    // <h2> on the left rail; the on-form title is still a plain
+    // "Sign in" but at h1. Pin level=1 so we match only the form's
+    // title, not the rail.
     expect(
-      screen.getByRole("heading", { name: /sign in/i }),
+      screen.getByRole("heading", { name: /sign in/i, level: 1 }),
     ).toBeInTheDocument();
     expect(
       screen.getByTestId("patient-login-phone-input"),

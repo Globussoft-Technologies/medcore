@@ -16,13 +16,16 @@
  *     authenticate → authorize(Role.ADMIN) → requireSuperAdmin
  *     (caller's tenantId == null OR caller is on the default tenant).
  *
- * Out-of-scope for piece 2 (deferred to piece 2b):
+ * Day-zero integrations (Pearl §8.7 acceptance):
+ *   - WhatsApp Business API creds (Gupshup) — optional, persisted as
+ *     `tenant:<id>:whatsapp_*` SystemConfig rows so the messaging
+ *     service picks them up.
+ *   - Razorpay payment-gateway creds — optional, persisted on
+ *     Tenant.razorpayKey* so services/razorpay.ts resolves them.
+ *
+ * Out-of-scope (deferred):
  *   - HFR (Health Facility Registry) sync.
  *   - HPR (Health Professional Registry) link.
- *   - WhatsApp Business API onboarding.
- *   - Razorpay key intake (the field exists on Tenant via gap #10b but
- *     it should be set via the existing /tenants PATCH flow once a
- *     subscription is signed; not part of the day-zero wizard).
  *
  * Audit: TENANT_ONBOARD with entity="tenant" + payload
  *     {subdomain, branchId, branchName, adminEmail}.
@@ -218,18 +221,83 @@ router.post(
           },
         });
 
+        // Pearl §8.7 — Razorpay creds (optional). Persisted on the
+        // Tenant row so the existing services/razorpay.ts cred-resolver
+        // picks them up; the operator can finalise / rotate via the
+        // tenant detail drawer later. Empty strings are treated as
+        // "skip" rather than "clear" since onboarding only writes.
+        const razorpayKeyId = body.razorpay?.keyId?.trim();
+        const razorpayKeySecret = body.razorpay?.keySecret?.trim();
+        const razorpayMode = body.razorpay?.mode;
+        if (razorpayKeyId || razorpayKeySecret || razorpayMode) {
+          await tx.tenant.update({
+            where: { id: tenant.id },
+            data: {
+              ...(razorpayKeyId ? { razorpayKeyId } : {}),
+              ...(razorpayKeySecret ? { razorpayKeySecret } : {}),
+              ...(razorpayMode ? { razorpayMode } : {}),
+            },
+          });
+        }
+
+        // Pearl §8.7 — WhatsApp Gupshup creds (optional). Stored under
+        // tenant-scoped SystemConfig keys so the existing WhatsApp
+        // sender (services/messaging/whatsapp.ts) can resolve them.
+        // Same skip-on-blank semantic as Razorpay above.
+        const wa = body.whatsapp ?? {};
+        const whatsappRows: Array<{ key: string; value: string }> = [];
+        if (wa.apiUrl && wa.apiUrl.length > 0) {
+          whatsappRows.push({
+            key: `tenant:${tenant.id}:whatsapp_api_url`,
+            value: wa.apiUrl,
+          });
+        }
+        if (wa.apiKey && wa.apiKey.length > 0) {
+          whatsappRows.push({
+            key: `tenant:${tenant.id}:whatsapp_api_key`,
+            value: wa.apiKey,
+          });
+        }
+        if (wa.appName && wa.appName.length > 0) {
+          whatsappRows.push({
+            key: `tenant:${tenant.id}:whatsapp_app_name`,
+            value: wa.appName,
+          });
+        }
+        if (wa.sourceNumber && wa.sourceNumber.length > 0) {
+          whatsappRows.push({
+            key: `tenant:${tenant.id}:whatsapp_source_number`,
+            value: wa.sourceNumber,
+          });
+        }
+        for (const row of whatsappRows) {
+          await tx.systemConfig.create({ data: row });
+        }
+
         return { tenant, branch, admin };
       });
 
       // Fire-and-forget audit (no race against the response — auditLog
       // here is the awaitable variant from middleware/audit.ts; we still
       // wrap in .catch so a logging failure never tanks the wizard).
+      const integrationsLanded = {
+        whatsappConfigured: !!(
+          body.whatsapp?.apiUrl ||
+          body.whatsapp?.apiKey ||
+          body.whatsapp?.sourceNumber
+        ),
+        razorpayConfigured: !!(
+          body.razorpay?.keyId || body.razorpay?.keySecret
+        ),
+      };
+
       auditLog(req, "TENANT_ONBOARD", "tenant", result.tenant.id, {
         subdomain: result.tenant.subdomain,
         plan: result.tenant.plan,
         branchId: result.branch.id,
         branchName: result.branch.name,
         adminEmail: result.admin.email,
+        ...integrationsLanded,
       }).catch((e) => console.error("audit TENANT_ONBOARD failed", e));
 
       res.status(201).json({
@@ -252,6 +320,7 @@ router.post(
             email: result.admin.email,
             name: result.admin.name,
           },
+          integrations: integrationsLanded,
         },
         error: null,
       });

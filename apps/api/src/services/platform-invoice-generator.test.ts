@@ -42,6 +42,24 @@ vi.mock("@medcore/shared", () => ({
   },
 }));
 
+// Pearl §8.3 piece 3e (2026-05) — the invoice generator now calls
+// aggregateUsageForBilling() to add per-tenant WhatsApp / SMS / LLM /
+// ABDM line items alongside the plan subscription. Under the hood that
+// hits `prisma.usageEvent.groupBy` + reads SystemConfig for unit prices
+// — neither of which this file's prisma fake knows about. Stubbing the
+// whole module here means the invoice arithmetic tests stay focused on
+// plan price + GST split (which is what this file pins) and any usage-
+// metering regression surfaces in usage-tracker's own tests.
+vi.mock("./usage-tracker", () => ({
+  aggregateUsageForBilling: vi.fn(async () => [] as never[]),
+  USAGE_KIND_LABEL: {
+    WHATSAPP_MESSAGE: "WhatsApp message",
+    SMS_MESSAGE: "SMS message",
+    LLM_TOKEN: "LLM tokens",
+    ABDM_TRANSACTION: "ABDM transaction",
+  },
+}));
+
 import {
   generateMonthlyPlatformInvoices,
   markInvoicePaid,

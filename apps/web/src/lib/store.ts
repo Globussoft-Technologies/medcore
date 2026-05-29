@@ -80,6 +80,15 @@ function coerceUser(u: User): User {
 interface LoginResult {
   twoFactorRequired?: boolean;
   tempToken?: string;
+  // Pearl §8.2 mandatory-TOTP enrolment branch. Set when the auth
+  // endpoint returned 412 because this admin / super-admin account
+  // has the require-two-factor flag on but hasn't enrolled yet. The
+  // login page redirects to /auth/enrol-totp with the enrolToken so
+  // the operator can scan a QR + enter the first code.
+  totpEnrolmentRequired?: boolean;
+  enrolToken?: string;
+  enrolRole?: string;
+  enrolEmail?: string | null;
 }
 
 interface AuthState {
@@ -239,7 +248,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // surfaces "Invalid email or password." and used to fire IN ADDITION
     // to the global session-expired toast, leaving the user with two
     // contradictory toasts on a fresh failed login.
-    const res = await api.post<{
+    let res: {
       success: boolean;
       data:
         | {
@@ -251,7 +260,42 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             tokens: { accessToken: string; refreshToken: string };
           }
         | { twoFactorRequired: true; tempToken: string };
-    }>("/auth/login", body, { skip401Redirect: true });
+    };
+    try {
+      res = await api.post<typeof res>("/auth/login", body, {
+        skip401Redirect: true,
+      });
+    } catch (err) {
+      // Pearl §8.2 mandatory-TOTP enrolment branch: the auth route
+      // returns HTTP 412 with `data.totpEnrolmentRequired: true` and a
+      // one-shot `enrolToken` when the operator has never set up 2FA.
+      // The api wrapper throws non-2xx, so we have to peek `err.payload`
+      // here. Anything else re-throws and surfaces as a normal login
+      // failure ("Invalid email or password" etc).
+      const e = err as {
+        status?: number;
+        payload?: { data?: Record<string, unknown> };
+      };
+      const d = e.payload?.data;
+      if (
+        e.status === 412 &&
+        d &&
+        d.totpEnrolmentRequired === true &&
+        typeof d.enrolToken === "string"
+      ) {
+        if (get().loginGeneration !== generation) return {};
+        return {
+          totpEnrolmentRequired: true,
+          enrolToken: d.enrolToken,
+          enrolRole: typeof d.role === "string" ? d.role : undefined,
+          enrolEmail:
+            d.email === null || typeof d.email === "string"
+              ? (d.email as string | null)
+              : undefined,
+        };
+      }
+      throw err;
+    }
 
     // Issues #422 / #441: if another login/logout happened while we awaited,
     // discard our result entirely — the user has clearly moved on, and

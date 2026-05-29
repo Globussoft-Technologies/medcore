@@ -14,18 +14,25 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
+  Bell,
   CheckCircle2,
   Clock,
   FileText,
+  Globe,
   IndianRupee,
   Loader2,
+  Percent,
+  Printer,
+  Receipt,
   XCircle,
 } from "lucide-react";
+import { csrfFetch } from "@/lib/csrf-fetch";
+import { toast } from "@/lib/toast";
 
 type InvoiceStatus = "DRAFT" | "ISSUED" | "PAID" | "VOID";
 
@@ -127,6 +134,7 @@ function statusBadge(s: InvoiceStatus): {
 export default function PlatformInvoiceDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const invoiceId =
     typeof params?.id === "string"
       ? params.id
@@ -143,6 +151,29 @@ export default function PlatformInvoiceDetailPage() {
   const [markPaidRef, setMarkPaidRef] = useState("");
   const [markPaidBusy, setMarkPaidBusy] = useState(false);
   const [markPaidError, setMarkPaidError] = useState<string | null>(null);
+
+  // Apply-Discount modal (Pearl §8.3 — mirrors patient billing).
+  const [discountOpen, setDiscountOpen] = useState(false);
+  const [discountRupees, setDiscountRupees] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
+  const [discountBusy, setDiscountBusy] = useState(false);
+  const [discountError, setDiscountError] = useState<string | null>(null);
+
+  // Send-Reminder one-shot busy flag (no modal — fires immediately).
+  const [reminderBusy, setReminderBusy] = useState(false);
+
+  // Pay-Online — POSTs to the payment-link endpoint, opens the returned
+  // Razorpay short URL in a new tab. `payOnlineError` surfaces backend
+  // failures (mis-configured merchant credentials, network) without an
+  // ugly browser alert.
+  const [payOnlineBusy, setPayOnlineBusy] = useState(false);
+  const [payOnlineError, setPayOnlineError] = useState<string | null>(null);
+
+  // ?print=1 query auto-fires the print dialog once the invoice loads.
+  // (The earlier ?pay=1 auto-trigger was removed — the operator clicks
+  // the Pay Online button explicitly so a stale link in chat history
+  // can't pop up a Razorpay tab on revisit.)
+  const printedOnceRef = useRef(false);
 
   const fetchDetail = useCallback(async () => {
     if (!invoiceId) return;
@@ -169,6 +200,151 @@ export default function PlatformInvoiceDetailPage() {
     void fetchDetail();
   }, [fetchDetail]);
 
+  // Auto-fire ?print=1 once the invoice is loaded.
+  useEffect(() => {
+    if (printedOnceRef.current) return;
+    if (!invoice) return;
+    if (searchParams?.get("print") !== "1") return;
+    printedOnceRef.current = true;
+    // Small delay so the browser paints the new layout before printing.
+    const t = setTimeout(() => {
+      if (typeof window !== "undefined") window.print();
+    }, 250);
+    return () => clearTimeout(t);
+  }, [invoice, searchParams]);
+
+  function handlePrint(): void {
+    if (typeof window !== "undefined") window.print();
+  }
+
+  // Pay-Online (Pearl §8.3) — POST a Razorpay payment-link request, then
+  // open the returned `short_url` in a new tab. The endpoint uses the
+  // platform's own Razorpay merchant account; the platform webhook
+  // (routes/webhooks/platform-razorpay.ts) handles the success callback
+  // and flips the invoice to PAID automatically.
+  async function handlePayOnline(): Promise<void> {
+    if (payOnlineBusy || !invoice) return;
+    setPayOnlineBusy(true);
+    setPayOnlineError(null);
+    try {
+      const res = await csrfFetch(
+        `/api/v1/platform-billing/invoices/${invoice.id}/payment-link`,
+        { method: "POST" },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        success: boolean;
+        error: string | null;
+        data?: { shortUrl: string; paymentLinkId: string };
+      };
+      if (!res.ok || !body.success || !body.data?.shortUrl) {
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      if (typeof window !== "undefined") {
+        window.open(body.data.shortUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (err) {
+      setPayOnlineError(
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setPayOnlineBusy(false);
+    }
+  }
+
+  // Send-Reminder — re-email this invoice to the tenant's billing contact.
+  async function handleSendReminder(): Promise<void> {
+    if (reminderBusy) return;
+    setReminderBusy(true);
+    try {
+      const res = await csrfFetch(
+        `/api/v1/platform-billing/invoices/${invoiceId}/send-reminder`,
+        { method: "POST" },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        success: boolean;
+        error: string | null;
+        data?: { sent: boolean; to: string | null };
+      };
+      if (!res.ok || !body.success) {
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      const dest = body.data?.to ?? "the tenant billing contact";
+      toast.success(`Reminder sent to ${dest}.`);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to send reminder";
+      // 412 — billing contact missing. Route the operator to the
+      // Tenants page where they can fix it inline.
+      if (/billing contact/i.test(message)) {
+        toast.error(
+          `${message} — open the tenant in the Tenants page to set it.`,
+          8000,
+        );
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setReminderBusy(false);
+    }
+  }
+
+  // Apply-Discount handlers.
+  function openDiscount(): void {
+    setDiscountOpen(true);
+    setDiscountRupees("");
+    setDiscountReason("");
+    setDiscountError(null);
+  }
+  function closeDiscount(): void {
+    if (discountBusy) return;
+    setDiscountOpen(false);
+    setDiscountError(null);
+  }
+  async function submitDiscount(): Promise<void> {
+    if (!invoice) return;
+    const rupees = Number(discountRupees);
+    if (!Number.isFinite(rupees) || rupees <= 0) {
+      setDiscountError("Enter a positive discount amount in ₹.");
+      return;
+    }
+    const paise = Math.round(rupees * 100);
+    if (paise >= invoice.totalInPaise) {
+      setDiscountError(
+        "Discount cannot equal or exceed the invoice total. Mark Paid instead.",
+      );
+      return;
+    }
+    const reason = discountReason.trim();
+    if (reason.length < 3) {
+      setDiscountError("Reason is required (3-200 characters).");
+      return;
+    }
+    setDiscountBusy(true);
+    setDiscountError(null);
+    try {
+      const res = await csrfFetch(
+        `/api/v1/platform-billing/invoices/${invoice.id}/apply-discount`,
+        {
+          method: "POST",
+          body: JSON.stringify({ amountInPaise: paise, reason }),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        success: boolean;
+        error: string | null;
+      };
+      if (!res.ok || !body.success) {
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      await fetchDetail();
+      setDiscountOpen(false);
+    } catch (err) {
+      setDiscountError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDiscountBusy(false);
+    }
+  }
+
   function openModal(): void {
     setShowModal(true);
     setMarkPaidRef("");
@@ -191,7 +367,7 @@ export default function PlatformInvoiceDetailPage() {
     setMarkPaidBusy(true);
     setMarkPaidError(null);
     try {
-      const res = await fetch(
+      const res = await csrfFetch(
         `/api/v1/platform-billing/invoices/${invoiceId}/mark-paid`,
         {
           method: "POST",
@@ -218,20 +394,95 @@ export default function PlatformInvoiceDetailPage() {
       data-testid="platform-billing-invoice-detail"
       className="space-y-6 py-4"
     >
-      <div className="flex items-center justify-between gap-3">
+      {/* Top action bar — Apply Discount / Record Payment / Pay Online /
+          Send Reminder / Print Invoice. Mirrors the patient-billing
+          detail-page header. Action buttons are gated on status: only
+          ISSUED invoices expose discount / payment / reminder; Print is
+          always available. */}
+      <div
+        className="flex flex-wrap items-center justify-between gap-3 print:hidden"
+        data-testid="platform-billing-invoice-actions"
+      >
         <button
           type="button"
-          onClick={() => router.push("/super-admin/platform-billing")}
+          onClick={() => router.push("/dashboard/platform-billing")}
           data-testid="platform-billing-invoice-back"
-          className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+          className="inline-flex h-11 items-center gap-2 rounded-md text-sm font-medium text-slate-700 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
         >
           <ArrowLeft size={14} aria-hidden="true" />
-          Back to billing
+          Back to Billing
         </button>
         {invoice ? (
-          (() => {
-            const badge = statusBadge(invoice.status);
-            return (
+          <div className="flex flex-wrap items-center gap-2">
+            {invoice.status === "ISSUED" ? (
+              <button
+                type="button"
+                onClick={openDiscount}
+                data-testid="platform-billing-invoice-discount"
+                className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              >
+                <Percent size={14} className="text-violet-600" />
+                Apply Discount
+              </button>
+            ) : null}
+            {invoice.status === "ISSUED" ? (
+              <button
+                type="button"
+                onClick={openModal}
+                data-testid="platform-billing-invoice-record"
+                className="inline-flex h-11 items-center gap-2 rounded-md bg-emerald-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+              >
+                <Receipt size={14} aria-hidden="true" />
+                Record Payment
+              </button>
+            ) : null}
+            {invoice.status === "ISSUED" ? (
+              <button
+                type="button"
+                onClick={handlePayOnline}
+                disabled={payOnlineBusy}
+                data-testid="platform-billing-invoice-payonline"
+                className="inline-flex h-11 items-center gap-2 rounded-md bg-sky-600 px-3 text-sm font-medium text-white shadow-sm hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-600 disabled:opacity-60"
+              >
+                <Globe size={14} aria-hidden="true" />
+                Pay Online
+                <span className="ml-1 rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
+                  TEST
+                </span>
+              </button>
+            ) : null}
+            {invoice.status === "ISSUED" ? (
+              <button
+                type="button"
+                onClick={handleSendReminder}
+                disabled={reminderBusy}
+                data-testid="platform-billing-invoice-reminder"
+                className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:cursor-wait disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              >
+                <Bell size={14} className="text-amber-600" />
+                {reminderBusy ? "Sending…" : "Send Reminder"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={handlePrint}
+              data-testid="platform-billing-invoice-print"
+              className="inline-flex h-11 items-center gap-2 rounded-md bg-primary px-3 text-sm font-semibold text-white shadow-sm hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <Printer size={14} aria-hidden="true" />
+              Print Invoice
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      {/* Status pill (no longer in the action bar — sits with the
+          invoice metadata below so the top row stays for actions). */}
+      {invoice ? (
+        (() => {
+          const badge = statusBadge(invoice.status);
+          return (
+            <div className="print:hidden">
               <span
                 className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium ${badge.cls}`}
                 data-testid={`platform-billing-invoice-status-${invoice.id}`}
@@ -239,10 +490,29 @@ export default function PlatformInvoiceDetailPage() {
                 <badge.Icon size={14} aria-hidden="true" />
                 {badge.label}
               </span>
-            );
-          })()
-        ) : null}
-      </div>
+            </div>
+          );
+        })()
+      ) : null}
+
+      {payOnlineError ? (
+        <div
+          role="alert"
+          data-testid="platform-billing-invoice-payonline-error"
+          className="flex items-start justify-between gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 print:hidden"
+        >
+          <span>
+            <strong>Pay Online failed.</strong> {payOnlineError}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPayOnlineError(null)}
+            className="text-xs font-medium text-rose-700 underline-offset-2 hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
 
       {error ? (
         <div
@@ -380,20 +650,8 @@ export default function PlatformInvoiceDetailPage() {
             </div>
           </div>
 
-          {/* Action row */}
-          {invoice.status === "ISSUED" ? (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                data-testid={`platform-billing-mark-paid-${invoice.id}`}
-                onClick={openModal}
-                className="inline-flex h-11 min-w-[160px] items-center justify-center gap-2 rounded-md border border-slate-900 bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
-              >
-                <CheckCircle2 size={14} aria-hidden="true" />
-                Mark Paid
-              </button>
-            </div>
-          ) : null}
+          {/* Bottom Mark Paid button removed — promoted to the top
+              action bar to match the patient-billing layout. */}
 
           {invoice.status === "PAID" ? (
             <p
@@ -409,13 +667,103 @@ export default function PlatformInvoiceDetailPage() {
 
           <p className="text-xs text-slate-400">
             <Link
-              href="/super-admin/platform-billing"
+              href="/dashboard/platform-billing"
               className="underline-offset-2 hover:underline"
             >
               Return to invoice list
             </Link>
           </p>
         </article>
+      ) : null}
+
+      {/* APPLY-DISCOUNT MODAL */}
+      {discountOpen && invoice ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 print:hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="platform-billing-discount-title"
+          data-testid="platform-billing-invoice-discount-modal"
+          onClick={closeDiscount}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="platform-billing-discount-title"
+              className="text-lg font-semibold text-slate-900"
+            >
+              Apply discount — {invoice.invoiceNumber}
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Writes a negative line item on the invoice. Subtotal and GST
+              are recomputed automatically.
+            </p>
+            <label
+              htmlFor="platform-billing-invoice-discount-amount"
+              className="mt-4 block text-xs font-medium text-slate-700"
+            >
+              Discount amount (₹)
+            </label>
+            <input
+              id="platform-billing-invoice-discount-amount"
+              data-testid="platform-billing-invoice-discount-amount"
+              type="number"
+              min={0}
+              step="0.01"
+              value={discountRupees}
+              onChange={(e) => setDiscountRupees(e.target.value)}
+              placeholder="e.g. 500"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+            />
+            <label
+              htmlFor="platform-billing-invoice-discount-reason"
+              className="mt-3 block text-xs font-medium text-slate-700"
+            >
+              Reason
+            </label>
+            <textarea
+              id="platform-billing-invoice-discount-reason"
+              data-testid="platform-billing-invoice-discount-reason"
+              value={discountReason}
+              onChange={(e) => setDiscountReason(e.target.value)}
+              rows={2}
+              maxLength={200}
+              placeholder="e.g. Goodwill credit for delayed onboarding"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+            />
+            {discountError ? (
+              <div
+                role="alert"
+                data-testid="platform-billing-invoice-discount-error"
+                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"
+              >
+                {discountError}
+              </div>
+            ) : null}
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeDiscount}
+                disabled={discountBusy}
+                data-testid="platform-billing-invoice-discount-cancel"
+                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={submitDiscount}
+                disabled={discountBusy}
+                data-testid="platform-billing-invoice-discount-submit"
+                className="inline-flex h-11 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              >
+                {discountBusy ? "Saving…" : "Apply discount"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {/* MARK-PAID MODAL */}

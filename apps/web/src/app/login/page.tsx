@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
@@ -115,6 +115,22 @@ function LoginPageInner() {
   const [twoFAStep, setTwoFAStep] = useState(false);
   const [tempToken, setTempToken] = useState("");
   const [twoFACode, setTwoFACode] = useState("");
+  // Pearl §8.2 — banner shown after the operator finishes mandatory
+  // TOTP enrolment on /auth/enrol-totp. The enrolment page drops a
+  // single-shot message into sessionStorage before bouncing back to
+  // /login; we read it once on mount and clear it.
+  const [enrolBanner, setEnrolBanner] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const msg = sessionStorage.getItem("medcore_enrol_done");
+      if (msg) {
+        setEnrolBanner(msg);
+        sessionStorage.removeItem("medcore_enrol_done");
+      }
+    } catch {
+      /* sessionStorage disabled — banner just won't show */
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -151,6 +167,28 @@ function LoginPageInner() {
       if (result.twoFactorRequired && result.tempToken) {
         setTempToken(result.tempToken);
         setTwoFAStep(true);
+        return;
+      }
+      // Pearl §8.2 mandatory-TOTP enrolment: the account has the
+      // require-two-factor flag on but hasn't enrolled. The store
+      // already caught the 412 + cached the one-shot enrolToken;
+      // hand off to the guided enrolment page. We pass the token in
+      // sessionStorage (not the URL) so it doesn't leak into history
+      // / referrer headers.
+      if (result.totpEnrolmentRequired && result.enrolToken) {
+        try {
+          sessionStorage.setItem(
+            "medcore_enrol_totp",
+            JSON.stringify({
+              token: result.enrolToken,
+              role: result.enrolRole,
+              email: result.enrolEmail,
+            }),
+          );
+        } catch {
+          /* sessionStorage disabled — page reads from URL fallback */
+        }
+        router.push("/auth/enrol-totp");
         return;
       }
       toast.success(t("login.welcome"));
@@ -377,6 +415,15 @@ function LoginPageInner() {
                     intended for the Password field to land in Email (the
                     wrong input took focus mid-keystroke). The fixed-height
                     container removes the layout jump entirely. */}
+                {enrolBanner && (
+                  <div
+                    role="status"
+                    data-testid="login-enrol-banner"
+                    className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"
+                  >
+                    {enrolBanner}
+                  </div>
+                )}
                 <div className="min-h-[3rem]" data-testid="login-error-slot">
                   {error && (
                     <div

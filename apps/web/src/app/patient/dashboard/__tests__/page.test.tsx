@@ -5,7 +5,7 @@
 // unauthed shape renders + offers a sign-in CTA when the API returns 401s,
 // AND the dismissible first-login ABHA prompt obeys its visibility matrix
 // (no abhaId + not-dismissed → render; abhaId set OR dismissed → hide).
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
 
 const { apiGetMock, apiPatchMock } = vi.hoisted(() => ({
@@ -26,40 +26,40 @@ vi.mock("@/lib/api", () => ({
 import PatientDashboardPage from "../page";
 
 const HOUR = 60 * 60 * 1000;
-// 48h ahead (not 24h) so the UTC YYYY-MM-DD slice is never equal to today's
-// IST calendar day. With +24h, runs after 18:30 UTC drift such that
-// `FUTURE.slice(0,10)` lands on the same day as `ymdInIST(new Date())`,
-// flipping the page's `isTodayInIST(FUTURE)` branch and rendering the
-// active "I've arrived" button instead of the disabled fallback.
-const FUTURE = new Date(Date.now() + 48 * HOUR).toISOString();
-// Pearl §6.3 row 340 — today in IST as YYYY-MM-DD-anchored ISO so the
-// dashboard's `isTodayInIST` slice picks up the right calendar day no
-// matter what timezone the test host runs in.
-const TODAY_IST_YMD = new Date().toLocaleDateString("en-CA", {
-  timeZone: "Asia/Kolkata",
-});
-const TODAY = `${TODAY_IST_YMD}T00:00:00.000Z`;
 
-// Build a today-row whose composeWhen lands ≥ 1h in the future so the
-// `nextAppointment` filter (1h grace) always picks it up.
+// Pinned wall clock for the whole file. The dashboard's nextAppointment
+// filter does IST-tz math (page splits `slotStart` as Asia/Kolkata
+// wallclock, then re-composes a UTC timestamp). Without a fixed clock
+// the helpers below were time-of-day-dependent: CI runs between
+// roughly 14:30 UTC and 18:30 UTC (the window where "now_IST + 4h"
+// rolls past midnight IST while "now_IST itself" is still today)
+// silently flipped the row out of the 1h grace window, leaving the
+// page in its empty state and failing every "I've arrived" assertion.
+// 2026-05-27T06:00:00Z = 2026-05-27 11:30 IST — well clear of both
+// midnight boundaries.
+const PINNED_NOW = new Date("2026-05-27T06:00:00.000Z");
+
+// 48h ahead is comfortably out of today's IST calendar day regardless
+// of host tz, so the disabled-fallback button (status=BOOKED but NOT
+// today) still renders for the touch-target invariant test.
+const FUTURE = new Date(PINNED_NOW.getTime() + 48 * HOUR).toISOString();
+
+// Build a today-row whose composeWhen lands 4h in the future relative
+// to the pinned clock, so the `nextAppointment` filter (1h grace) always
+// picks it up AND `isTodayInIST` still returns true (slot stays within
+// today's IST calendar day).
 function todayBookedRow(id: string) {
-  // 2026-05-27: previously this used `slot.getUTCHours()` of `now + 4h`,
-  // matching the page's pre-IST-fix logic which treated slotStart as
-  // UTC. The page now parses slotStart as Asia/Kolkata wallclock (HH:MM
-  // is the IST clock time the patient sees on their card), so we have
-  // to build the same shape: derive HH:MM from the IST clock 4h ahead
-  // of "now". Otherwise nextAppointment.ts ends up 5h30m earlier than
-  // intended and the row gets filtered out as past-the-grace-window,
-  // leaving the page with no nextAppointment and the test seeing the
-  // "all paid up" empty state instead of the I've-arrived button.
-  const istHHMM = new Date(Date.now() + 4 * HOUR).toLocaleTimeString("en-GB", {
+  const todayIstYmd = PINNED_NOW.toLocaleDateString("en-CA", {
     timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
   });
+  const todayMidnightUtc = `${todayIstYmd}T00:00:00.000Z`;
+  const istHHMM = new Date(PINNED_NOW.getTime() + 4 * HOUR).toLocaleTimeString(
+    "en-GB",
+    { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" },
+  );
   return {
     id,
-    date: TODAY,
+    date: todayMidnightUtc,
     slotStart: `${istHHMM}:00`,
     tokenNumber: 7,
     status: "BOOKED",
@@ -79,6 +79,14 @@ describe("Patient dashboard — gap #5 piece 3a", () => {
   beforeEach(() => {
     apiGetMock.mockReset();
     apiPatchMock.mockReset();
+    // Pin Date.now() so the IST tz math in `todayBookedRow` and the
+    // page's `ymdInIST(new Date())` agree, regardless of when CI runs.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(PINNED_NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders all 3 tiles with mocked appointment / Rx / invoice data", async () => {

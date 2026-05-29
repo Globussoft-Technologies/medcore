@@ -68,6 +68,11 @@ async function seedAdmin(
   tenantId: string | null,
   label: string,
   isActive = true,
+  // Pearl §8.2 (2026-05) — only the row carrying `isMainSuperAdmin=true`
+  // may PATCH another cross-tenant super-admin. Tests that need an
+  // authorised caller pass `isMain: true`; targets and bystanders
+  // stay peers.
+  opts: { isMain?: boolean } = {},
 ): Promise<SeedAdmin> {
   const prisma = await getPrisma();
   const email = `sa-roster-${label}-${Date.now()}-${Math.random()
@@ -84,6 +89,7 @@ async function seedAdmin(
       role: "ADMIN",
       tenantId: tenantId ?? null,
       isActive,
+      isMainSuperAdmin: opts.isMain ?? false,
     },
   });
   const token = jwt.sign(
@@ -194,7 +200,9 @@ describeIfDB("Super-admin user roster (integration)", () => {
   // ── 4. PATCH deactivate flips isActive + writes audit ───────────────
   it("PATCH /:id deactivates a super-admin and writes SUPER_ADMIN_USER_UPDATED audit row", async () => {
     const prisma = await getPrisma();
-    const caller = await seedAdmin(null, "caller");
+    // Pearl §8.2 — only the main super-admin may PATCH another
+    // cross-tenant super-admin, so the caller carries isMain=true.
+    const caller = await seedAdmin(null, "caller", true, { isMain: true });
     const target = await seedAdmin(null, "to-deactivate");
     // Need ANOTHER active super-admin so the count-guard doesn't fire.
     await seedAdmin(null, "keep-active");
@@ -223,37 +231,60 @@ describeIfDB("Super-admin user roster (integration)", () => {
   });
 
   // ── 5. Last-active count guard — 409 ────────────────────────────────
+  // Pearl §8.2 (2026-05) — the count-guard is defensive code: under
+  // the post-2026-05 PATCH policy the main super-admin can't be
+  // deactivated, peers can't PATCH each other, and self-patch is
+  // rejected with 400 before the guard runs. The only way to reach
+  // the 409 branch is the contrived "main was disabled directly in
+  // the DB" scenario (operator error or out-of-band migration).
+  // This test pins exactly that path so the guard stays alive.
   it("refuses to deactivate the LAST active super-admin (409)", async () => {
     const prisma = await getPrisma();
     // Wipe ANY other tenantId-null ADMIN seeded by resetDB so this
-    // test's "last active" claim is real. The beforeEach already
-    // cleaned the sa-roster- prefix; here we additionally null-out
-    // any pre-existing super-admins so the count guard fires
-    // deterministically.
+    // test's "last active" claim is real.
     await prisma.user.deleteMany({
       where: { tenantId: null, role: "ADMIN" },
     });
-    const lone = await seedAdmin(null, "lone");
+    // Main super-admin (the only caller authorised to PATCH another
+    // super-admin) — start active so the JWT we issue is plausible,
+    // then drop isActive=false directly in the DB to simulate the
+    // defensive scenario.
+    const main = await seedAdmin(null, "main-disabled", true, {
+      isMain: true,
+    });
+    await prisma.user.update({
+      where: { id: main.userId },
+      data: { isActive: false },
+    });
+    // The peer we'll try to deactivate — once it's down, ZERO active
+    // super-admins remain, so the guard must fire.
+    const target = await seedAdmin(null, "last-peer");
 
     const patchRes = await request(app)
-      .patch(`/api/v1/super-admin/users/${lone.userId}`)
-      .set("Authorization", `Bearer ${lone.token}`)
+      .patch(`/api/v1/super-admin/users/${target.userId}`)
+      .set("Authorization", `Bearer ${main.token}`)
       .send({ active: false });
     expect(patchRes.status).toBe(409);
     expect(patchRes.body.error).toMatch(/last active super-admin/i);
 
     // Untouched in the DB.
     const dbRow = await prisma.user.findUnique({
-      where: { id: lone.userId },
+      where: { id: target.userId },
       select: { isActive: true },
     });
     expect(dbRow?.isActive).toBe(true);
   });
 
-  // ── 6. PATCH refuses non-super-admin target ─────────────────────────
-  it("PATCH /:id returns 404 when the target is not a super-admin (tenant-bound ADMIN)", async () => {
+  // ── 6. PATCH refuses non-super-admin / non-tenant-admin target ──────
+  // Pearl §8.2 (2026-05) — tenant-bound ADMINs are NOW a valid target
+  // for cross-tenant super-admins (deactivate from the roster). The
+  // endpoint still refuses to mutate anything else (DOCTOR, NURSE,
+  // RECEPTION, etc.) so it can't double as a tenant-user mass-mutation
+  // surface. This test pins THAT property by trying a tenant-bound
+  // DOCTOR — must still return 404 to avoid an oracle on existence.
+  it("PATCH /:id returns 404 when the target is a non-admin tenant user (e.g. DOCTOR)", async () => {
     const prisma = await getPrisma();
-    const caller = await seedAdmin(null, "caller-2");
+    const caller = await seedAdmin(null, "caller-2", true, { isMain: true });
     await seedAdmin(null, "keep-active-2");
     const t = await prisma.tenant.create({
       data: {
@@ -263,16 +294,25 @@ describeIfDB("Super-admin user roster (integration)", () => {
         active: true,
       },
     });
-    const tenantAdmin = await seedAdmin(t.id, "neg-tenant-admin");
+    const tenantDoctor = await prisma.user.create({
+      data: {
+        email: `sa-roster-neg-doctor-${Date.now()}@test.local`,
+        name: "Negative Tenant Doctor",
+        phone: "9000099000",
+        passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
+        role: "DOCTOR",
+        tenantId: t.id,
+      },
+    });
 
     const patchRes = await request(app)
-      .patch(`/api/v1/super-admin/users/${tenantAdmin.userId}`)
+      .patch(`/api/v1/super-admin/users/${tenantDoctor.id}`)
       .set("Authorization", `Bearer ${caller.token}`)
       .send({ active: false });
     expect(patchRes.status).toBe(404);
     // Untouched.
     const dbRow = await prisma.user.findUnique({
-      where: { id: tenantAdmin.userId },
+      where: { id: tenantDoctor.id },
       select: { isActive: true },
     });
     expect(dbRow?.isActive).toBe(true);

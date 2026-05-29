@@ -49,6 +49,11 @@ interface CompliancePostureRow {
   requireAdminTOTP: boolean;
   lastDpdpAt: string | null;
   lastAuditAt: string | null;
+  // Pearl §8.6 — compliance posture knobs (editable in tenant drawer).
+  whatsappOptInTrackingEnabled: boolean;
+  abdmConsentEnforcementRequired: boolean;
+  auditLogRetentionDays: number;
+  patientDataRetentionDays: number;
 }
 
 interface ComplianceResponse {
@@ -273,6 +278,18 @@ export default function SuperAdminCompliancePage() {
                 TOTP enforced
               </th>
               <th scope="col" className="px-4 py-3 font-medium">
+                WhatsApp opt-in
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
+                ABDM consent
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
+                Audit retention
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
+                PHI retention
+              </th>
+              <th scope="col" className="px-4 py-3 font-medium">
                 Last DPDP
               </th>
               <th scope="col" className="px-4 py-3 font-medium">
@@ -284,7 +301,7 @@ export default function SuperAdminCompliancePage() {
             {rows.length === 0 && !loading ? (
               <tr>
                 <td
-                  colSpan={8}
+                  colSpan={12}
                   className="px-4 py-8 text-center text-sm text-slate-500"
                   data-testid="super-admin-compliance-empty"
                 >
@@ -368,6 +385,18 @@ export default function SuperAdminCompliancePage() {
                       </span>
                     )}
                   </td>
+                  <td className="px-4 py-3">
+                    <OnOffPill on={row.whatsappOptInTrackingEnabled} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <OnOffPill on={row.abdmConsentEnforcementRequired} />
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-xs text-slate-700">
+                    {row.auditLogRetentionDays}d
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-xs text-slate-700">
+                    {row.patientDataRetentionDays}d
+                  </td>
                   <td className="px-4 py-3 text-slate-700">
                     {formatTs(row.lastDpdpAt)}
                   </td>
@@ -390,5 +419,24 @@ export default function SuperAdminCompliancePage() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+// Pearl §8.6 — tiny on/off pill used by the per-tenant compliance
+// posture row. Mirrors the visual treatment used for the
+// "TOTP enforced" column so the four On/Off pills line up.
+function OnOffPill({ on }: { on: boolean }) {
+  if (on) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] uppercase text-emerald-700">
+        <ShieldCheck size={10} aria-hidden="true" />
+        On
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] uppercase text-slate-500">
+      Off
+    </span>
   );
 }

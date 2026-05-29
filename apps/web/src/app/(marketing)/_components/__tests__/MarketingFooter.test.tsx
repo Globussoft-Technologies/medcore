@@ -131,14 +131,14 @@ describe("MarketingFooter", () => {
       ).toBe("/features#mobile");
     });
 
-    it("Legal column has Privacy / Terms / Data processing all pointing at '#'", () => {
+    it("Legal column has Privacy / Terms / Data processing pointing at /legal/* routes", () => {
       render(<MarketingFooter />);
       const privacy = screen.getByRole("link", { name: "Privacy" });
       const terms = screen.getByRole("link", { name: "Terms" });
       const dp = screen.getByRole("link", { name: "Data processing" });
-      expect(privacy.getAttribute("href")).toBe("#");
-      expect(terms.getAttribute("href")).toBe("#");
-      expect(dp.getAttribute("href")).toBe("#");
+      expect(privacy.getAttribute("href")).toBe("/legal/privacy");
+      expect(terms.getAttribute("href")).toBe("/legal/terms");
+      expect(dp.getAttribute("href")).toBe("/legal/data-processing");
     });
 
     it("renders four <ul> link lists, each scoped to its column heading", () => {

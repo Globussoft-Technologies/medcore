@@ -1844,6 +1844,15 @@ model Appointment {
   // LWBS (Left Without Being Seen) - reuses NO_SHOW status (Apr 2026)
   lwbsReason String?
 
+  // Pearl §3.1 — cancel / reschedule / no-show reasons (2026-05-29). All
+  // nullable: a row only carries the reason for the action that fired.
+  // The Zod schemas REQUIRE reasons on the corresponding status / route
+  // call so we never lose the audit trail at the boundary, but the
+  // columns stay nullable to keep legacy rows valid post-migration.
+  cancellationReason String?
+  rescheduleReason   String?
+  noShowReason       String?
+
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -1913,6 +1922,17 @@ enum AppointmentRemarkVisibility {
   DOCTOR_ONLY
   RECEPTION_ONLY
   PRIVATE
+  // Pearl SOW §2.1.7 — patient-facing scopes added 2026-05-29.
+  // PATIENT_VISIBLE: readable by the appointment's patient AND all staff
+  //   (the patient's own portal surface for clinician messages back to
+  //   them). Patients can author remarks at this level only.
+  // PUBLIC: readable by anyone authenticated who can see the appointment
+  //   (staff + the appointment's patient + family members on a future
+  //   delegated-access list). Staff-only authorship for now — patients
+  //   cannot post PUBLIC remarks since they'd otherwise have a write
+  //   path into a level visible to delegated viewers they don't control.
+  PATIENT_VISIBLE
+  PUBLIC
 }
 
 model AppointmentRemark {

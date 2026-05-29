@@ -44,16 +44,58 @@ export const walkInSchema = z.object({
   notes: optionalFreeText,
 });
 
-export const updateAppointmentStatusSchema = z.object({
-  status: z.enum([
-    "BOOKED",
-    "CHECKED_IN",
-    "IN_CONSULTATION",
-    "COMPLETED",
-    "CANCELLED",
-    "NO_SHOW",
-  ]),
-});
+// Pearl §3.1 (gap closed 2026-05-29) — cancel + no-show reasons.
+// The status flips for CANCELLED and NO_SHOW require a free-text reason
+// (>=3 chars) so the audit trail captures WHY. Other transitions ignore
+// the field; the superRefine below enforces presence only on the two
+// statuses that need it. Both reasons are capped at 500 chars to match
+// the conventions used by transferAppointmentSchema (1-500) and the
+// allergy-override path (3-500).
+export const updateAppointmentStatusSchema = z
+  .object({
+    status: z.enum([
+      "BOOKED",
+      "CHECKED_IN",
+      "IN_CONSULTATION",
+      "COMPLETED",
+      "CANCELLED",
+      "NO_SHOW",
+    ]),
+    cancellationReason: z
+      .string()
+      .trim()
+      .min(3, "cancellationReason must be at least 3 characters")
+      .max(500, "cancellationReason must be at most 500 characters")
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: "cancellationReason cannot contain HTML or script tags",
+      })
+      .optional(),
+    noShowReason: z
+      .string()
+      .trim()
+      .min(3, "noShowReason must be at least 3 characters")
+      .max(500, "noShowReason must be at most 500 characters")
+      .refine((v) => !containsHtmlOrScript(v), {
+        message: "noShowReason cannot contain HTML or script tags",
+      })
+      .optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.status === "CANCELLED" && !val.cancellationReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["cancellationReason"],
+        message: "cancellationReason is required when cancelling an appointment",
+      });
+    }
+    if (val.status === "NO_SHOW" && !val.noShowReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["noShowReason"],
+        message: "noShowReason is required when marking an appointment as no-show",
+      });
+    }
+  });
 
 // Issue #77 — the Schedule Management page submits `dayOfWeek` as a label
 // ("MONDAY" .. "SUNDAY") for clarity, while the underlying Prisma column is
@@ -181,6 +223,16 @@ export const rescheduleAppointmentSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
     .refine(isBookingDateNotPast, "Appointment date must be today or later"),
   slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
+  // Pearl §3.1 (gap closed 2026-05-29) — reason captured at the wire so
+  // the audit trail records WHY this row's date/slot moved.
+  reason: z
+    .string()
+    .trim()
+    .min(3, "reason must be at least 3 characters")
+    .max(500, "reason must be at most 500 characters")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "reason cannot contain HTML or script tags",
+    }),
 });
 
 // Issue #362 (2026-04-26): recurring appointments accepted past-dated

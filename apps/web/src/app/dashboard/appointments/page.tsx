@@ -504,6 +504,9 @@ export default function AppointmentsPage() {
   const [filterDate, setFilterDate] = useState(toISODate(new Date()));
   const [patientTab, setPatientTab] = useState<PatientTab>("upcoming");
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  // Pearl §3.1 (gap closed 2026-05-29) — cancel requires a reason
+  // (server-enforced via Zod, 3-500 chars).
+  const [cancelReason, setCancelReason] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -550,6 +553,10 @@ export default function AppointmentsPage() {
   const [reschedDate, setReschedDate] = useState(toISODate(new Date()));
   const [reschedSlots, setReschedSlots] = useState<Slot[]>([]);
   const [reschedLoading, setReschedLoading] = useState(false);
+  // Pearl §3.1 (gap closed 2026-05-29) — reschedule now requires a
+  // reason (Zod-enforced server side, 3-500 chars). Captured here so
+  // the slot-click handler can send it inline with date+slotStart.
+  const [reschedReason, setReschedReason] = useState("");
 
   // Pearl §2.1.7 — remarks modal target (single appointment).
   const [remarksTarget, setRemarksTarget] = useState<Appointment | null>(null);
@@ -891,16 +898,22 @@ export default function AppointmentsPage() {
 
   async function confirmCancel() {
     if (!cancellingId) return;
+    const reason = cancelReason.trim();
+    if (reason.length < 3) {
+      toast.error("Please enter a cancellation reason (min 3 characters).");
+      return;
+    }
     try {
       await api.patch(`/appointments/${cancellingId}/status`, {
         status: "CANCELLED",
+        cancellationReason: reason,
       });
       setCancellingId(null);
+      setCancelReason("");
       loadAppointments();
       if (view === "calendar") loadCalendar();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Cancel failed");
-      setCancellingId(null);
     }
   }
 
@@ -932,14 +945,24 @@ export default function AppointmentsPage() {
 
   async function confirmReschedule(slotStart: string) {
     if (!reschedTarget) return;
+    // Pearl §3.1 — reason is required server-side (3-500 chars). Block
+    // the request locally so the user gets a clearer message than the
+    // server's generic 400.
+    const reason = reschedReason.trim();
+    if (reason.length < 3) {
+      toast.error("Please enter a reason for rescheduling (min 3 characters).");
+      return;
+    }
     try {
       await api.patch(`/appointments/${reschedTarget.id}/reschedule`, {
         date: reschedDate,
         slotStart,
+        reason,
       });
       toast.success("Appointment rescheduled.");
       setReschedTarget(null);
       setReschedSlots([]);
+      setReschedReason("");
       loadAppointments();
       if (view === "calendar") loadCalendar();
     } catch (err) {
@@ -1381,16 +1404,42 @@ export default function AppointmentsPage() {
             <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
               {t("dashboard.appointments.cancelConfirm")}
             </p>
+            {/* Pearl §3.1 — cancellation reason (required, 3-500 chars). */}
+            <div className="mt-4">
+              <label
+                htmlFor="cancel-reason"
+                className="mb-1 block text-sm font-medium"
+              >
+                Reason <span className="text-red-600">*</span>
+              </label>
+              <textarea
+                id="cancel-reason"
+                data-testid="cancel-reason"
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="e.g. Patient requested; double-booking; doctor unavailable"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:bg-gray-900 dark:text-gray-100"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {cancelReason.trim().length} / 500 characters
+              </p>
+            </div>
             <div className="mt-5 flex justify-end gap-3">
               <button
-                onClick={() => setCancellingId(null)}
+                onClick={() => {
+                  setCancellingId(null);
+                  setCancelReason("");
+                }}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 {t("dashboard.actions.keepAppointment")}
               </button>
               <button
                 onClick={confirmCancel}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                disabled={cancelReason.trim().length < 3}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {t("dashboard.actions.confirmCancel")}
               </button>
@@ -1538,6 +1587,7 @@ export default function AppointmentsPage() {
                 onClick={() => {
                   setReschedTarget(null);
                   setReschedSlots([]);
+                  setReschedReason("");
                 }}
                 className="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
                 aria-label={t("common.close")}
@@ -1557,6 +1607,28 @@ export default function AppointmentsPage() {
                 }}
                 className="w-full rounded-lg border px-3 py-2 text-sm"
               />
+            </div>
+            {/* Pearl §3.1 — reason capture (required, 3-500 chars). */}
+            <div className="mt-4">
+              <label
+                htmlFor="resched-reason"
+                className="mb-1 block text-sm font-medium"
+              >
+                Reason for rescheduling <span className="text-red-600">*</span>
+              </label>
+              <textarea
+                id="resched-reason"
+                data-testid="resched-reason"
+                value={reschedReason}
+                onChange={(e) => setReschedReason(e.target.value)}
+                rows={2}
+                maxLength={500}
+                placeholder="e.g. Patient requested; doctor unavailable; emergency"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:bg-gray-900 dark:text-gray-100"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {reschedReason.trim().length} / 500 characters
+              </p>
             </div>
             <div className="mt-4">
               <p className="mb-2 text-sm font-medium">Available Slots</p>

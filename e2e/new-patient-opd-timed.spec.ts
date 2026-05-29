@@ -117,16 +117,37 @@ test.describe("Pearl §2.2 — NEW PATIENT register→arrive→consult→sign→
     doctorToken,
   }) => {
     // ─── Pre-flight: build a doctor-scoped APIRequestContext (NOT counted). ──
-    // fixtures.ts ships `adminApi` and `receptionApi` but no `doctorApi`. The
-    // CSRF middleware only compares cookie===header — a static double-submit
-    // token is fine. We mirror the same wiring receptionApi uses so the
-    // request shape is identical. Same pattern as doctor-opd-rx-timed
-    // .spec.ts §18f42c8.
+    // fixtures.ts ships `adminApi` and `receptionApi` but no `doctorApi`.
+    //
+    // CSRF setup — the middleware compares the `medcore_csrf` cookie against
+    // the `X-CSRF-Token` header. We tried passing the cookie via
+    // `extraHTTPHeaders.Cookie` (mirroring the receptionApi fixture) and CI
+    // flaked with `csrf_failed` on the very first doctorApi.patch — Playwright's
+    // APIRequestContext doesn't reliably preserve an explicit `Cookie` header
+    // once any sibling context has touched the global cookie jar. The
+    // canonical pattern is `storageState.cookies`, which deposits the cookie
+    // directly into THIS context's jar so it's sent on every request without
+    // racing against jar updates from other contexts.
+    const apiHost = new URL(API_BASE).hostname;
     const doctorApi = await playwrightRequest.newContext({
       extraHTTPHeaders: {
         Authorization: `Bearer ${doctorToken}`,
         "X-CSRF-Token": E2E_CSRF_TOKEN,
-        Cookie: `medcore_csrf=${E2E_CSRF_TOKEN}`,
+      },
+      storageState: {
+        cookies: [
+          {
+            name: "medcore_csrf",
+            value: E2E_CSRF_TOKEN,
+            domain: apiHost,
+            path: "/",
+            expires: -1,
+            httpOnly: false,
+            secure: false,
+            sameSite: "Lax",
+          },
+        ],
+        origins: [],
       },
     });
 

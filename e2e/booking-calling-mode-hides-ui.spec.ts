@@ -55,9 +55,14 @@ async function registerFreshDoctor(
   emailTag: string
 ): Promise<string> {
   const email = `pearl.row328.${emailTag}@medcore.local`;
+  // CLAUDE.md gotcha #8 — PATIENT_NAME_REGEX rejects digits. The
+  // previous "Doctor Pearl Row328" tripped the validator with 400
+  // "Name contains invalid characters". Uniqueness is encoded through
+  // `email` (carries the emailTag) and the gap-row reference lives in
+  // a comment, not the name string.
   const registerRes = await adminApi.post(`${API_BASE}/auth/register`, {
     data: {
-      name: "Doctor Pearl Row328",
+      name: "Doctor Pearl",
       email,
       phone: "+919876543211",
       password: "PearlTest!2026",

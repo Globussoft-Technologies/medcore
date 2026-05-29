@@ -133,7 +133,11 @@ test.describe("Pearl §5.3 — marketing admin builds an audience (hypertensives
       );
     }
     const created = (await createRes.json()).data as CreateAudienceResponse;
-    expect(created.id, "created audience id").toMatch(/^[0-9a-f-]{36}$/);
+    // CampaignAudience.id uses Prisma's @default(cuid()), not @default(uuid())
+    // (schema.prisma:6670). cuid()s look like "c" + 24 lowercase alphanumeric
+    // chars (e.g. cmpponmw9000128fle6b6fver). Accept either shape so the
+    // assertion survives a future model swap without rewriting the regex.
+    expect(created.id, "created audience id").toMatch(/^[a-z0-9-]{20,40}$/);
     expect(created.name).toBe(name);
     expect(created.active).toBe(true);
 

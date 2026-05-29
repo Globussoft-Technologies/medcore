@@ -63,8 +63,10 @@ async function registerFreshDoctor(
   const registerRes = await adminApi.post(`${API_BASE}/auth/register`, {
     data: {
       // CLAUDE.md gotcha #8 — PATIENT_NAME_REGEX rejects digits; tag
-      // uniqueness on the email, not the name.
-      name: "Doctor Pearl Row324",
+      // uniqueness on the email, not the name. The gap-row reference
+      // (Row 324) lives in the file header + this comment, not in
+      // the request body.
+      name: "Doctor Pearl",
       email,
       phone: "+919876543210",
       password: "PearlTest!2026",

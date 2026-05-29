@@ -33,7 +33,7 @@ function BarePatientShell({ children }: { children: React.ReactNode }) {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link
             href="/patient"
-            className="group inline-flex items-center gap-2.5"
+            className="group inline-flex h-11 items-center gap-2.5"
             data-testid="patient-shell-brand"
           >
             <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-emerald-500 text-white shadow-sm shadow-blue-600/20 transition group-hover:shadow-blue-600/30">
@@ -52,7 +52,7 @@ function BarePatientShell({ children }: { children: React.ReactNode }) {
             <InstallPWAButton />
             <Link
               href="/patient/login"
-              className="inline-flex h-10 min-w-[44px] items-center justify-center rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700"
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700"
               data-testid="patient-shell-login-link"
             >
               Sign in

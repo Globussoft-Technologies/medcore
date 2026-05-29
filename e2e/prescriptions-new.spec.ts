@@ -171,7 +171,10 @@ test.describe("Prescriptions — /dashboard/prescriptions/new (Rx creation FORM 
     // <select> | Duration | Remove. We hit the first matching input by
     // placeholder so the test stays robust if the row layout shuffles.
     await page.getByPlaceholder("Medicine name").first().fill("Paracetamol");
-    await page.getByPlaceholder("Dosage").first().fill("500mg");
+    // Production placeholder is now "Dosage (e.g. 750mg)" — use a regex
+    // that matches any string starting with "Dosage" so a future UX
+    // copy tweak (different example dose) doesn't break the test again.
+    await page.getByPlaceholder(/^dosage/i).first().fill("500mg");
     // Frequency is a native <select> with FREQUENCY_OPTIONS values
     // (constants.ts:17). "1-0-1 (Morning-Night)" is a valid BD-style entry.
     await page

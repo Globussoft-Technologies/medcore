@@ -70,7 +70,7 @@ test.describe("Admin journeys", () => {
     }
 
     const fakeEmail = `e2e_${Date.now()}_${faker.internet
-      .userName()
+      .username()
       .toLowerCase()}@example.com`;
     const fakeName = faker.person.fullName();
 

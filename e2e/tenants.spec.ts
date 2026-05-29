@@ -52,7 +52,7 @@ test.describe("Tenants admin — /dashboard/tenants (ADMIN super-admin chrome + 
     ).toBeVisible();
   });
 
-  test("ADMIN filter cluster pins: search input + plan-filter <select> + active-filter <select> are all wired and accept input", async ({
+  test("ADMIN filter cluster pins: search input + plan-filter <select> + active-filter segmented control are all wired and accept input", async ({
     adminPage,
   }) => {
     const page = adminPage;
@@ -77,10 +77,20 @@ test.describe("Tenants admin — /dashboard/tenants (ADMIN super-admin chrome + 
     await expect(planFilter).toHaveValue("PRO");
     await planFilter.selectOption("");
 
-    // Active filter — defaults to "active" (page.tsx:117). Flip to "all" then back.
-    await activeFilter.selectOption("all");
-    await expect(activeFilter).toHaveValue("all");
-    await activeFilter.selectOption("active");
+    // Active filter — used to be a <select>; now a segmented radiogroup
+    // (page.tsx:552 — `role="radiogroup"`) with `tenants-active-filter-*`
+    // testids per option. Defaults to "active". Click "all" then back to
+    // "active" and check aria-checked on each step.
+    const allRadio = page.locator(
+      '[data-testid="tenants-active-filter-all"]',
+    );
+    const activeRadio = page.locator(
+      '[data-testid="tenants-active-filter-active"]',
+    );
+    await allRadio.click();
+    await expect(allRadio).toHaveAttribute("aria-checked", "true");
+    await activeRadio.click();
+    await expect(activeRadio).toHaveAttribute("aria-checked", "true");
 
     // Body either renders the table or the empty-state — both are
     // valid no-error states. We just want zero crash + zero forbidden.
@@ -101,7 +111,7 @@ test.describe("Tenants admin — /dashboard/tenants (ADMIN super-admin chrome + 
     expect(tableOrEmpty === "table" || tableOrEmpty === "empty").toBeTruthy();
   });
 
-  test("ADMIN opens the Create-Tenant modal and the form structural contract holds (name + subdomain + plan + admin section + submit)", async ({
+  test("ADMIN opens the Create-Tenant modal and the form structural contract holds (name + plan + admin section + submit; subdomain is auto-derived, no input rendered)", async ({
     adminPage,
   }) => {
     const page = adminPage;
@@ -118,11 +128,17 @@ test.describe("Tenants admin — /dashboard/tenants (ADMIN super-admin chrome + 
     // Required-field inputs all rendered — pin each by testid so a
     // future field rename surfaces here, not in a vague flake.
     await expect(modal.locator('[data-testid="tenants-create-name"]')).toBeVisible();
-    await expect(modal.locator('[data-testid="tenants-create-subdomain"]')).toBeVisible();
     await expect(modal.locator('[data-testid="tenants-create-plan"]')).toBeVisible();
     await expect(modal.locator('[data-testid="tenants-create-admin-name"]')).toBeVisible();
     await expect(modal.locator('[data-testid="tenants-create-admin-email"]')).toBeVisible();
     await expect(modal.locator('[data-testid="tenants-create-admin-password"]')).toBeVisible();
+    // Subdomain is auto-derived from the Hospital Name on submit
+    // (page.tsx:1020 deriveSubdomain) — operators no longer pick it,
+    // so the input MUST NOT render. Lock that contract here so a
+    // future re-introduction of the field also surfaces in this test.
+    await expect(
+      modal.locator('[data-testid="tenants-create-subdomain"]'),
+    ).toHaveCount(0);
 
     // Submit button starts disabled (canSubmit gate at page.tsx:435-443).
     const submit = modal.locator('[data-testid="tenants-create-submit"]');
@@ -133,9 +149,19 @@ test.describe("Tenants admin — /dashboard/tenants (ADMIN super-admin chrome + 
     // seeded "default" tenant is the only one we can guarantee.
   });
 
-  test("ADMIN client-side subdomain validation rejects RESERVED words inline (page.tsx:64-83) before any POST is fired", async ({
+  test("ADMIN Create-Tenant submit is gated on name + admin fields (subdomain auto-derived; backend handles reserved-word + collision via 409)", async ({
     adminPage,
   }) => {
+    // The legacy spec asserted a client-side "This subdomain is reserved"
+    // inline error when the operator typed `admin` into a subdomain input.
+    // That UI is gone — operators no longer pick the subdomain at all;
+    // it's derived from Hospital Name at submit time (page.tsx:1020
+    // deriveSubdomain), and reserved-word / collision detection moved
+    // to the backend (POST /tenants returns 409, surfaced as a "name
+    // conflict" toast at page.tsx:1076). The new contract this test
+    // locks: submit is disabled until name + adminName + adminEmail +
+    // adminPassword are all filled to spec — independent of any
+    // subdomain input that no longer exists.
     const page = adminPage;
     await gotoAuthed(page, "/dashboard/tenants");
     await dismissTourIfPresent(page);
@@ -144,23 +170,22 @@ test.describe("Tenants admin — /dashboard/tenants (ADMIN super-admin chrome + 
     const modal = page.locator('[data-testid="tenants-create-modal"]');
     await expect(modal).toBeVisible({ timeout: 10_000 });
 
-    // Fill enough that the only failing gate is the subdomain reserved-word check.
+    const submit = modal.locator('[data-testid="tenants-create-submit"]');
+
+    // 1. Empty form → submit disabled.
+    await expect(submit).toBeDisabled();
+
+    // 2. Filling only Hospital Name → submit still disabled (admin
+    //    credentials are required by canSubmit at page.tsx:1040).
     await modal.locator('[data-testid="tenants-create-name"]').fill("Test Hospital");
-    await modal.locator('[data-testid="tenants-create-subdomain"]').fill("admin");
+    await expect(submit).toBeDisabled();
+
+    // 3. Filling all required fields with valid values → submit ENABLED.
+    //    We don't actually click it; submitting would persist a tenant.
     await modal.locator('[data-testid="tenants-create-admin-name"]').fill("Admin User");
     await modal.locator('[data-testid="tenants-create-admin-email"]').fill("ops@example.com");
     await modal.locator('[data-testid="tenants-create-admin-password"]').fill("StrongPass!234");
-
-    // Reserved-word inline error renders verbatim from validateSubdomain
-    // (page.tsx:90 — "This subdomain is reserved").
-    await expect(
-      modal.getByText(/this subdomain is reserved/i)
-    ).toBeVisible();
-
-    // Submit stays disabled — canSubmit pred excludes subdomainError.
-    await expect(
-      modal.locator('[data-testid="tenants-create-submit"]')
-    ).toBeDisabled();
+    await expect(submit).toBeEnabled();
   });
 
   test("DOCTOR is bounced off /dashboard/tenants — REDIRECT-BOUNCE archetype, page.tsx:124-128 useEffect router.push('/dashboard') for any role !== ADMIN", async ({

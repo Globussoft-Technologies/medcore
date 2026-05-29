@@ -121,12 +121,48 @@ async function auditInteractiveTouchTargets(page: Page): Promise<AuditResult> {
       }
     }
 
+    /**
+     * Carve-outs from the 44×44 rule that follow recognised a11y/UX patterns:
+     *
+     *  1. `.skip-link` — standard "Skip to main content" anchor. Hidden
+     *     offscreen until keyboard focus per WAI-ARIA Skip Navigation
+     *     pattern. Mouse/touch users never see it; keyboard users have
+     *     focus indicators, not finger targets. Conventionally below 44px
+     *     and excluded from touch-target audits everywhere it appears.
+     *
+     *  2. Inline anchors in body prose (e.g. "Don't have an account?
+     *     Create an account.") — WCAG 2.2 SC 2.5.8 explicitly carves out
+     *     "in-line links in prose" because forcing them to 44px would
+     *     distort line-height and break reading flow. Detection heuristic:
+     *     the anchor's direct parent is a `<p>` or `<span>` AND the anchor
+     *     has neither `inline-flex`/`flex` nor any explicit height class
+     *     — i.e. it inherits the surrounding line-height.
+     */
+    function isExemptInlineProseAnchor(el: Element): boolean {
+      if (el.tagName.toLowerCase() !== "a") return false;
+      const parent = el.parentElement;
+      if (!parent) return false;
+      const parentTag = parent.tagName.toLowerCase();
+      if (parentTag !== "p" && parentTag !== "span") return false;
+      // An anchor that's wrapped in a flex/grid container OR that has its
+      // own `inline-flex` / `flex` class is a styled CTA, not inline prose.
+      const cls = el.className.toString();
+      if (/\b(inline-flex|flex|grid|inline-grid)\b/.test(cls)) return false;
+      if (/\bh-\d/.test(cls) || /\bmin-h-/.test(cls)) return false;
+      return true;
+    }
+
     const violations: InteractiveViolation[] = [];
     let scanned = 0;
 
     for (const el of nodes) {
       // Skip aria-hidden — element is intentionally invisible to AT/touch.
       if (el.getAttribute("aria-hidden") === "true") continue;
+
+      // a11y skip-link carve-out (see comment block above).
+      if (el.classList.contains("skip-link")) continue;
+      // Inline-anchor-in-prose carve-out per WCAG 2.2 SC 2.5.8.
+      if (isExemptInlineProseAnchor(el)) continue;
 
       const cs = window.getComputedStyle(el);
       if (cs.display === "none" || cs.visibility === "hidden") continue;

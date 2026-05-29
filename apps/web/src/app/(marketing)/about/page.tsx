@@ -33,7 +33,7 @@ const team: TeamMember[] = [
     name: "Sourav Patra",
     role: "COO",
     image:
-      "https://media.licdn.com/dms/image/v2/D5603AQFtor3CsW_FuQ/profile-displayphoto-shrink_100_100/profile-displayphoto-shrink_100_100/0/1692163383222?e=1778716800&v=beta&t=DdQp_M0bSDCA1KXxnYI_KES2WH1rIS9wxxz0kmtxWQw",
+      "https://globussoft.com/wp-content/uploads/2025/05/Group-2.webp",
   },
   {
     name: "Aishwarya M",
@@ -246,7 +246,13 @@ export default function AboutPage() {
                     alt={`Portrait of ${m.name}`}
                     width={128}
                     height={128}
-                    className="mx-auto h-32 w-32 rounded-full object-cover ring-2 ring-white shadow-md dark:ring-gray-800"
+                    // Source images vary — LinkedIn 200×200 portraits put
+                    // the head dead-centre, but marketing portraits put
+                    // the head in the upper third (with a decorative
+                    // background below). `object-top` anchors the face
+                    // to the top of the crop so the head fills the
+                    // circle regardless of source framing.
+                    className="mx-auto h-32 w-32 rounded-full object-cover object-top ring-2 ring-gray-200 shadow-md dark:ring-gray-700"
                   />
                 ) : (
                   <div

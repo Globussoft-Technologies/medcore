@@ -91,27 +91,31 @@ test.describe("Pearl §3.4 — RECEPTION books appointment in <30s for returning
       await firstOpt.click();
     }
 
-    // 3. Pick the first available seeded doctor. The DoctorSelect is keyed
-    //    on `#appt-book-doctor` (a native <select>, scoped by id so the
-    //    global LanguageDropdown isn't matched — CLAUDE.md gotcha 9).
-    const doctorSelect = page.locator("select#appt-book-doctor");
-    await expect(doctorSelect).toBeVisible({ timeout: 5_000 });
-    const doctorOptions = await doctorSelect.locator("option").all();
-    let chosenDoctorId = "";
-    for (const opt of doctorOptions) {
-      const v = await opt.getAttribute("value");
-      if (v && v.length > 0) {
-        chosenDoctorId = v;
-        break;
-      }
-    }
-    if (!chosenDoctorId) {
+    // 3. Pick the first available seeded doctor. The DoctorSelect was
+    //    rewritten from a native <select> to a custom dropdown: a
+    //    <button id="appt-book-doctor" aria-haspopup="listbox"> that
+    //    opens a <ul role="listbox"> of <button role="option"> entries.
+    //    Step 1 click the trigger; step 2 pick the first real option
+    //    (the listbox's first entry is the placeholder/"unset" — we
+    //    skip it and click options.nth(1)). The id selector still
+    //    scopes against the global LanguageDropdown (CLAUDE.md gotcha 9).
+    const doctorTrigger = page.locator("#appt-book-doctor");
+    await expect(doctorTrigger).toBeVisible({ timeout: 5_000 });
+    await doctorTrigger.click();
+
+    const listbox = page.getByRole("listbox");
+    await listbox.waitFor({ state: "visible", timeout: 5_000 });
+    const options = listbox.getByRole("option");
+    const optionCount = await options.count();
+    // The placeholder entry counts as one option; <= 1 means no seeded
+    // doctors. Skip gracefully — the Pearl <30s SLA is moot without one.
+    if (optionCount <= 1) {
       test.skip(
         true,
         "No seeded doctors available in this environment — Pearl <30s SLA is moot without a doctor to book against."
       );
     }
-    await doctorSelect.selectOption(chosenDoctorId);
+    await options.nth(1).click();
 
     // 4. Pick a bookable slot. The slot grid only renders once the doctor's
     //    schedule fetch resolves; wait for the slots container OR the

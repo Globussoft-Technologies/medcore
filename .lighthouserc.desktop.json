@@ -29,7 +29,12 @@
         "legacy-javascript-insight": "warn",
         "network-dependency-tree-insight": "warn",
         "skip-link": "warn",
-        "unused-javascript": "warn"
+        "unused-javascript": "warn",
+        "render-blocking-insight": "warn",
+        "render-blocking-resources": "warn",
+        "uses-long-cache-ttl": "warn",
+        "uses-rel-preconnect": "warn",
+        "unminified-javascript": "warn"
       }
     },
     "upload": {

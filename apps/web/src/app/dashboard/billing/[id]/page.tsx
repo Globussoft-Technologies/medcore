@@ -527,6 +527,10 @@ export default function InvoiceDetailPage() {
 
   return (
     <>
+      {/* Global print stylesheet. Was `<style jsx global>` but
+          styled-jsx types aren't in the project's TS config — switched
+          to dangerouslySetInnerHTML which behaves identically (global
+          CSS, static template, no JS interpolation). */}
       {/* Print-only styles. Plain <style> with dangerouslySetInnerHTML
           rather than styled-jsx — the App Router's TypeScript config
           rejects the `jsx` + `global` props on <style> (styled-jsx

@@ -18,7 +18,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { HeartPulse, Shield } from "lucide-react";
+import { HeartPulse } from "lucide-react";
 import { PatientServiceWorkerRegistration } from "@/components/PatientServiceWorkerRegistration";
 import { InstallPWAButton } from "@/components/InstallPWAButton";
 import DashboardLayout from "@/app/dashboard/layout";
@@ -61,15 +61,6 @@ function BarePatientShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="flex w-full flex-1 items-stretch">{children}</main>
-      <footer className="border-t border-gray-200 bg-white/60 px-4 py-5 text-xs text-gray-500 dark:border-gray-800 dark:bg-gray-950/60 dark:text-gray-500">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 sm:flex-row">
-          <span className="inline-flex items-center gap-1.5">
-            <Shield className="h-3.5 w-3.5 text-emerald-500" />
-            Secured by your hospital — DPDP Act 2023 compliant.
-          </span>
-          <span>&copy; {new Date().getFullYear()} MedCore Health.</span>
-        </div>
-      </footer>
     </div>
   );
 }

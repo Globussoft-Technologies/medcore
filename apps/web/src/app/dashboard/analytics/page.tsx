@@ -974,6 +974,11 @@ export default function AnalyticsPage() {
 
   return (
     <div className="analytics-page">
+      {/* Print styles */}
+      {/* Global print + dark-mode stylesheet. Was `<style jsx global>` but
+          styled-jsx types aren't in the project's TS config — switched
+          to dangerouslySetInnerHTML which behaves identically (global
+          CSS, static template, no JS interpolation). */}
       {/* Print + analytics-page dark-mode shim styles. Plain <style>
           with dangerouslySetInnerHTML rather than styled-jsx — the App
           Router doesn't ship styled-jsx types for <style jsx global>

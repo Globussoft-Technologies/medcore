@@ -490,10 +490,21 @@ describe("LabExplainerPage reviewer surface", () => {
 
     render(<LabExplainerPage />);
 
-    await waitFor(() => expect(apiMock.get).toHaveBeenCalledTimes(1));
+    // Wait for the first fetchPending to fully resolve — not just be called.
+    // The mount-effect's setLoading(true) → api.get → setExplanations →
+    // setLoading(false) sequence must finish before the Refresh button
+    // becomes enabled. Asserting on `getByText("Already shared...")` (the
+    // sentFixture's explanation copy) deterministically gates on the
+    // post-resolve render, whereas toHaveBeenCalledTimes(1) only confirms
+    // api.get was invoked — which can race the subsequent click against
+    // the in-flight first call under heavy CI load and leave loading=true
+    // (disabling the Refresh button just as fireEvent.click reaches it).
+    await screen.findByText(/Already shared with the patient/i);
+    expect(apiMock.get).toHaveBeenCalledTimes(1);
 
     // Refresh button is the only icon-button in the header with "Refresh" text.
     const refreshBtn = screen.getByRole("button", { name: /Refresh/i });
+    expect(refreshBtn).not.toBeDisabled();
     fireEvent.click(refreshBtn);
 
     await waitFor(() => expect(apiMock.get).toHaveBeenCalledTimes(2));

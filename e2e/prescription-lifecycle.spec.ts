@@ -163,10 +163,11 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
     // (page.tsx:1639-1647, conditional on dosagePreset === "custom").
     await page.getByTestId("rx-dose-chip-0-custom").click();
     await page.getByPlaceholder(/^dosage/i).first().fill("5mg");
-    await page
-      .locator('select:has(option[value="0-0-1 (Night)"])')
-      .first()
-      .selectOption("0-0-1 (Night)");
+    // Pearl §2.1.4 row 49 — frequency is now a segmented control of
+    // <button> options keyed by `rx-frequency-option-${idx}-${first-token}`
+    // (page.tsx:1661-1681), not a <select>. The label "0-0-1 (Night)"
+    // split on " " yields token "0-0-1" → testid rx-frequency-option-0-0-0-1.
+    await page.getByTestId("rx-frequency-option-0-0-0-1").click();
     await page.getByPlaceholder("Duration").first().fill("30 days");
 
     // Submit — the preview path is invoked because the form passes Zod
@@ -363,10 +364,10 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
     // "Dosage" input only renders after the "Custom…" chip is active.
     await page.getByTestId("rx-dose-chip-0-custom").click();
     await page.getByPlaceholder(/^dosage/i).first().fill("500mg");
-    await page
-      .locator('select:has(option[value="1-0-1 (Morning-Night)"])')
-      .first()
-      .selectOption("1-0-1 (Morning-Night)");
+    // Same chip-style frequency control as the DDI test above —
+    // "1-0-1 (Morning-Night)" split on " " yields token "1-0-1" →
+    // testid rx-frequency-option-0-1-0-1.
+    await page.getByTestId("rx-frequency-option-0-1-0-1").click();
     await page.getByPlaceholder("Duration").first().fill("ongoing");
 
     // Wire the preview waitForResponse so the modal-visibility assertion

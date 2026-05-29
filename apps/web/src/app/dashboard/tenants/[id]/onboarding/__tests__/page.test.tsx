@@ -20,23 +20,20 @@
  *       2. Non-ADMIN role is router.pushed to /dashboard and the page
  *          shell renders null (RBAC client-side gate).
  *       3. ADMIN happy path — page chrome (testid `tenant-onboarding`),
- *          progress bar, all 6 steps render, tenant name + subdomain.
+ *          progress bar, all 5 steps render, tenant name + subdomain.
  *       4. URL id threading — both GETs use `/tenants/${id}/...` with
  *          the value from `useParams()`.
  *       5. `account_created` step is auto-detected via `autoDetect(d)`
  *          → check icon renders + no "Mark complete" CTA.
- *       6. `hospital_config` autoDetect — all 4 required SystemConfig
- *          keys present → step rendered as complete; one missing →
- *          incomplete.
- *       7. Mark-complete flow — clicking the `tenant-onboarding-complete-*`
+ *       6. Mark-complete flow — clicking the `tenant-onboarding-complete-*`
  *          button POSTs `/tenants/:id/onboarding/:step` and reloads.
- *       8. Mark-complete API rejection → `toast.error` with the message
+ *       7. Mark-complete API rejection → `toast.error` with the message
  *          and the page stays alive.
- *       9. Initial GET failure → `toast.error` fires and the loading
+ *       8. Initial GET failure → `toast.error` fires and the loading
  *          state clears (page shell + skeleton-then-checklist still render).
- *      10. Steps already complete render the persisted ISO date next to
+ *       9. Steps already complete render the persisted ISO date next to
  *          the title (en-IN format) and suppress the "Mark complete" CTA.
- *      11. Progress percent — partial completion produces the correct
+ *      10. Progress percent — partial completion produces the correct
  *          fraction in the progress KPI.
  *
  *   - Mocks: @/lib/api, @/lib/store (destructured `useAuthStore`),
@@ -189,7 +186,7 @@ describe("TenantOnboardingPage", () => {
 
   // ─── ADMIN happy path ──────────────────────────────────
 
-  it("renders the page chrome with all 6 steps + tenant name + subdomain after the GETs resolve (ADMIN)", async () => {
+  it("renders the page chrome with all 5 steps + tenant name + subdomain after the GETs resolve (ADMIN)", async () => {
     routeApiGet();
     render(<TenantOnboardingPage />);
     // The chrome mounts immediately under a loading skeleton; wait for the
@@ -201,10 +198,9 @@ describe("TenantOnboardingPage", () => {
     );
     expect(screen.getByText("St. Johns")).toBeInTheDocument();
     expect(screen.getByText("stjohns")).toBeInTheDocument();
-    // All 6 step rows present.
+    // All 5 step rows present.
     for (const key of [
       "account_created",
-      "hospital_config",
       "first_doctor",
       "duty_roster",
       "notification_templates",
@@ -214,6 +210,10 @@ describe("TenantOnboardingPage", () => {
         screen.getByTestId(`tenant-onboarding-step-${key}`),
       ).toBeInTheDocument();
     }
+    // hospital_config was retired — no row should render.
+    expect(
+      screen.queryByTestId("tenant-onboarding-step-hospital_config"),
+    ).not.toBeInTheDocument();
   });
 
   it("threads the tenant id from useParams into both GET endpoints", async () => {
@@ -240,35 +240,6 @@ describe("TenantOnboardingPage", () => {
     expect(
       screen.queryByTestId("tenant-onboarding-complete-account_created"),
     ).not.toBeInTheDocument();
-  });
-
-  it("auto-completes hospital_config when every required SystemConfig key is non-empty", async () => {
-    routeApiGet();
-    render(<TenantOnboardingPage />);
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("tenant-onboarding-step-hospital_config"),
-      ).toBeInTheDocument(),
-    );
-    // All 4 hospital_* keys present → Mark-complete button hidden.
-    expect(
-      screen.queryByTestId("tenant-onboarding-complete-hospital_config"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("leaves hospital_config INCOMPLETE when one required key is missing (Mark-complete CTA shown)", async () => {
-    const incomplete = { ...fullConfig };
-    delete (incomplete as any).hospital_email;
-    routeApiGet({ detailOverride: { config: incomplete } });
-    render(<TenantOnboardingPage />);
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("tenant-onboarding-step-hospital_config"),
-      ).toBeInTheDocument(),
-    );
-    expect(
-      screen.getByTestId("tenant-onboarding-complete-hospital_config"),
-    ).toBeInTheDocument();
   });
 
   // ─── Mark-complete flow ────────────────────────────────
@@ -366,8 +337,8 @@ describe("TenantOnboardingPage", () => {
   });
 
   it("renders the correct progress fraction when some steps are complete", async () => {
-    // account_created + hospital_config auto-complete (2). Plus an
-    // explicit first_doctor marker (3). Total 6 → 50% / "3 / 6".
+    // account_created auto-completes (1). Plus an explicit first_doctor
+    // marker (2). Total 5 → 40% / "2 / 5".
     routeApiGet({
       steps: { first_doctor: "2026-03-01T00:00:00.000Z" },
     });
@@ -379,9 +350,9 @@ describe("TenantOnboardingPage", () => {
         screen.queryByTestId("tenant-onboarding-loading"),
       ).not.toBeInTheDocument(),
     );
-    expect(screen.getByText("50%")).toBeInTheDocument();
-    expect(screen.getByText(/3\s*\/\s*6/)).toBeInTheDocument();
+    expect(screen.getByText("40%")).toBeInTheDocument();
+    expect(screen.getByText(/2\s*\/\s*5/)).toBeInTheDocument();
     const bar = screen.getByTestId("tenant-onboarding-progress");
-    expect(bar.getAttribute("style") || "").toMatch(/width:\s*50%/);
+    expect(bar.getAttribute("style") || "").toMatch(/width:\s*40%/);
   });
 });

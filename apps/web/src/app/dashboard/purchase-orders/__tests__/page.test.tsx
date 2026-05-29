@@ -992,6 +992,12 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
 
+    // Wait for the async /suppliers fetch to populate the dropdown before
+    // selecting — without this, fireEvent.change fires before the option
+    // exists and React's controlled <select> silently drops the value.
+    // (Same race the happy-path test guards against above.)
+    await screen.findByRole("option", { name: "Acme" });
+
     fireEvent.change(screen.getByLabelText(/Supplier/), {
       target: { value: "sup-1" },
     });
@@ -1026,6 +1032,8 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
+
+    await screen.findByRole("option", { name: "Acme" });
 
     fireEvent.change(screen.getByLabelText(/Supplier/), {
       target: { value: "sup-1" },

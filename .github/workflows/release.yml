@@ -562,6 +562,14 @@ jobs:
       - name: Install dependencies
         run: npm install --include=dev
 
+      # `actions/download-artifact@v8` does NOT create `path` if zero
+      # artifacts match the pattern (e.g. when every shard failed before
+      # reaching its blob-upload step). Pre-create the dir so the
+      # downstream merge step sees a valid (possibly empty) directory
+      # instead of crashing on "Directory does not exist".
+      - name: Ensure blob-report sink directory exists
+        run: mkdir -p all-blob-reports
+
       - name: Download all blob reports
         uses: actions/download-artifact@v8
         with:
@@ -569,8 +577,24 @@ jobs:
           pattern: blob-report-*
           merge-multiple: true
 
+      # Skip the merge gracefully when zero blobs landed — typically
+      # means every shard tanked at install/setup. The workflow already
+      # surfaces those failures through the per-shard jobs; we don't
+      # need this job to also red-X for a downstream-only symptom.
       - name: Merge reports into single HTML
-        run: npx playwright merge-reports --reporter html ./all-blob-reports
+        run: |
+          shopt -s nullglob
+          # Playwright blob reports are .zip files; count them. If zero,
+          # log a warning + write a one-line placeholder so the upload
+          # step has something to publish, and exit 0.
+          blobs=(all-blob-reports/*.zip)
+          if [ ${#blobs[@]} -eq 0 ]; then
+            echo "::warning::No blob-report artifacts found — every E2E shard probably failed before uploading. Check the per-shard job logs."
+            mkdir -p playwright-report
+            echo "No Playwright blob reports were produced by any shard on this run." > playwright-report/index.html
+            exit 0
+          fi
+          npx playwright merge-reports --reporter html ./all-blob-reports
 
       - name: Upload merged HTML report
         uses: actions/upload-artifact@v7

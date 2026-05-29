@@ -455,7 +455,17 @@ describe("VisitorsPage", () => {
     // Page mounts; the row shows "—" for null name/purpose/pass without
     // crashing on .charAt / .replace. (The initial-letter avatar shows
     // "—" too since charAt of the fallback string is truthy.)
-    await screen.findByTestId("visitors-check-in-btn");
+    //
+    // Wait for the SKELETON to clear — not just the header button — so
+    // the assertion below runs against the rendered table row, not the
+    // pre-fetch skeleton state. The header `visitors-check-in-btn`
+    // renders synchronously on mount, so awaiting it resolves before
+    // the API fetch lands and the dashes never make it into the DOM.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("visitors-loading"),
+      ).not.toBeInTheDocument(),
+    );
     const dashes = screen.getAllByText("—");
     expect(dashes.length).toBeGreaterThanOrEqual(2); // name + purpose at minimum
   });

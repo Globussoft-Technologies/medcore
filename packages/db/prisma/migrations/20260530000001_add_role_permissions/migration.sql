@@ -9,7 +9,13 @@
 
 CREATE TABLE "role_catalog_entries" (
     "id" TEXT NOT NULL,
-    "role" "Role" NOT NULL,
+    -- Free-text (TEXT) rather than the strict `Role` enum so operators
+    -- can add custom roles via the catalog editor without a new
+    -- migration. Authorization is still enforced at the route layer
+    -- using the real `Role` enum, so custom catalog rows are
+    -- informational (review surface) and don't grant code-level access
+    -- automatically.
+    "role" TEXT NOT NULL,
     "label" TEXT NOT NULL,
     "summary" TEXT NOT NULL,
     "displayOrder" INTEGER NOT NULL DEFAULT 0,

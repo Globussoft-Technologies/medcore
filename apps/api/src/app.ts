@@ -157,6 +157,7 @@ import { aiDocQaRouter } from "./routes/ai-doc-qa";
 import { aiSentimentRouter } from "./routes/ai-sentiment";
 import { tenantsRouter } from "./routes/tenants";
 import { tenantOnboardingRouter } from "./routes/tenant-onboarding";
+import { rolePermissionsRouter } from "./routes/role-permissions";
 import { superAdminTenantConfigRouter } from "./routes/super-admin-tenant-config";
 import { dpdpWorkbenchRouter } from "./routes/dpdp-workbench";
 import { scheduledJobsRouter } from "./routes/scheduled-jobs";
@@ -482,6 +483,9 @@ export function buildApp() {
   app.use("/api/v1/ai/doc-qa", aiDocQaRouter);
   app.use("/api/v1/ai/sentiment", aiSentimentRouter);
   app.use("/api/v1/tenants", tenantsRouter);
+  // Pearl §8.1 wizard step 3 — global role-permission catalog (NOT
+  // tenant-scoped; one shared catalog across the whole platform).
+  app.use("/api/v1/role-permissions", rolePermissionsRouter);
   // Pearl §8.1 gap #6 piece 2 of 4 — super-admin onboarding wizard
   // (3-step MVP creates tenant + first branch + super-admin user
   // atomically). HFR/HPR/WhatsApp/Razorpay config steps deferred to

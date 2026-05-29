@@ -22,6 +22,17 @@ import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
+
+// Wire-shape returned by GET / POST / DELETE on /role-permissions. The frontend
+// reads `data.roles[*].permissions[*]` so adds/removes return the updated
+// catalog without a second round-trip. Mirrors the structure of the relational
+// rows in role_catalog_entries + role_permission_items.
+interface RolePermissionWire {
+  role: string;
+  label: string;
+  summary: string;
+  permissions: string[];
+}
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
@@ -680,7 +691,9 @@ router.post(
 );
 
 // GET /api/v1/tenants/:id/onboarding — per-tenant onboarding state
-// Reads SystemConfig rows prefixed `tenant:<id>:onboarding_step_<name>_completed_at`.
+// Reads SystemConfig rows prefixed `tenant:<id>:onboarding_step_<name>_completed_at`
+// AND `tenant:<id>:onboarding_step_<name>_skipped_at`. Returns two parallel maps
+// so the UI can render a step as Completed, Skipped (revisit later), or Pending.
 router.get(
   "/:id/onboarding",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -698,13 +711,19 @@ router.get(
         where: { key: { startsWith: prefix } },
       });
       const steps: Record<string, string> = {};
+      const skipped: Record<string, string> = {};
       for (const r of rows) {
-        steps[r.key.slice(prefix.length).replace(/_completed_at$/, "")] = r.value;
+        const tail = r.key.slice(prefix.length);
+        if (tail.endsWith("_completed_at")) {
+          steps[tail.replace(/_completed_at$/, "")] = r.value;
+        } else if (tail.endsWith("_skipped_at")) {
+          skipped[tail.replace(/_skipped_at$/, "")] = r.value;
+        }
       }
 
       res.json({
         success: true,
-        data: { tenantId: tenant.id, steps },
+        data: { tenantId: tenant.id, steps, skipped },
         error: null,
       });
     } catch (err) {
@@ -714,6 +733,9 @@ router.get(
 );
 
 // POST /api/v1/tenants/:id/onboarding/:step — mark a step complete
+// Also clears any prior skipped marker for the same step (completing implicitly
+// un-skips), so the GET map can never report a step as both completed AND
+// skipped at the same time.
 router.post(
   "/:id/onboarding/:step",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -734,6 +756,59 @@ router.post(
       }
 
       const key = tenantConfigKey(tenant.id, `onboarding_step_${step}_completed_at`);
+      const skippedKey = tenantConfigKey(
+        tenant.id,
+        `onboarding_step_${step}_skipped_at`,
+      );
+      const now = new Date().toISOString();
+      await prisma.systemConfig.upsert({
+        where: { key },
+        create: { key, value: now },
+        update: { value: now },
+      });
+      await prisma.systemConfig
+        .delete({ where: { key: skippedKey } })
+        .catch(() => {
+          // No prior skip row — fine.
+        });
+
+      auditLog(req, "TENANT_ONBOARDING_STEP", "tenant", tenant.id, { step }).catch(
+        console.error,
+      );
+
+      res.json({ success: true, data: { step, completedAt: now }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/tenants/:id/onboarding/:step/skip — defer a step
+// Writes `onboarding_step_<name>_skipped_at` so the UI can render it as
+// "Skipped — revisit later" without counting it toward the progress bar. A
+// later POST /:step (mark complete) clears the skip marker.
+router.post(
+  "/:id/onboarding/:step/skip",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, step } = req.params;
+      if (!/^[a-z0-9_]{1,40}$/.test(step)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid step name",
+        });
+        return;
+      }
+      const tenant = await prisma.tenant.findUnique({ where: { id } });
+      if (!tenant) {
+        res.status(404).json({ success: false, data: null, error: "Tenant not found" });
+        return;
+      }
+      const key = tenantConfigKey(
+        tenant.id,
+        `onboarding_step_${step}_skipped_at`,
+      );
       const now = new Date().toISOString();
       await prisma.systemConfig.upsert({
         where: { key },
@@ -741,11 +816,227 @@ router.post(
         update: { value: now },
       });
 
-      auditLog(req, "TENANT_ONBOARDING_STEP", "tenant", tenant.id, { step }).catch(
-        console.error,
-      );
+      auditLog(req, "TENANT_ONBOARDING_STEP_SKIP", "tenant", tenant.id, {
+        step,
+      }).catch(console.error);
 
-      res.json({ success: true, data: { step, completedAt: now }, error: null });
+      res.json({ success: true, data: { step, skippedAt: now }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── Role-permission catalog (relational) ────────────────────────────
+//
+// Pearl §8.1 wizard step 3. Replaces the legacy `SystemConfig.role_permissions_v1`
+// JSON blob with two proper tables:
+//   role_catalog_entries     — one row per role (label, summary, order)
+//   role_permission_items    — one row per permission (FK → entry, order)
+// Both populated by the migration `20260530000001_add_role_permissions`.
+// Every API call here reads or mutates those rows directly — no JSON
+// parsing, no in-process constant fallback.
+
+const ROLE_PARAM_REGEX = /^[A-Z_]{2,40}$/;
+const PERMISSION_MAX_LEN = 200;
+
+async function loadCatalogWire(): Promise<RolePermissionWire[]> {
+  const entries = await prisma.roleCatalogEntry.findMany({
+    orderBy: { displayOrder: "asc" },
+    include: {
+      permissions: { orderBy: { displayOrder: "asc" } },
+    },
+  });
+  return entries.map((e) => ({
+    role: e.role,
+    label: e.label,
+    summary: e.summary,
+    permissions: e.permissions.map((p) => p.permission),
+  }));
+}
+
+// GET /api/v1/tenants/:id/role-permissions
+// Reads the relational catalog and shapes it into the same wire format
+// the page consumed before the schema change.
+router.get(
+  "/:id/role-permissions",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!tenant) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Tenant not found" });
+        return;
+      }
+      const roles = await loadCatalogWire();
+      res.json({
+        success: true,
+        data: { tenantId: tenant.id, roles },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/tenants/:id/role-permissions/:role/permissions
+// Body: { permission: string }
+// Appends one row to role_permission_items for the matching role entry.
+// Idempotent — adding an existing permission is a no-op (UI double-click
+// safe). Auto-assigns `displayOrder = max(existing) + 1`.
+router.post(
+  "/:id/role-permissions/:role/permissions",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, role } = req.params;
+      if (!ROLE_PARAM_REGEX.test(role)) {
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "Invalid role name" });
+        return;
+      }
+      const permission =
+        typeof req.body?.permission === "string"
+          ? req.body.permission.trim()
+          : "";
+      if (!permission) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Permission text is required",
+        });
+        return;
+      }
+      if (permission.length > PERMISSION_MAX_LEN) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Permission must be ${PERMISSION_MAX_LEN} characters or fewer`,
+        });
+        return;
+      }
+
+      const tenant = await prisma.tenant.findUnique({ where: { id } });
+      if (!tenant) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Tenant not found" });
+        return;
+      }
+
+      const entry = await prisma.roleCatalogEntry.findUnique({
+        where: { role: role as Role },
+        include: {
+          permissions: { orderBy: { displayOrder: "desc" }, take: 1 },
+        },
+      });
+      if (!entry) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: `Role ${role} is not in the catalog`,
+        });
+        return;
+      }
+
+      const exists = await prisma.rolePermissionItem.findFirst({
+        where: { entryId: entry.id, permission },
+        select: { id: true },
+      });
+      if (!exists) {
+        const nextOrder = (entry.permissions[0]?.displayOrder ?? 0) + 1;
+        await prisma.rolePermissionItem.create({
+          data: { entryId: entry.id, permission, displayOrder: nextOrder },
+        });
+      }
+
+      auditLog(req, "TENANT_ROLE_PERMISSION_ADD", "tenant", tenant.id, {
+        role,
+        permission,
+      }).catch(console.error);
+
+      const roles = await loadCatalogWire();
+      res.json({
+        success: true,
+        data: { tenantId: tenant.id, roles },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// DELETE /api/v1/tenants/:id/role-permissions/:role/permissions/:index
+// Removes the permission at the visible 0-based index (i.e. the Nth row
+// in displayOrder for that role). We resolve the row server-side so the
+// UI doesn't have to carry the row id around.
+router.delete(
+  "/:id/role-permissions/:role/permissions/:index",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, role, index } = req.params;
+      if (!ROLE_PARAM_REGEX.test(role)) {
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "Invalid role name" });
+        return;
+      }
+      const idx = Number(index);
+      if (!Number.isInteger(idx) || idx < 0) {
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "Invalid index" });
+        return;
+      }
+
+      const tenant = await prisma.tenant.findUnique({ where: { id } });
+      if (!tenant) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Tenant not found" });
+        return;
+      }
+
+      const entry = await prisma.roleCatalogEntry.findUnique({
+        where: { role: role as Role },
+        include: {
+          permissions: { orderBy: { displayOrder: "asc" } },
+        },
+      });
+      if (!entry) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: `Role ${role} is not in the catalog`,
+        });
+        return;
+      }
+      const target = entry.permissions[idx];
+      if (!target) {
+        res
+          .status(400)
+          .json({ success: false, data: null, error: "Index out of range" });
+        return;
+      }
+      await prisma.rolePermissionItem.delete({ where: { id: target.id } });
+
+      auditLog(req, "TENANT_ROLE_PERMISSION_REMOVE", "tenant", tenant.id, {
+        role,
+        permission: target.permission,
+        index: idx,
+      }).catch(console.error);
+
+      const roles = await loadCatalogWire();
+      res.json({
+        success: true,
+        data: { tenantId: tenant.id, roles },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

@@ -2634,6 +2634,30 @@ model SystemConfig {
 
   @@map("system_config")
 }
+model RoleCatalogEntry {
+  id           String               @id @default(uuid())
+  role         Role                 @unique
+  label        String
+  summary      String
+  displayOrder Int                  @default(0)
+  permissions  RolePermissionItem[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@map("role_catalog_entries")
+}
+
+model RolePermissionItem {
+  id           String           @id @default(uuid())
+  entryId      String
+  entry        RoleCatalogEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  permission   String
+  displayOrder Int              @default(0)
+  createdAt    DateTime         @default(now())
+
+  @@index([entryId, displayOrder])
+  @@map("role_permission_items")
+}
 
 // Pearl ERP Stage 1 §8.4 (gap row 222 closure, 2026-05-22) — observability
 // table for the in-process cron scheduler in apps/api/src/services/

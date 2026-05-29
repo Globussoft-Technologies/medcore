@@ -8,10 +8,12 @@
  *
  * Surfaces touched:
  *   - ADMIN (super-admin on the seeded `default` tenant): heading + Back link
- *     + progress bar + 6-step ordered checklist + per-step "Mark complete"
- *     CTA on every non-account_created step. The dynamic [id] segment is
- *     resolved at runtime by listing /api/v1/tenants and picking the
- *     `default` tenant — same data the parent /dashboard/tenants page renders.
+ *     + progress bar + 8-step ordered checklist (Pearl §8.1 wizard alignment;
+ *     first_branch + seed_test_patient dropped + go_live deferred) +
+ *     per-step "Mark complete" CTA on every non-account_created step. The
+ *     dynamic [id] segment is resolved at runtime by listing /api/v1/tenants
+ *     and picking the `default` tenant — same data the parent
+ *     /dashboard/tenants page renders.
  *   - DOCTOR / PATIENT: REDIRECT-BOUNCE archetype — page.tsx:147 useEffect
  *     `router.push("/dashboard")` for any user.role !== "ADMIN". Bounce target
  *     is /dashboard (NOT /dashboard/not-authorized) — same shape as the parent
@@ -33,7 +35,7 @@ import { test, expect } from "./fixtures";
 import { API_BASE, dismissTourIfPresent, expectNotForbidden, gotoAuthed } from "./helpers";
 
 test.describe("Tenant onboarding — /dashboard/tenants/[id]/onboarding (ADMIN super-admin checklist + non-ADMIN redirect-bounce-to-/dashboard)", () => {
-  test("ADMIN lands on the onboarding checklist for the seeded `default` tenant — heading + back link + progress bar + 6 ordered steps render", async ({
+  test("ADMIN lands on the onboarding checklist for the seeded `default` tenant — heading + back link + progress bar + 8 ordered steps render", async ({
     adminPage,
     adminApi,
   }) => {
@@ -75,15 +77,23 @@ test.describe("Tenant onboarding — /dashboard/tenants/[id]/onboarding (ADMIN s
       page.locator('[data-testid="tenant-onboarding-progress"]'),
     ).toBeVisible();
 
-    // All six STEPS render in the page.tsx:61-133 order. Pin each by its
-    // testid prefix so a future step rename surfaces here.
+    // All eight SOW §8.1 STEPS render in page.tsx order. Pin each by its
+    // testid prefix so a future step rename surfaces here. Notes:
+    //   - legacy `hospital_config` step was retired 2026-05-29.
+    //   - SOW step 2 `first_branch` dropped 2026-05-29 — the create-tenant
+    //     modal already seeds a default branch.
+    //   - extra `seed_test_patient` dropped 2026-05-29 — operators always
+    //     skipped it; the dry-run value moved to a post-launch playbook.
+    //   - SOW step 8 `go_live` is intentionally deferred.
     for (const key of [
       "account_created",
-      "hospital_config",
+      "default_permissions",
       "first_doctor",
+      "abdm_registration",
+      "whatsapp_setup",
+      "payment_gateway",
       "duty_roster",
       "notification_templates",
-      "seed_test_patient",
     ]) {
       await expect(
         page.locator(`[data-testid="tenant-onboarding-step-${key}"]`),
@@ -111,31 +121,36 @@ test.describe("Tenant onboarding — /dashboard/tenants/[id]/onboarding (ADMIN s
       timeout: 20_000,
     });
 
-    // Every step has a deep link (page.tsx:272-278) — pin all six by testid.
+    // Every step has a deep link — pin all eight SOW §8.1 keys by testid.
+    // The renderer uses the same `tenant-onboarding-link-<key>` testid for
+    // both internal `<Link>` targets and external `<a target=_blank>`
+    // (abdm_registration → HFR portal), so a single locator covers both.
     for (const key of [
       "account_created",
-      "hospital_config",
+      "default_permissions",
       "first_doctor",
+      "abdm_registration",
+      "whatsapp_setup",
+      "payment_gateway",
       "duty_roster",
       "notification_templates",
-      "seed_test_patient",
     ]) {
       await expect(
         page.locator(`[data-testid="tenant-onboarding-link-${key}"]`),
       ).toBeVisible();
     }
 
-    // The account_created step is auto-completed (page.tsx:71 autoDetect),
-    // so its `Mark complete` button should NOT render (page.tsx:279 guard).
+    // The account_created step is auto-completed via `autoDetect(d) => !!d`,
+    // so its `Mark complete` button should NOT render.
     await expect(
       page.locator('[data-testid="tenant-onboarding-complete-account_created"]'),
     ).toHaveCount(0);
 
-    // At least ONE of the remaining 5 steps should still expose a Mark-
+    // At least ONE of the remaining 7 steps should still expose a Mark-
     // complete CTA on the seeded default tenant — the seed doesn't run
-    // through every onboarding step. (Some steps may also be auto-detected
-    // via hospital_config keys, so we don't assert all 5; a single one is
-    // enough to pin the contract.)
+    // through every onboarding step. A single one is enough to pin the
+    // contract; asserting all 7 would be brittle against any future
+    // auto-detect rules.
     const completeButtons = await page
       .locator('[data-testid^="tenant-onboarding-complete-"]')
       .count();

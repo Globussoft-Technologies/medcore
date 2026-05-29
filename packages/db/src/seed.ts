@@ -110,6 +110,13 @@ async function main() {
   }
   console.log("Disabled mandatory TOTP for seeded admins (dev convenience)");
 
+  // Pearl §8.1 wizard step 3 — role-permission catalog.
+  // The initial 10 roles + their permissions are inserted by the
+  // migration `20260530000001_add_role_permissions`, so this seed file
+  // does NOTHING for that catalog on fresh DBs. Edits made via
+  // /dashboard/tenants/[id]/role-permissions go straight to the
+  // role_catalog_entries / role_permission_items tables.
+
   // Create Doctors
   // Specialization strings here MUST match what the AI triage prompt returns
   // (apps/api/src/services/ai/prompts.ts → TRIAGE_SYSTEM). The triage route's

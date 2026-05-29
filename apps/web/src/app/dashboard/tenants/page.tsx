@@ -1072,17 +1072,24 @@ function CreateTenantModal({
       );
       onCreated(res.data.tenant.id);
     } catch (err) {
-      const e = err as { status?: number; message?: string };
-      if (e.status === 409) {
-        toast.error(
-          t(
-            "tenants.create.conflict",
-            "A tenant with a similar name already exists. Choose a different Hospital Name.",
-          ),
-        );
-      } else {
-        toast.error(e.message || "Failed to create tenant");
-      }
+      // Surface the server's specific error verbatim — the 409 case can be
+      // either "Subdomain already taken" (hospital-name collision) OR
+      // "An account with this email already exists" (admin-email collision).
+      // The legacy code hardcoded a "similar name" string on every 409, which
+      // misled the operator whenever the real conflict was the admin email.
+      // `api.ts:request` sets err.message from data.error and keeps the raw
+      // response on err.payload, so either is a reliable source.
+      const e = err as {
+        status?: number;
+        message?: string;
+        payload?: { error?: string };
+      };
+      const apiMsg = e.payload?.error || e.message;
+      toast.error(
+        apiMsg && apiMsg !== "Request failed"
+          ? apiMsg
+          : t("tenants.create.failed", "Failed to create tenant"),
+      );
     }
     setSubmitting(false);
   }

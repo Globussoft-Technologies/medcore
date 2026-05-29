@@ -769,8 +769,12 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     await screen.findByText("pin me");
 
     // Open the context menu (More button — there are two action buttons
-    // in the row's hover group, the second one is "More").
-    const moreBtn = screen.getByTitle("More");
+    // in the row's hover group, the second one is "More"). Use
+    // `findByTitle` rather than `getByTitle` because "pin me" can match
+    // the sidebar preview before the thread's message bubble renders;
+    // the More icon only renders on the bubble, so polling for it
+    // ensures the thread has fully loaded.
+    const moreBtn = await screen.findByTitle("More");
     fireEvent.click(moreBtn);
 
     // Now click the "Pin message" entry.
@@ -810,9 +814,17 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     fireEvent.click(
       (await screen.findByText("Dr Other")).closest("button")!,
     );
+    // "hello there" appears twice — once as the truncated preview in
+    // the left-rail chat list (synchronous), and again inside the
+    // message bubble in the thread (after the /chat/rooms/:id/messages
+    // fetch resolves). `findByText` returns the first match (the
+    // sidebar preview) so it doesn't actually wait for the bubble.
+    // Anchor on `findByTitle("More")` instead — the More icon only
+    // renders on a hovered/visible message bubble, so its presence
+    // proves the thread has loaded.
     await screen.findByText("hello there");
 
-    fireEvent.click(screen.getByTitle("More"));
+    fireEvent.click(await screen.findByTitle("More"));
     fireEvent.click(await screen.findByText(/Pin message/i));
 
     await waitFor(() =>

@@ -522,8 +522,16 @@ describe("Sentiment Analytics dashboard page (admin/reception only)", () => {
 
     render(<SentimentAnalyticsPage />);
 
-    await screen.findByTestId("sentiment-category-doctor");
-    expect(screen.getByTestId("sentiment-category-doctor")).toHaveTextContent("4.50");
+    // The card renders synchronously with placeholder zeros (label
+    // + "0.00") before the summary fetch resolves. `findByTestId`
+    // resolves on that initial render, so we'd assert "4.50" against
+    // the still-zero value. Poll until the value has actually been
+    // replaced with the fetched avg.
+    await waitFor(() =>
+      expect(screen.getByTestId("sentiment-category-doctor")).toHaveTextContent(
+        "4.50",
+      ),
+    );
     expect(screen.getByTestId("sentiment-category-nurse")).toHaveTextContent("4.00");
     // Missing key falls back to 0 → "0.00".
     expect(screen.getByTestId("sentiment-category-billing")).toHaveTextContent("0.00");

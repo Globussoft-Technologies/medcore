@@ -187,7 +187,11 @@ describe("AdminConsolePage", () => {
     const table = await screen.findByTestId("error-breakdown");
     expect(table).toBeInTheDocument();
     // The breakdown should label the dominant action and surface IP context.
-    expect(screen.getByText(/LOGIN_FAILED/)).toBeInTheDocument();
+    // The table wrapper renders before the row cells settle from the fetched
+    // data, so anchor on `findByText` for the dominant action — that polls
+    // until the row populates — and then sync-check the siblings, which are
+    // guaranteed in the same render pass.
+    expect(await screen.findByText(/LOGIN_FAILED/)).toBeInTheDocument();
     expect(screen.getByText(/likely bot traffic/i)).toBeInTheDocument();
     expect(screen.getByText(/203\.0\.113\.10/)).toBeInTheDocument();
   });

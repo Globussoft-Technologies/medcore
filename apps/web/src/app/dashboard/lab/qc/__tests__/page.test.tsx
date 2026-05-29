@@ -322,6 +322,15 @@ describe("LabQCPage dashboard surface", () => {
     render(<LabQCPage />);
 
     await waitFor(() => expect(apiMock.get).toHaveBeenCalledTimes(3));
+    // The "called 3 times" assertion only confirms the fetches were
+    // initiated, not that their promises resolved + the table rendered.
+    // Wait for the skeleton wrapper to actually go away before looking
+    // for the per-row "View chart" buttons.
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("lab-qc-loading"),
+      ).not.toBeInTheDocument(),
+    );
     apiMock.get.mockClear();
     wireGet({});
 

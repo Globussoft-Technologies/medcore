@@ -551,7 +551,7 @@ describe("AppointmentsPage — colocated coverage", () => {
     expect(apiMock.patch).not.toHaveBeenCalled();
   });
 
-  it("Confirm Cancel inside the dialog PATCHes /status with CANCELLED", async () => {
+  it("Confirm Cancel inside the dialog PATCHes /status with CANCELLED + cancellationReason", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/appointments")) {
         return Promise.resolve({
@@ -567,12 +567,19 @@ describe("AppointmentsPage — colocated coverage", () => {
       name: /cancel appointment for asha roy/i,
     });
     await user.click(cancelBtn);
+    // Pearl §3.1 (gap closed 2026-05-29): cancellation reason is now
+    // required (server-side Zod 3-500 chars). The dashboard's Confirm
+    // button is disabled until the reason has at least 3 chars, and
+    // confirmCancel() short-circuits otherwise — so the test must enter
+    // a reason before clicking Yes, cancel.
+    const reasonInput = await screen.findByTestId("cancel-reason");
+    await user.type(reasonInput, "Patient called to cancel");
     const confirmBtn = await screen.findByRole("button", { name: /yes, cancel/i });
     await user.click(confirmBtn);
     await waitFor(() =>
       expect(apiMock.patch).toHaveBeenCalledWith(
         "/appointments/a-booked/status",
-        { status: "CANCELLED" },
+        { status: "CANCELLED", cancellationReason: "Patient called to cancel" },
       ),
     );
   });
@@ -593,6 +600,10 @@ describe("AppointmentsPage — colocated coverage", () => {
       name: /cancel appointment for asha roy/i,
     });
     await user.click(cancelBtn);
+    // Same §3.1 contract: enter the reason so the submit fires the API
+    // call (which then rejects with the simulated conflict error).
+    const reasonInput = await screen.findByTestId("cancel-reason");
+    await user.type(reasonInput, "Patient called to cancel");
     const confirmBtn = await screen.findByRole("button", { name: /yes, cancel/i });
     await user.click(confirmBtn);
     await waitFor(() =>
@@ -633,6 +644,13 @@ describe("AppointmentsPage — colocated coverage", () => {
     });
     await user.click(reschedBtn);
 
+    // Pearl §3.1 (gap closed 2026-05-29): reschedule reason is required
+    // (server-side Zod 3-500 chars). confirmReschedule short-circuits
+    // with toast.error if the reason is empty, so the test must enter
+    // a reason BEFORE clicking the slot button (which is the submit).
+    const reasonInput = await screen.findByTestId("resched-reason");
+    await user.type(reasonInput, "Doctor schedule changed");
+
     // Slot button surfaces after loadReschedSlots resolves.
     const slot = await screen.findByRole("button", { name: /^14:00 - 14:15$/ });
     expect(rescheduleSlotsCalls).toBeGreaterThan(0);
@@ -641,7 +659,10 @@ describe("AppointmentsPage — colocated coverage", () => {
     await waitFor(() =>
       expect(apiMock.patch).toHaveBeenCalledWith(
         "/appointments/a-booked/reschedule",
-        expect.objectContaining({ slotStart: "14:00" }),
+        expect.objectContaining({
+          slotStart: "14:00",
+          reason: "Doctor schedule changed",
+        }),
       ),
     );
     expect(toastMock.success).toHaveBeenCalled();

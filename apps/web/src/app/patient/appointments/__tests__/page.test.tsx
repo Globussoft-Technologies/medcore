@@ -317,6 +317,15 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
     );
     fireEvent.change(dateInput, { target: { value: "2099-12-31" } });
     fireEvent.change(timeInput, { target: { value: "15:30" } });
+    // Pearl §3.1 (gap closed 2026-05-29): reschedule reason is required
+    // server-side (Zod, 3-500 chars). Local validation also short-circuits
+    // the submit, so the test must enter a reason before clicking submit.
+    const reasonInput = screen.getByTestId(
+      "patient-appointments-reschedule-reason",
+    );
+    fireEvent.change(reasonInput, {
+      target: { value: "Schedule conflict" },
+    });
     fireEvent.click(
       screen.getByTestId("patient-appointments-reschedule-submit"),
     );
@@ -324,12 +333,16 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
     await waitFor(() => {
       expect(apiPatchMock).toHaveBeenCalledWith(
         "/appointments/appt-up-1/reschedule",
-        { date: "2099-12-31", slotStart: "15:30" },
+        {
+          date: "2099-12-31",
+          slotStart: "15:30",
+          reason: "Schedule conflict",
+        },
       );
     });
   });
 
-  it("submitting cancel PATCHes /appointments/:id/status with { status: 'CANCELLED' }", async () => {
+  it("submitting cancel PATCHes /appointments/:id/status with { status: 'CANCELLED', cancellationReason }", async () => {
     apiGetMock.mockImplementation((endpoint: string) => {
       if (endpoint.includes("status=BOOKED")) {
         return Promise.resolve(listOk([bookActive("appt-up-1", FUTURE)]));
@@ -349,12 +362,25 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
     );
     expect(modal).toBeInTheDocument();
 
+    // Pearl §3.1: cancellation reason is required (server-side Zod
+    // 3-500 chars + local short-circuit guard). Must be entered before
+    // the submit button fires the API call.
+    const reasonInput = screen.getByTestId(
+      "patient-appointments-cancel-reason",
+    );
+    fireEvent.change(reasonInput, {
+      target: { value: "Feeling better, no longer need appointment" },
+    });
+
     fireEvent.click(screen.getByTestId("patient-appointments-cancel-submit"));
 
     await waitFor(() => {
       expect(apiPatchMock).toHaveBeenCalledWith(
         "/appointments/appt-up-1/status",
-        { status: "CANCELLED" },
+        {
+          status: "CANCELLED",
+          cancellationReason: "Feeling better, no longer need appointment",
+        },
       );
     });
   });

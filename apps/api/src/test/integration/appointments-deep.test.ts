@@ -39,10 +39,19 @@ describeIfDB("Appointments API — deep edges", () => {
 
   // ─── Reschedule ────────────────────────────────────────────
   it("reschedule 404 on unknown appointment", async () => {
+    // Pearl §3.1: reschedule requires a reason (3-500 chars). The
+    // validate(rescheduleAppointmentSchema) middleware runs BEFORE the
+    // route handler does its appointment-lookup, so we must include a
+    // reason here for the test to reach the 404 path. Without it the
+    // route returns 400 from Zod.
     const res = await request(app)
       .patch(`/api/v1/appointments/550e8400-e29b-41d4-a716-446655440000/reschedule`)
       .set("Authorization", `Bearer ${reception}`)
-      .send({ date: daysFromNow(1), slotStart: "10:00" });
+      .send({
+        date: daysFromNow(1),
+        slotStart: "10:00",
+        reason: "Looking up unknown appointment",
+      });
     expect(res.status).toBe(404);
   });
 
@@ -54,10 +63,19 @@ describeIfDB("Appointments API — deep edges", () => {
       doctorId: doctor.id,
       overrides: { status: "COMPLETED" },
     });
+    // Pearl §3.1: include `reason` so this test asserts the 400 that
+    // comes from the route's "cannot reschedule completed" branch,
+    // NOT the upstream Zod 400 for the missing field. Same status code
+    // but very different semantic — without this fix, the test would
+    // pass for the WRONG reason.
     const res = await request(app)
       .patch(`/api/v1/appointments/${appt.id}/reschedule`)
       .set("Authorization", `Bearer ${reception}`)
-      .send({ date: daysFromNow(1), slotStart: "11:00" });
+      .send({
+        date: daysFromNow(1),
+        slotStart: "11:00",
+        reason: "Test COMPLETED-state rejection",
+      });
     expect(res.status).toBe(400);
   });
 
@@ -93,7 +111,10 @@ describeIfDB("Appointments API — deep edges", () => {
     const res = await request(app)
       .patch(`/api/v1/appointments/${other.id}/reschedule`)
       .set("Authorization", `Bearer ${reception}`)
-      .send({ date: daysFromNow(2), slotStart: "12:00" });
+      // Pearl §3.1: reschedule requires a reason (3-500 chars). Include
+      // it so the 409 conflict response we're asserting fires from the
+      // handler, not from the upstream Zod validator.
+      .send({ date: daysFromNow(2), slotStart: "12:00", reason: "Slot conflict test" });
     expect(res.status).toBe(409);
   });
 
@@ -241,10 +262,13 @@ describeIfDB("Appointments API — deep edges", () => {
       doctorId: doctor.id,
       overrides: { status: "BOOKED" },
     });
+    // Pearl §3.1 (gap closed 2026-05-29): noShowReason is required by
+    // Zod when status is NO_SHOW (3-500 chars). Without it the route
+    // returns 400 — see updateAppointmentStatusSchema.
     const res = await request(app)
       .patch(`/api/v1/appointments/${appt.id}/status`)
       .set("Authorization", `Bearer ${reception}`)
-      .send({ status: "NO_SHOW" });
+      .send({ status: "NO_SHOW", noShowReason: "Did not arrive within grace window" });
     expect(res.status).toBe(200);
     const prisma = await getPrisma();
     const p = await prisma.patient.findUnique({ where: { id: patient.id } });

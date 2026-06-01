@@ -276,29 +276,25 @@ describe("checkDrugSafety", () => {
 
   it("merges LLM-discovered interactions not already in deterministic list", async () => {
     process.env.SARVAM_API_KEY = "x";
+    // Sarvam-m doesn't support OpenAI tool calling — the safety-check
+    // path now uses response_format: json_object and emits the
+    // interactions list inline in message.content. parseSarvamJson
+    // strips `<think>…</think>` blocks before JSON.parse.
     createMock.mockResolvedValueOnce({
       choices: [
         {
           message: {
-            content: null,
-            tool_calls: [
-              {
-                type: "function",
-                function: {
-                  name: "report_drug_interactions",
-                  arguments: JSON.stringify({
-                    interactions: [
-                      {
-                        drug1: "DrugA",
-                        drug2: "DrugB",
-                        severity: "MODERATE",
-                        description: "Novel pair",
-                      },
-                    ],
-                  }),
+            content: JSON.stringify({
+              interactions: [
+                {
+                  drug1: "DrugA",
+                  drug2: "DrugB",
+                  severity: "MODERATE",
+                  description: "Novel pair",
                 },
-              },
-            ],
+              ],
+            }),
+            tool_calls: [],
           },
         },
       ],

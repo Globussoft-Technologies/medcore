@@ -34,20 +34,26 @@ vi.mock("./model-router", () => ({
  * whose `arguments` JSON serialises to the given payload. Matches what the
  * production code at radiology-reports.ts:getToolCallFromResponse expects.
  */
-function fakeToolCallResponse(payload: unknown, usage = { prompt: 10, completion: 5 }) {
+// Sarvam-m doesn't support OpenAI function/tool calling. The radiology
+// route now branches by provider: the Sarvam path uses
+// response_format: json_object (JSON inline in message.content), the
+// OpenAI fallback path keeps the tools-based call shape. Production
+// code at radiology-reports.ts:extractRadiologyDraft picks the right
+// parser per provider. Tests targeting the Sarvam path must use this
+// helper. The old fakeToolCallResponse helper (tool_calls shape) was
+// removed when all Sarvam-path tests migrated; if a future test
+// exercises the OpenAI fallback branch, re-introduce a tool-call
+// helper.
+function fakeSarvamJsonResponse(
+  payload: unknown,
+  usage = { prompt: 10, completion: 5 },
+) {
   return {
     choices: [
       {
         message: {
-          tool_calls: [
-            {
-              type: "function" as const,
-              function: {
-                name: "emit_radiology_draft",
-                arguments: JSON.stringify(payload),
-              },
-            },
-          ],
+          content: JSON.stringify(payload),
+          tool_calls: [],
         },
       },
     ],
@@ -289,11 +295,15 @@ describe("radiology-reports — prior-study prompt injection", () => {
     callWithFallbackMock.mockImplementation(async (fn) => {
       // Default: invoke the callback so production code sees a successful
       // ChatCompletion with the standard "No acute change." payload.
+      // Sarvam path expects JSON inline in message.content (json_object
+      // mode) — the production extractRadiologyDraft routes by provider
+      // and uses parseSarvamJson for "sarvam", getToolCallFromResponse
+      // for "openai".
       const stubClient = {
         chat: {
           completions: {
             create: vi.fn().mockResolvedValue(
-              fakeToolCallResponse({
+              fakeSarvamJsonResponse({
                 impression: "No acute change.",
                 findings: [],
                 recommendations: [],
@@ -347,7 +357,7 @@ describe("radiology-reports — prior-study prompt injection", () => {
         chat: {
           completions: {
             create: vi.fn().mockResolvedValue(
-              fakeToolCallResponse({
+              fakeSarvamJsonResponse({
                 impression: "Unremarkable exam",
                 findings: [],
                 recommendations: [],

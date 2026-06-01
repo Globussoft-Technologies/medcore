@@ -76,7 +76,7 @@ async function main() {
     create: {
       email: "superadmin@medcore.local",
       phone: "9999900099",
-      name: "Onviqa Super Admin",
+      name: "Super Admin",
       passwordHash: hashPassword("superadmin123"),
       role: SUPER_ADMIN,
       tenantId: null,

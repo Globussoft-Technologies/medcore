@@ -70,7 +70,14 @@ export default function PatientLandingPage() {
     return (
       <section
         data-testid="patient-landing-probing"
-        className="flex min-h-[60vh] w-full flex-1 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+        // CLS hardening: top-anchor the spinner with roughly the hero's
+        // above-the-fold offset (the hero's `py-16 sm:py-24` lands its first
+        // content ~8rem down) and reserve full height, so when the probe
+        // settles and the marketing surface swaps in, first-viewport content
+        // doesn't jump from a vertically-centered spinner to a top-anchored
+        // hero. This is the unauthed surface Lighthouse measures, where the
+        // centered→top reflow was driving Cumulative Layout Shift.
+        className="flex min-h-screen w-full flex-1 items-start justify-center pt-32 text-sm text-gray-500 dark:text-gray-400"
       >
         <div className="flex items-center gap-2">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500" />
@@ -152,9 +159,9 @@ export default function PatientLandingPage() {
               <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400">
                 <f.icon className="h-6 w-6" />
               </div>
-              <h3 className="text-base font-semibold text-gray-900 dark:text-white">
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">
                 {f.title}
-              </h3>
+              </h2>
               <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
                 {f.desc}
               </p>
@@ -169,9 +176,9 @@ export default function PatientLandingPage() {
                 <HeartPulse className="h-6 w-6" />
               </span>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   Get started in under a minute
-                </h3>
+                </h2>
                 <ul className="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-400">
                   {[
                     "8 Indian languages supported",

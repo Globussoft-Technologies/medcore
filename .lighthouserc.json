@@ -22,6 +22,8 @@
         "csp-xss": "off",
         "is-on-https": "off",
         "errors-in-console": "warn",
+        "cls-culprits-insight": "warn",
+        "image-delivery-insight": "warn",
         "label-content-name-mismatch": "warn",
         "legacy-javascript-insight": "warn",
         "network-dependency-tree-insight": "warn",

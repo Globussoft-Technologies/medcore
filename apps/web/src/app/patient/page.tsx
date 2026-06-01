@@ -70,14 +70,7 @@ export default function PatientLandingPage() {
     return (
       <section
         data-testid="patient-landing-probing"
-        // CLS hardening: top-anchor the spinner with roughly the hero's
-        // above-the-fold offset (the hero's `py-16 sm:py-24` lands its first
-        // content ~8rem down) and reserve full height, so when the probe
-        // settles and the marketing surface swaps in, first-viewport content
-        // doesn't jump from a vertically-centered spinner to a top-anchored
-        // hero. This is the unauthed surface Lighthouse measures, where the
-        // centered→top reflow was driving Cumulative Layout Shift.
-        className="flex min-h-screen w-full flex-1 items-start justify-center pt-32 text-sm text-gray-500 dark:text-gray-400"
+        className="flex min-h-[60vh] w-full flex-1 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
       >
         <div className="flex items-center gap-2">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500" />

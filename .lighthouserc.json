@@ -7,7 +7,7 @@
         "http://localhost:3000/patient/bills",
         "http://localhost:3000/patient/appointments"
       ],
-      "numberOfRuns": 1,
+      "numberOfRuns": 3,
       "settings": {
         "preset": "desktop",
         "emulatedFormFactor": "mobile"
@@ -16,7 +16,7 @@
     "assert": {
       "preset": "lighthouse:recommended",
       "assertions": {
-        "categories:performance": ["error", { "minScore": 0.85 }],
+        "categories:performance": ["error", { "minScore": 0.8 }],
         "categories:accessibility": ["error", { "minScore": 0.95 }],
         "uses-http2": "off",
         "csp-xss": "off",

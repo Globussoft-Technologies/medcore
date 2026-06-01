@@ -9,7 +9,7 @@
 // filter, CSV export (content-type + filename + audit row), zero-data edge
 // case (no divide-by-zero), non-ADMIN 403, and the DOW pivot invariant
 // (per-DOW totals sum to per-doctor totals).
-import { it, expect, beforeAll } from "vitest";
+import { it, expect, beforeAll, afterAll, vi } from "vitest";
 import request from "supertest";
 import {
   describeIfDB,
@@ -51,6 +51,15 @@ function dayInCurrentMonth(dayOfMonth: number): Date {
 
 describeIfDB("Analytics no-show report (integration)", () => {
   beforeAll(async () => {
+    // Pin "now" to mid-month so the seeded fixtures (days 1/2/3 of the current
+    // month) always fall inside the endpoint's default window of
+    // [first-of-month, now]. Without this, running on/near the 1st of the
+    // month puts days 2 & 3 in the future, so the default-window aggregations
+    // silently drop them. Fake ONLY Date (not setTimeout/setInterval) so the
+    // real-timer audit-flush poll in the CSV-export test still works.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
+
     await resetDB();
     adminToken = await getAuthToken("ADMIN");
     doctorToken = await getAuthToken("DOCTOR");
@@ -96,6 +105,10 @@ describeIfDB("Analytics no-show report (integration)", () => {
       doctorId: doctorB.id,
       overrides: { status: "COMPLETED", date: dayInCurrentMonth(3), tokenNumber: 2 },
     });
+  });
+
+  afterAll(() => {
+    vi.useRealTimers();
   });
 
   it("aggregates per-doctor totals + overall rate over default window", async () => {

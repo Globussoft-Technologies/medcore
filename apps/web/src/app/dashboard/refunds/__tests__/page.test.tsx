@@ -264,9 +264,15 @@ describe("Refunds dashboard page", () => {
     const fromInput = screen.getByLabelText("From") as HTMLInputElement;
     const toInput = screen.getByLabelText("To") as HTMLInputElement;
 
-    // Force a reversed range: To earlier than From.
+    // Force a reversed range: To earlier than From. Set To FIRST to a date
+    // well before the (recent) default From, so the range is reversed from the
+    // very first change. Otherwise — when this test runs on the 1st of the
+    // month, where the default To is also today — setting From=today first
+    // leaves a briefly-VALID intermediate range (From===To) that triggers the
+    // page's auto-refetch, inflating the call count and failing the assertion
+    // below.
+    fireEvent.change(toInput, { target: { value: "2000-01-01" } });
     fireEvent.change(fromInput, { target: { value: "2026-06-01" } });
-    fireEvent.change(toInput, { target: { value: "2026-05-01" } });
 
     // Error message surfaces, aria-invalid flips true, Apply is disabled.
     expect(

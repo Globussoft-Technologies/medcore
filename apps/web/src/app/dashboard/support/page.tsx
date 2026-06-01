@@ -103,27 +103,27 @@ const STATUS_BADGE: Record<
 > = {
   OPEN: {
     label: "New",
-    cls: "border-sky-200 bg-sky-50 text-sky-700",
+    cls: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300",
     Icon: AlertCircle,
   },
   AWAITING_TENANT: {
     label: "Awaiting your reply",
-    cls: "border-amber-200 bg-amber-50 text-amber-700",
+    cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300",
     Icon: MessageSquare,
   },
   IN_PROGRESS: {
     label: "In progress",
-    cls: "border-violet-200 bg-violet-50 text-violet-700",
+    cls: "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300",
     Icon: Loader2,
   },
   RESOLVED: {
     label: "Resolved",
-    cls: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300",
     Icon: CheckCircle2,
   },
   CLOSED: {
     label: "Closed",
-    cls: "border-slate-200 bg-slate-50 text-slate-600",
+    cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
     Icon: CheckCircle2,
   },
 };
@@ -294,17 +294,17 @@ export default function TenantSupportPage() {
   return (
     <section className="space-y-6 py-4" data-testid="tenant-support-page">
       {/* Hero */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-primary/5 via-white to-white p-5 shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-primary/5 via-white to-white p-5 shadow-sm dark:border-gray-700 dark:from-primary/10 dark:via-gray-800 dark:to-gray-800">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary dark:bg-primary/20">
               <Ticket size={20} />
             </div>
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                 Support
               </h1>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                 Raise a ticket with the Onviqa team. Response times match
                 your plan&rsquo;s SLA.
               </p>
@@ -324,19 +324,19 @@ export default function TenantSupportPage() {
       {error ? (
         <div
           role="alert"
-          className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+          className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
         >
           {error}
         </div>
       ) : null}
 
       {/* List */}
-      <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-gray-700 dark:text-slate-200">
           Your tickets {openCount > 0 ? `(${openCount} open)` : ""}
         </div>
-        <table className="min-w-full text-left text-sm">
-          <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+        <table className="w-full min-w-[760px] text-left text-sm">
+          <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
             <tr>
               <th className="px-4 py-2 font-medium">Subject</th>
               <th className="px-4 py-2 font-medium">Status</th>
@@ -346,12 +346,12 @@ export default function TenantSupportPage() {
               <th className="px-4 py-2 font-medium" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
             {tickets.length === 0 && !loading ? (
               <tr>
                 <td
                   colSpan={6}
-                  className="px-4 py-8 text-center text-sm text-slate-500"
+                  className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                 >
                   No support tickets yet. Click <strong>New ticket</strong>{" "}
                   to reach the Onviqa team.
@@ -365,10 +365,10 @@ export default function TenantSupportPage() {
                 <tr
                   key={t.id}
                   data-testid={`tenant-support-row-${t.id}`}
-                  className="cursor-pointer hover:bg-slate-50"
+                  className="cursor-pointer hover:bg-slate-50 dark:hover:bg-gray-700/50"
                   onClick={() => setOpenTicketId(t.id)}
                 >
-                  <td className="px-4 py-2 font-medium text-slate-900">
+                  <td className="px-4 py-2 font-medium text-slate-900 dark:text-slate-100">
                     {t.subject}
                   </td>
                   <td className="px-4 py-2">
@@ -379,7 +379,7 @@ export default function TenantSupportPage() {
                       {badge.label}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-xs text-slate-700">
+                  <td className="px-4 py-2 text-xs text-slate-700 dark:text-slate-300">
                     {t.priority}
                   </td>
                   <td className="px-4 py-2">
@@ -389,7 +389,7 @@ export default function TenantSupportPage() {
                       status={t.status}
                     />
                   </td>
-                  <td className="px-4 py-2 text-xs text-slate-500">
+                  <td className="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
                     {formatTs(t.updatedAt)}
                   </td>
                   <td className="px-4 py-2 text-right">
@@ -420,24 +420,24 @@ export default function TenantSupportPage() {
           onClick={() => !newBusy && setOpenNew(false)}
         >
           <div
-            className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+            className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between">
-              <h2 className="text-lg font-semibold text-slate-900">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                 New support ticket
               </h2>
               <button
                 type="button"
                 onClick={() => setOpenNew(false)}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
               >
                 <X size={18} />
               </button>
             </div>
             <div className="space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">
+                <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
                   Subject
                 </label>
                 <input
@@ -446,11 +446,11 @@ export default function TenantSupportPage() {
                   onChange={(e) => setNewSubject(e.target.value)}
                   maxLength={200}
                   placeholder="What's the issue in one line?"
-                  className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
+                  className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">
+                <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
                   Details
                 </label>
                 <textarea
@@ -459,11 +459,11 @@ export default function TenantSupportPage() {
                   rows={6}
                   maxLength={8000}
                   placeholder="Steps to reproduce, what you expected, what happened…"
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">
+                <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
                   Priority
                 </label>
                 <select
@@ -471,7 +471,7 @@ export default function TenantSupportPage() {
                   onChange={(e) =>
                     setNewPriority(e.target.value as TicketPriority)
                   }
-                  className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
+                  className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                 >
                   {PRIORITIES.map((p) => (
                     <option key={p.key} value={p.key}>
@@ -479,7 +479,7 @@ export default function TenantSupportPage() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                   Higher priority = faster SLA, but please reserve URGENT for
                   outages affecting patient care.
                 </p>
@@ -490,7 +490,7 @@ export default function TenantSupportPage() {
                 type="button"
                 onClick={() => setOpenNew(false)}
                 disabled={newBusy}
-                className="inline-flex h-10 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700"
+                className="inline-flex h-10 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200"
               >
                 Cancel
               </button>
@@ -515,14 +515,14 @@ export default function TenantSupportPage() {
           aria-modal="true"
           onClick={() => setOpenTicketId(null)}
         >
-          <div className="ml-auto h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl">
+          <div className="ml-auto h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl dark:bg-gray-900 dark:text-slate-100">
             <div
               onClick={(e) => e.stopPropagation()}
               className="flex h-full flex-col"
             >
-              <div className="flex items-start justify-between border-b border-slate-200 p-5">
+              <div className="flex items-start justify-between border-b border-slate-200 p-5 dark:border-gray-700">
                 <div>
-                  <h3 className="text-base font-semibold text-slate-900">
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
                     {openTicket?.subject ?? "Loading…"}
                   </h3>
                   {openTicket ? (
@@ -539,7 +539,7 @@ export default function TenantSupportPage() {
                           </span>
                         );
                       })()}
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-slate-500 dark:text-slate-400">
                         Priority: {openTicket.priority}
                       </span>
                       <SlaBadgeInline
@@ -553,7 +553,7 @@ export default function TenantSupportPage() {
                 <button
                   type="button"
                   onClick={() => setOpenTicketId(null)}
-                  className="text-slate-400 hover:text-slate-600"
+                  className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300"
                 >
                   <X size={18} />
                 </button>
@@ -561,19 +561,19 @@ export default function TenantSupportPage() {
 
               <div className="flex-1 space-y-4 overflow-y-auto p-5">
                 {openTicketLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                     <Loader2 size={14} className="animate-spin" />
                     Loading…
                   </div>
                 ) : openTicket ? (
                   <>
                     {/* Original body */}
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <div className="mb-1 text-xs text-slate-500">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-gray-700 dark:bg-gray-800">
+                      <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">
                         {openTicket.openedBy?.name ?? "You"} ·{" "}
                         {formatTs(openTicket.createdAt)}
                       </div>
-                      <p className="whitespace-pre-wrap text-sm text-slate-800">
+                      <p className="whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200">
                         {openTicket.body}
                       </p>
                     </div>
@@ -585,16 +585,16 @@ export default function TenantSupportPage() {
                           key={m.id}
                           className={`rounded-lg border p-3 ${
                             isOnviqa
-                              ? "border-primary/30 bg-primary/5"
-                              : "border-slate-200 bg-white"
+                              ? "border-primary/30 bg-primary/5 dark:bg-primary/10"
+                              : "border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-800"
                           }`}
                         >
-                          <div className="mb-1 text-xs text-slate-500">
+                          <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">
                             {isOnviqa ? "Onviqa team" : "You"}
                             {m.author?.name ? ` (${m.author.name})` : ""} ·{" "}
                             {formatTs(m.createdAt)}
                           </div>
-                          <p className="whitespace-pre-wrap text-sm text-slate-800">
+                          <p className="whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200">
                             {m.body}
                           </p>
                         </div>
@@ -608,13 +608,13 @@ export default function TenantSupportPage() {
               {openTicket &&
               openTicket.status !== "RESOLVED" &&
               openTicket.status !== "CLOSED" ? (
-                <div className="border-t border-slate-200 p-5">
+                <div className="border-t border-slate-200 p-5 dark:border-gray-700">
                   <textarea
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
                     rows={3}
                     placeholder="Reply to the Onviqa team…"
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                   />
                   <div className="mt-2 flex justify-end">
                     <button
@@ -645,28 +645,29 @@ function SlaBadgeInline({
   slaPlan: SlaPlan | null;
   status: TicketStatus;
 }) {
-  if (!slaDueAt) return <span className="text-xs text-slate-400">—</span>;
+  if (!slaDueAt)
+    return <span className="text-xs text-slate-400 dark:text-slate-500">—</span>;
   const ms = new Date(slaDueAt).getTime() - Date.now();
   const closed = status === "RESOLVED" || status === "CLOSED";
   let label = "";
-  let tone = "bg-slate-50 text-slate-700";
+  let tone = "bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
   if (closed) {
     if (ms < 0) {
       label = "Missed SLA";
-      tone = "bg-rose-50 text-rose-700";
+      tone = "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300";
     } else {
       label = "SLA met";
-      tone = "bg-emerald-50 text-emerald-700";
+      tone = "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300";
     }
   } else if (ms <= 0) {
     label = `Breached ${formatRelativeDuration(-ms)} ago`;
-    tone = "bg-rose-100 text-rose-700 font-semibold";
+    tone = "bg-rose-100 text-rose-700 font-semibold dark:bg-rose-950/40 dark:text-rose-300";
   } else if (ms < 60 * 60 * 1000) {
     label = `Due in ${formatRelativeDuration(ms)}`;
-    tone = "bg-amber-100 text-amber-800 font-semibold";
+    tone = "bg-amber-100 text-amber-800 font-semibold dark:bg-amber-950/40 dark:text-amber-300";
   } else {
     label = `Due in ${formatRelativeDuration(ms)}`;
-    tone = "bg-slate-50 text-slate-700";
+    tone = "bg-slate-50 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
   }
   return (
     <span

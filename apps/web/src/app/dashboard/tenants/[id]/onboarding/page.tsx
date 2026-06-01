@@ -314,7 +314,7 @@ export default function TenantOnboardingPage() {
       <div className="mb-4">
         <Link
           href="/dashboard/tenants"
-          className="mb-2 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+          className="mb-2 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
         >
           <ArrowLeft size={14} /> {t("tenants.onb.back", "Back to tenants")}
         </Link>
@@ -322,22 +322,22 @@ export default function TenantOnboardingPage() {
           {t("tenants.onb.title", "Tenant Onboarding")}
         </h1>
         {detail && (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             <span className="font-medium">{detail.name}</span> ·{" "}
             <span className="font-mono">{detail.subdomain}</span>
           </p>
         )}
       </div>
 
-      <div className="mb-6 rounded-xl bg-white p-4 shadow-sm">
+      <div className="mb-6 rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
         <div className="mb-2 flex items-center justify-between text-sm">
-          <span className="text-gray-600">
+          <span className="text-gray-600 dark:text-gray-300">
             {t("tenants.onb.progress", "Progress")}: {completedCount} /{" "}
             {STEPS.length}
           </span>
           <span className="font-medium">{percent}%</span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+        <div className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
           <div
             className="h-full rounded-full bg-primary transition-all"
             style={{ width: `${percent}%` }}
@@ -382,21 +382,21 @@ export default function TenantOnboardingPage() {
                 data-step-status={
                   complete ? "complete" : skippedNow ? "skipped" : "pending"
                 }
-                className={`flex items-start gap-4 rounded-xl border bg-white p-4 shadow-sm transition ${
+                className={`flex items-start gap-4 rounded-xl border bg-white p-4 shadow-sm transition dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 ${
                   complete
-                    ? "border-green-200 bg-green-50/40"
+                    ? "border-green-200 bg-green-50/40 dark:border-green-900 dark:bg-green-950/30"
                     : skippedNow
-                      ? "border-amber-200 bg-amber-50/40"
+                      ? "border-amber-200 bg-amber-50/40 dark:border-amber-900 dark:bg-amber-950/30"
                       : ""
                 }`}
               >
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white">
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white dark:bg-gray-700">
                   {complete ? (
-                    <Check size={18} className="text-green-600" />
+                    <Check size={18} className="text-green-600 dark:text-green-400" />
                   ) : (
                     <Circle
                       size={18}
-                      className={skippedNow ? "text-amber-400" : "text-gray-300"}
+                      className={skippedNow ? "text-amber-400" : "text-gray-300 dark:text-gray-600"}
                     />
                   )}
                 </div>
@@ -406,7 +406,7 @@ export default function TenantOnboardingPage() {
                       {idx + 1}. {t(step.titleKey, step.titleDefault)}
                     </h3>
                     {complete && steps[step.key] && (
-                      <span className="text-xs text-green-600">
+                      <span className="text-xs text-green-600 dark:text-green-400">
                         ✓{" "}
                         {new Date(steps[step.key]).toLocaleDateString("en-IN", {
                           day: "2-digit",
@@ -418,7 +418,7 @@ export default function TenantOnboardingPage() {
                     {skippedNow && skipped[step.key] && (
                       <span
                         data-testid={`tenant-onboarding-skipped-badge-${step.key}`}
-                        className="text-xs text-amber-600"
+                        className="text-xs text-amber-600 dark:text-amber-400"
                       >
                         {t("tenants.onb.skippedOn", "Skipped on")}{" "}
                         {new Date(skipped[step.key]).toLocaleDateString("en-IN", {
@@ -429,13 +429,13 @@ export default function TenantOnboardingPage() {
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 text-sm text-gray-600">
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
                     {t(step.descriptionKey, step.descriptionDefault)}
                   </p>
                   {step.checklistItems && step.checklistItems.length > 0 && (
                     <ul
                       data-testid={`tenant-onboarding-checklist-${step.key}`}
-                      className="mt-2 list-disc space-y-1 pl-5 text-xs text-gray-600"
+                      className="mt-2 list-disc space-y-1 pl-5 text-xs text-gray-600 dark:text-gray-400"
                     >
                       {step.checklistItems.map((item) => (
                         <li key={item.key}>{t(item.key, item.defaultText)}</li>
@@ -448,7 +448,7 @@ export default function TenantOnboardingPage() {
                         href={primaryHref}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
                         data-testid={`tenant-onboarding-link-${step.key}`}
                       >
                         {t(step.linkLabelKey, step.linkLabelDefault)}{" "}
@@ -457,7 +457,7 @@ export default function TenantOnboardingPage() {
                     ) : (
                       <Link
                         href={primaryHref}
-                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
                         data-testid={`tenant-onboarding-link-${step.key}`}
                       >
                         {t(step.linkLabelKey, step.linkLabelDefault)}{" "}
@@ -469,7 +469,7 @@ export default function TenantOnboardingPage() {
                         href={secondaryHref}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
                         data-testid={`tenant-onboarding-link2-${step.key}`}
                       >
                         {t(
@@ -492,7 +492,7 @@ export default function TenantOnboardingPage() {
                           <button
                             data-testid={`tenant-onboarding-skip-${step.key}`}
                             onClick={() => markSkipped(step.key)}
-                            className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50"
+                            className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
                           >
                             {t("tenants.onb.skipForNow", "Skip for now")}
                           </button>

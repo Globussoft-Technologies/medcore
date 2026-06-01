@@ -113,19 +113,19 @@ const STATUS_BADGE: Record<
   { cls: string; label: string }
 > = {
   scheduled: {
-    cls: "border-sky-200 bg-sky-50 text-sky-700",
+    cls: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300",
     label: "Scheduled",
   },
   in_progress: {
-    cls: "border-amber-200 bg-amber-50 text-amber-700",
+    cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300",
     label: "In progress",
   },
   completed: {
-    cls: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300",
     label: "Completed",
   },
   cancelled: {
-    cls: "border-slate-200 bg-slate-50 text-slate-600",
+    cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
     label: "Cancelled",
   },
 };
@@ -257,16 +257,16 @@ export default function ObservabilityPage() {
   return (
     <section className="space-y-6 py-4" data-testid="observability-page">
       {/* Hero */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-primary/5 via-white to-white p-5 shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-primary/5 via-white to-white p-5 shadow-sm dark:border-gray-700 dark:from-primary/10 dark:via-gray-800 dark:to-gray-800">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary dark:bg-primary/20">
             <Gauge size={20} />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
               Observability
             </h1>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
               Per-tenant API health, slow endpoints, failed background jobs,
               and scheduled maintenance windows surfaced on the public
               status page.
@@ -277,7 +277,7 @@ export default function ObservabilityPage() {
 
       {/* Tabs */}
       <div
-        className="flex flex-wrap gap-2 border-b border-slate-200"
+        className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-gray-700"
         role="tablist"
       >
         <button
@@ -288,8 +288,8 @@ export default function ObservabilityPage() {
           onClick={() => setTab("health")}
           className={`-mb-px inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
             tab === "health"
-              ? "border-slate-900 text-slate-900"
-              : "border-transparent text-slate-500 hover:text-slate-700"
+              ? "border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           }`}
         >
           <Activity size={14} />
@@ -303,8 +303,8 @@ export default function ObservabilityPage() {
           onClick={() => setTab("maintenance")}
           className={`-mb-px inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
             tab === "maintenance"
-              ? "border-slate-900 text-slate-900"
-              : "border-transparent text-slate-500 hover:text-slate-700"
+              ? "border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           }`}
         >
           <Wrench size={14} />
@@ -316,13 +316,13 @@ export default function ObservabilityPage() {
       {tab === "health" ? (
         <>
           <div className="flex flex-wrap items-center gap-3">
-            <label className="text-xs font-medium text-slate-500">
+            <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
               Window
             </label>
             <select
               value={hours}
               onChange={(e) => setHours(Number(e.target.value))}
-              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
+              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100"
               data-testid="observability-hours-select"
             >
               {HOURS_OPTIONS.map((opt) => (
@@ -335,7 +335,7 @@ export default function ObservabilityPage() {
               type="button"
               onClick={() => void fetchHealth()}
               disabled={healthLoading}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50"
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
             >
               {healthLoading ? (
                 <Loader2 size={14} className="animate-spin" />
@@ -347,7 +347,7 @@ export default function ObservabilityPage() {
           {healthError ? (
             <div
               role="alert"
-              className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+              className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
             >
               {healthError}
             </div>
@@ -383,12 +383,12 @@ export default function ObservabilityPage() {
           </div>
 
           {/* Per-tenant table */}
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-gray-700 dark:text-slate-200">
               Per-tenant breakdown
             </div>
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-2 font-medium">Tenant</th>
                   <th className="px-4 py-2 font-medium text-right">5xx errors</th>
@@ -397,12 +397,12 @@ export default function ObservabilityPage() {
                   <th className="px-4 py-2 font-medium text-right">Failed jobs</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
                 {(health?.perTenant ?? []).length === 0 && !healthLoading ? (
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-4 py-8 text-center text-sm text-slate-500"
+                      className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     >
                       No slow or errored requests in the selected window.
                     </td>
@@ -410,14 +410,14 @@ export default function ObservabilityPage() {
                 ) : null}
                 {(health?.perTenant ?? []).map((t) => (
                   <tr key={t.tenantId ?? "platform"}>
-                    <td className="px-4 py-2 font-medium text-slate-900">
+                    <td className="px-4 py-2 font-medium text-slate-900 dark:text-slate-100">
                       {t.tenantName}
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">
                       {t.errorCount > 0 ? (
-                        <span className="text-rose-700">{t.errorCount}</span>
+                        <span className="text-rose-700 dark:text-rose-400">{t.errorCount}</span>
                       ) : (
-                        <span className="text-slate-400">0</span>
+                        <span className="text-slate-400 dark:text-slate-500">0</span>
                       )}
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">
@@ -436,12 +436,12 @@ export default function ObservabilityPage() {
           </div>
 
           {/* Slow-endpoint leaderboard */}
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-gray-700 dark:text-slate-200">
               Slow endpoint leaderboard (top 20 by p95)
             </div>
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-2 font-medium">Method</th>
                   <th className="px-4 py-2 font-medium">Path</th>
@@ -449,12 +449,12 @@ export default function ObservabilityPage() {
                   <th className="px-4 py-2 font-medium text-right">p95 (ms)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
                 {(health?.slowEndpoints ?? []).length === 0 && !healthLoading ? (
                   <tr>
                     <td
                       colSpan={4}
-                      className="px-4 py-8 text-center text-sm text-slate-500"
+                      className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     >
                       Nothing slow enough to surface here yet.
                     </td>
@@ -462,10 +462,10 @@ export default function ObservabilityPage() {
                 ) : null}
                 {(health?.slowEndpoints ?? []).map((e) => (
                   <tr key={`${e.method} ${e.pathTemplate}`}>
-                    <td className="px-4 py-2 font-mono text-xs text-slate-600">
+                    <td className="px-4 py-2 font-mono text-xs text-slate-600 dark:text-slate-400">
                       {e.method}
                     </td>
-                    <td className="px-4 py-2 font-mono text-xs text-slate-900">
+                    <td className="px-4 py-2 font-mono text-xs text-slate-900 dark:text-slate-100">
                       {e.pathTemplate}
                     </td>
                     <td className="px-4 py-2 text-right tabular-nums">
@@ -486,7 +486,7 @@ export default function ObservabilityPage() {
       {tab === "maintenance" ? (
         <>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 dark:text-slate-400">
               Scheduled + in-progress windows appear on the public status
               page so visitors see expected downtime.
             </p>
@@ -512,9 +512,9 @@ export default function ObservabilityPage() {
             </button>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-2 font-medium">Title</th>
                   <th className="px-4 py-2 font-medium">Status</th>
@@ -524,12 +524,12 @@ export default function ObservabilityPage() {
                   <th className="px-4 py-2 font-medium text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
                 {windows.length === 0 && !windowsLoading ? (
                   <tr>
                     <td
                       colSpan={6}
-                      className="px-4 py-8 text-center text-sm text-slate-500"
+                      className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     >
                       No maintenance windows yet.
                     </td>
@@ -539,7 +539,7 @@ export default function ObservabilityPage() {
                   const badge = STATUS_BADGE[w.status];
                   return (
                     <tr key={w.id}>
-                      <td className="px-4 py-2 font-medium text-slate-900">
+                      <td className="px-4 py-2 font-medium text-slate-900 dark:text-slate-100">
                         {w.title}
                       </td>
                       <td className="px-4 py-2">
@@ -549,13 +549,13 @@ export default function ObservabilityPage() {
                           {badge.label}
                         </span>
                       </td>
-                      <td className="px-4 py-2 text-slate-700">
+                      <td className="px-4 py-2 text-slate-700 dark:text-slate-300">
                         {formatDateTime(w.startsAt)}
                       </td>
-                      <td className="px-4 py-2 text-slate-700">
+                      <td className="px-4 py-2 text-slate-700 dark:text-slate-300">
                         {formatDateTime(w.endsAt)}
                       </td>
-                      <td className="px-4 py-2 text-xs text-slate-600">
+                      <td className="px-4 py-2 text-xs text-slate-600 dark:text-slate-400">
                         {w.affectsComponents.join(", ") || "—"}
                       </td>
                       <td className="px-4 py-2 text-right">
@@ -570,7 +570,7 @@ export default function ObservabilityPage() {
                                 endsAt: w.endsAt.slice(0, 16),
                               })
                             }
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-gray-700"
                             aria-label="Edit"
                           >
                             <Edit size={14} />
@@ -578,7 +578,7 @@ export default function ObservabilityPage() {
                           <button
                             type="button"
                             onClick={() => deleteWindow(w.id)}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-rose-600 hover:bg-rose-50"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
                             aria-label="Delete"
                           >
                             <Trash2 size={14} />
@@ -601,10 +601,10 @@ export default function ObservabilityPage() {
               onClick={() => setEditingWindow(null)}
             >
               <div
-                className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+                className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
                 onClick={(e) => e.stopPropagation()}
               >
-                <h2 className="text-lg font-semibold text-slate-900">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
                   {editingWindow.mode === "create"
                     ? "New maintenance window"
                     : "Edit maintenance window"}
@@ -620,7 +620,7 @@ export default function ObservabilityPage() {
                           title: e.target.value,
                         })
                       }
-                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
+                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                     />
                   </Field>
                   <Field label="Description (optional)">
@@ -633,7 +633,7 @@ export default function ObservabilityPage() {
                         })
                       }
                       rows={2}
-                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                      className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                     />
                   </Field>
                   <div className="grid grid-cols-2 gap-3">
@@ -647,7 +647,7 @@ export default function ObservabilityPage() {
                             startsAt: e.target.value,
                           })
                         }
-                        className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
+                        className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                       />
                     </Field>
                     <Field label="Ends at">
@@ -660,7 +660,7 @@ export default function ObservabilityPage() {
                             endsAt: e.target.value,
                           })
                         }
-                        className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
+                        className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                       />
                     </Field>
                   </div>
@@ -678,7 +678,7 @@ export default function ObservabilityPage() {
                         })
                       }
                       placeholder="api, database, whatsapp"
-                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
+                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                     />
                   </Field>
                   <Field label="Status">
@@ -691,7 +691,7 @@ export default function ObservabilityPage() {
                             .value as MaintenanceWindow["status"],
                         })
                       }
-                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
+                      className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
                     >
                       <option value="scheduled">Scheduled</option>
                       <option value="in_progress">In progress</option>
@@ -704,7 +704,7 @@ export default function ObservabilityPage() {
                   <button
                     type="button"
                     onClick={() => setEditingWindow(null)}
-                    className="inline-flex h-10 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700"
+                    className="inline-flex h-10 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200"
                   >
                     Cancel
                   </button>
@@ -729,10 +729,10 @@ const TONE_CLS: Record<
   "rose" | "amber" | "violet" | "sky",
   { bg: string; text: string }
 > = {
-  rose: { bg: "bg-rose-100", text: "text-rose-700" },
-  amber: { bg: "bg-amber-100", text: "text-amber-700" },
-  violet: { bg: "bg-violet-100", text: "text-violet-700" },
-  sky: { bg: "bg-sky-100", text: "text-sky-700" },
+  rose: { bg: "bg-rose-100 dark:bg-rose-900/40", text: "text-rose-700 dark:text-rose-300" },
+  amber: { bg: "bg-amber-100 dark:bg-amber-900/40", text: "text-amber-700 dark:text-amber-300" },
+  violet: { bg: "bg-violet-100 dark:bg-violet-900/40", text: "text-violet-700 dark:text-violet-300" },
+  sky: { bg: "bg-sky-100 dark:bg-sky-900/40", text: "text-sky-700 dark:text-sky-300" },
 };
 
 function KpiTile({
@@ -750,7 +750,7 @@ function KpiTile({
 }) {
   const c = TONE_CLS[tone];
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-center gap-3">
         <div
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${c.bg} ${c.text}`}
@@ -758,13 +758,13 @@ function KpiTile({
           <Icon size={16} />
         </div>
         <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
             {label}
           </p>
-          <p className="truncate text-lg font-semibold text-slate-900">
+          <p className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
             {value}
           </p>
-          {sub ? <p className="text-[11px] text-slate-500">{sub}</p> : null}
+          {sub ? <p className="text-[11px] text-slate-500 dark:text-slate-400">{sub}</p> : null}
         </div>
       </div>
     </div>
@@ -780,7 +780,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1 block text-xs font-medium text-slate-600">
+      <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
         {label}
       </label>
       {children}

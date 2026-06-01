@@ -119,15 +119,15 @@ function statusBadge(s: InvoiceStatus): {
 } {
   switch (s) {
     case "DRAFT":
-      return { cls: "border-slate-200 bg-slate-50 text-slate-600", Icon: FileText, label: "Draft" };
+      return { cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300", Icon: FileText, label: "Draft" };
     case "ISSUED":
-      return { cls: "border-amber-200 bg-amber-50 text-amber-700", Icon: Clock, label: "Issued (unpaid)" };
+      return { cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300", Icon: Clock, label: "Issued (unpaid)" };
     case "PAID":
-      return { cls: "border-emerald-200 bg-emerald-50 text-emerald-700", Icon: CheckCircle2, label: "Paid" };
+      return { cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300", Icon: CheckCircle2, label: "Paid" };
     case "VOID":
-      return { cls: "border-rose-200 bg-rose-50 text-rose-700", Icon: XCircle, label: "Void" };
+      return { cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300", Icon: XCircle, label: "Void" };
     default:
-      return { cls: "border-slate-200 bg-slate-50 text-slate-600", Icon: FileText, label: s };
+      return { cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300", Icon: FileText, label: s };
   }
 }
 
@@ -407,7 +407,7 @@ export default function PlatformInvoiceDetailPage() {
           type="button"
           onClick={() => router.push("/dashboard/platform-billing")}
           data-testid="platform-billing-invoice-back"
-          className="inline-flex h-11 items-center gap-2 rounded-md text-sm font-medium text-slate-700 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
+          className="inline-flex h-11 items-center gap-2 rounded-md text-sm font-medium text-slate-700 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:text-slate-300 dark:hover:text-slate-100"
         >
           <ArrowLeft size={14} aria-hidden="true" />
           Back to Billing
@@ -419,9 +419,9 @@ export default function PlatformInvoiceDetailPage() {
                 type="button"
                 onClick={openDiscount}
                 data-testid="platform-billing-invoice-discount"
-                className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
               >
-                <Percent size={14} className="text-violet-600" />
+                <Percent size={14} className="text-violet-600 dark:text-violet-400" />
                 Apply Discount
               </button>
             ) : null}
@@ -457,9 +457,9 @@ export default function PlatformInvoiceDetailPage() {
                 onClick={handleSendReminder}
                 disabled={reminderBusy}
                 data-testid="platform-billing-invoice-reminder"
-                className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:cursor-wait disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                className="inline-flex h-11 items-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:cursor-wait disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
               >
-                <Bell size={14} className="text-amber-600" />
+                <Bell size={14} className="text-amber-600 dark:text-amber-400" />
                 {reminderBusy ? "Sending…" : "Send Reminder"}
               </button>
             ) : null}
@@ -499,7 +499,7 @@ export default function PlatformInvoiceDetailPage() {
         <div
           role="alert"
           data-testid="platform-billing-invoice-payonline-error"
-          className="flex items-start justify-between gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 print:hidden"
+          className="flex items-start justify-between gap-3 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 print:hidden dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
         >
           <span>
             <strong>Pay Online failed.</strong> {payOnlineError}
@@ -507,7 +507,7 @@ export default function PlatformInvoiceDetailPage() {
           <button
             type="button"
             onClick={() => setPayOnlineError(null)}
-            className="text-xs font-medium text-rose-700 underline-offset-2 hover:underline"
+            className="text-xs font-medium text-rose-700 underline-offset-2 hover:underline dark:text-rose-300"
           >
             Dismiss
           </button>
@@ -518,7 +518,7 @@ export default function PlatformInvoiceDetailPage() {
         <div
           role="alert"
           data-testid="platform-billing-invoice-error"
-          className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+          className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
         >
           {error}
         </div>
@@ -526,7 +526,7 @@ export default function PlatformInvoiceDetailPage() {
 
       {loading && !invoice ? (
         <div
-          className="flex items-center gap-2 text-sm text-slate-500"
+          className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"
           data-testid="platform-billing-invoice-loading"
         >
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
@@ -535,7 +535,7 @@ export default function PlatformInvoiceDetailPage() {
       ) : null}
 
       {invoice ? (
-        <article className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+        <article className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 text-slate-900 shadow-sm dark:border-gray-700">
           <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
             <div className="space-y-1">
               <h1
@@ -687,22 +687,22 @@ export default function PlatformInvoiceDetailPage() {
           onClick={closeDiscount}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
             onClick={(e) => e.stopPropagation()}
           >
             <h2
               id="platform-billing-discount-title"
-              className="text-lg font-semibold text-slate-900"
+              className="text-lg font-semibold text-slate-900 dark:text-slate-100"
             >
               Apply discount — {invoice.invoiceNumber}
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Writes a negative line item on the invoice. Subtotal and GST
               are recomputed automatically.
             </p>
             <label
               htmlFor="platform-billing-invoice-discount-amount"
-              className="mt-4 block text-xs font-medium text-slate-700"
+              className="mt-4 block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               Discount amount (₹)
             </label>
@@ -715,11 +715,11 @@ export default function PlatformInvoiceDetailPage() {
               value={discountRupees}
               onChange={(e) => setDiscountRupees(e.target.value)}
               placeholder="e.g. 500"
-              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             <label
               htmlFor="platform-billing-invoice-discount-reason"
-              className="mt-3 block text-xs font-medium text-slate-700"
+              className="mt-3 block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               Reason
             </label>
@@ -731,13 +731,13 @@ export default function PlatformInvoiceDetailPage() {
               rows={2}
               maxLength={200}
               placeholder="e.g. Goodwill credit for delayed onboarding"
-              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             {discountError ? (
               <div
                 role="alert"
                 data-testid="platform-billing-invoice-discount-error"
-                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"
+                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
               >
                 {discountError}
               </div>
@@ -748,7 +748,7 @@ export default function PlatformInvoiceDetailPage() {
                 onClick={closeDiscount}
                 disabled={discountBusy}
                 data-testid="platform-billing-invoice-discount-cancel"
-                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
               >
                 Cancel
               </button>
@@ -777,22 +777,22 @@ export default function PlatformInvoiceDetailPage() {
           onClick={closeModal}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
             onClick={(e) => e.stopPropagation()}
           >
             <h2
               id="platform-billing-mark-paid-title"
-              className="text-lg font-semibold text-slate-900"
+              className="text-lg font-semibold text-slate-900 dark:text-slate-100"
             >
               Record payment for {invoice.invoiceNumber}
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               This action is audited. The recorded reference will appear on
               the invoice and in the platform audit log.
             </p>
             <label
               htmlFor="platform-billing-payment-reference-input"
-              className="mt-4 block text-xs font-medium text-slate-700"
+              className="mt-4 block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               Payment reference (bank ref / Razorpay payment id)
             </label>
@@ -804,13 +804,13 @@ export default function PlatformInvoiceDetailPage() {
               onChange={(e) => setMarkPaidRef(e.target.value)}
               maxLength={200}
               placeholder="e.g. pay_OZX9k2 or NEFT-2026042512345"
-              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             {markPaidError ? (
               <div
                 role="alert"
                 data-testid="platform-billing-mark-paid-error"
-                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"
+                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
               >
                 {markPaidError}
               </div>
@@ -821,7 +821,7 @@ export default function PlatformInvoiceDetailPage() {
                 data-testid="platform-billing-mark-paid-cancel"
                 onClick={closeModal}
                 disabled={markPaidBusy}
-                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
               >
                 Cancel
               </button>

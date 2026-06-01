@@ -171,7 +171,7 @@ export default function TenantConfigPage() {
 
   if (loading && !tenant) {
     return (
-      <div className="py-12 text-center text-sm text-gray-500">Loading…</div>
+      <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</div>
     );
   }
 
@@ -180,11 +180,11 @@ export default function TenantConfigPage() {
       <div className="space-y-4">
         <Link
           href="/dashboard/tenants"
-          className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
+          className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
         >
           <ArrowLeft size={14} aria-hidden="true" /> Back to tenants
         </Link>
-        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300">
           Tenant not found.
         </div>
       </div>
@@ -196,7 +196,7 @@ export default function TenantConfigPage() {
       <div className="flex items-center gap-2">
         <Link
           href={`/dashboard/tenants/${tenant.id}`}
-          className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
+          className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
         >
           <ArrowLeft size={14} aria-hidden="true" /> Tenant detail
         </Link>
@@ -207,7 +207,7 @@ export default function TenantConfigPage() {
           <h1 className="text-2xl font-semibold tracking-tight">
             Feature flags — {tenant.name}
           </h1>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             Per-tenant overrides for Stage 2+ surfaces. Pearl-branded
             tenants typically disable IPD / OT / telemedicine /
             aiDischarge during the OPD-only Stage 1.
@@ -219,7 +219,7 @@ export default function TenantConfigPage() {
             data-testid="tenant-config-refresh"
             onClick={() => void load()}
             disabled={loading}
-            className="inline-flex h-11 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex h-11 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <RefreshCw
               size={14}
@@ -233,7 +233,7 @@ export default function TenantConfigPage() {
             data-testid="tenant-config-reset"
             onClick={resetToDefaults}
             disabled={saving}
-            className="inline-flex h-11 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex h-11 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <RotateCcw size={14} aria-hidden="true" />
             Clear overrides
@@ -255,7 +255,7 @@ export default function TenantConfigPage() {
         <div
           data-testid="tenant-config-saved"
           role="status"
-          className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800"
+          className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
         >
           <CheckCircle2 size={16} aria-hidden="true" />
           <span>Feature flags saved.</span>
@@ -266,7 +266,7 @@ export default function TenantConfigPage() {
         <div
           data-testid="tenant-config-dirty-banner"
           role="status"
-          className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900"
+          className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
         >
           <AlertCircle size={14} aria-hidden="true" />
           You have unsaved changes — click <strong>Save changes</strong> to
@@ -283,19 +283,19 @@ export default function TenantConfigPage() {
             setPage(1);
           }}
           placeholder="Search features by name, key, or description…"
-          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm sm:max-w-md"
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 sm:max-w-md dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
         />
-        <span className="text-xs text-gray-600" data-testid="tenant-config-total">
+        <span className="text-xs text-gray-600 dark:text-gray-400" data-testid="tenant-config-total">
           {totalRows} feature{totalRows === 1 ? "" : "s"}
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         <table
           data-testid="tenant-config-table"
-          className="min-w-full divide-y divide-gray-200 text-sm"
+          className="w-full min-w-[720px] divide-y divide-gray-200 text-sm dark:divide-gray-700"
         >
-          <thead className="bg-gray-50 text-left text-xs font-semibold uppercase text-gray-600">
+          <thead className="bg-gray-50 text-left text-xs font-semibold uppercase text-gray-600 dark:bg-gray-900/50 dark:text-gray-400">
             <tr>
               <th className="px-3 py-2">Feature</th>
               <th className="px-3 py-2">Description</th>
@@ -304,12 +304,12 @@ export default function TenantConfigPage() {
               <th className="px-3 py-2">Effective</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {visibleFeatures.length === 0 && (
               <tr data-testid="tenant-config-empty">
                 <td
                   colSpan={5}
-                  className="px-3 py-6 text-center text-sm text-gray-500"
+                  className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400"
                 >
                   No features match the current filter.
                 </td>
@@ -323,34 +323,34 @@ export default function TenantConfigPage() {
                 <tr
                   key={f.key}
                   data-testid={`tenant-config-row-${f.key}`}
-                  className="hover:bg-gray-50"
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700/50"
                 >
-                  <td className="px-3 py-2 font-medium text-gray-900">
+                  <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
                     <div className="flex items-center gap-2">
                       <span>{f.label}</span>
                       {!f.known && (
                         <span
                           data-testid={`tenant-config-unknown-${f.key}`}
-                          className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800"
+                          className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
                           title="Custom or legacy key — not in the canonical catalog"
                         >
                           Custom
                         </span>
                       )}
                     </div>
-                    <div className="font-mono text-[10px] text-gray-400">
+                    <div className="font-mono text-[10px] text-gray-400 dark:text-gray-500">
                       {f.key}
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-xs text-gray-600">
+                  <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
                     {f.description}
                   </td>
                   <td className="px-3 py-2 text-xs">
                     <span
                       className={`rounded-full px-2 py-0.5 font-medium ${
                         f.defaultEnabled
-                          ? "bg-emerald-100 text-emerald-800"
-                          : "bg-gray-200 text-gray-700"
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
+                          : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
                       }`}
                     >
                       {f.defaultEnabled ? "ON" : "OFF"}
@@ -371,7 +371,7 @@ export default function TenantConfigPage() {
                         if (v === "default") setFlag(f.key, null);
                         else setFlag(f.key, v === "true");
                       }}
-                      className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs"
+                      className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                     >
                       <option value="default">Use default</option>
                       <option value="true">Force enabled</option>
@@ -383,8 +383,8 @@ export default function TenantConfigPage() {
                       data-testid={`tenant-config-effective-${f.key}`}
                       className={`rounded-full px-2 py-0.5 font-semibold ${
                         effective
-                          ? "bg-emerald-100 text-emerald-800"
-                          : "bg-rose-100 text-rose-800"
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300"
+                          : "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300"
                       }`}
                     >
                       {effective ? "Enabled" : "Disabled"}
@@ -400,9 +400,9 @@ export default function TenantConfigPage() {
       {/* Compact pagination — "Rows: [N]   1-N of Total   < >" */}
       <div
         data-testid="tenant-config-pagination"
-        className="flex items-center justify-between gap-3 rounded-xl bg-white px-4 py-2 text-sm shadow-sm"
+        className="flex items-center justify-between gap-3 rounded-xl bg-white px-4 py-2 text-sm shadow-sm dark:bg-gray-800"
       >
-        <div className="flex items-center gap-2 text-gray-700">
+        <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
           <span>Rows:</span>
           <select
             data-testid="tenant-config-rows-per-page"
@@ -411,7 +411,7 @@ export default function TenantConfigPage() {
               setRowsPerPage(Number(e.target.value));
               setPage(1);
             }}
-            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-gray-500 focus:outline-none"
+            className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-gray-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
           >
             {[10, 25, 50, 100].map((n) => (
               <option key={n} value={n}>
@@ -420,7 +420,7 @@ export default function TenantConfigPage() {
             ))}
           </select>
         </div>
-        <div className="flex items-center gap-2 text-gray-700">
+        <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
           <span data-testid="tenant-config-page-indicator">
             {totalRows === 0 ? 0 : start + 1}-
             {Math.min(start + rowsPerPage, totalRows)} of {totalRows}
@@ -431,7 +431,7 @@ export default function TenantConfigPage() {
             disabled={safePage <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             aria-label="Previous page"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             <ChevronLeft size={16} aria-hidden="true" />
           </button>
@@ -441,7 +441,7 @@ export default function TenantConfigPage() {
             disabled={safePage >= totalPages}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             aria-label="Next page"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-700"
           >
             <ChevronRight size={16} aria-hidden="true" />
           </button>

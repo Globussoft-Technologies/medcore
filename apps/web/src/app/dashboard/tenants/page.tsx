@@ -183,18 +183,36 @@ function billingBadge(
   active: boolean,
 ): { label: string; cls: string } {
   if (!active)
-    return { label: "Susp.", cls: "bg-gray-200 text-gray-700" };
+    return {
+      label: "Susp.",
+      cls: "bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200",
+    };
   switch (h) {
     case "healthy":
-      return { label: "Healthy", cls: "bg-emerald-100 text-emerald-800" };
+      return {
+        label: "Healthy",
+        cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300",
+      };
     case "trial":
-      return { label: "Trial", cls: "bg-sky-100 text-sky-800" };
+      return {
+        label: "Trial",
+        cls: "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-300",
+      };
     case "past_due":
-      return { label: "Past due", cls: "bg-amber-100 text-amber-800" };
+      return {
+        label: "Past due",
+        cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300",
+      };
     case "suspended":
-      return { label: "Susp.", cls: "bg-rose-100 text-rose-800" };
+      return {
+        label: "Susp.",
+        cls: "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300",
+      };
     default:
-      return { label: "—", cls: "bg-gray-100 text-gray-600" };
+      return {
+        label: "—",
+        cls: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
+      };
   }
 }
 
@@ -495,7 +513,7 @@ export default function TenantsAdminPage() {
           <h1 className="text-2xl font-bold">
             {t("tenants.title", "Tenants")}
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {t(
               "tenants.subtitle",
               "Manage multi-tenant hospital installations.",
@@ -528,7 +546,7 @@ export default function TenantsAdminPage() {
                   if (disabled) e.preventDefault();
                 }}
                 data-testid="tenants-role-permissions-link"
-                className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 ${
+                className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 ${
                   disabled ? "pointer-events-none opacity-50" : ""
                 }`}
               >
@@ -544,7 +562,7 @@ export default function TenantsAdminPage() {
           <Link
             href="/dashboard/platform-billing?from=tenants"
             data-testid="tenants-platform-billing-link"
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <IndianRupee size={16} />{" "}
             {t("tenants.platformBilling", "Platform Billing")}
@@ -577,7 +595,7 @@ export default function TenantsAdminPage() {
               "tenants.search.placeholder",
               "Search by name...",
             )}
-            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm focus:border-slate-500 focus:outline-none"
+            className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-slate-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
         </div>
 
@@ -588,7 +606,7 @@ export default function TenantsAdminPage() {
           role="radiogroup"
           aria-label={t("tenants.filter.statusLabel", "Status filter")}
           data-testid="tenants-active-filter"
-          className="inline-flex h-10 overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm"
+          className="inline-flex h-10 overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm dark:border-gray-600 dark:bg-gray-800"
         >
           {(
             [
@@ -613,11 +631,11 @@ export default function TenantsAdminPage() {
                 data-testid={`tenants-active-filter-${opt.key}`}
                 onClick={() => setActiveFilter(opt.key)}
                 className={`px-4 text-sm font-medium transition ${
-                  i > 0 ? "border-l border-gray-300" : ""
+                  i > 0 ? "border-l border-gray-300 dark:border-gray-600" : ""
                 } ${
                   active
-                    ? "bg-slate-900 text-white"
-                    : "bg-white text-slate-700 hover:bg-slate-50"
+                    ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
+                    : "bg-white text-slate-700 hover:bg-slate-50 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
                 }`}
               >
                 {opt.label}
@@ -630,7 +648,7 @@ export default function TenantsAdminPage() {
           data-testid="tenants-plan-filter"
           value={planFilter}
           onChange={(e) => setPlanFilter(e.target.value as "" | Plan)}
-          className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm focus:border-slate-500 focus:outline-none"
+          className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 focus:border-slate-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
         >
           <option value="">{t("tenants.filter.allPlans", "All plans")}</option>
           <option value="BASIC">BASIC</option>
@@ -639,19 +657,19 @@ export default function TenantsAdminPage() {
         </select>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
             {t("common.loading", "Loading...")}
           </div>
         ) : tenants.length === 0 ? (
-          <div className="p-8 text-center text-gray-500" data-testid="tenants-empty">
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400" data-testid="tenants-empty">
             {t("tenants.empty", "No tenants match your filters.")}
           </div>
         ) : (
-          <table className="w-full" data-testid="tenants-table">
+          <table className="w-full min-w-[1024px]" data-testid="tenants-table">
             <thead>
-              <tr className="border-b text-left text-xs text-gray-500">
+              <tr className="border-b text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                 <th className="px-4 py-3">{t("tenants.col.code", "Code")}</th>
                 <th className="px-4 py-3">{t("tenants.col.name", "Name")}</th>
                 <th className="px-4 py-3">{t("tenants.col.plan", "Plan")}</th>
@@ -689,8 +707,10 @@ export default function TenantsAdminPage() {
               {visibleTenants.map((tt) => (
                 <tr
                   key={tt.id}
-                  className={`border-b last:border-0 text-sm ${
-                    tt.active ? "" : "bg-gray-50 text-gray-500 opacity-75"
+                  className={`border-b last:border-0 text-sm dark:border-gray-700 ${
+                    tt.active
+                      ? ""
+                      : "bg-gray-50 text-gray-500 opacity-75 dark:bg-gray-900/40 dark:text-gray-400"
                   }`}
                   data-testid={`tenant-row-${tt.subdomain}`}
                   data-tenant-active={tt.active ? "true" : "false"}
@@ -700,16 +720,16 @@ export default function TenantsAdminPage() {
                     data-testid={`tenant-code-${tt.subdomain}`}
                   >
                     {tt.code ? (
-                      <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700">
+                      <span className="inline-block whitespace-nowrap rounded bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
                         {tt.code}
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-400">—</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3 font-medium">{tt.name}</td>
                   <td className="px-4 py-3">
-                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium">
+                    <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200">
                       {tt.plan}
                     </span>
                   </td>
@@ -757,7 +777,7 @@ export default function TenantsAdminPage() {
                     tenantSubdomain={tt.subdomain}
                   />
                   <td
-                    className="px-4 py-3 text-xs text-gray-600"
+                    className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400"
                     title={tt.stats?.lastLoginAt ?? "Never"}
                     data-testid={`tenant-kpi-lastlogin-${tt.subdomain}`}
                   >
@@ -781,12 +801,12 @@ export default function TenantsAdminPage() {
                   </td>
                   <td className="px-4 py-3">
                     {tt.active ? (
-                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-800">
+                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-800 dark:bg-green-900/50 dark:text-green-300">
                         {t("tenants.status.active", "Active")}
                       </span>
                     ) : tt.archivedAt ? (
                       <span
-                        className="rounded-full bg-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-800"
+                        className="rounded-full bg-slate-300 px-2 py-0.5 text-xs font-semibold text-slate-800 dark:bg-slate-600 dark:text-slate-100"
                         data-testid={`tenant-archived-badge-${tt.subdomain}`}
                         title={`Archived to S3 on ${new Date(tt.archivedAt).toLocaleDateString()}`}
                       >
@@ -794,7 +814,7 @@ export default function TenantsAdminPage() {
                       </span>
                     ) : (
                       <span
-                        className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                        className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800 dark:bg-red-900/50 dark:text-red-300"
                         data-testid={`tenant-suspended-badge-${tt.subdomain}`}
                       >
                         {t("tenants.status.suspended", "SUSPENDED")}
@@ -806,7 +826,7 @@ export default function TenantsAdminPage() {
                       <button
                         data-testid={`tenant-detail-${tt.subdomain}`}
                         onClick={() => setDetailOpen(tt.id)}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                         title={t("tenants.view.details", "View details")}
                         aria-label={t("tenants.view.details", "View details")}
                       >
@@ -824,7 +844,7 @@ export default function TenantsAdminPage() {
                       <Link
                         data-testid={`tenant-detail-page-${tt.subdomain}`}
                         href={`/dashboard/tenants/${tt.id}`}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                         title={t("tenants.view.detailPage", "Open detail page")}
                         aria-label={t(
                           "tenants.view.detailPage",
@@ -836,7 +856,7 @@ export default function TenantsAdminPage() {
                       <Link
                         data-testid={`tenant-config-${tt.subdomain}`}
                         href={`/dashboard/tenants/${tt.id}/config`}
-                        className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100"
+                        className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                         title={t("tenants.view.config", "Feature flags")}
                         aria-label={t("tenants.view.config", "Feature flags")}
                       >
@@ -863,7 +883,7 @@ export default function TenantsAdminPage() {
                           <button
                             data-testid={`tenant-row-suspend-${tt.subdomain}`}
                             onClick={() => deactivateTenant(tt.id, tt.name)}
-                            className="inline-flex h-11 w-11 items-center justify-center rounded text-red-600 hover:bg-red-50"
+                            className="inline-flex h-11 w-11 items-center justify-center rounded text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
                             title={t("tenants.deactivate.button", "Suspend")}
                             aria-label={t(
                               "tenants.deactivate.aria",
@@ -877,7 +897,7 @@ export default function TenantsAdminPage() {
                         <button
                           data-testid={`tenant-row-restore-${tt.subdomain}`}
                           onClick={() => reactivateTenant(tt.id, tt.name)}
-                          className="inline-flex h-11 w-11 items-center justify-center rounded text-green-600 hover:bg-green-50"
+                          className="inline-flex h-11 w-11 items-center justify-center rounded text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/30"
                           title={t("tenants.reactivate.button", "Restore")}
                           aria-label={t(
                             "tenants.reactivate.aria",
@@ -903,7 +923,7 @@ export default function TenantsAdminPage() {
         <div
           data-testid="tenants-scroll-status"
           ref={sentinelRef}
-          className="flex items-center justify-center py-4 text-xs text-gray-500"
+          className="flex items-center justify-center py-4 text-xs text-gray-500 dark:text-gray-400"
         >
           {hasMore ? (
             <span className="inline-flex items-center gap-2">
@@ -1550,28 +1570,28 @@ function TenantDetailDrawer({
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/30" data-testid="tenants-detail">
-      <div className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 shadow-xl">
+      <div className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100">
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold">
               {detail?.name ?? t("common.loading", "Loading...")}
             </h3>
             {detail?.code && (
-              <p className="font-mono text-xs text-gray-500">{detail.code}</p>
+              <p className="font-mono text-xs text-gray-500 dark:text-gray-400">{detail.code}</p>
             )}
           </div>
-          <button onClick={onClose} className="rounded p-1 hover:bg-gray-100">
+          <button onClick={onClose} className="rounded p-1 hover:bg-gray-100 dark:hover:bg-gray-800">
             <X size={18} />
           </button>
         </div>
 
         {!detail ? (
-          <div className="text-sm text-gray-500">
+          <div className="text-sm text-gray-500 dark:text-gray-400">
             {t("common.loading", "Loading...")}
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 rounded-xl bg-gray-50 p-4">
+            <div className="grid grid-cols-2 gap-3 rounded-xl bg-gray-50 p-4 dark:bg-gray-800">
               <Stat
                 label={t("tenants.col.users", "Users")}
                 value={detail.stats?.userCount ?? 0}
@@ -1594,14 +1614,14 @@ function TenantDetailDrawer({
               <h4 className="mb-2 text-sm font-semibold">
                 {t("tenants.detail.hospitalConfig", "Hospital Config")}
               </h4>
-              <dl className="rounded-xl border text-sm">
+              <dl className="rounded-xl border text-sm dark:border-gray-700">
                 {["hospital_name", "hospital_phone", "hospital_email", "hospital_gstin", "hospital_address"].map(
                   (k) => (
                     <div
                       key={k}
-                      className="flex items-start gap-2 border-b px-3 py-2 last:border-0"
+                      className="flex items-start gap-2 border-b px-3 py-2 last:border-0 dark:border-gray-700"
                     >
-                      <dt className="w-32 text-xs text-gray-500">{k}</dt>
+                      <dt className="w-32 text-xs text-gray-500 dark:text-gray-400">{k}</dt>
                       <dd className="flex-1 break-words text-xs">
                         {detail.config[k] || "—"}
                       </dd>
@@ -1631,7 +1651,7 @@ function TenantDetailDrawer({
                   step={1}
                   value={sessionIdleDraft}
                   onChange={(e) => setSessionIdleDraft(e.target.value)}
-                  className="w-32 rounded-lg border px-3 py-2 text-sm"
+                  className="w-32 rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                   aria-label={t(
                     "tenants.detail.sessionIdle.aria",
                     "Session idle timeout in minutes",
@@ -1648,7 +1668,7 @@ function TenantDetailDrawer({
                   {t("common.save", "Save")}
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-gray-500">
+              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
                 {t(
                   "tenants.detail.sessionIdle.hint",
                   "Allowed range: 5–1440. JWT TTL enforcement coming in a separate release; this value is currently persisted only.",
@@ -1657,7 +1677,7 @@ function TenantDetailDrawer({
               {sessionIdleError && (
                 <p
                   data-testid="tenants-detail-session-idle-error"
-                  className="mt-1 text-[11px] text-red-600"
+                  className="mt-1 text-[11px] text-red-600 dark:text-red-400"
                 >
                   {sessionIdleError}
                 </p>
@@ -1685,7 +1705,7 @@ function TenantDetailDrawer({
                   onChange={(e) => setBillingContactDraft(e.target.value)}
                   placeholder="billing@hospital.com"
                   maxLength={254}
-                  className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                  className="flex-1 rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
                   aria-label={t(
                     "tenants.detail.billingContact.aria",
                     "Billing contact email",
@@ -1705,7 +1725,7 @@ function TenantDetailDrawer({
                   {t("common.save", "Save")}
                 </button>
               </div>
-              <p className="mt-1 text-[11px] text-gray-500">
+              <p className="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
                 {t(
                   "tenants.detail.billingContact.hint",
                   "Recipient of the monthly platform invoice + manual reminders. Leave blank to disable invoice email delivery.",
@@ -1714,7 +1734,7 @@ function TenantDetailDrawer({
               {billingContactError && (
                 <p
                   data-testid="tenants-detail-billing-contact-error"
-                  className="mt-1 text-[11px] text-red-600"
+                  className="mt-1 text-[11px] text-red-600 dark:text-red-400"
                 >
                   {billingContactError}
                 </p>
@@ -1734,7 +1754,7 @@ function TenantDetailDrawer({
                   "Compliance posture",
                 )}
               </h4>
-              <div className="space-y-2 rounded-lg border p-3">
+              <div className="space-y-2 rounded-lg border p-3 dark:border-gray-700">
                 <ComplianceToggle
                   label={t(
                     "tenants.detail.compliance.whatsapp",
@@ -1814,22 +1834,22 @@ function TenantDetailDrawer({
               <h4 className="mb-2 text-sm font-semibold">
                 {t("tenants.detail.admins", "Admin Users")}
               </h4>
-              <ul className="rounded-xl border text-sm">
+              <ul className="rounded-xl border text-sm dark:border-gray-700">
                 {detail.admins.length === 0 ? (
-                  <li className="px-3 py-2 text-xs text-gray-500">
+                  <li className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
                     {t("tenants.detail.admins.none", "No admin users")}
                   </li>
                 ) : (
                   detail.admins.map((a) => (
                     <li
                       key={a.id}
-                      className="flex items-center justify-between border-b px-3 py-2 last:border-0"
+                      className="flex items-center justify-between border-b px-3 py-2 last:border-0 dark:border-gray-700"
                     >
                       <div>
                         <div className="font-medium">{a.name}</div>
-                        <div className="text-xs text-gray-500">{a.email}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{a.email}</div>
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
                         {a.isActive
                           ? t("tenants.status.active", "Active")
                           : t("tenants.status.inactive", "Inactive")}
@@ -1843,7 +1863,7 @@ function TenantDetailDrawer({
             <div className="flex gap-2">
               <Link
                 href={`/dashboard/tenants/${tenantId}/onboarding`}
-                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
               >
                 {t("tenants.detail.onboarding", "Open onboarding")}
               </Link>
@@ -1877,7 +1897,7 @@ function TenantDetailDrawer({
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div>
-      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
       <div className="text-lg font-semibold">{value}</div>
     </div>
   );
@@ -1903,8 +1923,8 @@ function ComplianceToggle({
   return (
     <div className="flex items-start justify-between gap-3 py-1">
       <div className="min-w-0">
-        <div className="text-xs font-medium text-gray-800">{label}</div>
-        <p className="mt-0.5 text-[11px] text-gray-500">{hint}</p>
+        <div className="text-xs font-medium text-gray-800 dark:text-gray-200">{label}</div>
+        <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{hint}</p>
       </div>
       <button
         type="button"
@@ -1913,7 +1933,7 @@ function ComplianceToggle({
         data-testid={testid}
         onClick={() => onChange(!value)}
         className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition ${
-          value ? "bg-primary" : "bg-gray-300"
+          value ? "bg-primary" : "bg-gray-300 dark:bg-gray-600"
         }`}
       >
         <span
@@ -1964,8 +1984,8 @@ function ComplianceNumber({
   return (
     <div className="flex items-start justify-between gap-3 py-1">
       <div className="min-w-0">
-        <div className="text-xs font-medium text-gray-800">{label}</div>
-        <p className="mt-0.5 text-[11px] text-gray-500">{hint}</p>
+        <div className="text-xs font-medium text-gray-800 dark:text-gray-200">{label}</div>
+        <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">{hint}</p>
       </div>
       <input
         type="number"
@@ -1979,7 +1999,7 @@ function ComplianceNumber({
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
-        className="w-20 rounded-md border px-2 py-1 text-right text-xs tabular-nums"
+        className="w-20 rounded-md border px-2 py-1 text-right text-xs tabular-nums dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
       />
     </div>
   );

@@ -158,17 +158,17 @@ function subscriptionStatusBadge(s: SubscriptionStatus): {
 } {
   switch (s) {
     case "trial":
-      return { cls: "border-blue-200 bg-blue-50 text-blue-700", Icon: Clock, label: "Trial" };
+      return { cls: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300", Icon: Clock, label: "Trial" };
     case "active":
-      return { cls: "border-emerald-200 bg-emerald-50 text-emerald-700", Icon: CheckCircle2, label: "Active" };
+      return { cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300", Icon: CheckCircle2, label: "Active" };
     case "past_due":
-      return { cls: "border-amber-200 bg-amber-50 text-amber-700", Icon: AlertCircle, label: "Past due" };
+      return { cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300", Icon: AlertCircle, label: "Past due" };
     case "suspended":
-      return { cls: "border-rose-200 bg-rose-50 text-rose-700", Icon: XCircle, label: "Suspended" };
+      return { cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300", Icon: XCircle, label: "Suspended" };
     case "cancelled":
-      return { cls: "border-slate-200 bg-slate-50 text-slate-600", Icon: XCircle, label: "Cancelled" };
+      return { cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300", Icon: XCircle, label: "Cancelled" };
     default:
-      return { cls: "border-slate-200 bg-slate-50 text-slate-600", Icon: Clock, label: s };
+      return { cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300", Icon: Clock, label: s };
   }
 }
 
@@ -179,15 +179,15 @@ function invoiceStatusBadge(s: InvoiceStatus): {
 } {
   switch (s) {
     case "DRAFT":
-      return { cls: "border-slate-200 bg-slate-50 text-slate-600", Icon: FileText, label: "Draft" };
+      return { cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300", Icon: FileText, label: "Draft" };
     case "ISSUED":
-      return { cls: "border-amber-200 bg-amber-50 text-amber-700", Icon: Clock, label: "Issued (unpaid)" };
+      return { cls: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300", Icon: Clock, label: "Issued (unpaid)" };
     case "PAID":
-      return { cls: "border-emerald-200 bg-emerald-50 text-emerald-700", Icon: CheckCircle2, label: "Paid" };
+      return { cls: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300", Icon: CheckCircle2, label: "Paid" };
     case "VOID":
-      return { cls: "border-rose-200 bg-rose-50 text-rose-700", Icon: XCircle, label: "Void" };
+      return { cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300", Icon: XCircle, label: "Void" };
     default:
-      return { cls: "border-slate-200 bg-slate-50 text-slate-600", Icon: FileText, label: s };
+      return { cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300", Icon: FileText, label: s };
   }
 }
 
@@ -537,7 +537,7 @@ export default function PlatformBillingPage() {
           <Link
             href="/dashboard/tenants"
             data-testid="platform-billing-back-to-tenants"
-            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-gray-800 dark:hover:text-slate-100"
           >
             <ChevronLeft size={14} aria-hidden="true" />
             Back to Tenants
@@ -547,17 +547,17 @@ export default function PlatformBillingPage() {
 
       {/* Hero card — tinted header that matches the dashboard's hero
           pattern (Tenants page, Users page). Icon + title + helper text. */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-primary/5 via-white to-white p-5 shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-primary/5 via-white to-white p-5 shadow-sm dark:border-gray-700 dark:from-primary/10 dark:via-gray-800 dark:to-gray-800">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary dark:bg-primary/20">
               <IndianRupee size={20} />
             </div>
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
                 Platform Billing
               </h1>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
                 Track every hospital&rsquo;s subscription, send the monthly
                 invoice and record payment — all in one place.
               </p>
@@ -598,7 +598,7 @@ export default function PlatformBillingPage() {
 
       {/* Tab row */}
       <div
-        className="flex flex-wrap gap-2 border-b border-slate-200"
+        className="flex flex-wrap gap-2 border-b border-slate-200 dark:border-gray-700"
         role="tablist"
         data-testid="platform-billing-tabs"
       >
@@ -610,8 +610,8 @@ export default function PlatformBillingPage() {
           onClick={() => setTab("subscriptions")}
           className={`-mb-px inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
             tab === "subscriptions"
-              ? "border-slate-900 text-slate-900"
-              : "border-transparent text-slate-500 hover:text-slate-700"
+              ? "border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           }`}
         >
           <Building2 size={14} aria-hidden="true" />
@@ -625,14 +625,14 @@ export default function PlatformBillingPage() {
           onClick={() => setTab("invoices")}
           className={`-mb-px inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
             tab === "invoices"
-              ? "border-slate-900 text-slate-900"
-              : "border-transparent text-slate-500 hover:text-slate-700"
+              ? "border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           }`}
         >
           <CreditCard size={14} aria-hidden="true" />
           Invoices
           {tab === "invoices" && openInvoiceCount > 0 ? (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
               {openInvoiceCount}
             </span>
           ) : null}
@@ -643,7 +643,7 @@ export default function PlatformBillingPage() {
         <div
           role="alert"
           data-testid="platform-billing-error"
-          className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+          className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
         >
           {error}
         </div>
@@ -651,7 +651,7 @@ export default function PlatformBillingPage() {
 
       {loading ? (
         <div
-          className="flex items-center gap-2 text-sm text-slate-500"
+          className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"
           data-testid="platform-billing-loading"
         >
           <Loader2 size={14} className="animate-spin" aria-hidden="true" />
@@ -662,14 +662,14 @@ export default function PlatformBillingPage() {
       {/* SUBSCRIPTIONS TAB */}
       {tab === "subscriptions" ? (
         <div
-          className="rounded-lg border border-slate-200 bg-white shadow-sm"
+          className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800"
           data-testid="platform-billing-subscriptions-table-wrapper"
         >
           <table
-            className="min-w-full text-left text-sm"
+            className="w-full min-w-[820px] text-left text-sm"
             data-testid="platform-billing-subscriptions-table"
           >
-            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
               <tr>
                 <th scope="col" className="px-4 py-3 font-medium">Tenant</th>
                 <th scope="col" className="px-4 py-3 font-medium">Plan</th>
@@ -681,12 +681,12 @@ export default function PlatformBillingPage() {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
               {subscriptions.length === 0 && !loading ? (
                 <tr>
                   <td
                     colSpan={6}
-                    className="px-4 py-8 text-center text-sm text-slate-500"
+                    className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     data-testid="platform-billing-subscriptions-empty"
                   >
                     No subscriptions yet.
@@ -702,15 +702,15 @@ export default function PlatformBillingPage() {
                     key={s.id}
                     data-testid={`platform-billing-subscription-row-${s.id}`}
                   >
-                    <td className="px-4 py-3 font-medium text-slate-900">
+                    <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
                       <div className="flex flex-col">
                         <span>{s.tenant?.name ?? "(unknown tenant)"}</span>
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
                           {s.tenant?.subdomain ?? "—"}
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-700">{s.plan}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{s.plan}</td>
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${badge.cls}`}
@@ -720,10 +720,10 @@ export default function PlatformBillingPage() {
                         {badge.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                       {formatDate(s.trialEndsAt)}
                     </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                       {formatDate(s.currentPeriodEnd)}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -732,12 +732,12 @@ export default function PlatformBillingPage() {
                           type="button"
                           onClick={() => openPlanChange(s)}
                           data-testid={`platform-billing-change-plan-${s.id}`}
-                          className="inline-flex h-9 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                          className="inline-flex h-9 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
                         >
                           Change plan
                         </button>
                       ) : (
-                        <span className="text-xs text-slate-400">—</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
                       )}
                     </td>
                   </tr>
@@ -757,7 +757,7 @@ export default function PlatformBillingPage() {
           <div
             role="tablist"
             aria-label="Invoice filter"
-            className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5"
+            className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-gray-700 dark:bg-gray-800"
             data-testid="platform-billing-invoice-filters"
           >
             {INVOICE_FILTER_CHIPS.map((chip) => {
@@ -772,8 +772,8 @@ export default function PlatformBillingPage() {
                   onClick={() => setInvoiceFilter(chip.key)}
                   className={`inline-flex h-8 min-w-[88px] items-center justify-center rounded px-3.5 text-[13px] font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
                     active
-                      ? "bg-white text-slate-900 shadow-sm"
-                      : "text-slate-500 hover:text-slate-900"
+                      ? "bg-white text-slate-900 shadow-sm dark:bg-gray-700 dark:text-slate-100"
+                      : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
                   }`}
                 >
                   {chip.label}
@@ -783,14 +783,14 @@ export default function PlatformBillingPage() {
           </div>
 
           <div
-            className="rounded-lg border border-slate-200 bg-white shadow-sm"
+            className="rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800"
             data-testid="platform-billing-invoices-table-wrapper"
           >
             <table
               className="min-w-full text-left text-sm"
               data-testid="platform-billing-invoices-table"
             >
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-medium">Invoice #</th>
                   <th scope="col" className="px-4 py-3 font-medium">Tenant</th>
@@ -800,12 +800,12 @@ export default function PlatformBillingPage() {
                   <th scope="col" className="px-4 py-3 font-medium text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
                 {invoices.length === 0 && !loading ? (
                   <tr>
                     <td
                       colSpan={6}
-                      className="px-4 py-8 text-center text-sm text-slate-500"
+                      className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                       data-testid="platform-billing-invoices-empty"
                     >
                       No invoices match this filter.
@@ -819,30 +819,30 @@ export default function PlatformBillingPage() {
                       key={inv.id}
                       data-testid={`platform-billing-invoice-row-${inv.id}`}
                     >
-                      <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">
                         <Link
                           href={`/dashboard/platform-billing/invoices/${inv.id}`}
-                          className="text-slate-900 underline-offset-2 hover:underline"
+                          className="text-slate-900 underline-offset-2 hover:underline dark:text-slate-100"
                           data-testid={`platform-billing-invoice-link-${inv.id}`}
                         >
                           {inv.invoiceNumber}
                         </Link>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                         <div className="flex flex-col">
                           <span>{inv.tenant?.name ?? "(unknown)"}</span>
-                          <span className="text-xs text-slate-500">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
                             {inv.tenant?.subdomain ?? "—"}
                           </span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-900">
+                      <td className="px-4 py-3 text-right font-medium text-slate-900 dark:text-slate-100">
                         <span className="inline-flex items-center gap-1 tabular-nums">
                           <IndianRupee size={12} aria-hidden="true" />
                           {formatRupees(inv.totalInPaise).replace("₹", "")}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-slate-700">
+                      <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                         {formatDate(inv.issuedAt ?? inv.createdAt)}
                       </td>
                       <td className="px-4 py-3">
@@ -864,7 +864,7 @@ export default function PlatformBillingPage() {
                             onClick={(e) =>
                               toggleActionMenu(inv.id, e.currentTarget)
                             }
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-300 dark:hover:bg-gray-700 dark:hover:text-slate-100"
                           >
                             <MoreVertical size={16} aria-hidden="true" />
                           </button>
@@ -881,7 +881,7 @@ export default function PlatformBillingPage() {
                               <div
                                 role="menu"
                                 data-testid={`platform-billing-actions-menu-${inv.id}`}
-                                className={`absolute right-0 z-40 w-52 overflow-hidden rounded-lg border border-slate-200 bg-white text-left shadow-lg ${
+                                className={`absolute right-0 z-40 w-52 overflow-hidden rounded-lg border border-slate-200 bg-white text-left shadow-lg dark:border-gray-700 dark:bg-gray-800 ${
                                   actionMenuFlipAbove
                                     ? "bottom-full mb-1"
                                     : "top-full mt-1"
@@ -896,7 +896,7 @@ export default function PlatformBillingPage() {
                                       setActionMenuFor(null);
                                       openMarkPaid(inv.id);
                                     }}
-                                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-gray-700"
                                   >
                                     <CheckCircle2
                                       size={14}
@@ -912,7 +912,7 @@ export default function PlatformBillingPage() {
                                     role="menuitem"
                                     data-testid={`platform-billing-action-payonline-${inv.id}`}
                                     onClick={() => setActionMenuFor(null)}
-                                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-gray-700"
                                   >
                                     <Globe
                                       size={14}
@@ -934,7 +934,7 @@ export default function PlatformBillingPage() {
                                       setActionMenuFor(null);
                                       openDiscount(inv);
                                     }}
-                                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-gray-700"
                                   >
                                     <Percent
                                       size={14}
@@ -968,7 +968,7 @@ export default function PlatformBillingPage() {
                                       setActionMenuFor(null);
                                       void sendReminder(inv.id);
                                     }}
-                                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+                                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:text-slate-200 dark:hover:bg-gray-700"
                                   >
                                     <Bell
                                       size={14}
@@ -1005,22 +1005,22 @@ export default function PlatformBillingPage() {
           onClick={closeMarkPaid}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
             onClick={(e) => e.stopPropagation()}
           >
             <h2
               id="platform-billing-mark-paid-title"
-              className="text-lg font-semibold text-slate-900"
+              className="text-lg font-semibold text-slate-900 dark:text-slate-100"
             >
               Record payment
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               This action is audited. The recorded reference will appear on
               the invoice and in the platform audit log.
             </p>
             <label
               htmlFor="platform-billing-payment-reference-input"
-              className="mt-4 block text-xs font-medium text-slate-700"
+              className="mt-4 block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               Payment reference (bank ref / Razorpay payment id)
             </label>
@@ -1032,13 +1032,13 @@ export default function PlatformBillingPage() {
               onChange={(e) => setMarkPaidRef(e.target.value)}
               maxLength={200}
               placeholder="e.g. pay_OZX9k2 or NEFT-2026042512345"
-              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             {markPaidError ? (
               <div
                 role="alert"
                 data-testid="platform-billing-mark-paid-error"
-                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"
+                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
               >
                 {markPaidError}
               </div>
@@ -1049,7 +1049,7 @@ export default function PlatformBillingPage() {
                 data-testid="platform-billing-mark-paid-cancel"
                 onClick={closeMarkPaid}
                 disabled={markPaidBusy}
-                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
               >
                 Cancel
               </button>
@@ -1083,22 +1083,22 @@ export default function PlatformBillingPage() {
           onClick={closeDiscount}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
             onClick={(e) => e.stopPropagation()}
           >
             <h2
               id="platform-billing-discount-title"
-              className="text-lg font-semibold text-slate-900"
+              className="text-lg font-semibold text-slate-900 dark:text-slate-100"
             >
               Apply discount — {discountFor.invoiceNumber}
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               Writes a negative line item on the invoice. The new subtotal
               and GST are recomputed automatically.
             </p>
             <label
               htmlFor="platform-billing-discount-amount"
-              className="mt-4 block text-xs font-medium text-slate-700"
+              className="mt-4 block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               Discount amount (₹)
             </label>
@@ -1111,11 +1111,11 @@ export default function PlatformBillingPage() {
               value={discountRupees}
               onChange={(e) => setDiscountRupees(e.target.value)}
               placeholder="e.g. 500"
-              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             <label
               htmlFor="platform-billing-discount-reason"
-              className="mt-3 block text-xs font-medium text-slate-700"
+              className="mt-3 block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               Reason
             </label>
@@ -1127,13 +1127,13 @@ export default function PlatformBillingPage() {
               rows={2}
               maxLength={200}
               placeholder="e.g. Goodwill credit for delayed onboarding"
-              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
             />
             {discountError ? (
               <div
                 role="alert"
                 data-testid="platform-billing-discount-error"
-                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"
+                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
               >
                 {discountError}
               </div>
@@ -1144,7 +1144,7 @@ export default function PlatformBillingPage() {
                 data-testid="platform-billing-discount-cancel"
                 onClick={closeDiscount}
                 disabled={discountBusy}
-                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
               >
                 Cancel
               </button>
@@ -1173,23 +1173,23 @@ export default function PlatformBillingPage() {
           onClick={closePlanChange}
         >
           <div
-            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl"
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
             onClick={(e) => e.stopPropagation()}
           >
             <h2
               id="platform-billing-change-plan-title"
-              className="text-lg font-semibold text-slate-900"
+              className="text-lg font-semibold text-slate-900 dark:text-slate-100"
             >
               Change plan
             </h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {planChangeFor.tenant?.name ?? "(unknown tenant)"} · current:{" "}
               <strong>{planChangeFor.plan}</strong>. A proration line item
               will be written to the current period.
             </p>
             <label
               htmlFor="platform-billing-change-plan-select"
-              className="mt-4 block text-xs font-medium text-slate-700"
+              className="mt-4 block text-xs font-medium text-slate-700 dark:text-slate-300"
             >
               Switch to
             </label>
@@ -1202,7 +1202,7 @@ export default function PlatformBillingPage() {
                   e.target.value as "STARTER" | "GROWTH" | "ENTERPRISE",
                 )
               }
-              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
             >
               <option value="STARTER">Starter</option>
               <option value="GROWTH">Growth</option>
@@ -1212,7 +1212,7 @@ export default function PlatformBillingPage() {
               <div
                 role="alert"
                 data-testid="platform-billing-change-plan-error"
-                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700"
+                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
               >
                 {planChangeError}
               </div>
@@ -1223,7 +1223,7 @@ export default function PlatformBillingPage() {
                 data-testid="platform-billing-change-plan-cancel"
                 onClick={closePlanChange}
                 disabled={planChangeBusy}
-                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
               >
                 Cancel
               </button>
@@ -1253,10 +1253,10 @@ const TONE_CLS: Record<
   "emerald" | "sky" | "amber" | "rose",
   { bg: string; text: string }
 > = {
-  emerald: { bg: "bg-emerald-100", text: "text-emerald-700" },
-  sky: { bg: "bg-sky-100", text: "text-sky-700" },
-  amber: { bg: "bg-amber-100", text: "text-amber-700" },
-  rose: { bg: "bg-rose-100", text: "text-rose-700" },
+  emerald: { bg: "bg-emerald-100 dark:bg-emerald-900/40", text: "text-emerald-700 dark:text-emerald-300" },
+  sky: { bg: "bg-sky-100 dark:bg-sky-900/40", text: "text-sky-700 dark:text-sky-300" },
+  amber: { bg: "bg-amber-100 dark:bg-amber-900/40", text: "text-amber-700 dark:text-amber-300" },
+  rose: { bg: "bg-rose-100 dark:bg-rose-900/40", text: "text-rose-700 dark:text-rose-300" },
 };
 
 function KpiTile({
@@ -1272,7 +1272,7 @@ function KpiTile({
 }) {
   const c = TONE_CLS[tone];
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-center gap-3">
         <div
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${c.bg} ${c.text}`}
@@ -1280,10 +1280,10 @@ function KpiTile({
           <Icon size={16} />
         </div>
         <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
             {label}
           </p>
-          <p className="truncate text-lg font-semibold text-slate-900">
+          <p className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">
             {value}
           </p>
         </div>

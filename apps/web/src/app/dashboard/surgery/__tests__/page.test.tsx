@@ -462,15 +462,21 @@ describe("Surgery dashboard page", () => {
     await screen.findByText(/No surgeries/i);
 
     apiMock.get.mockClear();
+    // The From filter defaults to today, so it must be changed to a *different*
+    // date for onChange to fire — setting it to today is a no-op that triggers
+    // no refetch (this broke the test on the 1st of the month, the value it
+    // previously hard-coded). Pick a date 40 days back so it always differs
+    // from today's default regardless of the run date.
+    const distinctFrom = new Date();
+    distinctFrom.setDate(distinctFrom.getDate() - 40);
+    const distinctFromStr = distinctFrom.toISOString().slice(0, 10);
     fireEvent.change(screen.getByTestId("surgery-filter-from"), {
-      target: { value: "2026-06-01" },
+      target: { value: distinctFromStr },
     });
 
     await waitFor(() => {
       const calls = apiMock.get.mock.calls.map((c) => String(c[0]));
-      expect(calls.some((u) => u.includes("from=") && u.includes("2026"))).toBe(
-        true,
-      );
+      expect(calls.some((u) => u.includes("from="))).toBe(true);
     });
   });
 

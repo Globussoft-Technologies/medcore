@@ -294,7 +294,11 @@ describe("QueuePage", () => {
       ).toBe(true);
     });
     expect(await screen.findByText("Aarav Mehta")).toBeInTheDocument();
-    expect(screen.getByText(/queue detail/i)).toBeInTheDocument();
+    // The drill-in detail now renders in the right-side drawer (testid
+    // queue-other-drawer) instead of a legacy "Queue Detail" block below
+    // the grid. The drawer heading echoes the clicked doctor's name.
+    const drawer = screen.getByTestId("queue-other-drawer");
+    expect(within(drawer).getByText(/Dr\. Singh/)).toBeInTheDocument();
   });
 
   it("renders the 'No patients in queue' placeholder when the drill-in returns an empty queue", async () => {
@@ -376,11 +380,12 @@ describe("QueuePage", () => {
     expect(screen.getByText(/CHILD/)).toBeInTheDocument();
     expect(screen.getByText(/ANC/)).toBeInTheDocument();
     expect(screen.getByText(/SENIOR/)).toBeInTheDocument();
-    // The full row container is `<div class="flex items-center justify-between rounded-lg border p-4 …">`
-    // — pick the closest ancestor with `justify-between` so we capture BOTH the
-    // left (patient info) and right (status / wait hint) cells.
+    // The drawer entry container is a `<div class="relative overflow-hidden
+    // rounded-lg border p-3 …">` wrapping a name+badges Link and the
+    // status/wait-hint cell. Pick the closest ancestor with `rounded-lg`
+    // so we capture BOTH cells in one row scope.
     const findRow = (name: string) =>
-      screen.getByText(name).closest("div.justify-between") as HTMLElement;
+      screen.getByText(name).closest("div.rounded-lg") as HTMLElement;
     // IN_CONSULTATION row should NOT show the "~N min wait" hint.
     const ancRow = findRow("Priya N");
     expect(ancRow).toBeTruthy();

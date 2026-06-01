@@ -168,7 +168,9 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
     // (page.tsx:1661-1681), not a <select>. The label "0-0-1 (Night)"
     // split on " " yields token "0-0-1" → testid rx-frequency-option-0-0-0-1.
     await page.getByTestId("rx-frequency-option-0-0-0-1").click();
-    await page.getByPlaceholder("Duration").first().fill("30 days");
+    // Duration placeholder changed to "e.g. 5 days"; lock onto the stable
+    // per-row testid (page.tsx:1759) so future copy tweaks don't bite.
+    await page.getByTestId("rx-duration-input-0").fill("30 days");
 
     // Submit — the preview path is invoked because the form passes Zod
     // (all required fields filled). The preview stub returns hasBlocking,
@@ -368,7 +370,8 @@ test.describe("Prescriptions lifecycle — /dashboard/prescriptions (DDI safety 
     // "1-0-1 (Morning-Night)" split on " " yields token "1-0-1" →
     // testid rx-frequency-option-0-1-0-1.
     await page.getByTestId("rx-frequency-option-0-1-0-1").click();
-    await page.getByPlaceholder("Duration").first().fill("ongoing");
+    // Same stable per-row testid swap as the DDI test above.
+    await page.getByTestId("rx-duration-input-0").fill("ongoing");
 
     // Wire the preview waitForResponse so the modal-visibility assertion
     // doesn't poll while /check-interactions is still in-flight.

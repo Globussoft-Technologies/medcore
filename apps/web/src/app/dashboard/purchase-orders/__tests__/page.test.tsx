@@ -702,6 +702,14 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
 
+    // Wait for the modal's async /suppliers fetch to populate options.
+    // Without this, fireEvent.change(value:"sup-1") fires before
+    // <option value="sup-1"> exists in the DOM, React's controlled
+    // <select> silently drops it, the form submits with empty
+    // supplierId, and the supplier-required guard fires first — the
+    // row-description guard we're trying to test never runs.
+    await screen.findByRole("option", { name: "Acme" });
+
     fireEvent.change(screen.getByLabelText(/Supplier/), {
       target: { value: "sup-1" },
     });
@@ -722,6 +730,10 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
+
+    // Wait for the async /suppliers fetch to populate <option value="sup-1">
+    // before changing — same race the tax-% test below already guards.
+    await screen.findByRole("option", { name: "Acme" });
 
     fireEvent.change(screen.getByLabelText(/Supplier/), {
       target: { value: "sup-1" },
@@ -753,6 +765,10 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
+
+    // Wait for the async /suppliers fetch to populate <option value="sup-1">
+    // before changing — same race as the tax-% / quantity guards above.
+    await screen.findByRole("option", { name: "Acme" });
 
     fireEvent.change(screen.getByLabelText(/Supplier/), {
       target: { value: "sup-1" },
@@ -992,6 +1008,12 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
 
+    // Wait for the async /suppliers fetch to populate the dropdown before
+    // selecting — without this, fireEvent.change fires before the option
+    // exists and React's controlled <select> silently drops the value.
+    // (Same race the happy-path test guards against above.)
+    await screen.findByRole("option", { name: "Acme" });
+
     fireEvent.change(screen.getByLabelText(/Supplier/), {
       target: { value: "sup-1" },
     });
@@ -1026,6 +1048,8 @@ describe("PurchaseOrdersPage — procurement list / tabs / new-PO modal", () => 
 
     fireEvent.click(screen.getByRole("button", { name: /New PO/ }));
     await screen.findByRole("heading", { name: /New Purchase Order/ });
+
+    await screen.findByRole("option", { name: "Acme" });
 
     fireEvent.change(screen.getByLabelText(/Supplier/), {
       target: { value: "sup-1" },

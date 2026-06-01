@@ -955,6 +955,11 @@ describe("Agent Console dashboard page (3-pane handoff workstation)", () => {
       (await screen.findByText("Asha Patel")).closest("button")!,
     );
 
+    // Wait for the context load to land before clicking Escalate —
+    // escalate() bails on `!context` and the toast.info path lives
+    // INSIDE that function, so a no-op click never fires the toast.
+    await screen.findByTestId("agent-console-transcript");
+
     fireEvent.click(
       await screen.findByRole("button", { name: /Escalate to doctor/i }),
     );
@@ -977,6 +982,12 @@ describe("Agent Console dashboard page (3-pane handoff workstation)", () => {
     fireEvent.click(
       (await screen.findByText("Asha Patel")).closest("button")!,
     );
+
+    // escalate() bails early on `!context`, so wait for the context GET
+    // to land (transcript section only renders after setContext) before
+    // clicking — otherwise the click is a silent no-op and the POST
+    // never fires. Mirrors the guard in "escalate cancellation" below.
+    await screen.findByTestId("agent-console-transcript");
 
     promptMock.mockResolvedValueOnce("Worsening chest tightness");
     apiMock.post.mockResolvedValueOnce({ data: { ok: true } });
@@ -1007,6 +1018,12 @@ describe("Agent Console dashboard page (3-pane handoff workstation)", () => {
       (await screen.findByText("Asha Patel")).closest("button")!,
     );
 
+    // escalate() bails out early on `!context`, so wait for the context
+    // GET to land (transcript section only renders after setContext) before
+    // clicking — otherwise the click is a silent no-op and promptMock
+    // is never called.
+    await screen.findByTestId("agent-console-transcript");
+
     promptMock.mockResolvedValueOnce(null);
 
     fireEvent.click(
@@ -1034,6 +1051,12 @@ describe("Agent Console dashboard page (3-pane handoff workstation)", () => {
     fireEvent.click(
       (await screen.findByText("Asha Patel")).closest("button")!,
     );
+
+    // Same `!context` early-bail guard as the happy-path/cancellation
+    // escalate tests above — wait for the transcript before clicking
+    // the Escalate button, otherwise the click is a silent no-op and
+    // the rejected post never fires.
+    await screen.findByTestId("agent-console-transcript");
 
     promptMock.mockResolvedValueOnce("reason");
     apiMock.post.mockRejectedValueOnce(new Error("escalate failed"));

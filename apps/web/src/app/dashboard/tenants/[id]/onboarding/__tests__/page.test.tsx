@@ -20,24 +20,26 @@
  *       2. Non-ADMIN role is router.pushed to /dashboard and the page
  *          shell renders null (RBAC client-side gate).
  *       3. ADMIN happy path — page chrome (testid `tenant-onboarding`),
- *          progress bar, all 6 steps render, tenant name + subdomain.
+ *          progress bar, all 8 SOW-aligned steps render, tenant name
+ *          + subdomain.
  *       4. URL id threading — both GETs use `/tenants/${id}/...` with
  *          the value from `useParams()`.
  *       5. `account_created` step is auto-detected via `autoDetect(d)`
  *          → check icon renders + no "Mark complete" CTA.
- *       6. `hospital_config` autoDetect — all 4 required SystemConfig
- *          keys present → step rendered as complete; one missing →
- *          incomplete.
- *       7. Mark-complete flow — clicking the `tenant-onboarding-complete-*`
+ *       6. Mark-complete flow — clicking the `tenant-onboarding-complete-*`
  *          button POSTs `/tenants/:id/onboarding/:step` and reloads.
- *       8. Mark-complete API rejection → `toast.error` with the message
+ *       7. Mark-complete API rejection → `toast.error` with the message
  *          and the page stays alive.
- *       9. Initial GET failure → `toast.error` fires and the loading
+ *       8. Initial GET failure → `toast.error` fires and the loading
  *          state clears (page shell + skeleton-then-checklist still render).
- *      10. Steps already complete render the persisted ISO date next to
+ *       9. Steps already complete render the persisted ISO date next to
  *          the title (en-IN format) and suppress the "Mark complete" CTA.
- *      11. Progress percent — partial completion produces the correct
+ *      10. Progress percent — partial completion produces the correct
  *          fraction in the progress KPI.
+ *      11. Skip flow — clicking `tenant-onboarding-skip-*` POSTs the
+ *          new `/onboarding/:step/skip` endpoint, the page reloads, and
+ *          the step renders with `data-step-status="skipped"` + an amber
+ *          badge while NOT counting toward the progress numerator.
  *
  *   - Mocks: @/lib/api, @/lib/store (destructured `useAuthStore`),
  *     @/lib/toast, @/lib/i18n, @/components/Skeleton (passthrough),
@@ -125,11 +127,13 @@ const tenantDetail = {
 
 function routeApiGet(opts?: {
   steps?: Record<string, string>;
+  skipped?: Record<string, string>;
   detail?: typeof tenantDetail | null;
   fail?: "both" | "steps" | "detail";
   detailOverride?: Partial<typeof tenantDetail>;
 }) {
   const steps = opts?.steps ?? {};
+  const skipped = opts?.skipped ?? {};
   const detail = opts?.detail === null
     ? null
     : { ...tenantDetail, ...(opts?.detailOverride ?? {}) };
@@ -137,7 +141,7 @@ function routeApiGet(opts?: {
     if (opts?.fail === "both") throw new Error("network down");
     if (url.endsWith("/onboarding")) {
       if (opts?.fail === "steps") throw new Error("steps 500");
-      return { data: { tenantId: "t1", steps } };
+      return { data: { tenantId: "t1", steps, skipped } };
     }
     // /tenants/:id
     if (opts?.fail === "detail") throw new Error("detail 500");
@@ -189,7 +193,7 @@ describe("TenantOnboardingPage", () => {
 
   // ─── ADMIN happy path ──────────────────────────────────
 
-  it("renders the page chrome with all 6 steps + tenant name + subdomain after the GETs resolve (ADMIN)", async () => {
+  it("renders the page chrome with all 8 SOW-aligned steps + tenant name + subdomain after the GETs resolve (ADMIN)", async () => {
     routeApiGet();
     render(<TenantOnboardingPage />);
     // The chrome mounts immediately under a loading skeleton; wait for the
@@ -201,18 +205,35 @@ describe("TenantOnboardingPage", () => {
     );
     expect(screen.getByText("St. Johns")).toBeInTheDocument();
     expect(screen.getByText("stjohns")).toBeInTheDocument();
-    // All 6 step rows present.
+    // All 8 step rows present, ordered to match the SOW §8.1 wizard.
+    // Retired/deferred entries (asserted absent below):
+    //   - hospital_config (retired 2026-05-29)
+    //   - first_branch    (dropped 2026-05-29 — default branch seeded at signup)
+    //   - seed_test_patient (dropped 2026-05-29 — operators always skipped it)
+    //   - go_live         (deferred — see page.tsx header)
     for (const key of [
       "account_created",
-      "hospital_config",
+      "default_permissions",
       "first_doctor",
+      "abdm_registration",
+      "whatsapp_setup",
+      "payment_gateway",
       "duty_roster",
       "notification_templates",
-      "seed_test_patient",
     ]) {
       expect(
         screen.getByTestId(`tenant-onboarding-step-${key}`),
       ).toBeInTheDocument();
+    }
+    for (const retired of [
+      "hospital_config",
+      "first_branch",
+      "seed_test_patient",
+      "go_live",
+    ]) {
+      expect(
+        screen.queryByTestId(`tenant-onboarding-step-${retired}`),
+      ).not.toBeInTheDocument();
     }
   });
 
@@ -240,35 +261,6 @@ describe("TenantOnboardingPage", () => {
     expect(
       screen.queryByTestId("tenant-onboarding-complete-account_created"),
     ).not.toBeInTheDocument();
-  });
-
-  it("auto-completes hospital_config when every required SystemConfig key is non-empty", async () => {
-    routeApiGet();
-    render(<TenantOnboardingPage />);
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("tenant-onboarding-step-hospital_config"),
-      ).toBeInTheDocument(),
-    );
-    // All 4 hospital_* keys present → Mark-complete button hidden.
-    expect(
-      screen.queryByTestId("tenant-onboarding-complete-hospital_config"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("leaves hospital_config INCOMPLETE when one required key is missing (Mark-complete CTA shown)", async () => {
-    const incomplete = { ...fullConfig };
-    delete (incomplete as any).hospital_email;
-    routeApiGet({ detailOverride: { config: incomplete } });
-    render(<TenantOnboardingPage />);
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("tenant-onboarding-step-hospital_config"),
-      ).toBeInTheDocument(),
-    );
-    expect(
-      screen.getByTestId("tenant-onboarding-complete-hospital_config"),
-    ).toBeInTheDocument();
   });
 
   // ─── Mark-complete flow ────────────────────────────────
@@ -366,8 +358,8 @@ describe("TenantOnboardingPage", () => {
   });
 
   it("renders the correct progress fraction when some steps are complete", async () => {
-    // account_created + hospital_config auto-complete (2). Plus an
-    // explicit first_doctor marker (3). Total 6 → 50% / "3 / 6".
+    // account_created auto-completes (1). Plus an explicit first_doctor
+    // marker (2). Total 8 → 25% / "2 / 8".
     routeApiGet({
       steps: { first_doctor: "2026-03-01T00:00:00.000Z" },
     });
@@ -379,9 +371,96 @@ describe("TenantOnboardingPage", () => {
         screen.queryByTestId("tenant-onboarding-loading"),
       ).not.toBeInTheDocument(),
     );
-    expect(screen.getByText("50%")).toBeInTheDocument();
-    expect(screen.getByText(/3\s*\/\s*6/)).toBeInTheDocument();
+    expect(screen.getByText("25%")).toBeInTheDocument();
+    expect(screen.getByText(/2\s*\/\s*8/)).toBeInTheDocument();
     const bar = screen.getByTestId("tenant-onboarding-progress");
-    expect(bar.getAttribute("style") || "").toMatch(/width:\s*50%/);
+    expect(bar.getAttribute("style") || "").toMatch(/width:\s*25%/);
+  });
+
+  // ─── Skip flow (new) ──────────────────────────────────
+
+  it("POSTs /onboarding/:step/skip when the Skip-for-now button is clicked and reloads", async () => {
+    routeApiGet();
+    apiMock.post.mockResolvedValue({ data: { ok: true } });
+    render(<TenantOnboardingPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("tenant-onboarding-skip-whatsapp_setup"),
+      ).toBeInTheDocument(),
+    );
+    apiMock.get.mockClear();
+
+    fireEvent.click(
+      screen.getByTestId("tenant-onboarding-skip-whatsapp_setup"),
+    );
+
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/tenants/t1/onboarding/whatsapp_setup/skip",
+      ),
+    );
+    expect(toastMock.success).toHaveBeenCalled();
+    // Reload re-issues the parallel GETs after a skip.
+    await waitFor(() =>
+      expect(apiMock.get).toHaveBeenCalledWith("/tenants/t1/onboarding"),
+    );
+  });
+
+  it("surfaces a toast.error when the Skip POST rejects and keeps the page alive", async () => {
+    routeApiGet();
+    apiMock.post.mockRejectedValue(new Error("skip blocked 409"));
+    render(<TenantOnboardingPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("tenant-onboarding-skip-duty_roster"),
+      ).toBeInTheDocument(),
+    );
+
+    fireEvent.click(
+      screen.getByTestId("tenant-onboarding-skip-duty_roster"),
+    );
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("skip blocked 409"),
+    );
+    expect(screen.getByTestId("tenant-onboarding")).toBeInTheDocument();
+  });
+
+  it("renders a step marked skipped with data-step-status=\"skipped\" + amber badge, hides the Skip button, and excludes it from the progress numerator", async () => {
+    // payment_gateway pre-skipped server-side. account_created still
+    // auto-completes (1/8 ≈ 13%). The skipped step does NOT count.
+    routeApiGet({
+      skipped: { payment_gateway: "2026-05-29T08:00:00.000Z" },
+    });
+    render(<TenantOnboardingPage />);
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("tenant-onboarding-loading"),
+      ).not.toBeInTheDocument(),
+    );
+
+    const row = screen.getByTestId("tenant-onboarding-step-payment_gateway");
+    expect(row.getAttribute("data-step-status")).toBe("skipped");
+    expect(
+      screen.getByTestId(
+        "tenant-onboarding-skipped-badge-payment_gateway",
+      ),
+    ).toBeInTheDocument();
+    // Skip button hides once a step is already skipped — only Mark complete
+    // remains so the operator can come back and finish it.
+    expect(
+      screen.queryByTestId("tenant-onboarding-skip-payment_gateway"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId(
+        "tenant-onboarding-complete-payment_gateway",
+      ),
+    ).toBeInTheDocument();
+
+    // Progress numerator unchanged — only account_created auto-completes.
+    // 1/8 rounds to 13%.
+    expect(screen.getByText("13%")).toBeInTheDocument();
+    expect(screen.getByText(/1\s*\/\s*8/)).toBeInTheDocument();
   });
 });

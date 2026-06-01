@@ -680,7 +680,9 @@ router.post(
 );
 
 // GET /api/v1/tenants/:id/onboarding — per-tenant onboarding state
-// Reads SystemConfig rows prefixed `tenant:<id>:onboarding_step_<name>_completed_at`.
+// Reads SystemConfig rows prefixed `tenant:<id>:onboarding_step_<name>_completed_at`
+// AND `tenant:<id>:onboarding_step_<name>_skipped_at`. Returns two parallel maps
+// so the UI can render a step as Completed, Skipped (revisit later), or Pending.
 router.get(
   "/:id/onboarding",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -698,13 +700,19 @@ router.get(
         where: { key: { startsWith: prefix } },
       });
       const steps: Record<string, string> = {};
+      const skipped: Record<string, string> = {};
       for (const r of rows) {
-        steps[r.key.slice(prefix.length).replace(/_completed_at$/, "")] = r.value;
+        const tail = r.key.slice(prefix.length);
+        if (tail.endsWith("_completed_at")) {
+          steps[tail.replace(/_completed_at$/, "")] = r.value;
+        } else if (tail.endsWith("_skipped_at")) {
+          skipped[tail.replace(/_skipped_at$/, "")] = r.value;
+        }
       }
 
       res.json({
         success: true,
-        data: { tenantId: tenant.id, steps },
+        data: { tenantId: tenant.id, steps, skipped },
         error: null,
       });
     } catch (err) {
@@ -714,6 +722,9 @@ router.get(
 );
 
 // POST /api/v1/tenants/:id/onboarding/:step — mark a step complete
+// Also clears any prior skipped marker for the same step (completing implicitly
+// un-skips), so the GET map can never report a step as both completed AND
+// skipped at the same time.
 router.post(
   "/:id/onboarding/:step",
   async (req: Request, res: Response, next: NextFunction) => {
@@ -734,12 +745,21 @@ router.post(
       }
 
       const key = tenantConfigKey(tenant.id, `onboarding_step_${step}_completed_at`);
+      const skippedKey = tenantConfigKey(
+        tenant.id,
+        `onboarding_step_${step}_skipped_at`,
+      );
       const now = new Date().toISOString();
       await prisma.systemConfig.upsert({
         where: { key },
         create: { key, value: now },
         update: { value: now },
       });
+      await prisma.systemConfig
+        .delete({ where: { key: skippedKey } })
+        .catch(() => {
+          // No prior skip row — fine.
+        });
 
       auditLog(req, "TENANT_ONBOARDING_STEP", "tenant", tenant.id, { step }).catch(
         console.error,
@@ -751,5 +771,54 @@ router.post(
     }
   },
 );
+
+// POST /api/v1/tenants/:id/onboarding/:step/skip — defer a step
+// Writes `onboarding_step_<name>_skipped_at` so the UI can render it as
+// "Skipped — revisit later" without counting it toward the progress bar. A
+// later POST /:step (mark complete) clears the skip marker.
+router.post(
+  "/:id/onboarding/:step/skip",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id, step } = req.params;
+      if (!/^[a-z0-9_]{1,40}$/.test(step)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Invalid step name",
+        });
+        return;
+      }
+      const tenant = await prisma.tenant.findUnique({ where: { id } });
+      if (!tenant) {
+        res.status(404).json({ success: false, data: null, error: "Tenant not found" });
+        return;
+      }
+      const key = tenantConfigKey(
+        tenant.id,
+        `onboarding_step_${step}_skipped_at`,
+      );
+      const now = new Date().toISOString();
+      await prisma.systemConfig.upsert({
+        where: { key },
+        create: { key, value: now },
+        update: { value: now },
+      });
+
+      auditLog(req, "TENANT_ONBOARDING_STEP_SKIP", "tenant", tenant.id, {
+        step,
+      }).catch(console.error);
+
+      res.json({ success: true, data: { step, skippedAt: now }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Role-permission catalog moved to its own global router at
+// /api/v1/role-permissions (apps/api/src/routes/role-permissions.ts).
+// The catalog is platform-wide so it no longer hangs under
+// /tenants/:id — see app.ts for the new mount.
 
 export { router as tenantsRouter };

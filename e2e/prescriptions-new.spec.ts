@@ -184,7 +184,9 @@ test.describe("Prescriptions — /dashboard/prescriptions/new (Rx creation FORM 
     // "1-0-1 (Morning-Night)" split on " " yields token "1-0-1" →
     // testid rx-frequency-option-0-1-0-1.
     await page.getByTestId("rx-frequency-option-0-1-0-1").click();
-    await page.getByPlaceholder("Duration").first().fill("5 days");
+    // Duration placeholder changed to "e.g. 5 days"; the per-row testid
+    // `rx-duration-input-${idx}` (page.tsx:1759) is the stable lock.
+    await page.getByTestId("rx-duration-input-0").fill("5 days");
 
     // ── Step 5: Submit. The form fires
     //     POST /prescriptions/check-interactions  (preview)

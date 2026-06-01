@@ -172,9 +172,15 @@ describe("AdmissionDetailPage", () => {
     // Tab rendered without throwing — the page-level ErrorBoundary
     // fallback ("Something went wrong rendering this view.") must NOT
     // appear, and the surviving order row must render its name.
-    await waitFor(() =>
-      expect(screen.getByTestId("medication-orders-list")).toBeInTheDocument()
-    );
+    //
+    // Wait for the actual row to materialise, not just the list wrapper:
+    // the wrapper renders synchronously once the tab is active, but the
+    // medication-order-name rows are rendered from the fetched payload
+    // and can land a microtask later.
+    await waitFor(() => {
+      const names = screen.getAllByTestId("medication-order-name");
+      expect(names.length).toBeGreaterThan(0);
+    });
     expect(
       screen.queryByText(/Something went wrong rendering this view/i)
     ).toBeNull();

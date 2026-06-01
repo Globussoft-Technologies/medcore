@@ -148,9 +148,14 @@ describe("Patient dashboard — gap #5 piece 3a", () => {
     const apptTile = screen.getByTestId("patient-dashboard-next-appointment");
     expect(within(apptTile).getByText(/Dr\. Sharma/)).toBeInTheDocument();
     expect(within(apptTile).getByText(/Obstetrics/)).toBeInTheDocument();
+    // The button used to link to /patient/appointments/<id> but no such
+    // detail route exists — it 404'd in prod. The dashboard now sends
+    // the user to the list page with `?reschedule=<id>`, which the list
+    // page reads on mount and auto-opens the reschedule modal for that
+    // appointment. See patient/appointments/page.tsx auto-open effect.
     expect(
       within(apptTile).getByTestId("patient-dashboard-next-appointment-view"),
-    ).toHaveAttribute("href", "/patient/appointments/appt-1");
+    ).toHaveAttribute("href", "/patient/appointments?reschedule=appt-1");
     expect(
       within(apptTile).getByTestId("patient-dashboard-next-appointment-arrived"),
     ).toBeInTheDocument();

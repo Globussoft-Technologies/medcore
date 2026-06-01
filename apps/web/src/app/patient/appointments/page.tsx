@@ -33,6 +33,7 @@
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 
 interface BranchLite {
@@ -249,6 +250,33 @@ export default function PatientAppointmentsPage() {
     void refetch();
   }, [refetch]);
 
+  // Pearl §6.1 — entry-point from the patient dashboard "Next Appointment"
+  // card. When that card's "View / reschedule" button is clicked, it
+  // navigates here with `?reschedule=<appointmentId>`. We watch for that
+  // param + the just-loaded appointment row and auto-open the reschedule
+  // modal so the patient lands on the action they intended in one click,
+  // not two. Guard with a ref-like local flag (`didAutoOpenForId`) so
+  // that closing the modal doesn't immediately re-open it.
+  const searchParams = useSearchParams();
+  const [didAutoOpenForId, setDidAutoOpenForId] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    const target = searchParams?.get("reschedule");
+    if (!target) return;
+    if (didAutoOpenForId === target) return;
+    if (state !== "ready") return;
+    const match = appointments.find((a) => a.id === target);
+    if (!match) return;
+    setRescheduleDraft({
+      appointment: match,
+      date: new Date(match.date).toISOString().slice(0, 10),
+      slotStart: (match.slotStart ?? "10:00").slice(0, 5),
+      reason: "",
+    });
+    setDidAutoOpenForId(target);
+  }, [searchParams, appointments, state, didAutoOpenForId]);
+
   // Close any open modal on Esc — small QoL nicety since the modal is
   // hand-rolled without a library.
   useEffect(() => {
@@ -286,12 +314,26 @@ export default function PatientAppointmentsPage() {
 
   async function submitReschedule(): Promise<void> {
     if (!rescheduleDraft) return;
+    // Pearl §3.1 (gap closed 2026-05-29) — reschedule reason is now
+    // required server-side (3-500 chars). The patient reschedule form's
+    // reason input was already there but unwired; wire it through and
+    // validate locally so the error message is friendlier than the
+    // server's generic 400.
+    const reason = rescheduleDraft.reason.trim();
+    if (reason.length < 3) {
+      setActionError("Please enter a reason for rescheduling (min 3 characters).");
+      return;
+    }
     setSubmitting(true);
     setActionError(null);
     try {
       await api.patch(
         `/appointments/${rescheduleDraft.appointment.id}/reschedule`,
-        { date: rescheduleDraft.date, slotStart: rescheduleDraft.slotStart },
+        {
+          date: rescheduleDraft.date,
+          slotStart: rescheduleDraft.slotStart,
+          reason,
+        },
       );
       setRescheduleDraft(null);
       await refetch();
@@ -306,12 +348,21 @@ export default function PatientAppointmentsPage() {
 
   async function submitCancel(): Promise<void> {
     if (!cancelDraft) return;
+    // Pearl §3.1 (gap closed 2026-05-29) — cancellation reason is now
+    // required server-side (3-500 chars). The patient cancel form's
+    // reason input was already there but unwired; now it's plumbed
+    // through and validated locally before the request.
+    const reason = cancelDraft.reason.trim();
+    if (reason.length < 3) {
+      setActionError("Please enter a cancellation reason (min 3 characters).");
+      return;
+    }
     setSubmitting(true);
     setActionError(null);
     try {
       await api.patch(
         `/appointments/${cancelDraft.appointment.id}/status`,
-        { status: "CANCELLED" },
+        { status: "CANCELLED", cancellationReason: reason },
       );
       setCancelDraft(null);
       await refetch();
@@ -597,7 +648,7 @@ export default function PatientAppointmentsPage() {
               </label>
               <label className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
-                  Reason (optional)
+                  Reason <span className="text-red-600">*</span>
                 </span>
                 <textarea
                   value={rescheduleDraft.reason}
@@ -608,6 +659,8 @@ export default function PatientAppointmentsPage() {
                     })
                   }
                   rows={2}
+                  maxLength={500}
+                  placeholder="e.g. Schedule conflict; need a different time"
                   data-testid="patient-appointments-reschedule-reason"
                   className="block w-full rounded-md border border-slate-300 p-2 text-sm"
                 />
@@ -672,7 +725,7 @@ export default function PatientAppointmentsPage() {
             </p>
             <label className="block text-sm">
               <span className="mb-1 block font-medium text-slate-700">
-                Reason (optional)
+                Reason <span className="text-red-600">*</span>
               </span>
               <textarea
                 value={cancelDraft.reason}
@@ -680,9 +733,14 @@ export default function PatientAppointmentsPage() {
                   setCancelDraft({ ...cancelDraft, reason: e.target.value })
                 }
                 rows={2}
+                maxLength={500}
+                placeholder="e.g. Schedule conflict; feeling better"
                 data-testid="patient-appointments-cancel-reason"
                 className="block w-full rounded-md border border-slate-300 p-2 text-sm"
               />
+              <span className="mt-1 block text-xs text-slate-500">
+                {cancelDraft.reason.trim().length} / 500 characters (min 3)
+              </span>
             </label>
             {actionError ? (
               <p

@@ -49,13 +49,22 @@ function textResponse(content: string) {
   };
 }
 
-function toolResponse(name: string, args: any) {
+// Sarvam-m doesn't support OpenAI function/tool calling (returns 400
+// "Tool calling is not supported for this model") — every structured-
+// output Sarvam call now uses response_format: json_object and emits
+// the JSON inline in message.content. parseSarvamJson also strips
+// `<think>…</think>` blocks that Sarvam-m's reasoning model emits, so
+// callers can deliberately wrap the JSON in a thinking block + fences
+// to exercise that strip path. The legacy tool-calling helper used to
+// live here too — it's now only relevant to the OpenAI-fallback path
+// in radiology-reports.test.ts, which has its own copy.
+function jsonResponse(obj: any) {
   return {
     choices: [
       {
         message: {
-          content: null,
-          tool_calls: [{ type: "function", function: { name, arguments: JSON.stringify(args) } }],
+          content: JSON.stringify(obj),
+          tool_calls: [],
         },
       },
     ],
@@ -89,12 +98,16 @@ describe("runTriageTurn", () => {
     expect(res.reply).toBe("Hello, how can I help?");
   });
 
-  it("flags emergency when tool call is returned", async () => {
+  it("flags emergency when reply is prefixed with [EMERGENCY:<reason>]", async () => {
+    // Sarvam-m doesn't support OpenAI function calling. The new
+    // runTriageTurn path asks the model to prefix its reply with
+    // `[EMERGENCY:<reason>]` instead of calling a tool; the route then
+    // parses that marker. The deterministic checkRedFlags pass in
+    // ai-triage.ts remains the primary safety gate.
     createMock.mockResolvedValueOnce(
-      toolResponse("flag_emergency", {
-        reason: "Severe chest pain radiating to arm",
-        urgency: "CALL_EMERGENCY",
-      })
+      textResponse(
+        "[EMERGENCY:Severe chest pain radiating to arm] Please call emergency services (112) right away."
+      )
     );
     const res = await runTriageTurn(
       [{ role: "user", content: "I have crushing chest pain" }],
@@ -201,9 +214,12 @@ describe("runTriageTurn", () => {
 // ── extractSymptomSummary ─────────────────────────────────────────────────────
 
 describe("extractSymptomSummary", () => {
-  it("returns structured summary from tool call", async () => {
+  it("returns structured summary from json_object response", async () => {
+    // Sarvam-m: extractSymptomSummary now uses response_format:
+    // json_object — the JSON shape is inline in message.content, not
+    // in a tool_calls payload.
     createMock.mockResolvedValueOnce(
-      toolResponse("structured_symptom_summary", {
+      jsonResponse({
         chiefComplaint: "Headache",
         duration: "2 days",
         severity: 6,
@@ -225,7 +241,10 @@ describe("extractSymptomSummary", () => {
     expect(summary.confidence).toBe(0.75);
   });
 
-  it("throws when LLM returns no tool call", async () => {
+  it("throws when LLM returns no parseable JSON", async () => {
+    // Sarvam-m can return plain prose if the system prompt is ignored —
+    // parseSarvamJson finds no JSON object and returns null, which the
+    // extractor turns into "Failed to extract symptom summary".
     createMock.mockResolvedValueOnce(textResponse("I cannot summarise"));
     await expect(
       extractSymptomSummary([{ role: "user", content: "headache" }])
@@ -262,8 +281,10 @@ describe("generateSOAPNote", () => {
   };
 
   it("returns the parsed SOAP structure when no medications need verification", async () => {
+    // Sarvam-m: generateSOAPNote uses response_format: json_object —
+    // SOAP shape comes back inline in message.content.
     createMock.mockResolvedValueOnce(
-      toolResponse("generate_soap_note", {
+      jsonResponse({
         subjective: { chiefComplaint: "Chest pain", hpi: "on exertion" },
         objective: {},
         assessment: { impression: "" }, // empty impression = nothing to verify
@@ -279,9 +300,9 @@ describe("generateSOAPNote", () => {
 
   it("runs hallucination check and annotates medications not in transcript", async () => {
     createMock
-      // 1. SOAP generation
+      // 1. SOAP generation (json_object)
       .mockResolvedValueOnce(
-        toolResponse("generate_soap_note", {
+        jsonResponse({
           subjective: { chiefComplaint: "Chest pain", hpi: "on exertion" },
           objective: {},
           assessment: { impression: "Angina" },
@@ -293,9 +314,9 @@ describe("generateSOAPNote", () => {
           },
         })
       )
-      // 2. Hallucination check
+      // 2. Hallucination check (json_object, validates verify_items shape)
       .mockResolvedValueOnce(
-        toolResponse("verify_items", {
+        jsonResponse({
           results: [
             { item: "Angina", found: true },
             { item: "paracetamol", found: true },
@@ -315,7 +336,7 @@ describe("generateSOAPNote", () => {
   it("annotates impression when diagnosis is not found in transcript", async () => {
     createMock
       .mockResolvedValueOnce(
-        toolResponse("generate_soap_note", {
+        jsonResponse({
           subjective: { chiefComplaint: "headache", hpi: "2 days" },
           objective: {},
           assessment: { impression: "Meningitis" },
@@ -323,7 +344,7 @@ describe("generateSOAPNote", () => {
         })
       )
       .mockResolvedValueOnce(
-        toolResponse("verify_items", {
+        jsonResponse({
           results: [{ item: "Meningitis", found: false }],
         })
       );
@@ -340,7 +361,7 @@ describe("generateSOAPNote", () => {
     const netErr = new Error("ETIMEDOUT");
     createMock
       .mockResolvedValueOnce(
-        toolResponse("generate_soap_note", {
+        jsonResponse({
           subjective: { chiefComplaint: "fever", hpi: "2 days" },
           objective: {},
           assessment: { impression: "Viral fever" },
@@ -356,7 +377,9 @@ describe("generateSOAPNote", () => {
     expect(soap.assessment.impression).toBe("Viral fever");
   }, 20_000);
 
-  it("throws when SOAP generation returns no tool call", async () => {
+  it("throws when SOAP generation returns no parseable JSON", async () => {
+    // parseSarvamJson returns null when message.content has no JSON object —
+    // generateSOAPNote turns that into "Failed to generate SOAP note".
     createMock.mockResolvedValueOnce(textResponse("unable"));
     await expect(generateSOAPNote(transcript, ctx)).rejects.toThrow(
       /Failed to generate SOAP note/

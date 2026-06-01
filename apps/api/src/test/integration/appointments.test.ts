@@ -124,10 +124,14 @@ describeIfDB("Appointments API (integration)", () => {
       patientId: patient.id,
       doctorId: doctor.id,
     });
+    // Pearl §3.1 (gap closed 2026-05-29): cancellationReason is now
+    // required by Zod when status is CANCELLED (3-500 chars). Without
+    // it the route returns 400 — see updateAppointmentStatusSchema in
+    // packages/shared/src/validation/appointment.ts.
     const res = await request(app)
       .patch(`/api/v1/appointments/${appt.id}/status`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ status: "CANCELLED" });
+      .send({ status: "CANCELLED", cancellationReason: "Patient requested" });
     expect([200, 201]).toContain(res.status);
     expect(res.body.data?.status).toBe("CANCELLED");
   });
@@ -139,10 +143,11 @@ describeIfDB("Appointments API (integration)", () => {
       patientId: patient.id,
       doctorId: doctor.id,
     });
+    // Pearl §3.1: noShowReason is required by Zod when status is NO_SHOW.
     const res = await request(app)
       .patch(`/api/v1/appointments/${appt.id}/status`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ status: "NO_SHOW" });
+      .send({ status: "NO_SHOW", noShowReason: "Did not arrive within grace window" });
     expect([200, 201]).toContain(res.status);
   });
 

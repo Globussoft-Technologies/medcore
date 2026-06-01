@@ -3,10 +3,10 @@
 // Pearl ERP Stage 1 §3.3 (gap item #3) — CRM lead pipeline list page.
 //
 // Minimal MVP shape: list view + filter chips + create-lead modal +
-// quick status pill that opens an inline status menu. Detail view +
-// activity timeline + convert-to-patient modal are scaffolded as
-// stub buttons that link to /dashboard/leads/:id (page deferred to
-// the next scope-cut tick per the gap-doc TODO).
+// quick status pill that opens an inline status menu. Detail view at
+// /dashboard/leads/[id] now exists (Pearl §3.3 rows 6 + 7 closed
+// 2026-05-29) — provides activity timeline + convert-to-patient modal
+// + post-conversion redirect that prefills the booking form.
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";

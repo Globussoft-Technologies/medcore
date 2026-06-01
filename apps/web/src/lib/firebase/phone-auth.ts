@@ -3,6 +3,83 @@
 // signInWithPhoneNumber + confirmationResult.confirm in our own helpers
 // keeps the UI page small (just state + 2 async calls) and gives us one
 // place to translate Firebase's auth/error-code shape into user-facing copy.
+//
+// reCAPTCHA notes (Pearl §6.3 — patient OTP, debug history 2026-05-29):
+//
+// We pass `size: "invisible"` below — that's the hint for the LEGACY v2
+// invisible reCAPTCHA. The Firebase web SDK AUTO-DETECTS the project's
+// reCAPTCHA configuration and silently switches modes:
+//   * v2-only project          → SDK uses invisible v2.
+//   * Enterprise on project    → SDK switches to Enterprise mode and
+//                                emits `recaptchaVersion:
+//                                "RECAPTCHA_ENTERPRISE"` in the
+//                                accounts:sendVerificationCode payload.
+//
+// Debugging INVALID_APP_CREDENTIAL — ranked by frequency:
+//
+//   STEP 1 — confirm it's actually project-side, not a code bug. Run
+//   this exact curl from your terminal:
+//     curl -X POST \
+//       "https://identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode\
+//         ?key=<NEXT_PUBLIC_FIREBASE_API_KEY>" \
+//       -H "Content-Type: application/json" \
+//       -H "Referer: http://localhost:3000" \
+//       -d '{"phoneNumber":"+919999999999","clientType":"CLIENT_TYPE_WEB",
+//            "captchaResponse":"NO_RECAPTCHA",
+//            "recaptchaVersion":"RECAPTCHA_ENTERPRISE"}'
+//   If this gets the SAME 400 INVALID_APP_CREDENTIAL, the issue is
+//   entirely project-side. NO code change in this file can fix it.
+//
+//   STEP 2 — probe the Firebase config endpoint to see project state:
+//     curl "https://identitytoolkit.googleapis.com/v2/recaptchaConfig?\
+//       key=<NEXT_PUBLIC_FIREBASE_API_KEY>\
+//       &clientType=CLIENT_TYPE_WEB\
+//       &version=RECAPTCHA_ENTERPRISE"
+//   Look at `recaptchaEnforcementState.PHONE_PROVIDER`:
+//     - ENFORCE → reCAPTCHA failure blocks the request
+//     - AUDIT   → reCAPTCHA failure is logged but does NOT block
+//
+//   STEP 3 — look at the browser DevTools Console for SDK logs:
+//   If you see Firebase emit a log like:
+//     "Failed to verify with reCAPTCHA Enterprise. Automatically
+//      triggering the reCAPTCHA v2 flow to complete the
+//      sendVerificationCode flow."
+//   and BOTH the Enterprise attempt AND the v2 fallback get a 400, the
+//   issue is NOT reCAPTCHA — both modes are being rejected upstream. The
+//   ONLY thing that can reject both is the Google Cloud API key itself
+//   being restricted (HTTP referrer allowlist missing the current
+//   domain, OR API restrictions excluding Identity Toolkit API).
+//
+//   If enforcement is AUDIT and you still see INVALID_APP_CREDENTIAL, the
+//   cause is one of these, in this order:
+//     1. Google Cloud API key restrictions — open
+//        https://console.cloud.google.com/apis/credentials → click the
+//        API key → "Application restrictions" section. If "HTTP
+//        referrers" is set, the localhost dev URL must be in the
+//        allowlist or auth requests get rejected.
+//     2. reCAPTCHA Enterprise key's own domain allowlist (separate
+//        from Firebase Authorized Domains) — open
+//        https://console.cloud.google.com/security/recaptcha → find
+//        the configured Enterprise key → ensure `localhost` and
+//        `127.0.0.1` are in its domain list.
+//     3. Identity Toolkit API is disabled on the GCP project — enable
+//        at https://console.cloud.google.com/apis/library/
+//        identitytoolkit.googleapis.com
+//     4. Firebase Authentication "Authorized Domains" (Console →
+//        Authentication → Settings → Authorized Domains) doesn't
+//        include `localhost`. This is the easiest to miss because the
+//        UI is in Firebase Console, not Cloud Console.
+//
+//   If enforcement is ENFORCE, the fix paths additionally include:
+//     5. Switch enforcement to AUDIT or OFF for dev (Identity Platform →
+//        Providers → Phone), OR
+//     6. Fully register the Enterprise site key in Firebase Auth
+//        settings with the dev domain in its allowlist.
+//
+// In ALL cases above, the fix is project-side configuration. There is
+// no code change in this file that resolves INVALID_APP_CREDENTIAL — it
+// is always a config drift between what the Firebase SDK sends and what
+// Google's edge accepts for the project.
 
 import {
   RecaptchaVerifier,
@@ -122,6 +199,15 @@ interface FirebaseErrorLike {
 
 function humanizeFirebaseError(err: unknown, fallback: string): string {
   const code = (err as FirebaseErrorLike)?.code;
+
+  // Dump the raw Firebase error to the dev console so a developer can see
+  // the SDK's full stack and the original code. The user-facing message
+  // returned below is intentionally short + non-leaky.
+  if (typeof window !== "undefined" && code) {
+    // eslint-disable-next-line no-console
+    console.warn("[firebase phone-auth]", code, err);
+  }
+
   switch (code) {
     case "auth/invalid-phone-number":
       return "That phone number doesn't look right. Use the international format, e.g. +91 9876543210.";
@@ -131,6 +217,22 @@ function humanizeFirebaseError(err: unknown, fallback: string): string {
       return "We've hit our SMS limit for now. Please try again in a few minutes.";
     case "auth/captcha-check-failed":
       return "The bot-check failed. Please refresh the page and try again.";
+    case "auth/invalid-app-credential":
+      // 99% of the time this is a PROJECT-SIDE Firebase config issue, NOT
+      // a bug in our code:
+      //   - reCAPTCHA Enterprise enforcement is on but no Enterprise site
+      //     key is configured in Authentication settings, OR
+      //   - The configured Enterprise site key doesn't include the
+      //     current domain (e.g. `localhost`), OR
+      //   - Authorized Domains in Firebase Console doesn't include
+      //     `localhost`.
+      // The browser network tab will show the request payload had
+      // `recaptchaVersion: "RECAPTCHA_ENTERPRISE"` if Enterprise is on.
+      // Pearl: ask the project owner to either (a) disable Enterprise
+      // enforcement for Phone in Cloud Console → Identity Platform →
+      // Providers → Phone, OR (b) configure a valid Enterprise site key
+      // that whitelists this domain. See /docs/FIREBASE_OTP_SETUP.md.
+      return "Sign-in is misconfigured on the server side. Please contact support — the Firebase reCAPTCHA setup needs attention.";
     case "auth/invalid-verification-code":
       return "That code didn't match. Please check and try again.";
     case "auth/code-expired":
@@ -139,6 +241,14 @@ function humanizeFirebaseError(err: unknown, fallback: string): string {
       return "Too many attempts. Please wait a few minutes before trying again.";
     case "auth/network-request-failed":
       return "Network error. Check your connection and try again.";
+    case "auth/operation-not-allowed":
+      // Project-side: Phone auth is disabled, OR the SMS region of the
+      // dialled number is not on the project's allowed regions list.
+      return "Phone sign-in isn't available for your region yet. Please contact support.";
+    case "auth/app-not-authorized":
+      // Project-side: the API key in the web env isn't authorised for
+      // this project, or the current domain isn't in Authorized Domains.
+      return "This domain isn't authorised for sign-in. Please contact support.";
     default:
       return (err as FirebaseErrorLike)?.message || fallback;
   }

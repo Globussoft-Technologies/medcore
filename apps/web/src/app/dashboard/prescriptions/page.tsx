@@ -256,6 +256,20 @@ export default function PrescriptionsPage() {
   }
   const [allergyConflicts, setAllergyConflicts] = useState<AllergyConflict[]>([]);
 
+  // Pearl §2.1.4 — drug-allergy block must be overrideable WITH A REASON
+  // (audit trail). Until now the banner had no override path — Save was
+  // hard-disabled and the prescriber was stuck. We now open a modal that
+  // captures a free-text reason (>=3 chars per the API's Zod schema),
+  // then re-submits with `overrideAllergies=true` + the reason. The API
+  // audit-logs `PRESCRIPTION_ALLERGY_OVERRIDE` with the conflicts list
+  // and the reason so MCI-compliance can reconstruct WHY.
+  const [showAllergyOverrideModal, setShowAllergyOverrideModal] =
+    useState(false);
+  const [allergyOverrideReason, setAllergyOverrideReason] = useState("");
+  const [allergyOverrideAccepted, setAllergyOverrideAccepted] = useState(false);
+  const [allergyOverrideSubmitting, setAllergyOverrideSubmitting] =
+    useState(false);
+
   // Sign-before-share modal: when the doctor hits "Share via WhatsApp/Email"
   // on a prescription that has no signatureUrl yet, the API returns 409
   // "Cannot share an unsigned prescription". We catch that, open this
@@ -786,6 +800,11 @@ export default function PrescriptionsPage() {
     setShowInteractionModal(false);
     setInteractionWarnings([]);
     setAllergyConflicts([]);
+    // Pearl §2.1.4 — clear armed allergy-override state so the next
+    // prescription doesn't inherit a stale override flag.
+    setShowAllergyOverrideModal(false);
+    setAllergyOverrideReason("");
+    setAllergyOverrideAccepted(false);
     setEditingId(null);
     setForm({ appointmentId: "", patientId: "", diagnosis: "", advice: "", followUpDate: "", signatureDataUrl: "" });
     setMedicines([
@@ -904,6 +923,11 @@ export default function PrescriptionsPage() {
   async function submitPrescription(
     override: boolean,
     scheduleXAck = false,
+    // Pearl §2.1.4 allergy-override fields. Plumbed through here (not on
+    // a closure) so both the initial save path AND the override-modal
+    // re-submit path go through one function — guarantees the wire shape
+    // stays identical and audit is consistent.
+    allergyOverride?: { reason: string },
   ) {
     // Issue #980: clear any stale allergy-conflict banner from a previous
     // attempt. If THIS attempt also conflicts, the catch block below
@@ -924,6 +948,15 @@ export default function PrescriptionsPage() {
           // An empty string means "no new signature" — the API guard treats
           // undefined as "leave existing signature alone".
           signatureDataUrl: form.signatureDataUrl || undefined,
+          // Allergy override (Pearl §2.1.4). Only sent on the re-submit
+          // path after the doctor confirms in the modal — undefined on
+          // the initial save so the API's allergy check runs unmuted.
+          ...(allergyOverride
+            ? {
+                overrideAllergies: true,
+                allergyOverrideReason: allergyOverride.reason,
+              }
+            : {}),
         });
         toast.success("Prescription updated");
       } else {
@@ -941,8 +974,19 @@ export default function PrescriptionsPage() {
           // passed through as `false`.
           ...(scheduleXAck ? { scheduleXOverrideAcknowledged: true } : {}),
           signatureDataUrl: form.signatureDataUrl || undefined,
+          ...(allergyOverride
+            ? {
+                overrideAllergies: true,
+                allergyOverrideReason: allergyOverride.reason,
+              }
+            : {}),
         });
       }
+      // Successful save (including the override path) — clear the modal +
+      // override state so the next Rx starts clean.
+      setShowAllergyOverrideModal(false);
+      setAllergyOverrideReason("");
+      setAllergyOverrideAccepted(false);
       resetForm();
       loadPrescriptions();
     } catch (err) {
@@ -962,19 +1006,26 @@ export default function PrescriptionsPage() {
       }
       // Issue #980: patient-allergy-conflict flow. The API returns a 400
       // with the structured `allergyConflicts` array; surface it as an
-      // actionable in-form banner instead of just a toast. The user can
-      // then change the medicine, review the patient's allergies, or
-      // open the interactions modal to override with a reason (handled
-      // by the existing Override flow lower in the form).
+      // actionable in-form banner AND auto-open the override-with-reason
+      // modal so the doctor doesn't have to hunt for the override path
+      // (especially important when the allergy 400 arrives after the
+      // doctor has already overridden a drug-drug warning and the
+      // interactions modal has closed). Closing the modal without arming
+      // still leaves the banner so they can come back to it.
       if (
         anyErr.payload?.allergyConflicts &&
         anyErr.payload.allergyConflicts.length > 0
       ) {
         setAllergyConflicts(anyErr.payload.allergyConflicts);
+        // Also close the drug-drug interaction modal if it's still
+        // showing — the new blocker is the allergy check, and stacking
+        // two modals is confusing.
+        setShowInteractionModal(false);
+        setShowAllergyOverrideModal(true);
         toast.error(
           `Allergy conflict on ${anyErr.payload.allergyConflicts
             .map((c) => c.medicineName)
-            .join(", ")} — see banner above the Save button.`,
+            .join(", ")} — record a reason to override.`,
         );
         return;
       }
@@ -1133,12 +1184,20 @@ export default function PrescriptionsPage() {
         return;
       }
     }
+    // Pearl §2.1.4 — if the prescriber armed the allergy-override via
+    // the banner modal, plumb the (reason) tuple through to the wire
+    // body. Undefined on the initial save so the API's allergy check
+    // runs unmuted.
+    const allergyOverrideArg =
+      allergyOverrideAccepted && allergyOverrideReason.trim().length >= 3
+        ? { reason: allergyOverrideReason.trim() }
+        : undefined;
     // Preview interaction check before saving. Only runs in CREATE mode —
     // edit mode has no patientId on the form (it's immutable on the server),
     // and the PATCH handler re-runs the same check anyway, so blocking
     // interactions will still surface as a 400 with warnings on submit.
     if (editingId) {
-      await submitPrescription(false, scheduleXAck);
+      await submitPrescription(false, scheduleXAck, allergyOverrideArg);
       return;
     }
     setCheckingInteractions(true);
@@ -1156,11 +1215,11 @@ export default function PrescriptionsPage() {
         return;
       }
       // Non-blocking: proceed; warnings (if any) will still be returned in response
-      await submitPrescription(false, scheduleXAck);
+      await submitPrescription(false, scheduleXAck, allergyOverrideArg);
     } catch (err) {
       setCheckingInteractions(false);
       // If preview itself fails, fall back to normal POST
-      await submitPrescription(false, scheduleXAck);
+      await submitPrescription(false, scheduleXAck, allergyOverrideArg);
     }
   }
 
@@ -1897,14 +1956,16 @@ export default function PrescriptionsPage() {
             />
           </div>
 
-          {/* Issue #980: in-form allergy-conflict banner. Renders the
-              structured `allergyConflicts` payload from the API's 400
-              response — medicine, allergen, severity, documented
-              reaction — instead of dropping that information into a
-              generic toast. The Save button is disabled while the
-              banner is visible; the prescriber must either change the
-              offending medicine OR use the existing Override flow
-              (which surfaces a reason input in the interactions modal). */}
+          {/* Issue #980 + Pearl §2.1.4 (gap closed 2026-05-29): in-form
+              allergy-conflict banner. Renders the structured
+              `allergyConflicts` payload from the API's 400 response —
+              medicine, allergen, severity, documented reaction.
+              Previously the Save button was hard-disabled with no
+              override path — the prescriber was stuck unless they
+              changed the medicine. Now there's an explicit "Override
+              with reason" button that opens a modal capturing the
+              clinical justification (>=3 chars, audit-logged
+              server-side as PRESCRIPTION_ALLERGY_OVERRIDE). */}
           {allergyConflicts.length > 0 && (
             <div
               role="alert"
@@ -1917,7 +1978,11 @@ export default function PrescriptionsPage() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => setAllergyConflicts([])}
+                  onClick={() => {
+                    setAllergyConflicts([]);
+                    setAllergyOverrideAccepted(false);
+                    setAllergyOverrideReason("");
+                  }}
                   className="text-xs text-red-700 hover:underline dark:text-red-200"
                   data-testid="rx-allergy-conflict-dismiss"
                 >
@@ -1953,16 +2018,36 @@ export default function PrescriptionsPage() {
                 ))}
               </ul>
               <p className="mt-2 text-xs text-red-800 dark:text-red-200">
-                Change the medicine, or open the Override flow to record a
-                clinical reason for proceeding anyway (audit-logged).
+                Change the medicine, or override with a documented
+                clinical reason (audit-logged).
               </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAllergyOverrideModal(true)}
+                  data-testid="rx-allergy-override-btn"
+                  className="rounded-md border border-red-400 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-600 dark:bg-red-950 dark:text-red-200"
+                >
+                  Override with reason
+                </button>
+                {allergyOverrideAccepted && (
+                  <span
+                    className="self-center text-xs font-medium text-amber-700 dark:text-amber-300"
+                    data-testid="rx-allergy-override-armed"
+                  >
+                    Override armed — save to apply (reason logged)
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
           <div className="flex gap-2">
             <button
               type="submit"
-              disabled={allergyConflicts.length > 0}
+              disabled={
+                allergyConflicts.length > 0 && !allergyOverrideAccepted
+              }
               data-testid="rx-save-btn"
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -2336,6 +2421,106 @@ export default function PrescriptionsPage() {
         </div>
       )}
 
+      {/* Pearl §2.1.4 — Drug-allergy override-with-reason modal.
+          Opened from the in-form allergy-conflict banner's "Override with
+          reason" button. Captures a >=3-char clinical justification
+          (matches the API's Zod refine in
+          packages/shared/src/validation/prescription.ts:148), arms the
+          override (`allergyOverrideAccepted = true`), and closes — the
+          actual submit happens via the form's Save button so all the
+          normal validation (Schedule-X confirm, interactions preview)
+          still runs. */}
+      {showAllergyOverrideModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          data-testid="rx-allergy-override-modal"
+        >
+          <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-xl bg-white shadow-xl dark:bg-gray-800">
+            <div className="border-b border-red-200 bg-red-50 px-6 py-4 dark:border-red-800 dark:bg-red-900/40">
+              <h2 className="text-lg font-semibold text-red-800 dark:text-red-100">
+                Override allergy block
+              </h2>
+              <p className="mt-1 text-sm text-red-700 dark:text-red-200">
+                You are about to prescribe a medicine the patient is
+                documented as allergic to. Record a clinical reason — this
+                will be audit-logged with your user ID and the conflict
+                list.
+              </p>
+            </div>
+            <div className="space-y-4 p-6">
+              <ul className="space-y-1 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-900 dark:border-red-700 dark:bg-red-900/30 dark:text-red-100">
+                {allergyConflicts.map((c, i) => (
+                  <li key={`mo-${c.medicineName}-${c.allergen}-${i}`}>
+                    <span className="font-medium">{c.medicineName}</span>
+                    {" ⟷ "}
+                    <span className="font-medium">{c.allergen}</span>
+                    {" ("}
+                    {c.severity}
+                    {c.reaction ? `; ${c.reaction}` : ""}
+                    {")"}
+                  </li>
+                ))}
+              </ul>
+              <div>
+                <label
+                  htmlFor="rx-allergy-override-reason"
+                  className="mb-1 block text-sm font-medium text-gray-800 dark:text-gray-200"
+                >
+                  Clinical reason (required, min 3 chars)
+                </label>
+                <textarea
+                  id="rx-allergy-override-reason"
+                  data-testid="rx-allergy-override-reason"
+                  value={allergyOverrideReason}
+                  onChange={(e) => setAllergyOverrideReason(e.target.value)}
+                  rows={4}
+                  maxLength={500}
+                  placeholder="e.g. Prior reaction was mild rash; benefit outweighs risk; alternatives contraindicated; informed consent obtained"
+                  className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {allergyOverrideReason.trim().length} / 500 characters
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-gray-900/40">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAllergyOverrideModal(false);
+                  // Don't clear the reason in case the prescriber wants
+                  // to re-open; clear `accepted` so Save stays disabled.
+                  setAllergyOverrideAccepted(false);
+                }}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={
+                  allergyOverrideSubmitting ||
+                  allergyOverrideReason.trim().length < 3
+                }
+                onClick={() => {
+                  setAllergyOverrideSubmitting(true);
+                  setAllergyOverrideAccepted(true);
+                  setShowAllergyOverrideModal(false);
+                  setAllergyOverrideSubmitting(false);
+                  toast.info(
+                    "Override armed. Click Save Prescription to submit with the reason logged.",
+                  );
+                }}
+                data-testid="rx-allergy-override-confirm"
+                className="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Arm override
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Drug Interaction Alert Modal */}
       {showInteractionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -2395,7 +2580,22 @@ export default function PrescriptionsPage() {
                 Cancel and revise
               </button>
               <button
-                onClick={() => submitPrescription(true)}
+                onClick={() =>
+                  submitPrescription(
+                    true,
+                    false,
+                    // Carry the armed allergy override through the
+                    // drug-drug override re-submit so the API doesn't
+                    // block on a fresh allergy 400. Without this, after
+                    // overriding a drug-drug warning the patient-allergy
+                    // check still rejects with 400 and the doctor can't
+                    // tell which check is now blocking them.
+                    allergyOverrideAccepted &&
+                      allergyOverrideReason.trim().length >= 3
+                      ? { reason: allergyOverrideReason.trim() }
+                      : undefined,
+                  )
+                }
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
               >
                 Override and continue

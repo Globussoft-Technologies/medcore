@@ -237,12 +237,17 @@ describeIfDB("Cross-patient RBAC: appointments + waitlist (#511)", () => {
     const apt = await createAppointmentFixture({ patientId: patientBId, doctorId });
     const future = new Date();
     future.setDate(future.getDate() + 7);
+    // Pearl §3.1: reschedule requires a reason. Include it so the
+    // 403 BOLA response we're asserting fires from the per-row
+    // ownership check, not from the upstream Zod validator (which
+    // would return 400).
     const res = await request(app)
       .patch(`/api/v1/appointments/${apt.id}/reschedule`)
       .set("Authorization", `Bearer ${patientAToken}`)
       .send({
         date: future.toISOString().split("T")[0],
         slotStart: "10:00",
+        reason: "Testing BOLA enforcement",
       });
     expect(res.status).toBe(403);
   });
@@ -257,6 +262,7 @@ describeIfDB("Cross-patient RBAC: appointments + waitlist (#511)", () => {
       .send({
         date: future.toISOString().split("T")[0],
         slotStart: "11:00",
+        reason: "Doctor reschedule for clinical reason",
       });
     // Accept 200 (rescheduled). Validation/conflict failures would surface as 4xx
     // and indicate a real bug — keep this strict.

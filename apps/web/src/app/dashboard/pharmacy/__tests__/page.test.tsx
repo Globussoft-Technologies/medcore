@@ -541,7 +541,12 @@ describe("PharmacyPage (inventory dashboard — full surface)", () => {
       ),
     );
 
-    const methodSelect = screen.getByLabelText(/Method:/i) as HTMLSelectElement;
+    // The Valuation tab body (with the Method: <select>) only renders
+    // when `loading === false` — async findByLabelText waits for the
+    // skeleton to be replaced once the fetch's finally clause flushes.
+    const methodSelect = (await screen.findByLabelText(
+      /Method:/i,
+    )) as HTMLSelectElement;
     fireEvent.change(methodSelect, { target: { value: "FIFO" } });
 
     await waitFor(() =>

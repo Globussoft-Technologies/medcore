@@ -29,6 +29,13 @@ export const BULK_UPDATE_ALLOWED_FIELDS = [
   "dailyAppointmentLimit",
   "nearTurnAlertThreshold",
   "lastHourPolicy",
+  // Pearl §3.1 (gap closed 2026-05-29) — bulk-edit dialog now supports
+  // the two remaining mode knobs from §3.2 row 77. Mirrors the
+  // per-doctor doctorAppointmentModeSchema entries for `enabledChannels`
+  // and `bufferMinutes` so the bulk path is a strict superset of the
+  // per-row PATCH semantics.
+  "enabledChannels",
+  "bufferMinutes",
 ] as const;
 
 export type BulkUpdateAllowedField = (typeof BULK_UPDATE_ALLOWED_FIELDS)[number];
@@ -48,6 +55,14 @@ export const bulkUpdateDoctorsUpdatesSchema = z
       .enum(["ACCEPT_ALL", "BLOCK_NEW", "WALK_IN_ONLY"])
       .nullable()
       .optional(),
+    // Pearl §3.1 (gap closed 2026-05-29). Shape mirrors the per-row
+    // doctorAppointmentModeSchema: enabledChannels = array of channel
+    // enums (max 4, dedup at consumer); bufferMinutes = 0..120 int.
+    enabledChannels: z
+      .array(z.enum(["CALLING", "SLOT", "TOKEN", "WALKIN"]))
+      .max(4)
+      .optional(),
+    bufferMinutes: z.number().int().min(0).max(120).optional(),
   })
   .strict()
   .refine((obj) => Object.keys(obj).length > 0, {

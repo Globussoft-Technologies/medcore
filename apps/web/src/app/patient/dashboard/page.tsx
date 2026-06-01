@@ -516,7 +516,7 @@ export default function PatientDashboardPage() {
             ) : null}
             <div className="flex flex-col gap-2 pt-2 sm:flex-row">
               <Link
-                href={`/patient/appointments/${nextAppointment.id}`}
+                href={`/patient/appointments?reschedule=${nextAppointment.id}`}
                 className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white"
                 data-testid="patient-dashboard-next-appointment-view"
               >

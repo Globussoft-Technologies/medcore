@@ -432,7 +432,30 @@ router.post(
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      let tokenNumber = await getNextToken(doctorId, today);
+      // Pearl §3.1 (gap closed 2026-05-29) — mode-aware walk-in. The SOW
+      // §2.1.2 says CALLING-mode doctors don't issue tokens: they use an
+      // arrival counter. Until now /walk-in always stamped a tokenNumber
+      // regardless of mode, which polluted CALLING-mode displays and
+      // made the §2.1.5 token board show fake tokens for arrival-order
+      // doctors. Branch on the doctor's `appointmentMode`:
+      //   - CALLING  → arrivalSeq, tokenNumber = null
+      //   - TOKEN    → tokenNumber, arrivalSeq = null  (legacy default)
+      //   - SLOT     → tokenNumber for now (SLOT-mode walk-ins are rare;
+      //                a future cleanup may reject them outright)
+      const doctorRow = await prisma.doctor.findUnique({
+        where: { id: doctorId },
+        select: { appointmentMode: true },
+      });
+      const mode = doctorRow?.appointmentMode ?? "TOKEN";
+
+      let tokenNumber: number | null = null;
+      let arrivalSeq: number | null = null;
+      if (mode === "CALLING") {
+        arrivalSeq = await getNextArrivalSeq(doctorId, today);
+      } else {
+        tokenNumber = await getNextToken(doctorId, today);
+      }
+
       let appointment: any;
       for (let attempt = 0; attempt < 5; attempt++) {
         try {
@@ -442,6 +465,7 @@ router.post(
               doctorId,
               date: today,
               tokenNumber,
+              arrivalSeq,
               type: "WALK_IN",
               status: "BOOKED",
               priority: priority || "NORMAL",
@@ -458,7 +482,15 @@ router.post(
           });
           break;
         } catch (err: any) {
-          if (err?.code === "P2002" && attempt < 4) { tokenNumber++; continue; }
+          if (err?.code === "P2002" && attempt < 4) {
+            // Bump whichever counter we're using; the other stays null.
+            if (mode === "CALLING") {
+              arrivalSeq = (arrivalSeq ?? 0) + 1;
+            } else {
+              tokenNumber = (tokenNumber ?? 0) + 1;
+            }
+            continue;
+          }
           throw err;
         }
       }
@@ -471,7 +503,11 @@ router.post(
         });
         io.to("token-display").emit("token-updated", {
           doctorId,
+          // Send whichever counter actually moved so the token-board
+          // can keep its mode-specific renderer in sync. Either field
+          // may be null on the payload.
           tokenNumber,
+          arrivalSeq,
         });
       }
 
@@ -761,6 +797,18 @@ router.patch(
       if (req.body.status === "CHECKED_IN") extraData.checkInAt = now;
       if (req.body.status === "IN_CONSULTATION") extraData.consultationStartedAt = now;
       if (req.body.status === "COMPLETED") extraData.consultationEndedAt = now;
+      // Pearl §3.1 (gap closed 2026-05-29) — persist the cancel/no-show
+      // reason. Zod already enforces presence when status is CANCELLED
+      // or NO_SHOW so by the time we reach here the field is guaranteed
+      // valid; for any other status the field is absent and we don't
+      // overwrite the column (preserves a previously-recorded reason if
+      // an admin re-flips status, which is rare but possible).
+      if (req.body.status === "CANCELLED" && req.body.cancellationReason) {
+        extraData.cancellationReason = req.body.cancellationReason;
+      }
+      if (req.body.status === "NO_SHOW" && req.body.noShowReason) {
+        extraData.noShowReason = req.body.noShowReason;
+      }
 
       const appointment = await prisma.appointment.update({
         where: { id: req.params.id },
@@ -859,7 +907,18 @@ router.patch(
         }
       }
 
-      auditLog(req, "APPOINTMENT_STATUS_UPDATE", "appointment", req.params.id, { status: req.body.status }).catch(console.error);
+      // Pearl §3.1 — include the cancel / no-show reason in the audit
+      // payload so the audit log is a single source of truth for WHY
+      // this row's status changed.
+      auditLog(req, "APPOINTMENT_STATUS_UPDATE", "appointment", req.params.id, {
+        status: req.body.status,
+        ...(req.body.status === "CANCELLED" && req.body.cancellationReason
+          ? { cancellationReason: req.body.cancellationReason }
+          : {}),
+        ...(req.body.status === "NO_SHOW" && req.body.noShowReason
+          ? { noShowReason: req.body.noShowReason }
+          : {}),
+      }).catch(console.error);
 
       // Pearl PRD §6.3 row 340 — distinct audit provenance for patient-driven
       // arrivals (vs reception staff marking arrival). Only fires for the
@@ -962,9 +1021,17 @@ router.patch(
           ? existing.tokenNumber
           : await getNextToken(existing.doctorId, dateObj);
 
+      // Pearl §3.1 (gap closed 2026-05-29) — persist the reschedule
+      // reason on the row (Zod enforces presence + length 3-500 at the
+      // boundary) so the column carries WHY this row's slot moved.
       const appointment = await prisma.appointment.update({
         where: { id: req.params.id },
-        data: { date: dateObj, slotStart, tokenNumber },
+        data: {
+          date: dateObj,
+          slotStart,
+          tokenNumber,
+          rescheduleReason: req.body.reason,
+        },
         include: {
           patient: {
             include: { user: { select: { name: true, phone: true } } },
@@ -990,6 +1057,7 @@ router.patch(
         oldSlotStart: existing.slotStart,
         newDate: date,
         newSlotStart: slotStart,
+        reason: req.body.reason,
       }).catch(console.error);
 
       res.json({ success: true, data: appointment, error: null });
@@ -1912,9 +1980,16 @@ router.post(
   authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { appointmentIds, action } = req.body as {
+      const { appointmentIds, action, reason } = req.body as {
         appointmentIds?: string[];
         action?: string;
+        // Pearl §3.1 — optional bulk reason. The single-row PATCH /status
+        // requires a reason per row; the bulk endpoint accepts ONE
+        // reason that applies to every row in the batch (admins
+        // running batch cleanups typically have a single rationale).
+        // Stored on each affected row's cancellationReason /
+        // noShowReason column and included in the per-row audit.
+        reason?: string;
       };
 
       if (
@@ -1939,6 +2014,20 @@ router.post(
         });
         return;
       }
+      // Light validation of the optional reason (matches the single-row
+      // Zod constraint: 3-500 chars if present).
+      const trimmedReason = typeof reason === "string" ? reason.trim() : "";
+      if (
+        trimmedReason &&
+        (trimmedReason.length < 3 || trimmedReason.length > 500)
+      ) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "reason must be 3-500 characters when provided",
+        });
+        return;
+      }
 
       // Fetch existing appointments to validate & filter
       const found = await prisma.appointment.findMany({
@@ -1960,7 +2049,12 @@ router.post(
           try {
             await prisma.appointment.update({
               where: { id: apt.id },
-              data: { status: "CANCELLED" },
+              data: {
+                status: "CANCELLED",
+                ...(trimmedReason
+                  ? { cancellationReason: trimmedReason }
+                  : {}),
+              },
             });
             onAppointmentCancelled(apt as any).catch(console.error);
             results.push({ id: apt.id, status: "ok" });
@@ -1982,7 +2076,12 @@ router.post(
             await prisma.$transaction([
               prisma.appointment.update({
                 where: { id: apt.id },
-                data: { status: "NO_SHOW" },
+                data: {
+                  status: "NO_SHOW",
+                  ...(trimmedReason
+                    ? { noShowReason: trimmedReason }
+                    : {}),
+                },
               }),
               prisma.patient.update({
                 where: { id: apt.patientId },

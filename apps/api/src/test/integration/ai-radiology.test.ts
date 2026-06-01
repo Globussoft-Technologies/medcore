@@ -13,11 +13,16 @@ import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import { createPatientFixture, createDoctorWithToken } from "../factories";
 
 // Mock the LLM call so we don't make a live request. The radiology service
-// no longer uses sarvam.generateStructured directly — it now routes through
-// callWithFallback from model-router (Sarvam → OpenAI fallback, or OpenAI
-// gpt-4o for vision when images are loaded). We intercept at THAT boundary
-// and return a synthetic ChatCompletion whose tool_calls[0] decodes to the
-// structured draft the production code expects.
+// routes through callWithFallback from model-router (Sarvam → OpenAI
+// fallback, or OpenAI gpt-4o for vision when images are loaded). We
+// intercept at THAT boundary and return a synthetic ChatCompletion.
+//
+// Pearl §5.2 follow-up (2026-05-29): Sarvam-m doesn't support OpenAI
+// function/tool calling. The radiology production code now branches by
+// provider — for "sarvam" it reads JSON inline from message.content
+// (response_format: json_object), for "openai" fallback it reads
+// tool_calls. We mock the sarvam path because the failover dispatcher
+// tries that provider first.
 vi.mock("../../services/ai/model-router", async (importActual) => {
   const actual = await importActual<
     typeof import("../../services/ai/model-router")
@@ -26,7 +31,9 @@ vi.mock("../../services/ai/model-router", async (importActual) => {
     ...actual,
     callWithFallback: vi.fn(async (fn) => {
       // Invoke the production callback with a stub client whose
-      // chat.completions.create resolves to a tool-call-shaped response.
+      // chat.completions.create resolves to a json_object response
+      // (the Sarvam-path shape: JSON inline in message.content,
+      // no tool_calls).
       const stubClient = {
         chat: {
           completions: {
@@ -34,32 +41,25 @@ vi.mock("../../services/ai/model-router", async (importActual) => {
               choices: [
                 {
                   message: {
-                    tool_calls: [
-                      {
-                        type: "function",
-                        function: {
-                          name: "emit_radiology_draft",
-                          arguments: JSON.stringify({
-                            impression:
-                              "No acute abnormality detected on the provided views.",
-                            findings: [
-                              {
-                                description:
-                                  "Mild degenerative changes at L4-L5",
-                                confidence: "medium",
-                                suggestedFollowUp: "Clinical correlation",
-                              },
-                            ],
-                            recommendations: [
-                              "Compare with prior studies if available",
-                            ],
-                            technique:
-                              "Axial T2 and sagittal T1 sequences obtained.",
-                            views: "Axial, Sagittal",
-                          }),
+                    content: JSON.stringify({
+                      impression:
+                        "No acute abnormality detected on the provided views.",
+                      findings: [
+                        {
+                          description:
+                            "Mild degenerative changes at L4-L5",
+                          confidence: "medium",
+                          suggestedFollowUp: "Clinical correlation",
                         },
-                      },
-                    ],
+                      ],
+                      recommendations: [
+                        "Compare with prior studies if available",
+                      ],
+                      technique:
+                        "Axial T2 and sagittal T1 sequences obtained.",
+                      views: "Axial, Sagittal",
+                    }),
+                    tool_calls: [],
                   },
                 },
               ],

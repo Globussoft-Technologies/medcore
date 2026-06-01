@@ -12,13 +12,17 @@ vi.mock("openai", () => {
 
 import { explainLabReport } from "./report-explainer";
 
-function toolReply(name: string, args: object) {
+// Sarvam-m doesn't support OpenAI function/tool calling. The explainer
+// now uses response_format: json_object and emits the JSON inline in
+// message.content. parseSarvamJson strips `<think>…</think>` blocks
+// before JSON.parse so the model's chain-of-thought never leaks.
+function jsonReply(obj: object) {
   return {
     choices: [
       {
         message: {
-          content: null,
-          tool_calls: [{ type: "function", function: { name, arguments: JSON.stringify(args) } }],
+          content: JSON.stringify(obj),
+          tool_calls: [],
         },
       },
     ],
@@ -30,9 +34,9 @@ beforeEach(() => {
 });
 
 describe("explainLabReport", () => {
-  it("returns parsed summary and flagged values from tool call", async () => {
+  it("returns parsed summary and flagged values from json_object response", async () => {
     createMock.mockResolvedValueOnce(
-      toolReply("explain_report", {
+      jsonReply({
         summary:
           "Your haemoglobin is slightly low... Please discuss these results with your doctor.",
         flaggedValues: [
@@ -58,9 +62,11 @@ describe("explainLabReport", () => {
     expect(res.flaggedValues[0].parameter).toBe("Haemoglobin");
   });
 
-  it("throws when model returns no structured tool call", async () => {
+  it("throws when model returns no parseable JSON", async () => {
+    // parseSarvamJson returns null when content has no JSON object —
+    // explainLabReport turns that into a thrown error.
     createMock.mockResolvedValueOnce({
-      choices: [{ message: { content: "plain text only", tool_calls: undefined } }],
+      choices: [{ message: { content: "plain text only", tool_calls: [] } }],
     });
     await expect(
       explainLabReport({
@@ -72,7 +78,7 @@ describe("explainLabReport", () => {
 
   it("sends Hindi indicator to the user prompt when language='hi'", async () => {
     createMock.mockResolvedValueOnce(
-      toolReply("explain_report", { summary: "Please discuss these results with your doctor.", flaggedValues: [] })
+      jsonReply({ summary: "Please discuss these results with your doctor.", flaggedValues: [] })
     );
     await explainLabReport({
       labResults: [{ parameter: "FBS", value: "180", unit: "mg/dL", flag: "HIGH" }],
@@ -84,7 +90,7 @@ describe("explainLabReport", () => {
 
   it("includes patient age and gender in prompt when provided", async () => {
     createMock.mockResolvedValueOnce(
-      toolReply("explain_report", { summary: "Please discuss these results with your doctor.", flaggedValues: [] })
+      jsonReply({ summary: "Please discuss these results with your doctor.", flaggedValues: [] })
     );
     await explainLabReport({
       labResults: [{ parameter: "TSH", value: "5.5", flag: "HIGH" }],
@@ -99,7 +105,7 @@ describe("explainLabReport", () => {
 
   it("defaults flaggedValues to empty array when omitted by model", async () => {
     createMock.mockResolvedValueOnce(
-      toolReply("explain_report", {
+      jsonReply({
         summary: "Everything looks normal. Please discuss these results with your doctor.",
       })
     );

@@ -36,23 +36,52 @@ import { sanitizeUserInput } from "./prompt-safety";
  * format so the request body is identical.
  */
 const PROVIDER_MODEL: Record<ModelProvider, string> = {
-  sarvam: "sarvam-105b",
+  // 2026-05-29: sarvam retired "sarvam-105b". The current text model is
+  // "sarvam-m" — read from env so a future model swap doesn't require a
+  // code change. Falls back to "sarvam-m" if the env var is unset.
+  sarvam: process.env.SARVAM_MODEL ?? "sarvam-m",
   openai: "gpt-4o-mini",
   anthropic: "claude-haiku-4-5-20251001", // unreachable today — router stubs it
 };
 
 /**
- * Pluck the first tool call from a chat-completions response (both Sarvam
- * and OpenAI return it in the same `choices[0].message.tool_calls[0]`
- * shape). Returns undefined when the model produced plain-text instead of
- * a tool call — the caller treats that as "shape-mismatch success" and
- * triggers the OpenAI retry.
+ * Pluck the first tool call from a chat-completions response. Only used
+ * for the OpenAI fallback path now — Sarvam-m doesn't support tool
+ * calling so its path uses response_format: json_object instead.
  */
 function getToolCallFromResponse(
   response: OpenAI.Chat.Completions.ChatCompletion
 ) {
   const raw = response.choices[0]?.message?.tool_calls?.[0];
   return raw?.type === "function" ? raw : undefined;
+}
+
+// 2026-05-29: Sarvam-m emits `<think>...</think>` reasoning inline + may
+// wrap JSON in markdown fences. Mirror of the helper in sarvam.ts —
+// duplicated here so this file doesn't need to import from the main
+// service (which has unrelated dependencies we don't want to pull in
+// during the radiology path's optional vision-fallback code).
+function stripSarvamThinking(content: string): string {
+  if (!content) return content;
+  let out = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, "");
+  const unterminated = out.indexOf("<think>");
+  if (unterminated >= 0) out = out.slice(0, unterminated);
+  return out.trim();
+}
+
+function parseSarvamJson<T>(content: string | null | undefined): T | null {
+  if (!content) return null;
+  let text = stripSarvamThinking(content);
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) text = fenceMatch[1];
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace < firstBrace) return null;
+  try {
+    return JSON.parse(text.slice(firstBrace, lastBrace + 1)) as T;
+  } catch {
+    return null;
+  }
 }
 
 /** Max number of images sent to the vision model per study. Capped to keep
@@ -1007,16 +1036,36 @@ End the impression with "Review with radiologist".`;
   const t0 = Date.now();
   try {
     let usedProvider: ModelProvider = providers[0];
+    // 2026-05-29: branch the API call shape on provider. Sarvam-m
+    // doesn't support OpenAI function/tool calling — we use
+    // response_format: json_object + a JSON-schema-in-system-prompt and
+    // parse the reply directly. OpenAI keeps the original tools path
+    // for the vision-fallback case.
+    const jsonSchemaInstruction =
+      "\n\nReturn ONLY a single JSON object (no prose, no markdown code fences) " +
+      "for the radiology-report draft — impression, findings (each with a confidence band), " +
+      "and recommendations. Match this JSON Schema (treat 'required' fields as mandatory):\n" +
+      JSON.stringify(TOOL_SCHEMA);
+
     let response = await callWithFallback(
       (client, provider) => {
         usedProvider = provider;
         const model = useVision ? visionModel : PROVIDER_MODEL[provider];
+        if (provider === "sarvam") {
+          return client.chat.completions.create({
+            model,
+            max_tokens: 1500,
+            temperature: 0.2,
+            response_format: { type: "json_object" },
+            messages: [
+              { role: "system", content: SYSTEM_PROMPT + jsonSchemaInstruction },
+              { role: "user", content: userMessageContent as any },
+            ],
+          });
+        }
         return client.chat.completions.create({
           model,
           max_tokens: 1500,
-          // Vision needs deterministic localisation — temperature 0 stops
-          // the model from "creatively" re-centring boxes. Text-only path
-          // keeps 0.2 for slight phrasing variety in the impression.
           temperature: useVision ? 0 : 0.2,
           tools: [
             {
@@ -1042,11 +1091,32 @@ End the impression with "Review with radiologist".`;
       { providers, feature: "scribe" }
     );
 
-    // Empty-tool-call fallback only applies to the text-only path. When
+    // Parse helper that handles BOTH wire shapes — tool_call (OpenAI)
+    // and json content (Sarvam json_object mode).
+    function extractRadiologyDraft(
+      r: OpenAI.Chat.Completions.ChatCompletion,
+      provider: ModelProvider,
+    ): RadiologyDraftResult | null {
+      if (provider === "sarvam") {
+        return parseSarvamJson<RadiologyDraftResult>(
+          r.choices[0]?.message?.content,
+        );
+      }
+      const tc = getToolCallFromResponse(r);
+      if (!tc) return null;
+      try {
+        return JSON.parse(tc.function.arguments) as RadiologyDraftResult;
+      } catch {
+        return null;
+      }
+    }
+
+    let data = extractRadiologyDraft(response, usedProvider);
+    let toolCall = usedProvider === "openai" ? getToolCallFromResponse(response) : undefined;
+    // Empty-result fallback only applies to the text-only path. When
     // vision is in play we already used OpenAI directly — there's no
     // alternative provider to retry against.
-    let toolCall = getToolCallFromResponse(response);
-    if (!toolCall && !useVision && usedProvider === "sarvam") {
+    if (!data && !useVision && usedProvider === "sarvam") {
       response = await callWithFallback(
         (client, provider) => {
           usedProvider = provider;
@@ -1077,14 +1147,12 @@ End the impression with "Review with radiologist".`;
         },
         { providers: ["openai"], feature: "scribe" }
       );
+      data = extractRadiologyDraft(response, usedProvider);
       toolCall = getToolCallFromResponse(response);
     }
 
     const promptTokens = response.usage?.prompt_tokens ?? 0;
     const completionTokens = response.usage?.completion_tokens ?? 0;
-    const data = toolCall
-      ? (JSON.parse(toolCall.function.arguments) as RadiologyDraftResult)
-      : null;
 
     logAICall({
       feature: "scribe",

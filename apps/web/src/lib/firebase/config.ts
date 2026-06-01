@@ -20,10 +20,17 @@
 // firebase-admin.ts.
 
 import { type FirebaseApp, getApps, initializeApp } from "firebase/app";
-import { type Auth, getAuth } from "firebase/auth";
+import { type Auth, getAuth, initializeRecaptchaConfig } from "firebase/auth";
 
 let cachedApp: FirebaseApp | null = null;
 let cachedAuth: Auth | null = null;
+// Tracks whether we've already kicked off the reCAPTCHA config fetch.
+// `initializeRecaptchaConfig` is a project-level setup (loads the
+// reCAPTCHA Enterprise config + key into the Auth session) — invoking
+// it more than once is wasteful but not destructive. Module-level flag
+// guards against duplicate calls across React re-renders + strict-mode
+// double-mounts.
+let recaptchaConfigInitialised = false;
 
 function readConfig(): {
   apiKey: string;
@@ -93,5 +100,32 @@ export function getFirebaseApp(): FirebaseApp {
 export function getFirebaseAuth(): Auth {
   if (cachedAuth) return cachedAuth;
   cachedAuth = getAuth(getFirebaseApp());
+
+  // When reCAPTCHA Enterprise is configured on the Firebase project (the
+  // Phone provider's `recaptchaEnforcementState` is ENFORCE or AUDIT in
+  // the project's recaptchaConfig endpoint), the Firebase Auth SDK
+  // requires the Enterprise site-key + enforcement map to be loaded into
+  // the Auth session BEFORE the first phone-auth request. The SDK does
+  // this lazily on-demand if we don't call it — but the "lazy" path can
+  // silently fail with `auth/invalid-app-credential` on the first
+  // attempt when Enterprise is the active mode. Calling
+  // initializeRecaptchaConfig() up front loads the config eagerly, which
+  // both (a) reduces first-OTP latency and (b) guarantees Enterprise
+  // mode is fully wired before signInWithPhoneNumber() runs.
+  //
+  // The call is a no-op on a v2-only project (it just returns immediately
+  // after the SDK sees no Enterprise key configured), so it's safe to
+  // call unconditionally. SSR-safe via the `window` check — the
+  // function throws in Node.js per the SDK docs.
+  if (typeof window !== "undefined" && !recaptchaConfigInitialised) {
+    recaptchaConfigInitialised = true;
+    void initializeRecaptchaConfig(cachedAuth).catch((err) => {
+      // Non-fatal — the SDK will fall back to its lazy path. Surface to
+      // the dev console so misconfig is visible during debugging.
+      // eslint-disable-next-line no-console
+      console.warn("[firebase config] initializeRecaptchaConfig failed", err);
+    });
+  }
+
   return cachedAuth;
 }

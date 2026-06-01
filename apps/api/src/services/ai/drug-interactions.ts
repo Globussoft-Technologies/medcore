@@ -2,17 +2,43 @@
 // Layer 1: deterministic rules (fast, no LLM cost, high precision on known pairs)
 // Layer 2: LLM comprehensive check for interactions not in the curated list
 
-import OpenAI from "openai";
 import type { DrugInteractionAlert } from "@medcore/shared";
 import { prisma } from "@medcore/db";
+import { getChatClient } from "./model-router";
 
-// Sarvam AI — India-region servers, DPDP-compliant
-const sarvam = new OpenAI({
-  // openai@6 throws "Missing credentials" at construction when apiKey
-  // is empty; placeholder lets module-load succeed when env is unset.
-  apiKey: process.env.SARVAM_API_KEY || "sk-medcore-placeholder",
-  baseURL: "https://api.sarvam.ai/v1",
-});
+// Sarvam AI — India-region servers, DPDP-compliant. Pearl §5.2 follow-up
+// (2026-05-29): sarvam-m doesn't support OpenAI function-calling; we use
+// response_format: json_object instead. Model id and client both come
+// from the shared model-router so this file stays in sync with the rest
+// of the codebase when AI_PROVIDER / SARVAM_MODEL change.
+const sarvam = getChatClient();
+const MODEL =
+  process.env.AI_PROVIDER === "openai"
+    ? (process.env.OPENAI_MODEL ?? "gpt-5.5")
+    : (process.env.SARVAM_MODEL ?? "sarvam-m");
+
+function stripSarvamThinking(content: string): string {
+  if (!content) return content;
+  let out = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, "");
+  const unterminated = out.indexOf("<think>");
+  if (unterminated >= 0) out = out.slice(0, unterminated);
+  return out.trim();
+}
+
+function parseSarvamJson<T>(content: string | null | undefined): T | null {
+  if (!content) return null;
+  let text = stripSarvamThinking(content);
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) text = fenceMatch[1];
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace < firstBrace) return null;
+  try {
+    return JSON.parse(text.slice(firstBrace, lastBrace + 1)) as T;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Allergy cross-reactivity map ────────────────────────────────────────────
 // Maps allergen keywords → drug families with documented cross-reactivity
@@ -905,45 +931,26 @@ ${proposedMeds.map((m) => `- ${m.name} ${m.dose} ${m.frequency}`).join("\n")}
 
 Identify any MODERATE, SEVERE, or CONTRAINDICATED drug-drug interactions, allergy contraindications, or condition-specific contraindications. Only report interactions you are confident about with clear clinical evidence. Do not report MILD interactions.`;
 
+  const jsonSchemaInstruction =
+    "You are a clinical decision support assistant. " +
+    "Return ONLY a single JSON object (no prose, no markdown code fences) with this shape: " +
+    '{"interactions": [{"drug1": string, "drug2": string, "severity": "MILD"|"MODERATE"|"SEVERE"|"CONTRAINDICATED", "description": string}]}. ' +
+    "All four fields per interaction are required. Return an empty array if no clinically significant interactions are found.";
+
   const response = await sarvam.chat.completions.create({
-    model: "sarvam-105b",
+    model: MODEL,
     max_tokens: 1024,
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: "report_drug_interactions",
-          description: "Report clinically significant interactions",
-          parameters: {
-            type: "object",
-            properties: {
-              interactions: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    drug1: { type: "string" },
-                    drug2: { type: "string" },
-                    severity: { type: "string", enum: ["MILD", "MODERATE", "SEVERE", "CONTRAINDICATED"] },
-                    description: { type: "string" },
-                  },
-                  required: ["drug1", "drug2", "severity", "description"],
-                },
-              },
-            },
-            required: ["interactions"],
-          },
-        },
-      },
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: jsonSchemaInstruction },
+      { role: "user", content: prompt },
     ],
-    tool_choice: { type: "function", function: { name: "report_drug_interactions" } },
-    messages: [{ role: "user", content: prompt }],
   });
 
-  const raw = response.choices[0]?.message?.tool_calls?.[0];
-  const toolCall = raw?.type === "function" ? raw : undefined;
-  if (!toolCall) return [];
-  return ((JSON.parse(toolCall.function.arguments) as any).interactions as DrugInteractionAlert[]) || [];
+  const parsed = parseSarvamJson<{ interactions?: DrugInteractionAlert[] }>(
+    response.choices[0]?.message?.content,
+  );
+  return Array.isArray(parsed?.interactions) ? parsed!.interactions : [];
 }
 
 // ─── Combined public API ──────────────────────────────────────────────────────

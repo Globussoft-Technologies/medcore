@@ -387,6 +387,12 @@ router.post(
           email: true,
           status: true,
           convertedPatientId: true,
+          // Pearl §3.3 (gap closed 2026-05-29) — propagate the lead's
+          // source into Patient.source so attribution lineage isn't
+          // lost on conversion. Also surface preferredDoctorId in the
+          // response so the frontend can prefill the booking form.
+          source: true,
+          preferredDoctorId: true,
         },
       });
       if (!lead) {
@@ -447,6 +453,13 @@ router.post(
             age: req.body.age ?? null,
             address: req.body.address ?? null,
             tenantId: req.tenantId,
+            // Pearl §3.3 (gap closed 2026-05-29) — preserve attribution
+            // lineage. LeadSource and PatientSource share every value
+            // (WEB, WALK_IN, PHONE, WHATSAPP, REFERRAL, OTHER) except
+            // PWA (patient-self-reg, can't originate as a lead), so the
+            // string cast is safe. Falls back to the Patient model's
+            // default (WALK_IN) when the lead row is missing source.
+            source: (lead.source ?? undefined) as never,
           },
         });
         await tx.systemConfig.upsert({
@@ -482,6 +495,8 @@ router.post(
       auditLog(req, "LEAD_CONVERT", "lead", lead.id, {
         patientId: result.patient.id,
         mrNumber: result.patient.mrNumber,
+        source: lead.source ?? null,
+        preferredDoctorId: lead.preferredDoctorId ?? null,
       }).catch(console.error);
 
       // Re-fetch lead with includes for the response shape consumers expect.

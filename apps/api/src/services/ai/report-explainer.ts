@@ -1,14 +1,41 @@
-import OpenAI from "openai";
 import { sanitizeUserInput } from "./prompt-safety";
+import { getChatClient } from "./model-router";
 
-const sarvam = new OpenAI({
-  // openai@6 throws "Missing credentials" at construction when apiKey
-  // is empty; placeholder lets module-load succeed when env is unset.
-  apiKey: process.env.SARVAM_API_KEY || "sk-medcore-placeholder",
-  baseURL: "https://api.sarvam.ai/v1",
-});
+// Pearl §5.2 follow-up (2026-05-29): Sarvam-m doesn't support OpenAI
+// function/tool calling. We use response_format: json_object + a
+// JSON-schema-in-system-prompt and parse the reply directly.
+// Also: this module previously hardcoded the model name "sarvam-105b"
+// which Sarvam has since retired. Reading from env (with the same
+// AI_PROVIDER router the rest of the codebase uses) keeps every
+// Sarvam call site aligned on one model id.
+const sarvam = getChatClient();
+const MODEL =
+  process.env.AI_PROVIDER === "openai"
+    ? (process.env.OPENAI_MODEL ?? "gpt-5.5")
+    : (process.env.SARVAM_MODEL ?? "sarvam-m");
 
-const MODEL = "sarvam-105b";
+function stripSarvamThinking(content: string): string {
+  if (!content) return content;
+  let out = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, "");
+  const unterminated = out.indexOf("<think>");
+  if (unterminated >= 0) out = out.slice(0, unterminated);
+  return out.trim();
+}
+
+function parseSarvamJson<T>(content: string | null | undefined): T | null {
+  if (!content) return null;
+  let text = stripSarvamThinking(content);
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) text = fenceMatch[1];
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace < firstBrace) return null;
+  try {
+    return JSON.parse(text.slice(firstBrace, lastBrace + 1)) as T;
+  } catch {
+    return null;
+  }
+}
 
 /** A single lab test result row passed to the report explainer. */
 export interface LabResultInput {
@@ -73,63 +100,30 @@ export async function explainLabReport(opts: {
 
   const userContent = `${contextBlock}Lab Results:\n${resultLines}\n\nLanguage: ${language === "hi" ? "Hindi" : "English"}`;
 
+  const jsonSchemaInstruction =
+    '\n\nReturn ONLY a single JSON object (no prose, no markdown code fences) with this shape: ' +
+    '{"summary": string ending with "Please discuss these results with your doctor.", ' +
+    '"flaggedValues": [{"parameter": string, "value": string, "flag": string, "plainLanguage": string}]}. ' +
+    "Required fields on each flaggedValues entry: parameter, value, flag, plainLanguage.";
+
   const response = await sarvam.chat.completions.create({
     model: MODEL,
     max_tokens: 2048,
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: "explain_report",
-          description:
-            "Return a plain-language explanation of lab results for the patient, along with structured flagged values.",
-          parameters: {
-            type: "object",
-            properties: {
-              summary: {
-                type: "string",
-                description:
-                  "Full plain-language explanation of the lab report addressed to the patient. Must end with 'Please discuss these results with your doctor.'",
-              },
-              flaggedValues: {
-                type: "array",
-                description: "List of abnormal/flagged results with plain language explanations.",
-                items: {
-                  type: "object",
-                  properties: {
-                    parameter: { type: "string" },
-                    value: { type: "string" },
-                    flag: { type: "string" },
-                    plainLanguage: {
-                      type: "string",
-                      description: "Simple, jargon-free explanation of what this abnormal value means.",
-                    },
-                  },
-                  required: ["parameter", "value", "flag", "plainLanguage"],
-                },
-              },
-            },
-            required: ["summary", "flaggedValues"],
-          },
-        },
-      },
-    ],
-    tool_choice: { type: "function", function: { name: "explain_report" } },
+    response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: SYSTEM_PROMPT + jsonSchemaInstruction },
       { role: "user", content: userContent },
     ],
   });
 
-  const toolCall = response.choices[0]?.message?.tool_calls?.[0];
-  if (!toolCall || toolCall.type !== "function") {
-    throw new Error("AI service failed to return a structured report explanation");
-  }
-
-  const parsed = JSON.parse(toolCall.function.arguments) as {
+  const parsed = parseSarvamJson<{
     summary: string;
     flaggedValues: FlaggedValue[];
-  };
+  }>(response.choices[0]?.message?.content);
+
+  if (!parsed) {
+    throw new Error("AI service failed to return a structured report explanation");
+  }
 
   return {
     explanation: parsed.summary,

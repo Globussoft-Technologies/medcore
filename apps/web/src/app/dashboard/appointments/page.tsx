@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
@@ -453,6 +453,11 @@ export default function AppointmentsPage() {
   const { t } = useTranslation();
   const confirm = useConfirm();
   const router = useRouter();
+  // Pearl §3.3 row 7 — read ?patientId / ?doctorId query params so the
+  // booking form can be deep-linked from the lead-convert flow. The
+  // effect below applies them once `doctors` is loaded so the doctor's
+  // mode + channel set is available to derive the channel correctly.
+  const searchParams = useSearchParams();
   const isPatient = user?.role === "PATIENT";
 
   // Issue #491 (2026-05-03): every "future-date" input on this page (book a
@@ -656,6 +661,36 @@ export default function AppointmentsPage() {
   useEffect(() => {
     loadDoctors();
   }, [loadDoctors]);
+
+  // Pearl §3.3 row 7 — prefill from `?patientId=...&doctorId=...` so a
+  // lead-convert flow (or any other deep-link) lands here with the
+  // patient + doctor already chosen. Runs once per unique query-param
+  // pair so a later manual edit by the user isn't clobbered on each
+  // re-render. doctorId is only applied once the `doctors` list has
+  // loaded so we can verify the doctor is real before populating —
+  // otherwise the DoctorSelect would clear our preselect.
+  const prefillAppliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const patientIdParam = searchParams?.get("patientId");
+    const doctorIdParam = searchParams?.get("doctorId");
+    if (!patientIdParam && !doctorIdParam) return;
+    const sig = `${patientIdParam ?? ""}|${doctorIdParam ?? ""}`;
+    if (prefillAppliedRef.current === sig) return;
+    if (isPatient) return; // staff-only flow
+    if (patientIdParam) {
+      setPatientIdInput(patientIdParam);
+    }
+    if (doctorIdParam) {
+      // Defer doctor preselect until the doctors list is available
+      // (DoctorSelect ignores ids that don't match a row).
+      if (doctors.length === 0) return;
+      const match = doctors.find((d) => d.id === doctorIdParam);
+      if (match) {
+        setSelectedDoctor(doctorIdParam);
+      }
+    }
+    prefillAppliedRef.current = sig;
+  }, [searchParams, doctors, isPatient]);
 
   useEffect(() => {
     if (!isPatient) return;

@@ -125,6 +125,77 @@ function getFnCall(response: OpenAI.Chat.Completions.ChatCompletion) {
   return raw?.type === "function" ? raw : undefined;
 }
 
+// Sarvam's reasoning-style models (sarvam-m and friends) emit chain-of-
+// thought wrapped in `<think>...</think>` tags inline in the message
+// content, BEFORE the user-visible reply. The OpenAI SDK doesn't strip
+// these because no OpenAI model uses that convention. We strip them
+// here so downstream renderers (chat UI, audit logs) see only the
+// user-intended reply. Removes both balanced and unterminated blocks
+// (the latter happens on truncation by `max_tokens`).
+function stripSarvamThinking(content: string): string {
+  if (!content) return content;
+  // Remove balanced <think>...</think> blocks first (the common case).
+  let out = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, "");
+  // If a token-truncated response left an unclosed <think>, drop
+  // everything from that tag forward so we don't show the model's
+  // half-finished reasoning to a clinician/patient.
+  const unterminated = out.indexOf("<think>");
+  if (unterminated >= 0) {
+    out = out.slice(0, unterminated);
+  }
+  return out.trim();
+}
+
+// Parse JSON returned by Sarvam via response_format: json_object.
+// Sarvam-m doesn't support OpenAI-style function/tool calling (returns
+// 400 "Tool calling is not supported for this model"), so every place
+// that used `tools` + `tool_choice` for structured output now uses
+// response_format: json_object instead. The model also prefixes its
+// reply with a <think>...</think> chain-of-thought block that needs
+// stripping before JSON.parse can succeed. Some responses occasionally
+// wrap the JSON in markdown code fences (```json ... ```) — we strip
+// those too. Returns null on any parse failure so callers can degrade
+// gracefully (the original tool-based path also returned null when the
+// tool wasn't called).
+function parseSarvamJson<T>(content: string | null | undefined): T | null {
+  if (!content) return null;
+  let text = stripSarvamThinking(content);
+  // Strip markdown code-fence wrappers the model sometimes adds even
+  // under json_object mode (```json ... ``` or just ``` ... ```).
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) text = fenceMatch[1];
+  // Find the outermost JSON object — defensive against any prose the
+  // model added after stripping reasoning.
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace < 0 || lastBrace < firstBrace) return null;
+  const jsonSlice = text.slice(firstBrace, lastBrace + 1);
+  try {
+    return JSON.parse(jsonSlice) as T;
+  } catch {
+    return null;
+  }
+}
+
+// Build the system-prompt suffix that tells Sarvam-m what JSON shape
+// to return. We embed the JSON-schema parameter spec verbatim so the
+// model has the same contract it would have had under tool-calling.
+// Used by every structured-output Sarvam call after the tool migration.
+function buildJsonModeSystemSuffix(
+  toolName: string,
+  toolDescription: string,
+  parameters: Record<string, unknown>,
+): string {
+  return (
+    "\n\nReturn ONLY a single JSON object (no prose, no markdown code fences) " +
+    `that satisfies the following purpose: ${toolDescription}. ` +
+    `The JSON object must match this JSON Schema (treat 'required' fields as mandatory):\n` +
+    JSON.stringify({ name: toolName, parameters }) +
+    "\n\nIf you are unsure of a field, use null for nullable fields or a reasonable default. " +
+    "Do not include any explanation, only the JSON object."
+  );
+}
+
 // ── generateText ──────────────────────────────────────────────────────────────
 
 /**
@@ -164,7 +235,10 @@ export async function generateText(opts: {
       completionTokens: response.usage?.completion_tokens ?? 0,
       latencyMs: Date.now() - t0,
     });
-    return response.choices[0]?.message?.content ?? "";
+    // Strip Sarvam's <think>...</think> reasoning before returning so
+    // callers (chart-search synthesis, etc) don't render reasoning to
+    // the user.
+    return stripSarvamThinking(response.choices[0]?.message?.content ?? "");
   } catch (err) {
     logAICall({
       feature: "scribe",
@@ -260,7 +334,12 @@ export async function translateText(
       completionTokens: response.usage?.completion_tokens ?? 0,
       latencyMs: Date.now() - t0,
     });
-    const translated = response.choices[0]?.message?.content?.trim();
+    // Strip Sarvam's reasoning tags before returning the translation
+    // — the patient gets the translated text only, never the model's
+    // chain-of-thought.
+    const translated = stripSarvamThinking(
+      response.choices[0]?.message?.content ?? "",
+    );
     return translated && translated.length > 0 ? translated : text;
   } catch (err) {
     // Fall back to English: the patient still gets the summary, just not in
@@ -305,6 +384,14 @@ export async function generateStructured<T>(opts: {
   promptTokens: number;
   completionTokens: number;
 }> {
+  // Sarvam-m doesn't support function/tool calling. We replicate the
+  // structured-output contract via response_format: json_object with
+  // the JSON-schema embedded in the system prompt, then parse with the
+  // same null-on-failure semantics the tool path used.
+  const systemPrompt =
+    opts.systemPrompt +
+    buildJsonModeSystemSuffix(opts.toolName, opts.toolDescription, opts.parameters);
+
   const response = await withSpan(
     "ai.generateStructured",
     { "ai.feature": "scribe", "ai.model": MODEL, "ai.tool": opts.toolName },
@@ -314,27 +401,16 @@ export async function generateStructured<T>(opts: {
           model: MODEL,
           max_tokens: opts.maxTokens ?? 1024,
           temperature: opts.temperature ?? 0,
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: opts.toolName,
-                description: opts.toolDescription,
-                parameters: opts.parameters as any,
-              },
-            },
-          ],
-          tool_choice: { type: "function", function: { name: opts.toolName } },
+          response_format: { type: "json_object" },
           messages: [
-            { role: "system", content: opts.systemPrompt },
+            { role: "system", content: systemPrompt },
             { role: "user", content: opts.userPrompt },
           ],
         }),
       ),
   );
 
-  const toolCall = getFnCall(response);
-  const data = toolCall ? (JSON.parse(toolCall.function.arguments) as T) : null;
+  const data = parseSarvamJson<T>(response.choices[0]?.message?.content);
   return {
     data,
     promptTokens: response.usage?.prompt_tokens ?? 0,
@@ -361,7 +437,19 @@ export async function runTriageTurn(
   // before they hit the model. Assistant messages come from our own prior
   // responses and are left as-is. Latest user turn is also sanitized for RAG
   // retrieval so the vector query can't be steered either.
-  const sanitizedMessages = messages.map((m) =>
+  //
+  // 2026-05-29 (Pearl §5.2 follow-up): Sarvam-m enforces strict message
+  // ordering — the FIRST non-system message must be `user`, returning 400
+  // "First message must be from user (or after system message)" otherwise.
+  // The triage session opens with an assistant greeting that gets prepended
+  // here as the conversation history, so without this filter every first
+  // user turn fails. Drop ALL leading assistant entries before the first
+  // user message; assistant turns that come AFTER any user turn are
+  // preserved (legitimate prior assistant replies).
+  const firstUserIdx = messages.findIndex((m) => m.role === "user");
+  const trimmedMessages =
+    firstUserIdx > 0 ? messages.slice(firstUserIdx) : messages;
+  const sanitizedMessages = trimmedMessages.map((m) =>
     m.role === "user" ? { ...m, content: sanitizeUserInput(m.content) } : m,
   );
   const lastUserMsg = sanitizedMessages.at(-1)?.content ?? "";
@@ -382,8 +470,23 @@ export async function runTriageTurn(
   ]);
   const baseSystemPrompt =
     language === "hi" ? triageSystem + hindiSuffix : triageSystem;
+  // Sarvam-m does NOT support OpenAI-style tool/function calling
+  // (returns 400 "Tool calling is not supported for this model"). The
+  // previous flag_emergency tool relied on that mechanism. We replace
+  // it with a text-marker convention: the system prompt instructs the
+  // model to prefix its reply with `[EMERGENCY:<reason>]` when an
+  // emergency is detected; the route parses that prefix below. The
+  // deterministic `checkRedFlags()` pass in apps/api/src/routes/
+  // ai-triage.ts:149 remains the primary safety gate — this LLM hint
+  // is the secondary net for descriptions the regex misses.
+  const emergencyMarkerInstruction =
+    language === "hi"
+      ? "\n\nयदि मरीज़ की समस्या गंभीर लगती है (छाती में दर्द, सांस लेने में तकलीफ़, बेहोशी, गंभीर रक्तस्राव, आत्महत्या के विचार आदि), तो उत्तर की शुरुआत में [EMERGENCY:<reason>] लिखें — फिर रोगी को आपातकालीन सेवा से संपर्क करने के लिए कहें। उदाहरण: [EMERGENCY:Chest pain] कृपया तुरंत 112 पर कॉल करें।"
+      : "\n\nIf the patient's description suggests an emergency (chest pain, difficulty breathing, fainting, severe bleeding, suicidal thoughts, stroke symptoms, etc), START YOUR REPLY with the literal token [EMERGENCY:<short reason>] and then tell them to seek immediate help. Example: '[EMERGENCY:Chest pain] Please call emergency services (112) right away.' Use the marker ONLY for true emergencies — routine fever, mild cough, headache, etc are NOT emergencies.";
   const systemPrompt =
-    baseSystemPrompt + (ragContext ? "\n\n" + ragContext : "");
+    baseSystemPrompt +
+    emergencyMarkerInstruction +
+    (ragContext ? "\n\n" + ragContext : "");
 
   const t0 = Date.now();
   let response: OpenAI.Chat.Completions.ChatCompletion | undefined;
@@ -397,31 +500,9 @@ export async function runTriageTurn(
           sarvam.chat.completions.create({
             model: MODEL,
             max_tokens: 1024,
-            tools: [
-              {
-                type: "function",
-                function: {
-                  name: "flag_emergency",
-                  description:
-                    "Call this tool IMMEDIATELY if the patient describes any emergency/red-flag symptom. Do not continue the conversation — use this tool.",
-                  parameters: {
-                    type: "object",
-                    properties: {
-                      reason: {
-                        type: "string",
-                        description: "The specific emergency symptom detected",
-                      },
-                      urgency: {
-                        type: "string",
-                        enum: ["CALL_EMERGENCY", "GO_TO_ER_NOW"],
-                      },
-                    },
-                    required: ["reason", "urgency"],
-                  },
-                },
-              },
-            ],
-            tool_choice: "auto",
+            // No `tools` / `tool_choice` — Sarvam-m doesn't support
+            // function calling. Emergency detection happens via the
+            // text marker convention documented above.
             messages: [
               { role: "system", content: systemPrompt },
               ...sanitizedMessages,
@@ -448,25 +529,30 @@ export async function runTriageTurn(
     throw err;
   }
 
-  const toolCall = getFnCall(response);
+  const rawContent = response.choices[0]?.message?.content ?? "";
+  const textContent = stripSarvamThinking(rawContent);
+
+  // Parse the [EMERGENCY:<reason>] prefix that the system prompt
+  // instructs Sarvam to emit on red-flag turns. Tolerant of leading
+  // whitespace and case variations the model might produce.
+  const emergencyMatch = textContent.match(
+    /^\s*\[EMERGENCY:\s*([^\]]+)\]\s*([\s\S]*)$/i,
+  );
+
   logAICall({
     feature: "triage",
     model: MODEL,
     promptTokens: response.usage?.prompt_tokens ?? 0,
     completionTokens: response.usage?.completion_tokens ?? 0,
     latencyMs: Date.now() - t0,
-    toolUsed: toolCall?.function.name,
+    toolUsed: emergencyMatch ? "text:flag_emergency" : undefined,
   });
 
-  if (toolCall?.function.name === "flag_emergency") {
-    const input = JSON.parse(toolCall.function.arguments) as {
-      reason: string;
-      urgency: string;
-    };
-    return { reply: "", isEmergency: true, emergencyReason: input.reason };
+  if (emergencyMatch) {
+    const reason = emergencyMatch[1].trim();
+    return { reply: "", isEmergency: true, emergencyReason: reason };
   }
 
-  const textContent = response.choices[0]?.message?.content ?? "";
   return { reply: textContent, isEmergency: false };
 }
 
@@ -491,6 +577,56 @@ export async function extractSymptomSummary(
   // doesn't need to await.
   const triageSystemPrompt = await resolvePrompt("TRIAGE_SYSTEM");
 
+  // Sarvam-m doesn't support function/tool calling — we use the same
+  // json_object + JSON-schema-in-prompt strategy as `generateStructured`.
+  // The schema is what the old `tools` block had; we just embed it via
+  // buildJsonModeSystemSuffix so the model sees the same contract.
+  const symptomSummaryParameters: Record<string, unknown> = {
+    type: "object",
+    properties: {
+      chiefComplaint: { type: "string" },
+      onset: { type: "string" },
+      duration: { type: "string" },
+      severity: { type: "number", minimum: 1, maximum: 10 },
+      location: { type: "string" },
+      associatedSymptoms: { type: "array", items: { type: "string" } },
+      relevantHistory: { type: "string" },
+      currentMedications: { type: "array", items: { type: "string" } },
+      knownAllergies: { type: "array", items: { type: "string" } },
+      age: { type: "number" },
+      gender: { type: "string" },
+      specialties: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            specialty: { type: "string" },
+            subSpecialty: { type: "string" },
+            confidence: { type: "number", minimum: 0, maximum: 1 },
+            reasoning: { type: "string" },
+          },
+          required: ["specialty", "confidence", "reasoning"],
+        },
+      },
+      overallConfidence: { type: "number", minimum: 0, maximum: 1 },
+    },
+    required: ["chiefComplaint", "specialties", "overallConfidence"],
+  };
+  const systemPromptWithSchema =
+    triageSystemPrompt +
+    buildJsonModeSystemSuffix(
+      "structured_symptom_summary",
+      "Extract a structured symptom summary and specialty recommendations from the conversation",
+      symptomSummaryParameters,
+    );
+
+  // 2026-05-29: Sarvam-m enforces strict ordering — first non-system
+  // message must be `user`. Drop any leading assistant entries (e.g.
+  // the initial greeting from session.messages) to satisfy the rule.
+  const firstUserIdx2 = messages.findIndex((m) => m.role === "user");
+  const trimmedHistory =
+    firstUserIdx2 > 0 ? messages.slice(firstUserIdx2) : messages;
+
   try {
     response = await withSpan(
       "ai.extractSymptomSummary",
@@ -500,76 +636,10 @@ export async function extractSymptomSummary(
           sarvam.chat.completions.create({
             model: MODEL,
             max_tokens: 2048,
-            tools: [
-              {
-                type: "function",
-                function: {
-                  name: "structured_symptom_summary",
-                  description:
-                    "Extract a structured symptom summary and specialty recommendations from the conversation",
-                  parameters: {
-                    type: "object",
-                    properties: {
-                      chiefComplaint: { type: "string" },
-                      onset: { type: "string" },
-                      duration: { type: "string" },
-                      severity: { type: "number", minimum: 1, maximum: 10 },
-                      location: { type: "string" },
-                      associatedSymptoms: {
-                        type: "array",
-                        items: { type: "string" },
-                      },
-                      relevantHistory: { type: "string" },
-                      currentMedications: {
-                        type: "array",
-                        items: { type: "string" },
-                      },
-                      knownAllergies: {
-                        type: "array",
-                        items: { type: "string" },
-                      },
-                      age: { type: "number" },
-                      gender: { type: "string" },
-                      specialties: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            specialty: { type: "string" },
-                            subSpecialty: { type: "string" },
-                            confidence: {
-                              type: "number",
-                              minimum: 0,
-                              maximum: 1,
-                            },
-                            reasoning: { type: "string" },
-                          },
-                          required: ["specialty", "confidence", "reasoning"],
-                        },
-                      },
-                      overallConfidence: {
-                        type: "number",
-                        minimum: 0,
-                        maximum: 1,
-                      },
-                    },
-                    required: [
-                      "chiefComplaint",
-                      "specialties",
-                      "overallConfidence",
-                    ],
-                  },
-                },
-              },
-            ],
-            tool_choice: {
-              type: "function",
-              function: { name: "structured_symptom_summary" },
-            },
+            response_format: { type: "json_object" },
             messages: [
-              // GAP-P3: versioned prompt via registry (fallback to PROMPTS constant).
-              { role: "system", content: triageSystemPrompt },
-              ...messages,
+              { role: "system", content: systemPromptWithSchema },
+              ...trimmedHistory,
               {
                 role: "user",
                 content:
@@ -591,21 +661,19 @@ export async function extractSymptomSummary(
     throw err;
   }
 
-  const toolCall = getFnCall(response);
+  const input = parseSarvamJson<any>(response.choices[0]?.message?.content);
   logAICall({
     feature: "triage",
     model: MODEL,
     promptTokens: response.usage?.prompt_tokens ?? 0,
     completionTokens: response.usage?.completion_tokens ?? 0,
     latencyMs: Date.now() - t0,
-    toolUsed: toolCall?.function.name,
+    toolUsed: input ? "json:structured_symptom_summary" : undefined,
   });
 
-  if (!toolCall) {
+  if (!input) {
     throw new Error("Failed to extract symptom summary");
   }
-
-  const input = JSON.parse(toolCall.function.arguments) as any;
 
   // GAP-T8: GP fallback on low confidence. If the overall confidence score
   // indicates Claude is uncertain about the specialty match, prepend a General
@@ -674,6 +742,29 @@ async function validateSOAPHallucinations(
   const t0 = Date.now();
   let verifyResponse: OpenAI.Chat.Completions.ChatCompletion | undefined;
 
+  const verifyItemsParameters: Record<string, unknown> = {
+    type: "object",
+    properties: {
+      results: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            item: { type: "string" },
+            found: { type: "boolean" },
+          },
+          required: ["item", "found"],
+        },
+      },
+    },
+    required: ["results"],
+  };
+  const verifySystemPrompt = buildJsonModeSystemSuffix(
+    "verify_items",
+    "For each item, report whether it appears verbatim or as a clear paraphrase in the transcript",
+    verifyItemsParameters,
+  );
+
   try {
     verifyResponse = await withSpan(
       "ai.validateSOAPHallucinations",
@@ -683,38 +774,9 @@ async function validateSOAPHallucinations(
           sarvam.chat.completions.create({
             model: MODEL,
             max_tokens: 512,
-            tools: [
-              {
-                type: "function",
-                function: {
-                  name: "verify_items",
-                  description:
-                    "For each item, report whether it appears verbatim or as a clear paraphrase in the transcript",
-                  parameters: {
-                    type: "object",
-                    properties: {
-                      results: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: {
-                            item: { type: "string" },
-                            found: { type: "boolean" },
-                          },
-                          required: ["item", "found"],
-                        },
-                      },
-                    },
-                    required: ["results"],
-                  },
-                },
-              },
-            ],
-            tool_choice: {
-              type: "function",
-              function: { name: "verify_items" },
-            },
+            response_format: { type: "json_object" },
             messages: [
+              { role: "system", content: verifySystemPrompt.trim() },
               {
                 role: "user",
                 content: `Transcript:\n${transcriptText}\n\nFor each item below, answer found:true only if it appears verbatim or is a clear paraphrase of what was said in the transcript.\nItems: ${JSON.stringify(itemsToVerify)}`,
@@ -736,21 +798,20 @@ async function validateSOAPHallucinations(
     return soap;
   }
 
-  const toolCall = getFnCall(verifyResponse);
+  const parsed = parseSarvamJson<{
+    results: { item: string; found: boolean }[];
+  }>(verifyResponse.choices[0]?.message?.content);
   logAICall({
     feature: "hallucination-check",
     model: MODEL,
     promptTokens: verifyResponse.usage?.prompt_tokens ?? 0,
     completionTokens: verifyResponse.usage?.completion_tokens ?? 0,
     latencyMs: Date.now() - t0,
-    toolUsed: toolCall?.function.name,
+    toolUsed: parsed ? "json:verify_items" : undefined,
   });
 
-  if (!toolCall) return soap;
-
-  const { results } = JSON.parse(toolCall.function.arguments) as {
-    results: { item: string; found: boolean }[];
-  };
+  if (!parsed || !Array.isArray(parsed.results)) return soap;
+  const { results } = parsed;
 
   for (const { item, found } of results) {
     if (found) continue;
@@ -835,188 +896,117 @@ Patient Context:
       "ai.generateSOAPNote",
       { "ai.feature": "scribe", "ai.model": MODEL },
       () =>
-        withRetry(() =>
-          sarvam.chat.completions.create({
-            model: MODEL,
-            max_tokens: 4096,
-            tools: [
-              {
-                type: "function",
-                function: {
-                  name: "generate_soap_note",
-                  description:
-                    "Generate a structured SOAP note from the consultation transcript",
-                  parameters: {
-                    type: "object",
-                    properties: {
-                      subjective: {
-                        type: "object",
-                        properties: {
-                          chiefComplaint: { type: "string" },
-                          hpi: { type: "string" },
-                          pastMedicalHistory: { type: "string" },
-                          medications: {
-                            type: "array",
-                            items: { type: "string" },
-                          },
-                          allergies: {
-                            type: "array",
-                            items: { type: "string" },
-                          },
-                          socialHistory: { type: "string" },
-                          familyHistory: { type: "string" },
-                          confidence: {
-                            type: "number",
-                            minimum: 0,
-                            maximum: 1,
-                            description:
-                              "Confidence 0-1 that this section is well-supported by the transcript",
-                          },
-                          evidenceSpan: {
-                            type: "string",
-                            description:
-                              "Verbatim quote from transcript most strongly supporting this section",
-                          },
-                        },
-                        required: ["chiefComplaint", "hpi"],
-                      },
-                      objective: {
-                        type: "object",
-                        properties: {
-                          vitals: { type: "string" },
-                          examinationFindings: { type: "string" },
-                          confidence: {
-                            type: "number",
-                            minimum: 0,
-                            maximum: 1,
-                            description:
-                              "Confidence 0-1 that this section is well-supported by the transcript",
-                          },
-                          evidenceSpan: {
-                            type: "string",
-                            description:
-                              "Verbatim quote from transcript most strongly supporting this section",
-                          },
-                        },
-                      },
-                      assessment: {
-                        type: "object",
-                        properties: {
-                          impression: { type: "string" },
-                          icd10Codes: {
-                            type: "array",
-                            items: {
-                              type: "object",
-                              properties: {
-                                code: { type: "string" },
-                                description: { type: "string" },
-                                confidence: { type: "number" },
-                                evidenceSpan: { type: "string" },
-                              },
-                              required: ["code", "description", "confidence"],
-                            },
-                          },
-                          confidence: {
-                            type: "number",
-                            minimum: 0,
-                            maximum: 1,
-                            description:
-                              "Confidence 0-1 that this section is well-supported by the transcript",
-                          },
-                          evidenceSpan: {
-                            type: "string",
-                            description:
-                              "Verbatim quote from transcript most strongly supporting this section",
-                          },
-                        },
-                        required: ["impression"],
-                      },
-                      plan: {
-                        type: "object",
-                        properties: {
-                          medications: {
-                            type: "array",
-                            items: {
-                              type: "object",
-                              properties: {
-                                name: { type: "string" },
-                                dose: { type: "string" },
-                                frequency: { type: "string" },
-                                duration: { type: "string" },
-                                notes: { type: "string" },
-                              },
-                              required: [
-                                "name",
-                                "dose",
-                                "frequency",
-                                "duration",
-                              ],
-                            },
-                          },
-                          investigations: {
-                            type: "array",
-                            items: { type: "string" },
-                          },
-                          procedures: {
-                            type: "array",
-                            items: { type: "string" },
-                          },
-                          referrals: {
-                            type: "array",
-                            items: { type: "string" },
-                          },
-                          followUpTimeline: { type: "string" },
-                          patientInstructions: { type: "string" },
-                          cptCodes: {
-                            type: "array",
-                            items: {
-                              type: "object",
-                              properties: {
-                                code: { type: "string" },
-                                description: { type: "string" },
-                                justification: { type: "string" },
-                              },
-                              required: [
-                                "code",
-                                "description",
-                                "justification",
-                              ],
-                            },
-                          },
-                          confidence: {
-                            type: "number",
-                            minimum: 0,
-                            maximum: 1,
-                            description:
-                              "Confidence 0-1 that this section is well-supported by the transcript",
-                          },
-                          evidenceSpan: {
-                            type: "string",
-                            description:
-                              "Verbatim quote from transcript most strongly supporting this section",
-                          },
-                        },
-                      },
-                    },
-                    required: ["subjective", "objective", "assessment", "plan"],
-                  },
+        withRetry(() => {
+          const soapParameters: Record<string, unknown> = {
+            type: "object",
+            properties: {
+              subjective: {
+                type: "object",
+                properties: {
+                  chiefComplaint: { type: "string" },
+                  hpi: { type: "string" },
+                  pastMedicalHistory: { type: "string" },
+                  medications: { type: "array", items: { type: "string" } },
+                  allergies: { type: "array", items: { type: "string" } },
+                  socialHistory: { type: "string" },
+                  familyHistory: { type: "string" },
+                  confidence: { type: "number", minimum: 0, maximum: 1 },
+                  evidenceSpan: { type: "string" },
+                },
+                required: ["chiefComplaint", "hpi"],
+              },
+              objective: {
+                type: "object",
+                properties: {
+                  vitals: { type: "string" },
+                  examinationFindings: { type: "string" },
+                  confidence: { type: "number", minimum: 0, maximum: 1 },
+                  evidenceSpan: { type: "string" },
                 },
               },
-            ],
-            tool_choice: {
-              type: "function",
-              function: { name: "generate_soap_note" },
+              assessment: {
+                type: "object",
+                properties: {
+                  impression: { type: "string" },
+                  icd10Codes: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        code: { type: "string" },
+                        description: { type: "string" },
+                        confidence: { type: "number" },
+                        evidenceSpan: { type: "string" },
+                      },
+                      required: ["code", "description", "confidence"],
+                    },
+                  },
+                  confidence: { type: "number", minimum: 0, maximum: 1 },
+                  evidenceSpan: { type: "string" },
+                },
+                required: ["impression"],
+              },
+              plan: {
+                type: "object",
+                properties: {
+                  medications: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: { type: "string" },
+                        dose: { type: "string" },
+                        frequency: { type: "string" },
+                        duration: { type: "string" },
+                        notes: { type: "string" },
+                      },
+                      required: ["name", "dose", "frequency", "duration"],
+                    },
+                  },
+                  investigations: { type: "array", items: { type: "string" } },
+                  procedures: { type: "array", items: { type: "string" } },
+                  referrals: { type: "array", items: { type: "string" } },
+                  followUpTimeline: { type: "string" },
+                  patientInstructions: { type: "string" },
+                  cptCodes: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        code: { type: "string" },
+                        description: { type: "string" },
+                        justification: { type: "string" },
+                      },
+                      required: ["code", "description", "justification"],
+                    },
+                  },
+                  confidence: { type: "number", minimum: 0, maximum: 1 },
+                  evidenceSpan: { type: "string" },
+                },
+              },
             },
+            required: ["subjective", "objective", "assessment", "plan"],
+          };
+          const systemPromptWithSchema =
+            scribeSystemPrompt +
+            buildJsonModeSystemSuffix(
+              "generate_soap_note",
+              "Generate a structured SOAP note from the consultation transcript",
+              soapParameters,
+            );
+          return sarvam.chat.completions.create({
+            model: MODEL,
+            max_tokens: 4096,
+            response_format: { type: "json_object" },
             messages: [
-              // GAP-P3: versioned prompt via registry (fallback to PROMPTS constant).
-              { role: "system", content: scribeSystemPrompt },
+              { role: "system", content: systemPromptWithSchema },
               {
                 role: "user",
                 content: `${contextText}${ragContext ? "\n\n" + ragContext + "\n" : ""}\n\nConsultation Transcript:\n${transcriptText}\n\nGenerate the SOAP note. Only include information explicitly stated in the transcript.\n\nSPEAKER-ROLE GUIDANCE (GAP-S4):\n- The Subjective section should be drawn primarily from [PATIENT] speech — symptom narrative, history, what the patient reports.\n- The Objective, Assessment and Plan sections should be drawn primarily from [DOCTOR] speech — exam findings, impressions and treatment decisions.\n- [ATTENDANT] utterances (family members, caregivers) may supplement either section but should never be the sole source for Assessment or Plan.`,
               },
             ],
-          }),
-        ),
+          });
+        }),
     );
   } catch (err) {
     logAICall({
@@ -1030,20 +1020,19 @@ Patient Context:
     throw err;
   }
 
-  const toolCall = getFnCall(response);
+  const raw = parseSarvamJson<SOAPNote>(response.choices[0]?.message?.content);
   logAICall({
     feature: "scribe",
     model: MODEL,
     promptTokens: response.usage?.prompt_tokens ?? 0,
     completionTokens: response.usage?.completion_tokens ?? 0,
     latencyMs: Date.now() - t0,
-    toolUsed: toolCall?.function.name,
+    toolUsed: raw ? "json:generate_soap_note" : undefined,
   });
 
-  if (!toolCall) {
+  if (!raw) {
     throw new Error("Failed to generate SOAP note");
   }
 
-  const raw = JSON.parse(toolCall.function.arguments) as SOAPNote;
   return validateSOAPHallucinations(raw, transcriptText);
 }

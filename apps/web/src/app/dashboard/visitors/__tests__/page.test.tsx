@@ -348,11 +348,14 @@ describe("VisitorsPage", () => {
       stats: statsFixture({ currentlyActive: 999 }), // ignored on Active tab
     });
     render(<VisitorsPage />);
-    // Tile should show 2, not 999.
+    // The "Currently Inside" label renders immediately, but its count is
+    // derived from the active-visitors fetch — poll until the loaded data
+    // (2, not 999, not the initial 0) is reflected in the tile.
     expect(await screen.findByText("Currently Inside")).toBeInTheDocument();
-    // The green text-3xl element under "Currently Inside" should contain 2.
-    const tile = screen.getByText("Currently Inside").parentElement!;
-    expect(tile.textContent).toMatch(/Currently Inside\s*2$/);
+    await waitFor(() => {
+      const tile = screen.getByText("Currently Inside").parentElement!;
+      expect(tile.textContent).toMatch(/Currently Inside\s*2$/);
+    });
   });
 
   it("Currently-Inside tile (Today tab) — uses stats.currentlyActive (Issue #746)", async () => {

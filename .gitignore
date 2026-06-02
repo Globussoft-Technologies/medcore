@@ -53,11 +53,6 @@ AI_GAP_ANALYSIS.md
 .deploy-log.txt
 .test-local/
 
-# Next.js auto-regenerates this on every build, so a tracked copy always
-# shows as modified on the deploy checkout and trips deploy.sh's clean-tree
-# pre-flight guard. Per Next.js docs, it should not be committed.
-apps/web/next-env.d.ts
-
 # Manual backups + stray Firebase config that accumulate on the dev-server
 # checkout during debugging and otherwise dirty the tree for the next deploy.
 *_bkp

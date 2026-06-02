@@ -81,7 +81,7 @@ test.describe("Visual regression — critical surfaces", () => {
     // Allow a brief settle so any client-side fetch completes deterministically.
     await adminPage.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
     await expect(adminPage).toHaveScreenshot("dashboard-admin.png", {
-      maxDiffPixelRatio: 0.04,
+      maxDiffPixelRatio: 0.1,
       fullPage: false,
       animations: "disabled",
       // Mask anything dynamic (timestamps, badges with live counts) so

@@ -31,3 +31,16 @@ export const dashboardPreferenceSchema = z.object({
 });
 
 export type DashboardPreferenceInput = z.infer<typeof dashboardPreferenceSchema>;
+
+// Per-user sidebar ordering. `order` is the list of nav hrefs in the user's
+// chosen sequence (pinned items like Dashboard / Admin Console are NOT stored
+// here — they are always rendered first by the client). An empty array means
+// "no customisation — fall back to the default sidebar order". Hrefs that no
+// longer exist (feature-gated off, route removed) are ignored by the client,
+// and newly-added nav items not present in `order` are appended in default
+// order, so the stored list never needs to be exhaustive.
+export const sidebarPreferenceSchema = z.object({
+  order: z.array(z.string().min(1).max(200)).max(200),
+});
+
+export type SidebarPreferenceInput = z.infer<typeof sidebarPreferenceSchema>;

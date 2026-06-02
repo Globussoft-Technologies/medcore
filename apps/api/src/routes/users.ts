@@ -21,7 +21,11 @@
 import { Router, Request, Response, NextFunction } from "express";
 // Multi-tenant Prisma wrapper (see services/tenant-prisma).
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
-import { Role, dashboardPreferenceSchema } from "@medcore/shared";
+import {
+  Role,
+  dashboardPreferenceSchema,
+  sidebarPreferenceSchema,
+} from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
@@ -348,6 +352,65 @@ router.put(
         create: { userId, layout: layout as any },
       });
       res.json({ success: true, data: saved, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── User sidebar ordering ────────────────────────────
+// The user's custom sidebar order is stored alongside their dashboard
+// widgets in the SAME `user_dashboard_preferences.layout` JSON blob, under a
+// `sidebarOrder` key — so this needs no schema migration. We read-merge-write
+// to avoid clobbering the widgets array (and vice-versa).
+
+type StoredLayout = {
+  widgets?: unknown;
+  sidebarOrder?: string[];
+};
+
+router.get(
+  "/me/sidebar-preferences",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const pref = await prisma.userDashboardPreference.findUnique({
+        where: { userId },
+      });
+      const layout = (pref?.layout as StoredLayout | null) ?? null;
+      const order = Array.isArray(layout?.sidebarOrder)
+        ? layout!.sidebarOrder!
+        : [];
+      res.json({ success: true, data: { order }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  "/me/sidebar-preferences",
+  validate(sidebarPreferenceSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user!.userId;
+      const order = req.body.order as string[];
+      // Preserve any existing dashboard widgets in the same blob.
+      const existing = await prisma.userDashboardPreference.findUnique({
+        where: { userId },
+      });
+      const prevLayout = (existing?.layout as StoredLayout | null) ?? {};
+      const nextLayout = { ...prevLayout, sidebarOrder: order };
+      const saved = await prisma.userDashboardPreference.upsert({
+        where: { userId },
+        update: { layout: nextLayout as any },
+        create: { userId, layout: nextLayout as any },
+      });
+      res.json({
+        success: true,
+        data: { order: (saved.layout as StoredLayout).sidebarOrder ?? [] },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

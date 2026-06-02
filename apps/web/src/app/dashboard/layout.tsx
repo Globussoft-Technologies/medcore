@@ -20,6 +20,7 @@ import {
 } from "@/components/OnboardingTour";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
 import { BranchPicker } from "@/components/BranchPicker";
+import { SidebarNav } from "@/components/SidebarNav";
 import { useBranchStore } from "@/lib/branch-store";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -1033,69 +1034,20 @@ export default function DashboardLayout({
           className="flex-1 overflow-y-auto p-3"
           aria-label="Main menu"
         >
-          {nav.map(({ href, label, icon: Icon }) => {
-            const isActive = pathname === href;
-            const tip = SIDEBAR_TIPS[href];
-            return (
-              <Link
-                key={href}
-                href={href}
-                // Issue #70: drawer close is now handled by the pathname-effect
-                // above so we don't race a setState against the Link's
-                // built-in navigation (which used to require a second click).
-                //
-                // Issue #817: Admin Console click from /dashboard registered
-                // focus on the sidebar item but the URL stayed at /dashboard
-                // (page content unchanged) on Chrome staging. Repro: ADMIN
-                // lands on /dashboard → clicks "Admin Console" → nothing.
-                // Direct-URL navigation to /dashboard/admin-console worked,
-                // so the route handler is fine; the failure was a swallowed
-                // Link navigation — most plausibly the App-Router's client
-                // transition being interrupted by a concurrent setState
-                // (auth-broadcast hook, redirect-effect race, drawer close).
-                //
-                // Defensive fix: pair the <Link> with an imperative
-                // router.push fallback. When the user clicks an item that
-                // differs from the current pathname, we explicitly push the
-                // target href on the next tick. Next.js de-dupes navigations
-                // to the same URL, so the call is a no-op if Link's own
-                // transition already started — but it guarantees navigation
-                // when Link's transition is dropped. Left-click / no-modifier
-                // only so middle-click / Ctrl-click open-in-new-tab semantics
-                // are preserved verbatim.
-                onClick={(e) => {
-                  if (
-                    e.defaultPrevented ||
-                    e.button !== 0 ||
-                    e.metaKey ||
-                    e.ctrlKey ||
-                    e.shiftKey ||
-                    e.altKey
-                  ) {
-                    return;
-                  }
-                  if (pathname !== href) {
-                    // Schedule on a microtask so React's batched state
-                    // updates (drawer close, etc.) flush first; router.push
-                    // is idempotent and Link's own navigation wins if it
-                    // beats us to the same URL.
-                    queueMicrotask(() => router.push(href));
-                  }
-                }}
-                aria-current={isActive ? "page" : undefined}
-                title={tip}
-                className={clsx(
-                  "mb-1 flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-sidebar",
-                  isActive
-                    ? "bg-primary font-medium text-white"
-                    : "text-slate-700 hover:bg-sidebar-hover hover:text-slate-900 dark:text-gray-300 dark:hover:text-white"
-                )}
-              >
-                <Icon size={18} aria-hidden="true" />
-                {tNav(label)}
-              </Link>
-            );
-          })}
+          {/* Pearl §7.2 — per-user reorderable sidebar. Dashboard + Admin
+              Console stay pinned; every other item can be dragged into the
+              user's preferred order, which is persisted to the DB
+              (`/users/me/sidebar-preferences`) so it survives refresh and a
+              "Default" control reverts to the stock order. The defensive
+              Link+router.push navigation (issues #70 / #817) lives inside
+              the component. */}
+          <SidebarNav
+            items={nav}
+            pinnedHrefs={["/dashboard", "/dashboard/admin-console"]}
+            pathname={pathname}
+            tNav={tNav}
+            tips={SIDEBAR_TIPS}
+          />
           {user && (
             <button
               type="button"

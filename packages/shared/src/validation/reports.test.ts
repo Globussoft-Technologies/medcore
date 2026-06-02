@@ -16,6 +16,7 @@ import {
   scheduledReportCreateSchema,
   scheduledReportUpdateSchema,
   dashboardPreferenceSchema,
+  sidebarPreferenceSchema,
 } from "./reports";
 
 const validCreate = {
@@ -466,6 +467,40 @@ describe("dashboardPreferenceSchema accepts/rejects layout shape", () => {
     expect(
       dashboardPreferenceSchema.safeParse({
         layout: { widgets: "not-array" as unknown as Array<{ type: string }> },
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("sidebarPreferenceSchema accepts/rejects order shape", () => {
+  it("accepts an empty order (reset-to-default)", () => {
+    expect(sidebarPreferenceSchema.safeParse({ order: [] }).success).toBe(true);
+  });
+
+  it("accepts a list of href strings", () => {
+    expect(
+      sidebarPreferenceSchema.safeParse({
+        order: ["/dashboard/patients", "/dashboard/billing"],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a missing order", () => {
+    expect(sidebarPreferenceSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects non-string entries", () => {
+    expect(
+      sidebarPreferenceSchema.safeParse({
+        order: [42 as unknown as string],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects an order longer than 200 entries", () => {
+    expect(
+      sidebarPreferenceSchema.safeParse({
+        order: Array.from({ length: 201 }, (_, i) => `/r${i}`),
       }).success,
     ).toBe(false);
   });

@@ -664,10 +664,8 @@ describe("SettingsPage — Security tab", () => {
     await waitFor(() =>
       expect(apiMock.post).toHaveBeenCalledWith("/auth/2fa/setup"),
     );
-    // The setup panel (with otpUri/secret/backupCodes) only renders once
-    // setSetupOpen(true) has run, which happens AFTER the api.post()
-    // promise resolves. Use findByText so we wait for the post-resolve
-    // re-render before the sync assertions below.
+    // The POST having been *called* doesn't mean its response has rendered —
+    // await the setup payload appearing in the DOM before the sync asserts.
     expect(
       await screen.findByText("otpauth://totp/medcore"),
     ).toBeInTheDocument();

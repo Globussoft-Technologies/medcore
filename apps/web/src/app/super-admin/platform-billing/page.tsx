@@ -42,13 +42,18 @@ import {
   ChevronLeft,
   Clock,
   CreditCard,
+  Eye,
   FileText,
   Globe,
   IndianRupee,
+  Layers,
   Loader2,
   MoreVertical,
+  Pencil,
   Percent,
+  Plus,
   Printer,
+  Trash2,
   XCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -63,7 +68,8 @@ type SubscriptionStatus =
 interface SubscriptionRow {
   id: string;
   tenantId: string;
-  plan: "STARTER" | "GROWTH" | "ENTERPRISE";
+  // Dynamic `PlatformPlan.key` (STARTER/GROWTH/ENTERPRISE or a custom slug).
+  plan: string;
   status: SubscriptionStatus;
   trialEndsAt: string | null;
   currentPeriodStart: string;
@@ -102,9 +108,25 @@ interface InvoiceRow {
   tenant: { id: string; name: string; subdomain: string } | null;
 }
 
+// Pearl §8.3 — a dynamic plan-catalog tier (`PlatformPlan`).
+interface PlanRow {
+  id: string;
+  key: string;
+  name: string;
+  monthlyPriceInPaise: number;
+  includedFeatures: string[];
+  active: boolean;
+  sortOrder: number;
+}
+
 interface SubsResponse {
   success: boolean;
   data: { subscriptions: SubscriptionRow[] };
+  error: string | null;
+}
+interface PlansResponse {
+  success: boolean;
+  data: PlanRow[];
   error: string | null;
 }
 interface InvoicesResponse {
@@ -121,7 +143,7 @@ interface MarkPaidResponse {
   error: string | null;
 }
 
-type Tab = "subscriptions" | "invoices";
+type Tab = "subscriptions" | "invoices" | "plans";
 type InvoiceFilter = "ISSUED" | "PAID" | "all";
 
 const INVOICE_FILTER_CHIPS: Array<{ key: InvoiceFilter; label: string }> = [
@@ -207,6 +229,11 @@ export default function PlatformBillingPage() {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Unpaid total (paise) for the "Unpaid (₹)" KPI — sourced from the
+  // ISSUED invoices independently of the active tab / invoice filter so the
+  // tile is correct everywhere (the per-tab list alone left it at 0 on the
+  // Subscriptions tab).
+  const [unpaidTotalPaise, setUnpaidTotalPaise] = useState(0);
 
   // Modal state for the Mark-Paid action.
   const [markPaidForId, setMarkPaidForId] = useState<string | null>(null);
@@ -259,11 +286,33 @@ export default function PlatformBillingPage() {
   const [planChangeFor, setPlanChangeFor] = useState<SubscriptionRow | null>(
     null,
   );
-  const [planChangeTo, setPlanChangeTo] = useState<
-    "STARTER" | "GROWTH" | "ENTERPRISE"
-  >("STARTER");
+  const [planChangeTo, setPlanChangeTo] = useState<string>("");
   const [planChangeBusy, setPlanChangeBusy] = useState(false);
   const [planChangeError, setPlanChangeError] = useState<string | null>(null);
+
+  // Dynamic plan catalog (Pearl §8.3) — drives the Amount column, the
+  // change-plan dropdown, and the Plans management tab.
+  const [plans, setPlans] = useState<PlanRow[]>([]);
+  // Plans-management modal: null = closed, "new" = add, PlanRow = edit.
+  const [planEditing, setPlanEditing] = useState<PlanRow | "new" | null>(null);
+  const [planFormName, setPlanFormName] = useState("");
+  // Price is entered in INR as two fields: whole rupees + paise (00-99).
+  const [planFormRupees, setPlanFormRupees] = useState("");
+  const [planFormPaise, setPlanFormPaise] = useState("");
+  // Features are entered as individual rows (add / remove); empty rows are
+  // dropped on submit.
+  const [planFormFeatures, setPlanFormFeatures] = useState<string[]>([""]);
+  const [planFormSortOrder, setPlanFormSortOrder] = useState("0");
+  const [planFormActive, setPlanFormActive] = useState(true);
+  const [planFormBusy, setPlanFormBusy] = useState(false);
+  const [planFormError, setPlanFormError] = useState<string | null>(null);
+  const [planDeleteBusyId, setPlanDeleteBusyId] = useState<string | null>(null);
+  // Read-only "view all features" popup for a plan row.
+  const [planFeaturesView, setPlanFeaturesView] = useState<PlanRow | null>(null);
+  // Plan pending deletion — drives the confirm-delete modal.
+  const [planPendingDelete, setPlanPendingDelete] = useState<PlanRow | null>(
+    null,
+  );
 
   const fetchSubscriptions = useCallback(async () => {
     setLoading(true);
@@ -308,10 +357,96 @@ export default function PlatformBillingPage() {
   useEffect(() => {
     if (tab === "subscriptions") {
       void fetchSubscriptions();
-    } else {
+    } else if (tab === "invoices") {
       void fetchInvoices(invoiceFilter);
     }
+    // tab === "plans" uses the mount-loaded catalog; no per-tab fetch needed.
   }, [tab, invoiceFilter, fetchSubscriptions, fetchInvoices]);
+
+  // The summary tiles span BOTH subscriptions and invoices, but each tab only
+  // loads its own list — so e.g. "Unpaid (₹)" read 0 on the Subscriptions
+  // tab. Load the KPI inputs (subscriptions + the unpaid/ISSUED invoice
+  // total) independently so all four tiles are correct on every tab.
+  const loadKpis = useCallback(async () => {
+    try {
+      const subsRes = await fetch(
+        "/api/v1/platform-billing/subscriptions",
+        { credentials: "include" },
+      );
+      const subsBody = (await subsRes.json()) as SubsResponse;
+      if (subsRes.ok && subsBody.success) {
+        setSubscriptions(subsBody.data.subscriptions);
+      }
+      const invRes = await fetch(
+        "/api/v1/platform-billing/invoices?status=ISSUED",
+        { credentials: "include" },
+      );
+      const invBody = (await invRes.json()) as InvoicesResponse;
+      if (invRes.ok && invBody.success) {
+        setUnpaidTotalPaise(
+          invBody.data.invoices.reduce(
+            (s, i) => s + Math.abs(i.totalInPaise),
+            0,
+          ),
+        );
+      }
+    } catch {
+      /* KPI tiles degrade silently rather than blocking the page */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadKpis();
+  }, [loadKpis]);
+
+  // Pearl §8.3 — load the dynamic plan catalog once on mount (and after any
+  // plan mutation). All tiers, including inactive, so the Plans tab can show
+  // and reactivate retired ones.
+  const fetchPlans = useCallback(async () => {
+    try {
+      const res = await fetch("/api/v1/platform-billing/plans", {
+        credentials: "include",
+      });
+      const body = (await res.json()) as PlansResponse;
+      if (res.ok && body.success) {
+        setPlans(body.data);
+      }
+    } catch {
+      /* plan catalog degrades silently — the amount column falls back to — */
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchPlans();
+  }, [fetchPlans]);
+
+  // key → plan lookup for the Amount column + change-plan labels.
+  const planByKey = useMemo(() => {
+    const m = new Map<string, PlanRow>();
+    for (const p of plans) m.set(p.key, p);
+    return m;
+  }, [plans]);
+
+  // Active tiers only, sorted — for the create/change dropdowns.
+  const activePlans = useMemo(
+    () =>
+      [...plans]
+        .filter((p) => p.active)
+        .sort(
+          (a, b) =>
+            a.sortOrder - b.sortOrder ||
+            a.monthlyPriceInPaise - b.monthlyPriceInPaise,
+        ),
+    [plans],
+  );
+
+  // Resolve the effective monthly price for a subscription: a bespoke
+  // custom price overrides the tier's catalog price.
+  function subscriptionMonthlyPaise(s: SubscriptionRow): number | null {
+    if (s.customPriceMonthlyInPaise != null) return s.customPriceMonthlyInPaise;
+    const p = planByKey.get(s.plan);
+    return p ? p.monthlyPriceInPaise : null;
+  }
 
   const openInvoiceCount = useMemo(
     () => invoices.filter((i) => i.status === "ISSUED").length,
@@ -368,11 +503,194 @@ export default function PlatformBillingPage() {
       await fetchSubscriptions();
       // Also refresh invoices since proration may have produced a row.
       await fetchInvoices(invoiceFilter);
+      void loadKpis();
       setPlanChangeFor(null);
     } catch (err) {
       setPlanChangeError(err instanceof Error ? err.message : String(err));
     } finally {
       setPlanChangeBusy(false);
+    }
+  }
+
+  // Pearl §8.3 — Plans management (add / edit / deactivate / delete).
+  // The plan KEY is no longer entered by hand — it is derived from the
+  // display name (uppercased, non-alphanumerics → underscore) and made
+  // unique against the existing catalog. Only the main super admin can add
+  // or manage plans (enforced server-side).
+  function deriveUniquePlanKey(name: string): string {
+    let base = name
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 40);
+    if (base.length < 2) base = `PLAN_${base}`.slice(0, 40);
+    const taken = new Set(plans.map((p) => p.key));
+    if (!taken.has(base)) return base;
+    let n = 2;
+    let candidate = `${base}_${n}`.slice(0, 40);
+    while (taken.has(candidate)) {
+      n += 1;
+      candidate = `${base}_${n}`.slice(0, 40);
+    }
+    return candidate;
+  }
+  function openPlanCreate(): void {
+    setPlanEditing("new");
+    setPlanFormName("");
+    setPlanFormRupees("");
+    setPlanFormPaise("");
+    setPlanFormFeatures([""]);
+    setPlanFormSortOrder(String(plans.length + 1));
+    setPlanFormActive(true);
+    setPlanFormError(null);
+  }
+  function openPlanEdit(p: PlanRow): void {
+    setPlanEditing(p);
+    setPlanFormName(p.name);
+    setPlanFormRupees(String(Math.floor(p.monthlyPriceInPaise / 100)));
+    setPlanFormPaise(
+      String(p.monthlyPriceInPaise % 100).padStart(2, "0"),
+    );
+    setPlanFormFeatures(
+      p.includedFeatures.length > 0 ? [...p.includedFeatures] : [""],
+    );
+    setPlanFormSortOrder(String(p.sortOrder));
+    setPlanFormActive(p.active);
+    setPlanFormError(null);
+  }
+  function closePlanForm(): void {
+    if (planFormBusy) return;
+    setPlanEditing(null);
+    setPlanFormError(null);
+  }
+  // Feature-row helpers (dynamic add/remove rows).
+  function addFeatureRow(): void {
+    setPlanFormFeatures((rows) => [...rows, ""]);
+  }
+  function updateFeatureRow(i: number, value: string): void {
+    setPlanFormFeatures((rows) => rows.map((r, idx) => (idx === i ? value : r)));
+  }
+  function removeFeatureRow(i: number): void {
+    setPlanFormFeatures((rows) => {
+      const next = rows.filter((_, idx) => idx !== i);
+      return next.length > 0 ? next : [""];
+    });
+  }
+  async function submitPlanForm(): Promise<void> {
+    if (planEditing == null) return;
+    const name = planFormName.trim();
+    if (name.length < 2) {
+      setPlanFormError("Enter a plan name (at least 2 characters).");
+      return;
+    }
+    const rupees = Number(planFormRupees);
+    if (!Number.isInteger(rupees) || rupees < 0) {
+      setPlanFormError("Enter a valid whole-rupee amount (0 or more).");
+      return;
+    }
+    const paiseStr = planFormPaise.trim();
+    const paise = paiseStr === "" ? 0 : Number(paiseStr);
+    if (!Number.isInteger(paise) || paise < 0 || paise > 99) {
+      setPlanFormError("Paise must be a whole number between 0 and 99.");
+      return;
+    }
+    const monthlyPriceInPaise = rupees * 100 + paise;
+    const includedFeatures = planFormFeatures
+      .map((f) => f.trim())
+      .filter((f) => f.length > 0);
+    const sortOrder = Number(planFormSortOrder);
+    setPlanFormBusy(true);
+    setPlanFormError(null);
+    try {
+      const isNew = planEditing === "new";
+      const res = await csrfFetch(
+        isNew
+          ? "/api/v1/platform-billing/plans"
+          : `/api/v1/platform-billing/plans/${planEditing.id}`,
+        {
+          method: isNew ? "POST" : "PATCH",
+          body: JSON.stringify(
+            isNew
+              ? {
+                  // Key auto-derived from the name (no manual entry).
+                  key: deriveUniquePlanKey(name),
+                  name,
+                  monthlyPriceInPaise,
+                  includedFeatures,
+                  sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
+                }
+              : {
+                  name,
+                  monthlyPriceInPaise,
+                  includedFeatures,
+                  active: planFormActive,
+                  sortOrder: Number.isFinite(sortOrder) ? sortOrder : 0,
+                },
+          ),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        success: boolean;
+        error: string | null;
+      };
+      if (!res.ok || !body.success) {
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      await fetchPlans();
+      setPlanEditing(null);
+    } catch (err) {
+      setPlanFormError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPlanFormBusy(false);
+    }
+  }
+  // Delete is confirmed via an in-app modal (setPlanPendingDelete) rather than
+  // the browser's native confirm dialog.
+  async function confirmDeletePlan(): Promise<void> {
+    const p = planPendingDelete;
+    if (!p) return;
+    setPlanDeleteBusyId(p.id);
+    try {
+      const res = await csrfFetch(
+        `/api/v1/platform-billing/plans/${p.id}`,
+        { method: "DELETE" },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        success: boolean;
+        error: string | null;
+      };
+      if (!res.ok || !body.success) {
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      await fetchPlans();
+      setPlanPendingDelete(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setPlanPendingDelete(null);
+    } finally {
+      setPlanDeleteBusyId(null);
+    }
+  }
+  async function togglePlanActive(p: PlanRow): Promise<void> {
+    setPlanDeleteBusyId(p.id);
+    try {
+      const res = await csrfFetch(
+        `/api/v1/platform-billing/plans/${p.id}`,
+        { method: "PATCH", body: JSON.stringify({ active: !p.active }) },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        success: boolean;
+        error: string | null;
+      };
+      if (!res.ok || !body.success) {
+        throw new Error(body.error ?? `Request failed (${res.status})`);
+      }
+      await fetchPlans();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPlanDeleteBusyId(null);
     }
   }
 
@@ -431,6 +749,7 @@ export default function PlatformBillingPage() {
         throw new Error(body.error ?? `Request failed (${res.status})`);
       }
       await fetchInvoices(invoiceFilter);
+      void loadKpis();
       setDiscountFor(null);
     } catch (err) {
       setDiscountError(err instanceof Error ? err.message : String(err));
@@ -498,6 +817,7 @@ export default function PlatformBillingPage() {
       }
       // Refresh the invoice list with the same filter.
       await fetchInvoices(invoiceFilter);
+      void loadKpis();
       setMarkPaidForId(null);
       setMarkPaidRef("");
     } catch (err) {
@@ -507,11 +827,9 @@ export default function PlatformBillingPage() {
     }
   }
 
-  // Quick KPI totals computed from the loaded lists. Cheap, no extra
-  // fetch — surfaces "what does the queue look like" at a glance.
-  const totalUnpaid = invoices
-    .filter((i) => i.status === "ISSUED")
-    .reduce((s, i) => s + i.totalInPaise, 0);
+  // Subscription KPI counts from the loaded subscription list; the unpaid
+  // total comes from `unpaidTotalPaise` (loaded by loadKpis) so it's correct
+  // regardless of the active tab / invoice filter.
   const totalTrial = subscriptions.filter((s) => s.status === "trial").length;
   const totalPastDue = subscriptions.filter(
     (s) => s.status === "past_due",
@@ -588,7 +906,7 @@ export default function PlatformBillingPage() {
         />
         <KpiTile
           label="Unpaid (₹)"
-          value={(totalUnpaid / 100).toLocaleString("en-IN", {
+          value={(unpaidTotalPaise / 100).toLocaleString("en-IN", {
             maximumFractionDigits: 0,
           })}
           tone="rose"
@@ -637,6 +955,21 @@ export default function PlatformBillingPage() {
             </span>
           ) : null}
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "plans"}
+          data-testid="platform-billing-tab-plans"
+          onClick={() => setTab("plans")}
+          className={`-mb-px inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
+            tab === "plans"
+              ? "border-slate-900 text-slate-900 dark:border-slate-100 dark:text-slate-100"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+          }`}
+        >
+          <Layers size={14} aria-hidden="true" />
+          Plans
+        </button>
       </div>
 
       {error ? (
@@ -673,6 +1006,7 @@ export default function PlatformBillingPage() {
               <tr>
                 <th scope="col" className="px-4 py-3 font-medium">Tenant</th>
                 <th scope="col" className="px-4 py-3 font-medium">Plan</th>
+                <th scope="col" className="px-4 py-3 font-medium">Amount</th>
                 <th scope="col" className="px-4 py-3 font-medium">Status</th>
                 <th scope="col" className="px-4 py-3 font-medium">Trial end</th>
                 <th scope="col" className="px-4 py-3 font-medium">Period end</th>
@@ -685,7 +1019,7 @@ export default function PlatformBillingPage() {
               {subscriptions.length === 0 && !loading ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     data-testid="platform-billing-subscriptions-empty"
                   >
@@ -697,6 +1031,8 @@ export default function PlatformBillingPage() {
                 const badge = subscriptionStatusBadge(s.status);
                 const canChange =
                   s.status !== "cancelled" && s.status !== "suspended";
+                const monthlyPaise = subscriptionMonthlyPaise(s);
+                const planName = planByKey.get(s.plan)?.name ?? s.plan;
                 return (
                   <tr
                     key={s.id}
@@ -710,7 +1046,27 @@ export default function PlatformBillingPage() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{s.plan}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{planName}</td>
+                    <td
+                      className="px-4 py-3 text-slate-700 dark:text-slate-300"
+                      data-testid={`platform-billing-subscription-amount-${s.id}`}
+                    >
+                      {monthlyPaise != null ? (
+                        <span className="inline-flex items-center gap-1">
+                          {formatRupees(monthlyPaise)}/mo
+                          {s.customPriceMonthlyInPaise != null ? (
+                            <span
+                              className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+                              title="Custom negotiated price overriding the tier default"
+                            >
+                              custom
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${badge.cls}`}
@@ -839,7 +1195,10 @@ export default function PlatformBillingPage() {
                       <td className="px-4 py-3 text-right font-medium text-slate-900 dark:text-slate-100">
                         <span className="inline-flex items-center gap-1 tabular-nums">
                           <IndianRupee size={12} aria-hidden="true" />
-                          {formatRupees(inv.totalInPaise).replace("₹", "")}
+                          {formatRupees(Math.abs(inv.totalInPaise)).replace(
+                            "₹",
+                            "",
+                          )}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
@@ -992,6 +1351,146 @@ export default function PlatformBillingPage() {
             </table>
           </div>
         </>
+      ) : null}
+
+      {/* PLANS TAB — dynamic plan-catalog management (Pearl §8.3) */}
+      {tab === "plans" ? (
+        <div className="space-y-3" data-testid="platform-billing-plans-panel">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Create and manage subscription tiers. Prices and included features
+              are used everywhere — new tenants, change-plan, proration and
+              invoices.
+            </p>
+            <button
+              type="button"
+              onClick={openPlanCreate}
+              data-testid="platform-billing-add-plan"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-slate-900 px-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+            >
+              <Plus size={14} aria-hidden="true" />
+              Add plan
+            </button>
+          </div>
+          <div
+            className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800"
+            data-testid="platform-billing-plans-table-wrapper"
+          >
+            <table
+              className="w-full min-w-[760px] text-left text-sm"
+              data-testid="platform-billing-plans-table"
+            >
+              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
+                <tr>
+                  <th scope="col" className="px-4 py-3 font-medium">Plan</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Price</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Features</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Status</th>
+                  <th scope="col" className="px-4 py-3 font-medium text-right">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
+                {plans.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
+                      data-testid="platform-billing-plans-empty"
+                    >
+                      No plans yet. Click &ldquo;Add plan&rdquo; to create the
+                      first tier.
+                    </td>
+                  </tr>
+                ) : null}
+                {[...plans]
+                  .sort(
+                    (a, b) =>
+                      a.sortOrder - b.sortOrder ||
+                      a.monthlyPriceInPaise - b.monthlyPriceInPaise,
+                  )
+                  .map((p) => {
+                    const busy = planDeleteBusyId === p.id;
+                    return (
+                      <tr
+                        key={p.id}
+                        data-testid={`platform-billing-plan-row-${p.id}`}
+                      >
+                        <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">
+                          {p.name}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                          {formatRupees(p.monthlyPriceInPaise)}/mo
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
+                          {p.includedFeatures.length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setPlanFeaturesView(p)}
+                              data-testid={`platform-billing-view-features-${p.id}`}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
+                            >
+                              <Eye size={12} aria-hidden="true" />
+                              View ({p.includedFeatures.length})
+                            </button>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {p.active ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300">
+                              <CheckCircle2 size={12} aria-hidden="true" />
+                              Active
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                              <XCircle size={12} aria-hidden="true" />
+                              Inactive
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openPlanEdit(p)}
+                              disabled={busy}
+                              data-testid={`platform-billing-edit-plan-${p.id}`}
+                              className="inline-flex h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
+                            >
+                              <Pencil size={12} aria-hidden="true" />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => togglePlanActive(p)}
+                              disabled={busy}
+                              data-testid={`platform-billing-toggle-plan-${p.id}`}
+                              className="inline-flex h-9 items-center rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
+                            >
+                              {p.active ? "Deactivate" : "Activate"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setPlanPendingDelete(p)}
+                              disabled={busy}
+                              data-testid={`platform-billing-delete-plan-${p.id}`}
+                              className="inline-flex h-9 items-center gap-1 rounded-md border border-rose-200 bg-white px-2.5 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-900 dark:bg-gray-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                            >
+                              <Trash2 size={12} aria-hidden="true" />
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : null}
 
       {/* MARK-PAID MODAL */}
@@ -1184,8 +1683,10 @@ export default function PlatformBillingPage() {
             </h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
               {planChangeFor.tenant?.name ?? "(unknown tenant)"} · current:{" "}
-              <strong>{planChangeFor.plan}</strong>. A proration line item
-              will be written to the current period.
+              <strong>
+                {planByKey.get(planChangeFor.plan)?.name ?? planChangeFor.plan}
+              </strong>
+              . A proration line item will be written to the current period.
             </p>
             <label
               htmlFor="platform-billing-change-plan-select"
@@ -1197,16 +1698,22 @@ export default function PlatformBillingPage() {
               id="platform-billing-change-plan-select"
               data-testid="platform-billing-change-plan-select"
               value={planChangeTo}
-              onChange={(e) =>
-                setPlanChangeTo(
-                  e.target.value as "STARTER" | "GROWTH" | "ENTERPRISE",
-                )
-              }
+              onChange={(e) => setPlanChangeTo(e.target.value)}
               className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100 dark:placeholder:text-slate-500"
             >
-              <option value="STARTER">Starter</option>
-              <option value="GROWTH">Growth</option>
-              <option value="ENTERPRISE">Enterprise</option>
+              {/* Always include the current key so a tier that has since been
+                  deactivated still shows as the selected value. */}
+              {!activePlans.some((p) => p.key === planChangeFor.plan) ? (
+                <option value={planChangeFor.plan}>
+                  {planByKey.get(planChangeFor.plan)?.name ?? planChangeFor.plan}{" "}
+                  (current)
+                </option>
+              ) : null}
+              {activePlans.map((p) => (
+                <option key={p.id} value={p.key}>
+                  {p.name} — {formatRupees(p.monthlyPriceInPaise)}/mo
+                </option>
+              ))}
             </select>
             {planChangeError ? (
               <div
@@ -1235,6 +1742,316 @@ export default function PlatformBillingPage() {
                 className="inline-flex h-11 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
               >
                 {planChangeBusy ? "Saving…" : "Confirm change"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* PLAN ADD / EDIT MODAL (Pearl §8.3) */}
+      {planEditing != null ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="platform-billing-plan-form-title"
+          data-testid="platform-billing-plan-form-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={closePlanForm}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="platform-billing-plan-form-title"
+              className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+            >
+              {planEditing === "new" ? "Add plan" : "Edit plan"}
+            </h2>
+
+            <label
+              htmlFor="platform-billing-plan-name"
+              className="mt-4 block text-xs font-medium text-slate-700 dark:text-slate-300"
+            >
+              Display name
+            </label>
+            <input
+              id="platform-billing-plan-name"
+              data-testid="platform-billing-plan-name"
+              value={planFormName}
+              onChange={(e) => setPlanFormName(e.target.value.toUpperCase())}
+              placeholder="e.g. PRO PLUS"
+              className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100"
+            />
+
+            <label className="mt-3 block text-xs font-medium text-slate-700 dark:text-slate-300">
+              Monthly price (₹)
+            </label>
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                aria-label="Rupees"
+                data-testid="platform-billing-plan-price-rupees"
+                type="number"
+                min={0}
+                step="1"
+                value={planFormRupees}
+                onChange={(e) => setPlanFormRupees(e.target.value)}
+                placeholder="24999"
+                className="h-11 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100"
+              />
+              <span className="text-lg font-semibold text-slate-400 dark:text-slate-500">
+                .
+              </span>
+              <input
+                aria-label="Paise"
+                data-testid="platform-billing-plan-price-paise"
+                type="number"
+                min={0}
+                max={99}
+                step="1"
+                value={planFormPaise}
+                onChange={(e) => setPlanFormPaise(e.target.value)}
+                placeholder="00"
+                className="h-11 w-20 rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100"
+              />
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400 dark:text-slate-500">
+              Whole rupees on the left, paise (00–99) on the right.
+            </p>
+
+            <div className="mt-3">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
+                  Included features
+                </label>
+                <button
+                  type="button"
+                  onClick={addFeatureRow}
+                  data-testid="platform-billing-plan-add-feature"
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
+                >
+                  <Plus size={12} aria-hidden="true" />
+                  Add feature
+                </button>
+              </div>
+              {/* p-1 gives the focused input's 2px ring room so the scroll
+                  container (overflow-y-auto) doesn't clip it into a
+                  broken-looking left/right-only border. */}
+              <div className="mt-1 max-h-44 space-y-2 overflow-y-auto p-1">
+                {planFormFeatures.map((feat, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      aria-label={`Feature ${i + 1}`}
+                      data-testid={`platform-billing-plan-feature-${i}`}
+                      value={feat}
+                      onChange={(e) => updateFeatureRow(i, e.target.value)}
+                      placeholder="e.g. lab"
+                      className="h-11 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeFeatureRow(i)}
+                      aria-label={`Remove feature ${i + 1}`}
+                      data-testid={`platform-billing-plan-remove-feature-${i}`}
+                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-400 dark:hover:bg-rose-950/40"
+                    >
+                      <Trash2 size={14} aria-hidden="true" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-end gap-4">
+              <div className="flex-1">
+                <label
+                  htmlFor="platform-billing-plan-sort"
+                  className="block text-xs font-medium text-slate-700 dark:text-slate-300"
+                >
+                  Sort order
+                </label>
+                <input
+                  id="platform-billing-plan-sort"
+                  data-testid="platform-billing-plan-sort"
+                  type="number"
+                  min={0}
+                  value={planFormSortOrder}
+                  onChange={(e) => setPlanFormSortOrder(e.target.value)}
+                  className="mt-1 h-11 w-full rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100"
+                />
+              </div>
+              {planEditing !== "new" ? (
+                <label className="inline-flex h-11 items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    data-testid="platform-billing-plan-active"
+                    checked={planFormActive}
+                    onChange={(e) => setPlanFormActive(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Active
+                </label>
+              ) : null}
+            </div>
+
+            {planFormError ? (
+              <div
+                role="alert"
+                data-testid="platform-billing-plan-form-error"
+                className="mt-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+              >
+                {planFormError}
+              </div>
+            ) : null}
+
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                data-testid="platform-billing-plan-form-cancel"
+                onClick={closePlanForm}
+                disabled={planFormBusy}
+                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="platform-billing-plan-form-submit"
+                onClick={submitPlanForm}
+                disabled={planFormBusy}
+                className="inline-flex h-11 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              >
+                {planFormBusy
+                  ? "Saving…"
+                  : planEditing === "new"
+                    ? "Create plan"
+                    : "Save changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* CONFIRM DELETE PLAN MODAL */}
+      {planPendingDelete ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="platform-billing-delete-plan-title"
+          data-testid="platform-billing-delete-plan-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => {
+            if (planDeleteBusyId == null) setPlanPendingDelete(null);
+          }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+                <Trash2 size={18} aria-hidden="true" />
+              </div>
+              <div>
+                <h2
+                  id="platform-billing-delete-plan-title"
+                  className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+                >
+                  Delete plan?
+                </h2>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  This will permanently delete{" "}
+                  <strong>{planPendingDelete.name}</strong>. This can&rsquo;t be
+                  undone. Plans still in use can&rsquo;t be deleted — deactivate
+                  them instead.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                data-testid="platform-billing-delete-plan-cancel"
+                onClick={() => setPlanPendingDelete(null)}
+                disabled={planDeleteBusyId != null}
+                className="inline-flex h-11 items-center rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:border-gray-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="platform-billing-delete-plan-confirm"
+                onClick={confirmDeletePlan}
+                disabled={planDeleteBusyId != null}
+                className="inline-flex h-11 items-center gap-1 rounded-md bg-rose-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-rose-600"
+              >
+                {planDeleteBusyId != null ? "Deleting…" : "Delete plan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* PLAN FEATURES VIEW MODAL — read-only list of all included features */}
+      {planFeaturesView ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="platform-billing-plan-features-title"
+          data-testid="platform-billing-plan-features-modal"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setPlanFeaturesView(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="platform-billing-plan-features-title"
+              className="text-lg font-semibold text-slate-900 dark:text-slate-100"
+            >
+              {planFeaturesView.name} — included features
+            </h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              {planFeaturesView.includedFeatures.length} feature
+              {planFeaturesView.includedFeatures.length === 1 ? "" : "s"} unlocked
+              on this plan.
+            </p>
+            <ul className="mt-4 max-h-72 space-y-1 overflow-y-auto">
+              {planFeaturesView.includedFeatures.map((f) => (
+                <li
+                  key={f}
+                  className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-gray-800 dark:text-slate-200"
+                >
+                  <CheckCircle2
+                    size={14}
+                    className="shrink-0 text-emerald-500"
+                    aria-hidden="true"
+                  />
+                  <span className="font-mono text-xs">{f}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                data-testid="platform-billing-plan-features-edit"
+                onClick={() => {
+                  const p = planFeaturesView;
+                  setPlanFeaturesView(null);
+                  openPlanEdit(p);
+                }}
+                className="inline-flex h-11 items-center gap-1 rounded-md border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
+              >
+                <Pencil size={14} aria-hidden="true" />
+                Edit plan
+              </button>
+              <button
+                type="button"
+                data-testid="platform-billing-plan-features-close"
+                onClick={() => setPlanFeaturesView(null)}
+                className="inline-flex h-11 items-center rounded-md bg-slate-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+              >
+                Close
               </button>
             </div>
           </div>

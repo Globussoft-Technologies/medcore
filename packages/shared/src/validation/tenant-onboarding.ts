@@ -54,8 +54,20 @@ const PINCODE_REGEX = /^\d{6}$/;
 // Loose Indian-or-international phone (matches branch.ts:phoneRegex).
 const PHONE_REGEX = /^\+?\d{7,15}$/;
 
-// Tenant plan enum aligned with Prisma TenantPlan.
-const planEnum = z.enum(["BASIC", "PRO", "ENTERPRISE"]);
+// Plan tiers are now dynamic (DB-backed `PlatformPlan` rows), so the
+// schema only validates the KEY SHAPE here — `@medcore/shared` cannot
+// import from `@medcore/db` (cyclic dep), so it can't check existence.
+// The route handler verifies the key resolves to an existing ACTIVE
+// `PlatformPlan` before provisioning.
+const PLAN_KEY_REGEX = /^[A-Z0-9_]{2,40}$/;
+const planEnum = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(
+    PLAN_KEY_REGEX,
+    "Plan must be a valid plan key (2-40 uppercase letters, digits or underscores)",
+  );
 
 // ─── Step 1 — Tenant basics ──────────────────────────────────────────
 export const tenantOnboardingTenantSchema = z.object({

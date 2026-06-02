@@ -23,6 +23,11 @@ import { z } from "zod";
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import {
+  getPlanByKey,
+  isPlanColumnMigrationError,
+  PLAN_MIGRATION_USER_MESSAGE,
+} from "../services/plan-catalog";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import {
@@ -37,7 +42,18 @@ const router = Router();
 
 // ─── Schemas ─────────────────────────────────────────────────────────
 
-const planEnum = z.enum(["BASIC", "PRO", "ENTERPRISE"]);
+// Plan tiers are dynamic (DB-backed `PlatformPlan` rows). The schema only
+// validates the KEY SHAPE; each create/update handler then verifies the key
+// resolves to an existing ACTIVE plan via `requirePlanByKey`/`getPlanByKey`.
+const PLAN_KEY_REGEX = /^[A-Z0-9_]{2,40}$/;
+const planEnum = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(
+    PLAN_KEY_REGEX,
+    "Plan must be a valid plan key (2-40 uppercase letters, digits or underscores)",
+  );
 
 const createTenantSchema = z.object({
   name: z.string().trim().min(2, "Name too short").max(120),
@@ -137,6 +153,20 @@ async function requireSuperAdmin(
 
     if (callerTenantId == null) {
       // Global super-admin / legacy account — allow.
+      return next();
+    }
+
+    // Self-service exception (Pearl §8.1 onboarding): a tenant admin may
+    // read + update the onboarding checklist for their OWN tenant (the
+    // dashboard onboarding banner + the onboarding page) and read their own
+    // tenant detail (the page header). The id is matched against the
+    // caller's own tenantId, so this never widens into cross-tenant access.
+    // Everything else — listing/creating other tenants, PATCH, suspend,
+    // archive, cross-tenant reads — stays super-admin-only.
+    const ownOnboarding = req.path.includes(`/${callerTenantId}/onboarding`);
+    const ownDetailRead =
+      req.method === "GET" && req.path.endsWith(`/${callerTenantId}`);
+    if (ownOnboarding || ownDetailRead) {
       return next();
     }
 
@@ -300,6 +330,18 @@ router.post(
         return;
       }
 
+      // Verify the chosen plan key resolves to an existing ACTIVE plan in the
+      // dynamic catalog before provisioning (the schema only checks shape).
+      const planRow = await getPlanByKey(prisma, body.plan);
+      if (!planRow || !planRow.active) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Unknown or inactive plan "${body.plan}". Pick an active plan from the catalog.`,
+        });
+        return;
+      }
+
       const result = await createTenant({
         name: body.name,
         subdomain: body.subdomain,
@@ -358,7 +400,9 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
         { subdomain: { contains: term.toLowerCase() } },
       ];
     }
-    if (plan && ["BASIC", "PRO", "ENTERPRISE"].includes(plan)) {
+    // Plan keys are dynamic now — accept any key-shaped filter value and let
+    // the WHERE match (an unknown key simply returns no rows).
+    if (typeof plan === "string" && /^[A-Z0-9_]{2,40}$/.test(plan)) {
       where.plan = plan;
     }
     if (active === "true") where.active = true;
@@ -405,6 +449,18 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
     res.json({ success: true, data: withStats, error: null });
   } catch (err) {
+    if (isPlanColumnMigrationError(err)) {
+      console.error(
+        "[tenants] list: plan column not migrated — run `npx prisma db push` + reseed. Detail:",
+        err instanceof Error ? err.message : String(err),
+      );
+      res.status(503).json({
+        success: false,
+        data: null,
+        error: PLAN_MIGRATION_USER_MESSAGE,
+      });
+      return;
+    }
     next(err);
   }
 });
@@ -454,6 +510,18 @@ router.get(
         error: null,
       });
     } catch (err) {
+      if (isPlanColumnMigrationError(err)) {
+        console.error(
+          "[tenants] detail: plan column not migrated — run `npx prisma db push` + reseed. Detail:",
+          err instanceof Error ? err.message : String(err),
+        );
+        res.status(503).json({
+          success: false,
+          data: null,
+          error: PLAN_MIGRATION_USER_MESSAGE,
+        });
+        return;
+      }
       next(err);
     }
   },
@@ -482,6 +550,20 @@ router.patch(
           error: "Cannot deactivate the default tenant",
         });
         return;
+      }
+
+      // If the plan is being changed, verify the new key resolves to an
+      // existing ACTIVE plan in the dynamic catalog.
+      if (body.plan !== undefined) {
+        const planRow = await getPlanByKey(prisma, body.plan);
+        if (!planRow || !planRow.active) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Unknown or inactive plan "${body.plan}". Pick an active plan from the catalog.`,
+          });
+          return;
+        }
       }
 
       // Pearl §8.6 — write the four compliance/billing columns via

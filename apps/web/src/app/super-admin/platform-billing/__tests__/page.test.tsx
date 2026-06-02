@@ -110,8 +110,38 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+const samplePlans = [
+  {
+    id: "plan-starter",
+    key: "STARTER",
+    name: "Starter",
+    monthlyPriceInPaise: 499900,
+    includedFeatures: ["opd"],
+    active: true,
+    sortOrder: 1,
+  },
+  {
+    id: "plan-growth",
+    key: "GROWTH",
+    name: "Growth",
+    monthlyPriceInPaise: 1499900,
+    includedFeatures: ["opd", "lab"],
+    active: true,
+    sortOrder: 2,
+  },
+];
+
 function mockSubsOk(subs = sampleSubscriptions) {
   fetchMock.mockImplementation(async (url: string) => {
+    // Order matters: /plans is checked before the generic /subscriptions +
+    // /invoices branches so the catalog fetch resolves with sample tiers.
+    if (url.includes("/plans")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true, data: samplePlans, error: null }),
+      };
+    }
     if (url.includes("/subscriptions")) {
       return {
         ok: true,
@@ -319,5 +349,43 @@ describe("/dashboard/platform-billing landing — Pearl §8.3", () => {
     expect(
       screen.getByTestId("platform-billing-actions-inv-1").className,
     ).toMatch(/h-9/);
+  });
+
+  it("renders the monthly Amount from the dynamic plan catalog on each subscription row", async () => {
+    render(<PlatformBillingPage />);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("platform-billing-subscription-amount-sub-1"),
+      ).toBeInTheDocument();
+    });
+    // sub-1 is on GROWTH (₹14,999/mo from the mocked catalog).
+    expect(
+      screen.getByTestId("platform-billing-subscription-amount-sub-1")
+        .textContent,
+    ).toMatch(/14,999/);
+    // sub-2 is on STARTER (₹4,999/mo).
+    expect(
+      screen.getByTestId("platform-billing-subscription-amount-sub-2")
+        .textContent,
+    ).toMatch(/4,999/);
+  });
+
+  it("Plans tab lists the catalog tiers and exposes an Add-plan control", async () => {
+    render(<PlatformBillingPage />);
+    fireEvent.click(screen.getByTestId("platform-billing-tab-plans"));
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("platform-billing-plans-table"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByTestId("platform-billing-plan-row-plan-starter"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("platform-billing-plan-row-plan-growth"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("platform-billing-add-plan"),
+    ).toBeInTheDocument();
   });
 });

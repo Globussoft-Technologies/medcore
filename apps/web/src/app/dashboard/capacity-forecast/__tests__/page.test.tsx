@@ -344,12 +344,12 @@ describe("Capacity Forecast dashboard page", () => {
     });
 
     render(<CapacityForecastPage />);
-    // Wait for initial load to fully settle — the Refresh button is
-    // disabled while `loading` is true, so a click fired before the
-    // first fetch's `finally` runs is a silent no-op. Asserting the
-    // rendered heatmap row guarantees `setLoading(false)` has flushed.
-    await waitFor(() => expect(apiMock.get).toHaveBeenCalledTimes(1));
-    await screen.findByText(/ward a/i);
+    // The Refresh button is `disabled={loading}`, so clicking before the
+    // initial load FINISHES is a no-op. Wait for the loaded UI (rendered only
+    // once `data` arrives + loading clears) before clicking, not merely for
+    // the fetch to be issued.
+    await screen.findByText(/Aggregate Occupancy/i);
+    expect(apiMock.get).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
 

@@ -48,7 +48,18 @@ import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { Skeleton } from "@/components/Skeleton";
 
-type Plan = "BASIC" | "PRO" | "ENTERPRISE";
+// Plans are dynamic (DB-backed `PlatformPlan`), so a plan is just its key.
+type Plan = string;
+
+// A tier from the dynamic plan catalog (GET /platform-billing/plans).
+interface PlanOption {
+  id: string;
+  key: string;
+  name: string;
+  monthlyPriceInPaise: number;
+  active: boolean;
+  sortOrder: number;
+}
 
 interface TenantStats {
   userCount: number;
@@ -226,6 +237,8 @@ export default function TenantsAdminPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [planFilter, setPlanFilter] = useState<"" | Plan>("");
+  // Dynamic plan catalog — drives the filter dropdown + create-modal select.
+  const [planOptions, setPlanOptions] = useState<PlanOption[]>([]);
   // Default to "active" so the operator's first view is the working
   // hospital fleet; suspended / archived tenants are one click away
   // via the segmented filter above the table.
@@ -298,6 +311,47 @@ export default function TenantsAdminPage() {
   useEffect(() => {
     if (userRole === "ADMIN") load();
   }, [load, userRole]);
+
+  // Load the dynamic plan catalog once (super-admin tenants page → caller can
+  // reach the platform-billing /plans endpoint). Drives the filter + create
+  // dropdowns; all tiers (incl. inactive) so the filter can match a tenant
+  // still on a retired plan.
+  useEffect(() => {
+    if (userRole !== "ADMIN") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{ data: PlanOption[] }>(
+          "/platform-billing/plans",
+        );
+        if (!cancelled) setPlanOptions(res.data);
+      } catch {
+        /* dropdowns degrade to empty if the catalog can't be fetched */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userRole]);
+
+  // Sorted active tiers for the create-modal dropdown.
+  const activePlanOptions = useMemo(
+    () =>
+      [...planOptions]
+        .filter((p) => p.active)
+        .sort(
+          (a, b) =>
+            a.sortOrder - b.sortOrder ||
+            a.monthlyPriceInPaise - b.monthlyPriceInPaise,
+        ),
+    [planOptions],
+  );
+  // key → display name for the list cell.
+  const planNameByKey = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of planOptions) m.set(p.key, p.name);
+    return m;
+  }, [planOptions]);
 
   // Pearl §8.1 row 204 — load /super-admin/metrics once for the ADMIN
   // session and index `perTenant` by tenantId. The API returns 403 for
@@ -651,9 +705,13 @@ export default function TenantsAdminPage() {
           className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900 focus:border-slate-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
         >
           <option value="">{t("tenants.filter.allPlans", "All plans")}</option>
-          <option value="BASIC">BASIC</option>
-          <option value="PRO">PRO</option>
-          <option value="ENTERPRISE">ENTERPRISE</option>
+          {/* Suspended (inactive) plans are hidden everywhere selectable —
+              only active tiers appear in the filter. */}
+          {activePlanOptions.map((p) => (
+            <option key={p.id} value={p.key}>
+              {p.name}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -730,7 +788,7 @@ export default function TenantsAdminPage() {
                   <td className="px-4 py-3 font-medium">{tt.name}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-700 dark:text-gray-200">
-                      {tt.plan}
+                      {planNameByKey.get(tt.plan) ?? tt.plan}
                     </span>
                   </td>
                   <KpiCell
@@ -943,6 +1001,7 @@ export default function TenantsAdminPage() {
 
       {createOpen && (
         <CreateTenantModal
+          planOptions={activePlanOptions}
           onClose={() => setCreateOpen(false)}
           onCreated={(tenantId: string) => {
             setCreateOpen(false);
@@ -1039,9 +1098,11 @@ function KpiCell({
 // ─── Create Tenant Modal ─────────────────────────────────────────────
 
 function CreateTenantModal({
+  planOptions,
   onClose,
   onCreated,
 }: {
+  planOptions: PlanOption[];
   onClose: () => void;
   onCreated: (tenantId: string) => void;
 }) {
@@ -1049,7 +1110,8 @@ function CreateTenantModal({
   const [form, setForm] = useState({
     name: "",
     code: "",
-    plan: "BASIC" as Plan,
+    // Default to the first active tier (or empty until the catalog loads).
+    plan: (planOptions[0]?.key ?? "") as Plan,
     adminEmail: "",
     adminPassword: "",
     adminName: "",
@@ -1060,6 +1122,16 @@ function CreateTenantModal({
   });
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // If the plan catalog finishes loading after the modal mounts, default the
+  // plan to the first active tier so the operator never submits an empty key.
+  useEffect(() => {
+    if (!form.plan && planOptions.length > 0) {
+      setForm((f) => ({ ...f, plan: planOptions[0].key }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planOptions]);
+
   // Stable random suffix for input `name` attrs — defeats Chromium's
   // credential autofill heuristic without changing on each render
   // (which would cause hydration mismatch + focus loss).
@@ -1269,9 +1341,16 @@ function CreateTenantModal({
                     }
                     className={inputCls}
                   >
-                    <option value="BASIC">BASIC</option>
-                    <option value="PRO">PRO</option>
-                    <option value="ENTERPRISE">ENTERPRISE</option>
+                    {planOptions.length === 0 ? (
+                      <option value="">No plans available</option>
+                    ) : null}
+                    {planOptions.map((p) => (
+                      <option key={p.id} value={p.key}>
+                        {p.name} — ₹
+                        {(p.monthlyPriceInPaise / 100).toLocaleString("en-IN")}
+                        /mo
+                      </option>
+                    ))}
                   </select>
                 </Field>
               </div>

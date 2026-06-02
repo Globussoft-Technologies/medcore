@@ -64,7 +64,7 @@
  * traceability.
  */
 import type { Prisma, PrismaClient } from "@medcore/db";
-import { PLAN_DEFINITIONS, type Plan } from "@medcore/shared";
+import { requirePlanByKey } from "./plan-catalog";
 import {
   aggregateUsageForBilling,
   USAGE_KIND_LABEL,
@@ -83,12 +83,6 @@ const CGST_RATE = 9;
 const SGST_RATE = 9;
 const IGST_RATE = 18;
 const SAAS_HSN_SAC = "998314";
-
-const PLAN_LABEL: Record<Plan, string> = {
-  STARTER: "Starter",
-  GROWTH: "Growth",
-  ENTERPRISE: "Enterprise",
-};
 
 const MONTH_LABEL = [
   "January",
@@ -203,10 +197,10 @@ export async function generateMonthlyPlatformInvoices(
         continue;
       }
 
-      const plan = sub.plan as Plan;
+      // Resolve the tier from the dynamic plan catalog (DB).
+      const planDef = await requirePlanByKey(prisma, sub.plan);
       const planUnitPriceInPaise =
-        sub.customPriceMonthlyInPaise ??
-        PLAN_DEFINITIONS[plan].monthlyPriceInPaise;
+        sub.customPriceMonthlyInPaise ?? planDef.monthlyPriceInPaise;
 
       const tenantState = sub.tenant.branches?.[0]?.state ?? null;
       const sameState =
@@ -227,7 +221,7 @@ export async function generateMonthlyPlatformInvoices(
       const lineItems: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput[] =
         [
           {
-            description: `MedCore HMS — ${PLAN_LABEL[plan]} subscription ${monthLabel}`,
+            description: `MedCore HMS — ${planDef.name} subscription ${monthLabel}`,
             unitPriceInPaise: planUnitPriceInPaise,
             quantity: 1,
             amountInPaise: planUnitPriceInPaise,
@@ -306,7 +300,7 @@ export async function generateMonthlyPlatformInvoices(
               invoiceNumber,
               tenantId: sub.tenantId,
               tenantName: sub.tenant.name,
-              plan,
+              plan: sub.plan,
               periodStart: periodStart.toISOString(),
               periodEnd: periodEnd.toISOString(),
               subtotalInPaise,

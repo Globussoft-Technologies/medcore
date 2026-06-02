@@ -55,7 +55,8 @@ interface TenantDetail {
   id: string;
   name: string;
   subdomain: string;
-  plan: "BASIC" | "PRO" | "ENTERPRISE";
+  // Dynamic `PlatformPlan.key` (STARTER/GROWTH/ENTERPRISE or a custom slug).
+  plan: string;
   active: boolean;
   createdAt: string;
   updatedAt: string;

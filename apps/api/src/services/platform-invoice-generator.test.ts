@@ -148,6 +148,29 @@ function buildPrismaMock(
         return { id: `audit-${auditStore.length}` };
       }),
     },
+    // Plans are DB-backed; the generator resolves each tier's price + label
+    // via the plan-catalog (prisma.platformPlan.findUnique). Mirror the same
+    // fixture prices the GST/arithmetic assertions below expect.
+    platformPlan: {
+      findUnique: vi.fn(async ({ where }: any) => {
+        const prices: Record<string, number> = {
+          STARTER: 100_000,
+          GROWTH: 500_000,
+          ENTERPRISE: 1_000_000,
+        };
+        const key: string = where.key;
+        if (!(key in prices)) return null;
+        return {
+          id: `plan-${key}`,
+          key,
+          name: key[0] + key.slice(1).toLowerCase(),
+          monthlyPriceInPaise: prices[key],
+          includedFeatures: [],
+          active: true,
+          sortOrder: 0,
+        };
+      }),
+    },
   };
 
   return { prismaMock, invoiceStore, lineItemStore, auditStore };

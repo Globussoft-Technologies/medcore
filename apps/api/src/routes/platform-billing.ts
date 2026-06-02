@@ -62,6 +62,12 @@ import {
   cancelSubscription,
   transitionToActive,
 } from "../services/platform-subscription-state";
+import {
+  getPlanByKey,
+  listPlans,
+  isPlanColumnMigrationError,
+  PLAN_MIGRATION_USER_MESSAGE,
+} from "../services/plan-catalog";
 
 const router = Router();
 
@@ -168,6 +174,92 @@ function requirePlatformOperatorStrict(
   return;
 }
 
+/**
+ * Pearl §8.3 — the dynamic plan CATALOG (create / edit / delete tiers) is
+ * managed ONLY by the main super admin, NOT by platform-billing operators.
+ * The operators can read the catalog (for change-plan) and run the invoice
+ * mutations, but the price/feature definitions of a tier are a higher-trust
+ * action reserved for the super-admin shape: `Role.SUPER_ADMIN`, OR a
+ * tenant-less `Role.ADMIN`, OR an `ADMIN` on the seeded "default" tenant
+ * (mirrors routes/super-admin-users.ts:requireSuperAdmin).
+ */
+async function requireMainSuperAdmin(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    if (!req.user) {
+      res
+        .status(401)
+        .json({ success: false, data: null, error: "Unauthorized" });
+      return;
+    }
+    const role = req.user.role as Role;
+    if (role === Role.SUPER_ADMIN) {
+      return next();
+    }
+    if (role !== Role.ADMIN) {
+      res.status(403).json({
+        success: false,
+        data: null,
+        error: "Only the super admin can manage plans",
+      });
+      return;
+    }
+    const callerTenantId = req.user.tenantId ?? null;
+    if (callerTenantId == null) {
+      return next();
+    }
+    const callerTenant = await prisma.tenant.findUnique({
+      where: { id: callerTenantId },
+      select: { subdomain: true },
+    });
+    if (callerTenant?.subdomain === "default") {
+      return next();
+    }
+    res.status(403).json({
+      success: false,
+      data: null,
+      error: "Only the super admin can manage plans",
+    });
+    return;
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ─── Error helpers ───────────────────────────────────────────────────
+
+/**
+ * Surface a clean, actionable message instead of leaking raw Prisma engine
+ * internals to the operator UI. Specifically catches the dynamic-plans
+ * migration mismatch — the `plan` column still typed as the old Prisma enum
+ * while the regenerated client expects `String` (Prisma throws "Error
+ * converting field `plan` … incompatible value of `GROWTH`"). Any other
+ * error falls through to the global error handler unchanged.
+ */
+function handlePlanRouteError(
+  res: Response,
+  next: NextFunction,
+  scope: string,
+  err: unknown,
+): void {
+  if (isPlanColumnMigrationError(err)) {
+    // Developer-facing hint stays in the server log; the operator sees a
+    // clean, non-technical message.
+    console.error(
+      `[platform-billing] ${scope}: plan column not migrated — run \`npx prisma db push\` + reseed. Detail:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    res
+      .status(503)
+      .json({ success: false, data: null, error: PLAN_MIGRATION_USER_MESSAGE });
+    return;
+  }
+  next(err);
+}
+
 // ─── Schemas ─────────────────────────────────────────────────────────
 
 const invoiceListQuerySchema = z.object({
@@ -234,7 +326,7 @@ router.get(
         error: null,
       });
     } catch (err) {
-      next(err);
+      handlePlanRouteError(res, next, "subscriptions", err);
     }
   },
 );
@@ -292,7 +384,7 @@ router.get(
         error: null,
       });
     } catch (err) {
-      next(err);
+      handlePlanRouteError(res, next, "invoices", err);
     }
   },
 );
@@ -745,7 +837,7 @@ router.post(
 // ─── Pearl §8.3 piece 3d — change-plan with proration ────────────────
 //
 // POST /api/v1/platform-billing/subscriptions/:id/change-plan
-// Body: { plan: "STARTER" | "GROWTH" | "ENTERPRISE" }
+// Body: { plan: <PlatformPlan.key> }
 //
 // Upgrades or downgrades a tenant's subscription mid-cycle:
 //   1) calls `applyProration()` which writes a single-line `PlatformInvoice`
@@ -756,8 +848,15 @@ router.post(
 // Same-plan no-op is allowed (returns deltaInPaise=0, no invoice). Strict
 // RBAC (PLATFORM_OPERATOR / PLATFORM_BILLING_OPERATOR / SUPER_ADMIN) —
 // matches the mark-paid mutation gate.
+//
+// Plans are dynamic (DB-backed `PlatformPlan`), so the schema only checks the
+// key SHAPE; the handler verifies it resolves to an existing ACTIVE plan.
 const changePlanBodySchema = z.object({
-  plan: z.enum(["STARTER", "GROWTH", "ENTERPRISE"]),
+  plan: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9_]{2,40}$/, "Invalid plan key"),
 });
 
 router.post(
@@ -792,6 +891,18 @@ router.post(
         });
         return;
       }
+
+      // The target plan must resolve to an existing ACTIVE catalog tier.
+      const targetPlan = await getPlanByKey(prisma, body.plan);
+      if (!targetPlan || !targetPlan.active) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Unknown or inactive plan "${body.plan}". Pick an active plan from the catalog.`,
+        });
+        return;
+      }
+
       const fromPlan = sub.plan;
       const toPlan = body.plan;
 
@@ -973,6 +1084,187 @@ router.get(
       });
     } catch (err) {
       next(err);
+    }
+  },
+);
+
+// ─── Pearl §8.3 — dynamic plan catalog CRUD ──────────────────────────
+//
+// The platform plan tiers are DB-backed (`PlatformPlan`), so the super-admin
+// can create / edit / deactivate / delete tiers at runtime with no code
+// change. Every billing path (provisioning, change-plan, proration, invoice
+// generation) resolves price + features from this catalog.
+//
+//   GET    /plans          — list (all tiers incl. inactive; ?activeOnly=true)
+//   POST   /plans          — create a tier
+//   PATCH  /plans/:id      — edit name/price/features/active/sortOrder (key immutable)
+//   DELETE /plans/:id      — delete an UNUSED tier; in-use tiers are blocked
+//                            (deactivate via PATCH active=false instead).
+//
+// Reads ride the router-level operator-or-super-admin gate; mutations use the
+// strict gate (PLATFORM_OPERATOR / PLATFORM_BILLING_OPERATOR / SUPER_ADMIN).
+
+const PLAN_KEY_REGEX = /^[A-Z0-9_]{2,40}$/;
+
+const createPlanBodySchema = z.object({
+  key: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(
+      PLAN_KEY_REGEX,
+      "Plan key must be 2-40 uppercase letters, digits or underscores",
+    ),
+  name: z.string().trim().min(2, "Name too short").max(120),
+  monthlyPriceInPaise: z
+    .number()
+    .int("Price must be a whole number of paise")
+    .min(0, "Price cannot be negative"),
+  includedFeatures: z.array(z.string().trim().min(1).max(64)).default([]),
+  sortOrder: z.number().int().min(0).max(9999).optional(),
+});
+
+const updatePlanBodySchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    monthlyPriceInPaise: z.number().int().min(0).optional(),
+    includedFeatures: z.array(z.string().trim().min(1).max(64)).optional(),
+    active: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(9999).optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, {
+    message: "At least one field must be provided",
+  });
+
+router.get("/plans", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const activeOnly = req.query.activeOnly === "true";
+    const plans = await listPlans(prisma, { activeOnly });
+    res.status(200).json({ success: true, data: plans, error: null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  "/plans",
+  requireMainSuperAdmin,
+  validate(createPlanBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as z.infer<typeof createPlanBodySchema>;
+      const existing = await getPlanByKey(prisma, body.key);
+      if (existing) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `A plan with key "${body.key}" already exists`,
+        });
+        return;
+      }
+      const created = await prisma.platformPlan.create({
+        data: {
+          key: body.key,
+          name: body.name,
+          monthlyPriceInPaise: body.monthlyPriceInPaise,
+          includedFeatures: body.includedFeatures,
+          sortOrder: body.sortOrder ?? 0,
+        },
+      });
+      await auditLog(req, "PLATFORM_PLAN_CREATED", "platform_plan", created.id, {
+        key: created.key,
+        monthlyPriceInPaise: created.monthlyPriceInPaise,
+      });
+      res.status(201).json({ success: true, data: created, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.patch(
+  "/plans/:id",
+  requireMainSuperAdmin,
+  validate(updatePlanBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as z.infer<typeof updatePlanBodySchema>;
+      const plan = await prisma.platformPlan.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!plan) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Plan not found" });
+        return;
+      }
+      const updated = await prisma.platformPlan.update({
+        where: { id: plan.id },
+        data: {
+          ...(body.name !== undefined ? { name: body.name } : {}),
+          ...(body.monthlyPriceInPaise !== undefined
+            ? { monthlyPriceInPaise: body.monthlyPriceInPaise }
+            : {}),
+          ...(body.includedFeatures !== undefined
+            ? { includedFeatures: body.includedFeatures }
+            : {}),
+          ...(body.active !== undefined ? { active: body.active } : {}),
+          ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
+        },
+      });
+      await auditLog(req, "PLATFORM_PLAN_UPDATED", "platform_plan", updated.id, {
+        key: updated.key,
+        changed: Object.keys(body),
+      });
+      res.status(200).json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.delete(
+  "/plans/:id",
+  requireMainSuperAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const plan = await prisma.platformPlan.findUnique({
+        where: { id: req.params.id },
+      });
+      if (!plan) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Plan not found" });
+        return;
+      }
+      // Block deletion when any tenant or subscription is still on this key —
+      // removing it would orphan those rows. The operator should deactivate
+      // (PATCH active=false) instead so existing tenants keep paying their tier
+      // while it disappears from the create/change dropdowns.
+      const [tenantCount, subCount] = await Promise.all([
+        prisma.tenant.count({ where: { plan: plan.key } }),
+        prisma.tenantSubscription.count({ where: { plan: plan.key } }),
+      ]);
+      const inUse = tenantCount + subCount;
+      if (inUse > 0) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Cannot delete plan "${plan.key}" — ${inUse} tenant(s)/subscription(s) still use it. Deactivate it instead.`,
+        });
+        return;
+      }
+      await prisma.platformPlan.delete({ where: { id: plan.id } });
+      await auditLog(req, "PLATFORM_PLAN_DELETED", "platform_plan", plan.id, {
+        key: plan.key,
+      });
+      res.status(200).json({
+        success: true,
+        data: { id: plan.id, key: plan.key, deleted: true },
+        error: null,
+      });
+    } catch (err) {
+      handlePlanRouteError(res, next, "plan-delete", err);
     }
   },
 );

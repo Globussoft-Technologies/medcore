@@ -44,6 +44,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { RESERVED_SUBDOMAINS, SUBDOMAIN_REGEX } from "../services/tenant-provisioning";
+import { getPlanByKey } from "../services/plan-catalog";
 
 const router = Router();
 
@@ -144,6 +145,19 @@ router.post(
           data: null,
           error: "Admin email already in use",
           field: "admin.email",
+        });
+        return;
+      }
+
+      // Verify the chosen plan key resolves to an existing ACTIVE plan in the
+      // dynamic catalog (the schema only validates the key shape).
+      const planRow = await getPlanByKey(prisma, body.tenant.plan);
+      if (!planRow || !planRow.active) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Unknown or inactive plan "${body.tenant.plan}". Pick an active plan from the catalog.`,
+          field: "tenant.plan",
         });
         return;
       }

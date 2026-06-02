@@ -9,6 +9,14 @@ export * from "@prisma/client";
 // Shared helpers used by both seed scripts and data-correction scripts.
 export * from "./lib/immunization-schedule";
 
+// Idempotent boot-time reference-data bootstrap (plan catalog + legacy
+// backfill). Called from the API's server.ts on startup; safe to run on
+// every boot (create-if-missing, never clobbers operator edits).
+export {
+  ensureReferenceData,
+  type EnsureReferenceDataResult,
+} from "./ensure-reference-data";
+
 // Issue #272: TEMPLATES is exported so the api regression test can pin
 // the audience-scoping contract for seed-templated notifications.
 export { TEMPLATES as NOTIFICATION_SEED_TEMPLATES } from "./seed-notifications-history";

@@ -40,7 +40,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Check, Circle, ArrowRight, ArrowLeft } from "lucide-react";
+import { Check, ArrowRight, ArrowLeft } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -65,6 +65,10 @@ interface TenantDetail {
   subdomain: string;
   active: boolean;
   config: Record<string, string>;
+  // Tenant creation timestamp — used as the "Account created" step's
+  // completion date for tenants provisioned before the onboarding marker
+  // was stamped at creation time.
+  createdAt?: string;
 }
 
 // Secondary links are always external (e.g. ABDM HPR portal) — the
@@ -137,15 +141,12 @@ const STEPS: Step[] = [
     descriptionKey: "tenants.onb.abdm.desc",
     descriptionDefault:
       "Initiate Ayushman Bharat Digital Mission onboarding: register the facility on HFR and each clinician on HPR so prescriptions and records are linkable to ABHA.",
-    linkHref: "https://facility.abdm.gov.in",
+    // Single entry point to the ABDM portal, which links onward to both the
+    // HFR (facility) and HPR (clinician) registries.
+    linkHref: "https://abdm.gov.in",
     linkLabelKey: "tenants.onb.abdm.link",
-    linkLabelDefault: "Open HFR portal",
+    linkLabelDefault: "Open HFR + HPR portal",
     linkExternal: true,
-    secondaryLink: {
-      href: "https://hpr.abdm.gov.in",
-      labelKey: "tenants.onb.abdm.linkHpr",
-      labelDefault: "Open HPR portal",
-    },
     checklistItems: [
       {
         key: "tenants.onb.abdm.checklist.hfr",
@@ -278,16 +279,24 @@ export default function TenantOnboardingPage() {
     }
   }
 
-  async function markSkipped(stepKey: string) {
-    try {
-      await api.post(`/tenants/${tenantId}/onboarding/${stepKey}/skip`);
-      toast.success(
-        t("tenants.onb.stepSkipped", "Step skipped — revisit later"),
-      );
-      load();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed");
-    }
+  // Product decision (2026-06): "visiting = completed" — but ONLY in the
+  // tenant-admin view, where there's no Mark-complete button. A tenant admin
+  // completes a step just by opening its action link. The super-admin
+  // (operator) view keeps the explicit Mark-complete button instead, so for
+  // them visiting a link only navigates — it never auto-completes.
+  // Fire-and-forget — for internal links the user navigates away immediately
+  // (they'll see the ✓ on return / the banner clears); for external links the
+  // page stays mounted so `load()` flips the checkmark in place.
+  function completeOnVisit(stepKey: string) {
+    if (!isTenantAdminView) return;
+    if (stepKey === "account_created") return;
+    if (steps[stepKey]) return;
+    void api
+      .post(`/tenants/${tenantId}/onboarding/${stepKey}`)
+      .then(() => load())
+      .catch(() => {
+        /* visiting is best-effort; the explicit Mark-complete button remains */
+      });
   }
 
   function isComplete(step: Step): boolean {
@@ -302,6 +311,18 @@ export default function TenantOnboardingPage() {
     return !!skipped[step.key];
   }
 
+  // A real tenant admin viewing their OWN, non-default tenant gets the
+  // tenant-facing view: "Back to dashboard" instead of the super-admin
+  // Tenants list (which they can't access), and step 1's "View tenants list"
+  // link is suppressed (it points at that same super-admin page). The
+  // "Account created" step itself still shows as a completed ✓. Super admins
+  // (tenant-less) and the default/platform-tenant admin keep the full
+  // operator view. `detail.subdomain` is the viewed tenant's slug; "default"
+  // is the platform tenant.
+  const viewingOwnTenant = !!user?.tenantId && tenantId === user.tenantId;
+  const isTenantAdminView =
+    viewingOwnTenant && detail != null && detail.subdomain !== "default";
+
   // Skipped steps do NOT count toward progress — the operator explicitly
   // deferred them and they're still pending.
   const completedCount = STEPS.filter(isComplete).length;
@@ -313,10 +334,13 @@ export default function TenantOnboardingPage() {
     <div data-testid="tenant-onboarding">
       <div className="mb-4">
         <Link
-          href="/dashboard/tenants"
+          href={isTenantAdminView ? "/dashboard" : "/dashboard/tenants"}
           className="mb-2 inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
         >
-          <ArrowLeft size={14} /> {t("tenants.onb.back", "Back to tenants")}
+          <ArrowLeft size={14} />{" "}
+          {isTenantAdminView
+            ? t("tenants.onb.backDashboard", "Back to dashboard")
+            : t("tenants.onb.back", "Back to tenants")}
         </Link>
         <h1 className="text-2xl font-bold">
           {t("tenants.onb.title", "Tenant Onboarding")}
@@ -362,9 +386,12 @@ export default function TenantOnboardingPage() {
         </div>
       ) : (
         <ol className="space-y-3">
-          {STEPS.map((step, idx) => {
+          {STEPS.map((step) => {
             const complete = isComplete(step);
             const skippedNow = isSkipped(step);
+            // Display number from the canonical STEPS order so a tenant-admin
+            // view (which hides step 1) still reads 2, 3, 4… not 1, 2, 3.
+            const stepNumber = STEPS.findIndex((s) => s.key === step.key) + 1;
             // Template `{tenantId}` in linkHref / secondaryLink.href with the
             // current tenant's id so per-tenant deep links (e.g. the
             // role-permissions review page) resolve at render time without
@@ -390,37 +417,51 @@ export default function TenantOnboardingPage() {
                       : ""
                 }`}
               >
-                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-white dark:bg-gray-700">
-                  {complete ? (
-                    <Check size={18} className="text-green-600 dark:text-green-400" />
-                  ) : (
-                    <Circle
-                      size={18}
-                      className={skippedNow ? "text-amber-400" : "text-gray-300 dark:text-gray-600"}
-                    />
-                  )}
+                <div
+                  className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                    complete
+                      ? "bg-green-600 text-white"
+                      : skippedNow
+                        ? "border-2 border-amber-400 text-amber-600 dark:text-amber-400"
+                        : "border-2 border-gray-300 text-gray-500 dark:border-gray-600 dark:text-gray-400"
+                  }`}
+                >
+                  {complete ? <Check size={14} strokeWidth={3} /> : stepNumber}
                 </div>
                 <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold">
-                      {idx + 1}. {t(step.titleKey, step.titleDefault)}
+                      {t(step.titleKey, step.titleDefault)}
                     </h3>
-                    {complete && steps[step.key] && (
-                      <span className="text-xs text-green-600 dark:text-green-400">
-                        ✓{" "}
-                        {new Date(steps[step.key]).toLocaleDateString("en-IN", {
-                          day: "2-digit",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </span>
-                    )}
+                    {complete &&
+                      (() => {
+                        // account_created auto-completes without a stored
+                        // marker on legacy tenants — fall back to the tenant's
+                        // creation date so it always shows a real date.
+                        const doneAt =
+                          steps[step.key] ??
+                          (step.key === "account_created"
+                            ? detail?.createdAt
+                            : undefined);
+                        return (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                            <Check size={12} aria-hidden="true" />
+                            {doneAt
+                              ? new Date(doneAt).toLocaleDateString("en-IN", {
+                                  day: "2-digit",
+                                  month: "short",
+                                  year: "numeric",
+                                })
+                              : t("tenants.onb.done", "Done")}
+                          </span>
+                        );
+                      })()}
                     {skippedNow && skipped[step.key] && (
                       <span
                         data-testid={`tenant-onboarding-skipped-badge-${step.key}`}
-                        className="text-xs text-amber-600 dark:text-amber-400"
+                        className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
                       >
-                        {t("tenants.onb.skippedOn", "Skipped on")}{" "}
+                        {t("tenants.onb.skippedOn", "Skipped")}{" "}
                         {new Date(skipped[step.key]).toLocaleDateString("en-IN", {
                           day: "2-digit",
                           month: "short",
@@ -443,32 +484,40 @@ export default function TenantOnboardingPage() {
                     </ul>
                   )}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {step.linkExternal ? (
-                      <a
-                        href={primaryHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
-                        data-testid={`tenant-onboarding-link-${step.key}`}
-                      >
-                        {t(step.linkLabelKey, step.linkLabelDefault)}{" "}
-                        <ArrowRight size={12} />
-                      </a>
-                    ) : (
-                      <Link
-                        href={primaryHref}
-                        className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
-                        data-testid={`tenant-onboarding-link-${step.key}`}
-                      >
-                        {t(step.linkLabelKey, step.linkLabelDefault)}{" "}
-                        <ArrowRight size={12} />
-                      </Link>
-                    )}
+                    {/* The account_created step's only link is "View tenants
+                        list" → the super-admin Tenants page. Hide it from a
+                        tenant admin (they can't access it); the step still
+                        renders as a completed ✓. */}
+                    {!(isTenantAdminView && step.key === "account_created") &&
+                      (step.linkExternal ? (
+                        <a
+                          href={primaryHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => completeOnVisit(step.key)}
+                          className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+                          data-testid={`tenant-onboarding-link-${step.key}`}
+                        >
+                          {t(step.linkLabelKey, step.linkLabelDefault)}{" "}
+                          <ArrowRight size={12} />
+                        </a>
+                      ) : (
+                        <Link
+                          href={primaryHref}
+                          onClick={() => completeOnVisit(step.key)}
+                          className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+                          data-testid={`tenant-onboarding-link-${step.key}`}
+                        >
+                          {t(step.linkLabelKey, step.linkLabelDefault)}{" "}
+                          <ArrowRight size={12} />
+                        </Link>
+                      ))}
                     {step.secondaryLink && secondaryHref && (
                       <a
                         href={secondaryHref}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={() => completeOnVisit(step.key)}
                         className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
                         data-testid={`tenant-onboarding-link2-${step.key}`}
                       >
@@ -479,8 +528,13 @@ export default function TenantOnboardingPage() {
                         <ArrowRight size={12} />
                       </a>
                     )}
-                    {!complete && step.key !== "account_created" && (
-                      <>
+                    {/* Manual Mark-complete is the operator (super-admin)
+                        control. A tenant admin completes a step just by
+                        visiting its link (completeOnVisit), so it's hidden in
+                        their view. */}
+                    {!complete &&
+                      step.key !== "account_created" &&
+                      !isTenantAdminView && (
                         <button
                           data-testid={`tenant-onboarding-complete-${step.key}`}
                           onClick={() => markComplete(step.key)}
@@ -488,17 +542,7 @@ export default function TenantOnboardingPage() {
                         >
                           {t("tenants.onb.markComplete", "Mark complete")}
                         </button>
-                        {!skippedNow && (
-                          <button
-                            data-testid={`tenant-onboarding-skip-${step.key}`}
-                            onClick={() => markSkipped(step.key)}
-                            className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs text-amber-700 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-300 dark:hover:bg-amber-950/40"
-                          >
-                            {t("tenants.onb.skipForNow", "Skip for now")}
-                          </button>
-                        )}
-                      </>
-                    )}
+                      )}
                   </div>
                 </div>
               </li>

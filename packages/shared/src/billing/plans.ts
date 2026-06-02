@@ -12,7 +12,10 @@
 // __tests__/plans.test.ts pins the cross-package shape so any drift
 // between Prisma + this file fails CI loudly.
 
-export type Plan = "STARTER" | "GROWTH" | "ENTERPRISE";
+// Plans are now dynamic (DB-backed `PlatformPlan` rows), so a plan "key" is
+// any string. The STARTER/GROWTH/ENTERPRISE keys below are just the seed
+// baseline shipped in PLAN_DEFINITIONS (consumed only by the DB seed).
+export type Plan = string;
 
 export interface PlanDefinition {
   key: Plan;

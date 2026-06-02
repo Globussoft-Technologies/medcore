@@ -541,9 +541,9 @@ describe("PharmacyPage (inventory dashboard — full surface)", () => {
       ),
     );
 
-    // The Valuation tab body (with the Method: <select>) only renders
-    // when `loading === false` — async findByLabelText waits for the
-    // skeleton to be replaced once the fetch's finally clause flushes.
+    // The valuation form (and its Method select) only renders after the
+    // first valuation fetch resolves — await it instead of querying while
+    // the skeleton is still up.
     const methodSelect = (await screen.findByLabelText(
       /Method:/i,
     )) as HTMLSelectElement;

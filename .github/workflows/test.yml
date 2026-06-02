@@ -583,7 +583,7 @@ jobs:
         run: |
           ssh -o BatchMode=yes -o ServerAliveInterval=30 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'bash -lc "cd /home/empcloud-development/medcore && git checkout -- package-lock.json 2>/dev/null; bash scripts/deploy.sh --yes"'
+            'bash -lc "cd /home/empcloud-development/medcore && git checkout -- package-lock.json 2>/dev/null; git checkout -- apps/web/next-env.d.ts 2>/dev/null; bash scripts/deploy.sh --yes"'
 
       - name: Smoke-check public endpoints
         id: smoke
@@ -633,7 +633,7 @@ jobs:
           echo "::warning::Smoke check failed; rolling back the dev server to PREV_SHA"
           ssh -o BatchMode=yes -o ServerAliveInterval=30 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'bash -lc "cd /home/empcloud-development/medcore && bash scripts/deploy.sh --rollback"'
+            'bash -lc "cd /home/empcloud-development/medcore && git checkout -- package-lock.json 2>/dev/null; git checkout -- apps/web/next-env.d.ts 2>/dev/null; bash scripts/deploy.sh --rollback"'
 
       - name: Re-smoke after rollback
         # If the rollback step ran and (presumably) succeeded, re-check the

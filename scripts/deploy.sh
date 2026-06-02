@@ -90,6 +90,12 @@ echo "=== 0. Pre-flight: working tree clean ==="
 # any genuine local edit to package-lock.json on prod is itself a bug we
 # don't want to preserve.
 git checkout -- package-lock.json 2>/dev/null || true
+# Same story for apps/web/next-env.d.ts: Next regenerates it on every build and
+# its exact contents vary by Next version / enabled features (e.g. the
+# typed-routes `import "./.next/types/routes.d.ts"` line), so the committed copy
+# drifts from what the prod build writes and dirties the tree. Drop that
+# cosmetic drift — the build regenerates the file anyway.
+git checkout -- apps/web/next-env.d.ts 2>/dev/null || true
 if ! git diff --quiet || ! git diff --cached --quiet; then
     echo "  ABORT — uncommitted local changes on prod checkout."
     echo "  git status:"

@@ -18,8 +18,26 @@ import { SkeletonTable } from "@/components/Skeleton";
 
 // ─── Types ──────────────────────────────────────────
 
-type ReportType = "revenue" | "appointments" | "patients" | "ipd" | "pharmacy";
+type ReportType =
+  | "revenue"
+  | "appointments"
+  | "patients"
+  | "ipd"
+  | "pharmacy"
+  | "no-show"
+  | "tds"
+  | "commission"
+  | "lead-funnel";
 type GroupBy = "day" | "week" | "month";
+
+// Report types that aggregate by entity (not by time period) — the Group By
+// selector is meaningless for these.
+const NON_PERIOD_TYPES = new Set<ReportType>([
+  "no-show",
+  "tds",
+  "commission",
+  "lead-funnel",
+]);
 
 interface ReportConfig {
   id: string;
@@ -33,6 +51,8 @@ interface ReportConfig {
     paymentMode?: string;
     appointmentStatus?: string;
     wardId?: string;
+    tdsRate?: string;
+    source?: string;
   };
   createdAt: number;
 }
@@ -51,6 +71,10 @@ const REPORT_TYPES: Array<{ key: ReportType; label: string; description: string 
   { key: "patients", label: "Patient Growth", description: "New patient registrations over time" },
   { key: "ipd", label: "IPD Admissions", description: "Admissions, LOS and discharge metrics" },
   { key: "pharmacy", label: "Pharmacy Dispensing", description: "Top dispensed medicines and low stock" },
+  { key: "no-show", label: "No-show Rate", description: "No-show rate by doctor" },
+  { key: "tds", label: "TDS on Fees", description: "TDS on professional fees per doctor" },
+  { key: "commission", label: "Commission Ledger", description: "Referring-doctor commission, paid vs pending" },
+  { key: "lead-funnel", label: "Lead Funnel", description: "Lead-to-patient conversion by stage" },
 ];
 
 // ─── Formatters ────────────────────────────────────
@@ -286,11 +310,168 @@ export default function ReportsPage() {
             "Low Stock Items": low.length,
           },
         });
+      } else if (type === "no-show") {
+        const p = new URLSearchParams({ from, to });
+        const res = await api
+          .get<{
+            data: {
+              totals: { totalAppointments: number; totalNoShows: number };
+              byDoctor: Array<{
+                doctorName: string;
+                totalAppointments: number;
+                noShowCount: number;
+              }>;
+            };
+          }>(`/analytics/no-show-report?${p.toString()}`)
+          .catch(() => null);
+        const d = res?.data;
+        const rate = (ns: number, t: number) =>
+          t ? `${((ns / t) * 100).toFixed(1)}%` : "—";
+        setPreview({
+          columns: [
+            { key: "doctor", label: "Doctor" },
+            { key: "appointments", label: "Appointments" },
+            { key: "noShows", label: "No-shows" },
+            { key: "rate", label: "Rate" },
+          ],
+          rows: (d?.byDoctor || []).map((r) => ({
+            doctor: r.doctorName,
+            appointments: r.totalAppointments,
+            noShows: r.noShowCount,
+            rate: rate(r.noShowCount, r.totalAppointments),
+          })),
+          summary: {
+            Appointments: d?.totals.totalAppointments ?? 0,
+            "No-shows": d?.totals.totalNoShows ?? 0,
+            "Overall rate": rate(
+              d?.totals.totalNoShows ?? 0,
+              d?.totals.totalAppointments ?? 0,
+            ),
+          },
+        });
+      } else if (type === "tds") {
+        const p = new URLSearchParams({ from, to });
+        if (filters.tdsRate) p.set("tdsRate", filters.tdsRate);
+        const res = await api
+          .get<{
+            data: {
+              totals: { totalGrossFees: number; totalTds: number; totalNet: number };
+              byDoctor: Array<{
+                doctorName: string;
+                totalGrossFees: number;
+                tdsRate: number;
+                tdsAmount: number;
+                netPayable: number;
+                invoiceCount: number;
+              }>;
+            };
+          }>(`/billing/tds-report?${p.toString()}`)
+          .catch(() => null);
+        const d = res?.data;
+        setPreview({
+          columns: [
+            { key: "doctor", label: "Doctor" },
+            { key: "gross", label: "Gross Fees", isCurrency: true },
+            { key: "tdsRate", label: "TDS %" },
+            { key: "tds", label: "TDS Amount", isCurrency: true },
+            { key: "net", label: "Net Payable", isCurrency: true },
+            { key: "invoices", label: "Invoices" },
+          ],
+          rows: (d?.byDoctor || []).map((r) => ({
+            doctor: r.doctorName,
+            gross: r.totalGrossFees,
+            tdsRate: `${r.tdsRate}%`,
+            tds: r.tdsAmount,
+            net: r.netPayable,
+            invoices: r.invoiceCount,
+          })),
+          summary: {
+            "Gross Fees": formatCurrency(d?.totals.totalGrossFees ?? 0),
+            "TDS Withheld": formatCurrency(d?.totals.totalTds ?? 0),
+            "Net Payable": formatCurrency(d?.totals.totalNet ?? 0),
+          },
+        });
+      } else if (type === "commission") {
+        const p = new URLSearchParams({ from, to });
+        const res = await api
+          .get<{
+            data: {
+              totals: { totalAmount: number; paidAmount: number; pendingAmount: number };
+              byDoctor: Array<{
+                referringDoctorName: string;
+                branchName: string | null;
+                count: number;
+                totalAmount: number;
+                paidAmount: number;
+                pendingAmount: number;
+                voidedAmount: number;
+              }>;
+            };
+          }>(`/referral-commissions/ledger?${p.toString()}`)
+          .catch(() => null);
+        const d = res?.data;
+        setPreview({
+          columns: [
+            { key: "doctor", label: "Referring Doctor" },
+            { key: "branch", label: "Branch" },
+            { key: "entries", label: "Entries" },
+            { key: "total", label: "Total", isCurrency: true },
+            { key: "paid", label: "Paid", isCurrency: true },
+            { key: "pending", label: "Pending", isCurrency: true },
+            { key: "voided", label: "Voided", isCurrency: true },
+          ],
+          rows: (d?.byDoctor || []).map((r) => ({
+            doctor: r.referringDoctorName,
+            branch: r.branchName ?? "—",
+            entries: r.count,
+            total: r.totalAmount,
+            paid: r.paidAmount,
+            pending: r.pendingAmount,
+            voided: r.voidedAmount,
+          })),
+          summary: {
+            "Total Commission": formatCurrency(d?.totals.totalAmount ?? 0),
+            Paid: formatCurrency(d?.totals.paidAmount ?? 0),
+            Pending: formatCurrency(d?.totals.pendingAmount ?? 0),
+          },
+        });
+      } else if (type === "lead-funnel") {
+        const p = new URLSearchParams({ from, to });
+        if (filters.source) p.set("source", filters.source);
+        const res = await api
+          .get<{
+            data: {
+              totals: { totalLeads: number; convertedLeads: number };
+              byStage: Array<{ stage: string; count: number }>;
+            };
+          }>(`/analytics/lead-funnel-report?${p.toString()}`)
+          .catch(() => null);
+        const d = res?.data;
+        const total = d?.totals.totalLeads ?? 0;
+        setPreview({
+          columns: [
+            { key: "stage", label: "Stage" },
+            { key: "count", label: "Count" },
+            { key: "pctOfTotal", label: "% of Total" },
+          ],
+          rows: (d?.byStage || []).map((r) => ({
+            stage: r.stage,
+            count: r.count,
+            pctOfTotal: total ? `${((r.count / total) * 100).toFixed(1)}%` : "—",
+          })),
+          summary: {
+            "Total Leads": total,
+            Converted: d?.totals.convertedLeads ?? 0,
+            "Conversion rate": total
+              ? `${(((d?.totals.convertedLeads ?? 0) / total) * 100).toFixed(1)}%`
+              : "—",
+          },
+        });
       }
     } finally {
       setLoading(false);
     }
-  }, [type, qs, groupBy]);
+  }, [type, qs, groupBy, from, to, filters]);
 
   useEffect(() => {
     runPreview();
@@ -425,19 +606,21 @@ export default function ReportsPage() {
               className="w-full rounded-lg border px-3 py-2 text-sm"
             />
           </div>
-          <div>
-            <label htmlFor="report-builder-group-by" className="mb-1 block text-xs text-gray-500">Group By</label>
-            <select
-              id="report-builder-group-by"
-              value={groupBy}
-              onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
-            >
-              <option value="day">Day</option>
-              <option value="week">Week</option>
-              <option value="month">Month</option>
-            </select>
-          </div>
+          {!NON_PERIOD_TYPES.has(type) && (
+            <div>
+              <label htmlFor="report-builder-group-by" className="mb-1 block text-xs text-gray-500">Group By</label>
+              <select
+                id="report-builder-group-by"
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              >
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+              </select>
+            </div>
+          )}
           <div className="flex items-end">
             <button
               onClick={runPreview}
@@ -486,6 +669,45 @@ export default function ReportsPage() {
                 <option value="COMPLETED">Completed</option>
                 <option value="CANCELLED">Cancelled</option>
                 <option value="NO_SHOW">No Show</option>
+              </select>
+            </div>
+          )}
+          {type === "tds" && (
+            <div>
+              <label htmlFor="report-builder-tds-rate" className="mb-1 block text-xs text-gray-500">TDS %</label>
+              <input
+                id="report-builder-tds-rate"
+                type="number"
+                min={0}
+                max={30}
+                step="0.5"
+                value={filters.tdsRate ?? "10"}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, tdsRate: e.target.value }))
+                }
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              />
+            </div>
+          )}
+          {type === "lead-funnel" && (
+            <div>
+              <label htmlFor="report-builder-lead-source" className="mb-1 block text-xs text-gray-500">Source</label>
+              <select
+                id="report-builder-lead-source"
+                value={filters.source || ""}
+                onChange={(e) =>
+                  setFilters((f) => ({ ...f, source: e.target.value || undefined }))
+                }
+                className="w-full rounded-lg border px-3 py-2 text-sm"
+              >
+                <option value="">All sources</option>
+                {["WEB", "WALK_IN", "PHONE", "WHATSAPP", "REFERRAL", "OTHER"].map(
+                  (s) => (
+                    <option key={s} value={s}>
+                      {s.replace("_", " ")}
+                    </option>
+                  ),
+                )}
               </select>
             </div>
           )}

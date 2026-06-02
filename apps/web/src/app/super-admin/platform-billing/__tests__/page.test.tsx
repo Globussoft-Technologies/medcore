@@ -373,13 +373,10 @@ describe("/dashboard/platform-billing landing — Pearl §8.3", () => {
   it("Plans tab lists the catalog tiers and exposes an Add-plan control", async () => {
     render(<PlatformBillingPage />);
     fireEvent.click(screen.getByTestId("platform-billing-tab-plans"));
-    await waitFor(() => {
-      expect(
-        screen.getByTestId("platform-billing-plans-table"),
-      ).toBeInTheDocument();
-    });
+    // The plans table renders immediately (empty) while the /plans fetch is
+    // in-flight — await the actual rows so we don't race the async load.
     expect(
-      screen.getByTestId("platform-billing-plan-row-plan-starter"),
+      await screen.findByTestId("platform-billing-plan-row-plan-starter"),
     ).toBeInTheDocument();
     expect(
       screen.getByTestId("platform-billing-plan-row-plan-growth"),

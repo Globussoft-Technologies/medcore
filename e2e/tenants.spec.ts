@@ -72,9 +72,22 @@ test.describe("Tenants admin — /dashboard/tenants (ADMIN super-admin chrome + 
     await search.fill("default");
     await expect(search).toHaveValue("default");
 
-    // Plan filter — option set is BASIC / PRO / ENTERPRISE (page.tsx:255-258).
-    await planFilter.selectOption("PRO");
-    await expect(planFilter).toHaveValue("PRO");
+    // Plan filter is now driven by the dynamic PlatformPlan catalog (values
+    // are plan keys like STARTER/GROWTH, fetched async on mount), not the old
+    // hardcoded BASIC/PRO/ENTERPRISE. Wait for the catalog options to load,
+    // then select whichever real plan is first so the assertion isn't pinned
+    // to a specific seeded key.
+    await expect
+      .poll(async () => planFilter.locator("option").count(), {
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(1);
+    const firstPlanValue = await planFilter
+      .locator("option")
+      .nth(1)
+      .getAttribute("value");
+    await planFilter.selectOption(firstPlanValue!);
+    await expect(planFilter).toHaveValue(firstPlanValue!);
     await planFilter.selectOption("");
 
     // Active filter — used to be a <select>; now a segmented radiogroup

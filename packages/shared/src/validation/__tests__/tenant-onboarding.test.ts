@@ -209,25 +209,27 @@ describe("tenantOnboardingTenantSchema", () => {
   });
 
   describe("plan", () => {
-    it("accepts each canonical plan value", () => {
-      for (const plan of ["BASIC", "PRO", "ENTERPRISE"] as const) {
+    // Plans are dynamic now (DB-backed `PlatformPlan`), so the schema only
+    // validates the KEY SHAPE; existence/active is checked server-side in the
+    // route handler. These tests pin the shape contract.
+    it("accepts any well-formed plan key (incl. custom slugs)", () => {
+      for (const plan of ["STARTER", "GROWTH", "ENTERPRISE", "PRO_PLUS"]) {
         const res = tenantOnboardingTenantSchema.safeParse({ ...valid, plan });
         expect(res.success).toBe(true);
       }
     });
-    it("rejects an unknown plan", () => {
+    it("uppercases a lowercase key (no longer rejects it)", () => {
       const res = tenantOnboardingTenantSchema.safeParse({
         ...valid,
-        // @ts-expect-error — intentional invalid value
-        plan: "FREE",
+        plan: "growth",
       });
-      expect(res.success).toBe(false);
+      expect(res.success).toBe(true);
+      if (res.success) expect(res.data.plan).toBe("GROWTH");
     });
-    it("rejects a lowercased plan", () => {
+    it("rejects a malformed key (spaces / punctuation)", () => {
       const res = tenantOnboardingTenantSchema.safeParse({
         ...valid,
-        // @ts-expect-error — intentional invalid value
-        plan: "basic",
+        plan: "not a key!",
       });
       expect(res.success).toBe(false);
     });

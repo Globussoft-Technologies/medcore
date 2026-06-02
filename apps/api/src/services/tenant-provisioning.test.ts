@@ -48,6 +48,7 @@ const { prismaMock, txStore } = vi.hoisted(() => {
           plan: data.plan,
           active: data.active,
           featureFlags: data.featureFlags ?? null,
+          createdAt: new Date("2026-05-25T00:00:00.000Z"),
         };
       }),
     },
@@ -101,6 +102,50 @@ const { prismaMock, txStore } = vi.hoisted(() => {
     },
   };
 
+  // Plans are DB-backed now; `createTenant` resolves the chosen tier's
+  // includedFeatures via the plan-catalog (prisma.platformPlan.findUnique)
+  // BEFORE opening the transaction. Mirror the shipped STARTER/GROWTH/
+  // ENTERPRISE feature ladder so the featureFlags assertions hold.
+  const PLAN_FEATURES: Record<string, string[]> = {
+    STARTER: [
+      "opd",
+      "appointments",
+      "prescriptions",
+      "opd_billing",
+      "patient_pwa",
+      "crm_basic",
+      "abha_link",
+    ],
+    GROWTH: [
+      "opd",
+      "appointments",
+      "prescriptions",
+      "opd_billing",
+      "patient_pwa",
+      "crm_basic",
+      "abha_link",
+      "lab",
+      "radiology",
+      "abdm_m1",
+    ],
+    ENTERPRISE: [
+      "opd",
+      "appointments",
+      "prescriptions",
+      "opd_billing",
+      "patient_pwa",
+      "crm_basic",
+      "abha_link",
+      "lab",
+      "radiology",
+      "abdm_m1",
+      "ipd",
+      "ot",
+      "abdm_m2",
+      "ai_scribe",
+    ],
+  };
+
   const prismaMock: any = {
     $transaction: vi.fn(async (fn: any) => fn(tx)),
     // Top-level (non-tx) shape — used by backfill helper.
@@ -109,6 +154,22 @@ const { prismaMock, txStore } = vi.hoisted(() => {
     },
     tenantSubscription: {
       create: vi.fn(async ({ data }: any) => ({ id: "sub-bk", ...data })),
+    },
+    platformPlan: {
+      findUnique: vi.fn(async ({ where }: any) => {
+        const key: string = where.key;
+        const includedFeatures = PLAN_FEATURES[key];
+        if (!includedFeatures) return null;
+        return {
+          id: `plan-${key}`,
+          key,
+          name: key[0] + key.slice(1).toLowerCase(),
+          monthlyPriceInPaise: 499900,
+          includedFeatures,
+          active: true,
+          sortOrder: 0,
+        };
+      }),
     },
   };
 
@@ -146,6 +207,7 @@ beforeEach(() => {
             plan: data.plan,
             active: data.active,
             featureFlags: data.featureFlags ?? null,
+            createdAt: new Date("2026-05-25T00:00:00.000Z"),
           };
         },
       },
@@ -247,15 +309,12 @@ describe("createTenant — Pearl-billing auto-provisioning", () => {
   const BASE_PARAMS = {
     name: "Sunrise Hospital",
     subdomain: "sunrise",
-    // Legacy TenantPlan now drives the new Plan enum via planFromLegacy()
-    // in tenant-provisioning.ts:
-    //   BASIC → STARTER, PRO → GROWTH, ENTERPRISE → ENTERPRISE.
-    // The base fixture below uses BASIC so the default (no explicit
-    // initialPlan) lands on STARTER — which is what every assertion
-    // in this describe block relies on. The PRO→GROWTH and
-    // ENTERPRISE→ENTERPRISE branches are covered by the explicit
-    // `initialPlan` overrides in the tests further down.
-    plan: "BASIC" as any,
+    // Plans are unified + DB-backed now: `Tenant.plan` and the subscription
+    // share one dynamic `PlatformPlan.key`. The base fixture uses STARTER so
+    // the default (no explicit initialPlan) lands on STARTER — which is what
+    // every assertion in this describe block relies on. GROWTH / ENTERPRISE
+    // are covered by the explicit `initialPlan` overrides further down.
+    plan: "STARTER" as any,
     adminEmail: "admin@sunrise.test",
     adminPassword: "S3cure-pass-2026!",
     adminName: "Admin User",

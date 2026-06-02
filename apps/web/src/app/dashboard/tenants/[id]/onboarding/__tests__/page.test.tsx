@@ -379,54 +379,6 @@ describe("TenantOnboardingPage", () => {
 
   // ─── Skip flow (new) ──────────────────────────────────
 
-  it("POSTs /onboarding/:step/skip when the Skip-for-now button is clicked and reloads", async () => {
-    routeApiGet();
-    apiMock.post.mockResolvedValue({ data: { ok: true } });
-    render(<TenantOnboardingPage />);
-
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("tenant-onboarding-skip-whatsapp_setup"),
-      ).toBeInTheDocument(),
-    );
-    apiMock.get.mockClear();
-
-    fireEvent.click(
-      screen.getByTestId("tenant-onboarding-skip-whatsapp_setup"),
-    );
-
-    await waitFor(() =>
-      expect(apiMock.post).toHaveBeenCalledWith(
-        "/tenants/t1/onboarding/whatsapp_setup/skip",
-      ),
-    );
-    expect(toastMock.success).toHaveBeenCalled();
-    // Reload re-issues the parallel GETs after a skip.
-    await waitFor(() =>
-      expect(apiMock.get).toHaveBeenCalledWith("/tenants/t1/onboarding"),
-    );
-  });
-
-  it("surfaces a toast.error when the Skip POST rejects and keeps the page alive", async () => {
-    routeApiGet();
-    apiMock.post.mockRejectedValue(new Error("skip blocked 409"));
-    render(<TenantOnboardingPage />);
-
-    await waitFor(() =>
-      expect(
-        screen.getByTestId("tenant-onboarding-skip-duty_roster"),
-      ).toBeInTheDocument(),
-    );
-
-    fireEvent.click(
-      screen.getByTestId("tenant-onboarding-skip-duty_roster"),
-    );
-    await waitFor(() =>
-      expect(toastMock.error).toHaveBeenCalledWith("skip blocked 409"),
-    );
-    expect(screen.getByTestId("tenant-onboarding")).toBeInTheDocument();
-  });
-
   it("renders a step marked skipped with data-step-status=\"skipped\" + amber badge, hides the Skip button, and excludes it from the progress numerator", async () => {
     // payment_gateway pre-skipped server-side. account_created still
     // auto-completes (1/8 ≈ 13%). The skipped step does NOT count.

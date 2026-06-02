@@ -388,9 +388,14 @@ describe("AssetsPage (Asset Management — full surface)", () => {
     expect(
       await screen.findByRole("button", { name: /Add Asset/i }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Assign$/ })).toBeInTheDocument();
+    // Per-row buttons only render after the assets fetch resolves — the
+    // "Add Asset" header CTA is present during loading, so awaiting it does
+    // NOT wait for the row data. Await the row buttons themselves.
     expect(
-      screen.getByRole("button", { name: /^Log Maintenance$/ }),
+      await screen.findByRole("button", { name: /^Assign$/ }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /^Log Maintenance$/ }),
     ).toBeInTheDocument();
   });
 

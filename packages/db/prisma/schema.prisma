@@ -480,29 +480,16 @@ enum NotificationDeliveryStatus {
   FAILED
 }
 
-enum TenantPlan {
-  BASIC
-  PRO
-  ENTERPRISE
-}
-
-// Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) —
-// platform-billing plan tiers. Distinct from the legacy `TenantPlan` enum
-// (which feeds `Tenant.plan` and predates the platform-billing surface).
-// The new `Plan` enum drives `TenantSubscription` and `PlatformInvoice`
-// — i.e. what the platform operator (Onviqa) bills tenant hospitals for.
-//
-// STARTER  = OPD-only core (opd / appointments / prescriptions / opd_billing
-//            / patient_pwa / crm_basic / abha_link).
-// GROWTH   = STARTER + lab / radiology / abdm_m1.
-// ENTERPRISE = GROWTH + ipd / ot / abdm_m2 / ai_scribe.
-//
-// Resolved feature-flag sets live in packages/shared/src/billing/plans.ts
-// and get written into `Tenant.featureFlags` on plan-change.
-enum Plan {
-  STARTER
-  GROWTH
-  ENTERPRISE
+model PlatformPlan {
+  id                  String   @id @default(uuid())
+  key                 String   @unique
+  name                String
+  monthlyPriceInPaise Int
+  includedFeatures    String[]
+  active              Boolean  @default(true)
+  sortOrder           Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 }
 
 // Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) —
@@ -526,7 +513,7 @@ model Tenant {
   id        String     @id @default(uuid())
   name      String
   subdomain String     @unique
-  plan      TenantPlan @default(BASIC)
+  plan      String     @default("STARTER") // PlatformPlan.key
   active    Boolean    @default(true)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
@@ -919,7 +906,7 @@ model TenantSubscription {
   id                        String             @id @default(uuid())
   tenantId                  String             @unique
   tenant                    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan                      Plan
+  plan                      String             // PlatformPlan.key
   status                    SubscriptionStatus @default(trial)
   trialEndsAt               DateTime?
   currentPeriodStart        DateTime

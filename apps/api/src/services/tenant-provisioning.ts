@@ -33,10 +33,10 @@ import { prisma } from "@medcore/db";
 import type {
   NotificationChannel as NCh,
   NotificationType as NTy,
-  TenantPlan,
   LeaveType,
 } from "@prisma/client";
-import { PLAN_DEFINITIONS, TRIAL_DAYS, type Plan } from "@medcore/shared";
+import { TRIAL_DAYS, type Plan } from "@medcore/shared";
+import { requirePlanByKey } from "./plan-catalog";
 
 // ─── Reserved subdomains ─────────────────────────────────────────────
 // Subdomains that must never be taken by an operator-created tenant. `default`
@@ -232,7 +232,8 @@ export function tenantConfigKey(tenantId: string, key: string): string {
 export interface CreateTenantParams {
   name: string;
   subdomain: string;
-  plan: TenantPlan;
+  /** Dynamic `PlatformPlan.key` (e.g. "STARTER" or a custom slug). */
+  plan: string;
   adminEmail: string;
   adminPassword: string;
   adminName: string;
@@ -250,16 +251,12 @@ export interface CreateTenantParams {
     address?: string;
   };
   /**
-   * Pearl Stage 1 §8.3 (gap rows 215-218 piece 3a wiring) — the platform-
-   * billing `Plan` tier the new tenant pays on. Independent of the legacy
-   * `plan: TenantPlan` field above (which feeds `Tenant.plan` for the
-   * older BASIC/PRO/ENTERPRISE pricing — kept for back-compat).
-   *
-   * Default `STARTER` (every freshly-onboarded tenant lands on Starter +
-   * 30-day trial unless super-admin onboards a bespoke Enterprise
-   * tenant and explicitly overrides). Resolved `includedFeatures` are
-   * materialised onto `Tenant.featureFlags` in the same transaction so
-   * `requireFeature(...)` middleware gates accordingly from day 1.
+   * Pearl §8.3 — the dynamic `PlatformPlan.key` the new tenant pays on.
+   * Now unified with the `plan` field above: both stamp the SAME catalog
+   * key onto `Tenant.plan` and `TenantSubscription.plan`. Defaults to the
+   * `plan` param (and ultimately "STARTER"). The resolved plan's
+   * `includedFeatures` are materialised onto `Tenant.featureFlags` in the
+   * same transaction so `requireFeature(...)` gates from day 1.
    */
   initialPlan?: Plan;
 }
@@ -269,7 +266,7 @@ export interface CreateTenantResult {
     id: string;
     name: string;
     subdomain: string;
-    plan: TenantPlan;
+    plan: string;
     active: boolean;
   };
   adminUser: {
@@ -327,29 +324,15 @@ export async function createTenant(
   // should not hold a txn open while we compute the salt rounds.
   const passwordHash = await bcrypt.hash(adminPassword, 10);
 
-  // Pearl Stage 1 §8.3 — every freshly-onboarded tenant lands on a
-  // platform-billing plan tier with a 30-day trial. When the caller
-  // doesn't explicitly pass `initialPlan`, we derive it from the
-  // legacy `Tenant.plan` (BASIC/PRO/ENTERPRISE) so the two plan
-  // fields stay in sync — otherwise the operator picks ENTERPRISE on
-  // the create form and the subscription silently lands on STARTER,
-  // which is what was making /super-admin/platform-billing show
-  // "STARTER" for tenants the operator just created as ENTERPRISE.
-  //
-  //   BASIC      → STARTER
-  //   PRO        → GROWTH
-  //   ENTERPRISE → ENTERPRISE
-  function planFromLegacy(p: TenantPlan | undefined): Plan {
-    if (p === "ENTERPRISE") return "ENTERPRISE";
-    if (p === "PRO") return "GROWTH";
-    return "STARTER";
-  }
-  const initialPlan: Plan =
-    params.initialPlan ?? planFromLegacy(plan as TenantPlan | undefined);
-  const planDef = PLAN_DEFINITIONS[initialPlan];
-  if (!planDef) {
-    throw new Error(`Unknown plan tier: ${initialPlan}`);
-  }
+  // Pearl §8.3 — every freshly-onboarded tenant lands on a single
+  // dynamic plan tier (the `PlatformPlan` catalog) with a 30-day trial.
+  // `Tenant.plan` and `TenantSubscription.plan` are now the SAME catalog
+  // key, so there is no legacy BASIC/PRO/ENTERPRISE → STARTER/GROWTH/
+  // ENTERPRISE bridge anymore. The chosen key (from `initialPlan` or the
+  // `plan` param, identical now) is resolved against the DB so its price
+  // + included features come from the catalog, not a hardcoded map.
+  const initialPlan: Plan = params.initialPlan ?? plan;
+  const planDef = await requirePlanByKey(prisma, initialPlan);
   const featureFlagsForPlan: Record<string, boolean> = {};
   for (const key of planDef.includedFeatures) {
     featureFlagsForPlan[key] = true;
@@ -366,7 +349,8 @@ export async function createTenant(
         data: {
           name,
           subdomain,
-          plan,
+          // Unified dynamic key — same value stamped on the subscription below.
+          plan: initialPlan,
           active: true,
           // Pearl Stage 1 §6 + §8.3 — materialise the plan's included
           // features as the initial `featureFlags` JSON. Stage-2+
@@ -487,6 +471,13 @@ export async function createTenant(
         { key: "hospital_gstin", value: hospitalConfig?.gstin ?? "" },
         { key: "hospital_address", value: hospitalConfig?.address ?? "" },
         { key: "onboarding_started_at", value: new Date().toISOString() },
+        // Pearl §8.1 — stamp the "Account created" onboarding step complete at
+        // provisioning time; its completion date is the tenant's creation date
+        // so the onboarding checklist shows the real date, not a generic "Done".
+        {
+          key: "onboarding_step_account_created_completed_at",
+          value: tenant.createdAt.toISOString(),
+        },
         ...(params.code && params.code.trim().length > 0
           ? [{ key: "code", value: params.code.trim().toUpperCase() }]
           : []),

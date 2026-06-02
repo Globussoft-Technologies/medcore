@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
+import { OnboardingBanner } from "@/components/OnboardingBanner";
 // Issue #348 — shared bed-summary helper so dashboard KPI matches the
 // Wards & Admissions pages exactly.
 import { getBedSummary } from "@/lib/bed-summary";
@@ -556,6 +557,10 @@ export default function DashboardPage() {
 
   return (
     <div>
+      {/* Tenant-admin onboarding nudge (renders only for a tenant admin with
+          pending steps; no-op for everyone else). */}
+      <OnboardingBanner />
+
       {/* Header */}
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>

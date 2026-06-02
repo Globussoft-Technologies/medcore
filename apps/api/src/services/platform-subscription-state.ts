@@ -54,11 +54,8 @@
  * billables without a new column.
  */
 import type { Prisma, PrismaClient } from "@medcore/db";
-import {
-  GRACE_PERIOD_DAYS,
-  PLAN_DEFINITIONS,
-  type Plan,
-} from "@medcore/shared";
+import { GRACE_PERIOD_DAYS, type Plan } from "@medcore/shared";
+import { requirePlanByKey } from "./plan-catalog";
 
 const CGST_RATE = 9;
 const SGST_RATE = 9;
@@ -88,12 +85,6 @@ const MONTH_LABEL = [
   "November",
   "December",
 ];
-
-const PLAN_LABEL: Record<Plan, string> = {
-  STARTER: "Starter",
-  GROWTH: "Growth",
-  ENTERPRISE: "Enterprise",
-};
 
 export type TransitionResult =
   | { changed: true; status: string; subscriptionId: string }
@@ -471,13 +462,18 @@ export async function applyProration(
   });
   if (!sub) throw new Error(`TenantSubscription ${subscriptionId} not found`);
 
+  // Resolve both tiers from the dynamic plan catalog (DB). Throws a clear
+  // error if a key is missing (e.g. a deleted plan) rather than billing ₹0.
+  const fromPlanDef = await requirePlanByKey(prisma, fromPlan);
+  const toPlanDef = await requirePlanByKey(prisma, toPlan);
+
   // Custom-price overrides apply only to the CURRENT plan; cross-plan
   // proration always uses the plan defaults for the SOURCE so the delta
   // is computed against a stable reference. Bespoke deals re-set their
   // customPriceMonthlyInPaise on the new plan via a separate UI flow.
   const oldMonthlyPaise =
-    sub.customPriceMonthlyInPaise ?? PLAN_DEFINITIONS[fromPlan].monthlyPriceInPaise;
-  const newMonthlyPaise = PLAN_DEFINITIONS[toPlan].monthlyPriceInPaise;
+    sub.customPriceMonthlyInPaise ?? fromPlanDef.monthlyPriceInPaise;
+  const newMonthlyPaise = toPlanDef.monthlyPriceInPaise;
 
   const periodStart = sub.currentPeriodStart;
   const periodEnd = sub.currentPeriodEnd;
@@ -527,7 +523,7 @@ export async function applyProration(
   });
   const invoiceNumber = `PI-${yyyymm}-${String(monthCount + 1).padStart(4, "0")}`;
 
-  const description = `Plan change proration — ${PLAN_LABEL[fromPlan]} → ${PLAN_LABEL[toPlan]} (${MONTH_LABEL[now.getUTCMonth()]} ${year})`;
+  const description = `Plan change proration — ${fromPlanDef.name} → ${toPlanDef.name} (${MONTH_LABEL[now.getUTCMonth()]} ${year})`;
 
   const lineItemCreate: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput =
     {

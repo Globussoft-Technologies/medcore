@@ -1,5 +1,6 @@
 import { PrismaClient, Role, Gender } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { PLAN_DEFINITIONS } from "@medcore/shared";
 
 const prisma = new PrismaClient();
 
@@ -109,6 +110,42 @@ async function main() {
     });
   }
   console.log("Disabled mandatory TOTP for seeded admins (dev convenience)");
+
+  // ── Platform plan catalog (Pearl §8.3, dynamic DB-backed plans) ──────
+  // Seed the three baseline tiers from the (seed-only) PLAN_DEFINITIONS
+  // constant. At runtime everything reads PlatformPlan from the DB; super
+  // admins can add/edit more via the platform-billing UI. Idempotent on key.
+  const PLAN_NAMES: Record<string, string> = {
+    STARTER: "Starter",
+    GROWTH: "Growth",
+    ENTERPRISE: "Enterprise",
+  };
+  let planSort = 1;
+  for (const def of Object.values(PLAN_DEFINITIONS)) {
+    await prisma.platformPlan.upsert({
+      where: { key: def.key },
+      update: {
+        name: PLAN_NAMES[def.key] ?? def.key,
+        monthlyPriceInPaise: def.monthlyPriceInPaise,
+        includedFeatures: def.includedFeatures,
+      },
+      create: {
+        key: def.key,
+        name: PLAN_NAMES[def.key] ?? def.key,
+        monthlyPriceInPaise: def.monthlyPriceInPaise,
+        includedFeatures: def.includedFeatures,
+        sortOrder: planSort,
+      },
+    });
+    planSort++;
+  }
+  console.log("Seeded platform plans:", Object.keys(PLAN_DEFINITIONS).join(", "));
+
+  // Backfill legacy Tenant.plan values onto the unified plan keys so older
+  // tenants (created when Tenant.plan used the BASIC/PRO/ENTERPRISE enum)
+  // line up with the catalog. ENTERPRISE already matches.
+  await prisma.tenant.updateMany({ where: { plan: "BASIC" }, data: { plan: "STARTER" } });
+  await prisma.tenant.updateMany({ where: { plan: "PRO" }, data: { plan: "GROWTH" } });
 
   // Pearl §8.1 wizard step 3 — role-permission catalog.
   // The initial 10 roles + their permissions are inserted by the

@@ -124,6 +124,29 @@ function buildPrismaMock(subs: FakeSubscription[]) {
         return { id: `audit-${auditStore.length}` };
       }),
     },
+    // Plans are now DB-backed; `applyProration` resolves tier prices via the
+    // plan-catalog (prisma.platformPlan.findUnique). Mirror the same prices
+    // the proration assertions below expect.
+    platformPlan: {
+      findUnique: vi.fn(async ({ where }: any) => {
+        const prices: Record<string, number> = {
+          STARTER: 100_000,
+          GROWTH: 500_000,
+          ENTERPRISE: 1_000_000,
+        };
+        const key: string = where.key;
+        if (!(key in prices)) return null;
+        return {
+          id: `plan-${key}`,
+          key,
+          name: key[0] + key.slice(1).toLowerCase(),
+          monthlyPriceInPaise: prices[key],
+          includedFeatures: [],
+          active: true,
+          sortOrder: 0,
+        };
+      }),
+    },
   };
 
   return { prismaMock, subStore, invoiceStore, auditStore };

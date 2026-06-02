@@ -1,15 +1,16 @@
-// Pins the platform-billing plan-definition invariants:
+// Pins the platform-billing plan-definition invariants for the SEED BASELINE.
+//
+// Plans are now dynamic (DB-backed `PlatformPlan`, super-admin CRUD), so
+// `PLAN_DEFINITIONS` is no longer the runtime source of truth — it is the
+// seed baseline the DB is initialised with (see packages/db/src/seed.ts) and
+// the `Plan` type widened to `string`. These guards still pin the shipped
+// STARTER/GROWTH/ENTERPRISE defaults so the seed can't silently drift:
 //   - Plan tier ladder: every STARTER feature is in GROWTH;
 //                       every GROWTH feature is in ENTERPRISE.
 //   - Price ordering: STARTER < GROWTH < ENTERPRISE (monotonic ascending).
 //   - 30-day trial constant + 7-day grace constant frozen (state-machine
-//     transitions in piece 3c read these — silent change would break
+//     transitions read these — silent change would break
 //     `trial → past_due → suspended` timing).
-//
-// These guards exist because the plan definitions in `plans.ts` are the
-// source-of-truth in TS-land (cyclic-dep prevents importing the Prisma
-// `Plan` enum here); any drift between the literal union, the price
-// ladder, or the trial/grace constants should fail CI loudly.
 
 import { describe, it, expect } from "vitest";
 import {

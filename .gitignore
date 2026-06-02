@@ -63,3 +63,4 @@ apps/web/next-env.d.ts
 *_bkp
 env_bkp
 firebase.json
+apps/api/firebase.json

@@ -139,6 +139,18 @@ jobs:
           BASELINE_FILE="${{ steps.baseline.outputs.BASELINE_FILE }}"
           BASELINE_AVAILABLE="${{ steps.baseline.outputs.BASELINE_AVAILABLE }}"
 
+          # Commit-message blessings ([allow-drop] etc.) are read by the
+          # script from `git log -1`. On `pull_request` events the checkout
+          # is the SYNTHETIC MERGE COMMIT, whose message is the auto-generated
+          # "Merge <sha> into <sha>" — NOT the author's commit — so blessings
+          # would never be seen. Feed the real PR HEAD commit message to the
+          # script via its MIGRATION_SAFETY_COMMIT_MSG override so blessings on
+          # the actual commit are honored. On push, the script's own
+          # `git log -1` (HEAD = the pushed commit) already does the right thing.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            export MIGRATION_SAFETY_COMMIT_MSG="$(git log -1 --format=%B "${{ github.event.pull_request.head.sha }}")"
+          fi
+
           REPORT_JSON="/tmp/migration-safety-report.json"
 
           # `|| true` so we can branch on the report file's riskCount

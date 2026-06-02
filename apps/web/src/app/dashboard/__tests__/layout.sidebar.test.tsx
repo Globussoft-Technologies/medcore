@@ -32,6 +32,7 @@ vi.mock("@/lib/toast", () => ({ toast: toastMock }));
 vi.mock("@/lib/use-dialog", () => ({
   DialogProvider: ({ children }: any) => <>{children}</>,
   useDialog: () => ({}),
+  useConfirm: () => async () => true,
 }));
 vi.mock("@/components/KeyboardShortcutsModal", () => ({
   KeyboardShortcutsModal: () => null,

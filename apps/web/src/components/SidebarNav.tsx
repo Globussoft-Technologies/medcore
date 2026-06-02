@@ -220,10 +220,15 @@ export function SidebarNav({
     persist([]); // empty = "no customisation, use default"
   }, [confirm, reorderableHrefs, persist]);
 
-  const orderedReorderable = useMemo(
-    () => order.map((h) => itemByHref.get(h)).filter(Boolean) as SidebarNavItem[],
-    [order, itemByHref]
-  );
+  // Before the saved order has loaded (or if it's empty), fall back to the
+  // default order so the menu always renders its items immediately — never a
+  // near-empty sidebar while the preference request is in flight.
+  const orderedReorderable = useMemo(() => {
+    const effective = order.length > 0 ? order : reorderableHrefs;
+    return effective
+      .map((h) => itemByHref.get(h))
+      .filter(Boolean) as SidebarNavItem[];
+  }, [order, reorderableHrefs, itemByHref]);
 
   // Click behaviour for normal (non-reorder) navigation — mirrors the
   // defensive Link+router.push pairing used elsewhere in the layout so an

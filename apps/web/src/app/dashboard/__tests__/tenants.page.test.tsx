@@ -122,6 +122,13 @@ function routeApiGet(
       }
       return metricsResult;
     }
+    // The page fetches the dynamic plan catalog for the filter + create
+    // dropdowns. Return an empty catalog so tenant names don't leak into the
+    // filter <option>s (and list cells fall back to the raw plan key, as
+    // before the dynamic-plans change).
+    if (url.startsWith("/platform-billing/plans")) {
+      return { data: [] };
+    }
     if (tenantsResult instanceof Error) throw tenantsResult;
     return tenantsResult;
   });

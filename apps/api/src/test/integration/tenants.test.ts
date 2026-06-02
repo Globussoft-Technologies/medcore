@@ -10,6 +10,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { describeIfDB, resetDB, getPrisma } from "../setup";
+import { ensureReferenceData } from "@medcore/db";
 import { tenantsRouter } from "../../routes/tenants";
 import { authRouter } from "../../routes/auth";
 import { errorHandler } from "../../middleware/error";
@@ -110,7 +111,8 @@ async function seedRegularAdmin(tenantId: string | null): Promise<string> {
 const VALID_CREATE = () => ({
   name: "Sunrise Hospital",
   subdomain: `sunrise-${Math.random().toString(36).slice(2, 7)}`,
-  plan: "BASIC" as const,
+  // Must be an active PlatformPlan key (the create route validates it).
+  plan: "STARTER" as const,
   adminEmail: `admin-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@sunrise.test`,
   adminPassword: "verysecurepw",
   adminName: "Sunrise Admin",
@@ -125,6 +127,10 @@ const VALID_CREATE = () => ({
 describeIfDB("Tenants API (integration)", () => {
   beforeAll(async () => {
     await resetDB();
+    // The create/update routes validate `plan` against the PlatformPlan
+    // catalog, so seed the baseline tiers (STARTER/GROWTH/ENTERPRISE) after
+    // the hard reset — otherwise every create/PATCH 400s on "unknown plan".
+    await ensureReferenceData(await getPrisma());
     app = buildTestApp();
   });
 
@@ -315,9 +321,10 @@ describeIfDB("Tenants API (integration)", () => {
     const res = await request(app)
       .patch(`/api/v1/tenants/${id}`)
       .set("Authorization", `Bearer ${superAdminToken}`)
-      .send({ plan: "PRO" });
+      // Must be an active PlatformPlan key (the PATCH route validates it).
+      .send({ plan: "GROWTH" });
     expect(res.status).toBe(200);
-    expect(res.body.data.plan).toBe("PRO");
+    expect(res.body.data.plan).toBe("GROWTH");
   });
 
   // ── 7. Deactivate + refresh fails ────────────────────────

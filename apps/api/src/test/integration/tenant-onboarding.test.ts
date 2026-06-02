@@ -21,6 +21,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { describeIfDB, resetDB, getPrisma } from "../setup";
+import { ensureReferenceData } from "@medcore/db";
 import { tenantOnboardingRouter } from "../../routes/tenant-onboarding";
 import { errorHandler } from "../../middleware/error";
 import { tenantContextMiddleware } from "../../middleware/tenant";
@@ -119,7 +120,8 @@ function validPayload(seed?: { subdomain?: string; adminEmail?: string }) {
     tenant: {
       name: "Test Hospital",
       subdomain: seed?.subdomain ?? `wizard-${stamp}`,
-      plan: "BASIC" as const,
+      // Must be an active PlatformPlan key (the route validates it).
+      plan: "STARTER" as const,
     },
     branch: {
       name: "Main Branch",
@@ -142,6 +144,10 @@ function validPayload(seed?: { subdomain?: string; adminEmail?: string }) {
 describeIfDB("Tenant onboarding wizard (Pearl §8.1 — integration)", () => {
   beforeAll(async () => {
     await resetDB();
+    // The onboarding route validates `tenant.plan` against the PlatformPlan
+    // catalog, so seed the baseline tiers (STARTER/GROWTH/ENTERPRISE) after
+    // the hard reset — otherwise every onboarding POST 400s on "unknown plan".
+    await ensureReferenceData(await getPrisma());
     app = buildTestApp();
   });
 

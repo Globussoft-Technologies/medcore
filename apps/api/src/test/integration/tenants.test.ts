@@ -180,7 +180,9 @@ describeIfDB("Tenants API (integration)", () => {
     expect(res.body.data.seeded.notificationPreferences).toBe(4);
     expect(res.body.data.seeded.leaveBalances).toBe(6);
     expect(res.body.data.seeded.holidays).toBeGreaterThan(0);
-    expect(res.body.data.seeded.systemConfigRows).toBe(6);
+    // 7 config rows: 5 hospital-identity + onboarding_started_at + the
+    // "account_created" onboarding-step stamp written at provisioning time.
+    expect(res.body.data.seeded.systemConfigRows).toBe(7);
 
     // And verify the per-tenant SystemConfig actually landed in the DB.
     const prisma = await getPrisma();
@@ -403,7 +405,10 @@ describeIfDB("Tenants API (integration)", () => {
       .get(`/api/v1/tenants/${id}/onboarding`)
       .set("Authorization", `Bearer ${superAdminToken}`);
     expect(before.status).toBe(200);
-    expect(before.body.data.steps).toEqual({});
+    // Provisioning auto-stamps the "account_created" step (Pearl §8.1), so
+    // steps isn't empty — but the step we're about to mark must not be set yet.
+    expect(before.body.data.steps.account_created).toBeTruthy();
+    expect(before.body.data.steps.first_doctor).toBeUndefined();
 
     const mark = await request(app)
       .post(`/api/v1/tenants/${id}/onboarding/first_doctor`)

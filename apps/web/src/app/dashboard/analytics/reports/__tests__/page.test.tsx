@@ -148,10 +148,34 @@ function wireGet(opts: {
   ipdOccupancy?: { byWard: Array<{ wardName: string; total: number; occupied: number }> };
   pharmacyTop?: Array<Record<string, number | string>>;
   pharmacyLow?: { count: number; items: Array<{ medicineName: string; quantity: number; reorderLevel: number }> };
+  noShow?: { totals: Record<string, number>; byDoctor: Array<Record<string, number | string>> };
+  tds?: { totals: Record<string, number>; byDoctor: Array<Record<string, number | string>> };
+  commission?: { totals: Record<string, number>; byDoctor: Array<Record<string, number | string | null>> };
+  leadFunnel?: { totals: Record<string, number>; byStage: Array<Record<string, number | string>> };
   rejectAll?: boolean;
 } = {}) {
   apiMock.get.mockImplementation((url: string) => {
     if (opts.rejectAll) return Promise.reject(new Error("boom"));
+    if (url.startsWith("/analytics/no-show-report")) {
+      return Promise.resolve({
+        data: opts.noShow ?? { totals: { totalAppointments: 0, totalNoShows: 0 }, byDoctor: [] },
+      });
+    }
+    if (url.startsWith("/billing/tds-report")) {
+      return Promise.resolve({
+        data: opts.tds ?? { totals: { totalGrossFees: 0, totalTds: 0, totalNet: 0 }, byDoctor: [] },
+      });
+    }
+    if (url.startsWith("/referral-commissions/ledger")) {
+      return Promise.resolve({
+        data: opts.commission ?? { totals: { totalAmount: 0, paidAmount: 0, pendingAmount: 0 }, byDoctor: [] },
+      });
+    }
+    if (url.startsWith("/analytics/lead-funnel-report")) {
+      return Promise.resolve({
+        data: opts.leadFunnel ?? { totals: { totalLeads: 0, convertedLeads: 0 }, byStage: [] },
+      });
+    }
     if (url.startsWith("/analytics/revenue")) {
       return Promise.resolve({ data: opts.revenue ?? [] });
     }
@@ -854,5 +878,128 @@ describe("Report Builder dashboard page (admin-only)", () => {
     expect(
       await screen.findByText(/No data for this configuration/i),
     ).toBeInTheDocument();
+  });
+
+  // ─── Pearl §4.4 report types added to the builder ──────────────────
+
+  it("No-show Rate type fires /analytics/no-show-report and renders doctor rows", async () => {
+    wireGet({
+      noShow: {
+        totals: { totalAppointments: 100, totalNoShows: 20 },
+        byDoctor: [{ doctorName: "Dr. Asha", totalAppointments: 60, noShowCount: 15 }],
+      },
+    });
+    render(<ReportsPage />);
+    await screen.findByRole("heading", { name: /Report Builder/i });
+    apiMock.get.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /No-show Rate/i }));
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some((c) =>
+          String(c[0]).startsWith("/analytics/no-show-report?"),
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("Dr. Asha")).toBeInTheDocument();
+  });
+
+  it("TDS type fires /billing/tds-report (with tdsRate) and renders gross/net", async () => {
+    wireGet({
+      tds: {
+        totals: { totalGrossFees: 100000, totalTds: 10000, totalNet: 90000 },
+        byDoctor: [
+          {
+            doctorName: "Dr. Bose",
+            totalGrossFees: 100000,
+            tdsRate: 10,
+            tdsAmount: 10000,
+            netPayable: 90000,
+            invoiceCount: 8,
+          },
+        ],
+      },
+    });
+    render(<ReportsPage />);
+    await screen.findByRole("heading", { name: /Report Builder/i });
+    fireEvent.click(screen.getByRole("button", { name: /TDS on Fees/i }));
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some((c) =>
+          String(c[0]).startsWith("/billing/tds-report?"),
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("Dr. Bose")).toBeInTheDocument();
+    // Changing the TDS rate refetches with the new tdsRate param.
+    fireEvent.change(screen.getByLabelText("TDS %"), { target: { value: "7.5" } });
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some((c) => String(c[0]).includes("tdsRate=7.5")),
+      ).toBe(true),
+    );
+  });
+
+  it("Commission type fires /referral-commissions/ledger and renders referring doctor", async () => {
+    wireGet({
+      commission: {
+        totals: { totalAmount: 50000, paidAmount: 30000, pendingAmount: 20000 },
+        byDoctor: [
+          {
+            referringDoctorName: "Dr. Ref",
+            branchName: "Main",
+            count: 5,
+            totalAmount: 50000,
+            paidAmount: 30000,
+            pendingAmount: 20000,
+            voidedAmount: 0,
+          },
+        ],
+      },
+    });
+    render(<ReportsPage />);
+    await screen.findByRole("heading", { name: /Report Builder/i });
+    fireEvent.click(screen.getByRole("button", { name: /Commission Ledger/i }));
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some((c) =>
+          String(c[0]).startsWith("/referral-commissions/ledger?"),
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("Dr. Ref")).toBeInTheDocument();
+  });
+
+  it("Lead Funnel type fires /analytics/lead-funnel-report and renders stage rows", async () => {
+    wireGet({
+      leadFunnel: {
+        totals: { totalLeads: 100, convertedLeads: 40 },
+        byStage: [
+          { stage: "NEW", count: 50 },
+          { stage: "CONVERTED", count: 40 },
+        ],
+      },
+    });
+    render(<ReportsPage />);
+    await screen.findByRole("heading", { name: /Report Builder/i });
+    fireEvent.click(screen.getByRole("button", { name: /Lead Funnel/i }));
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some((c) =>
+          String(c[0]).startsWith("/analytics/lead-funnel-report?"),
+        ),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("NEW")).toBeInTheDocument();
+    // Changing the source refetches with the source param.
+    fireEvent.change(screen.getByLabelText("Source"), {
+      target: { value: "REFERRAL" },
+    });
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some((c) =>
+          String(c[0]).includes("source=REFERRAL"),
+        ),
+      ).toBe(true),
+    );
   });
 });

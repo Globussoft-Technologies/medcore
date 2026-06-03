@@ -90,7 +90,7 @@ const { apiMock, authMock, socketMock, routerMock, promptMock, toastMock } =
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/lib/store", () => ({ useAuthStore: authMock }));
 vi.mock("@/lib/socket", () => ({ getSocket: () => socketMock }));
-vi.mock("@/lib/use-dialog", () => ({ usePrompt: () => promptMock }));
+vi.mock("@/lib/use-dialog", () => ({ usePrompt: () => promptMock, useConfirm: () => async () => true }));
 vi.mock("@/lib/toast", () => ({ toast: toastMock }));
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,

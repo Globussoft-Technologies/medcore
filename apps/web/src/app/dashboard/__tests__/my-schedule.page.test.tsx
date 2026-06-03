@@ -19,6 +19,7 @@ vi.mock("@/lib/store", () => ({ useAuthStore: authMock }));
 vi.mock("@/lib/toast", () => ({ toast: toastMock }));
 vi.mock("@/lib/use-dialog", () => ({
   usePrompt: () => vi.fn(async () => ""),
+  useConfirm: () => async () => true,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),

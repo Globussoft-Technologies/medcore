@@ -338,6 +338,134 @@ export async function generateMonthlyPlatformInvoices(
   return summary;
 }
 
+/**
+ * Pearl §8.3 — generate the FIRST invoice for a brand-new ACTIVE (no-trial)
+ * subscription immediately at tenant creation, so a no-trial tenant is billed
+ * from day 1 instead of waiting for the monthly arrears run. Bills the plan's
+ * monthly amount for the subscription's current period (`currentPeriodStart →
+ * currentPeriodEnd`) with the same GST split + `PI-YYYYMM-NNNN` numbering as
+ * the monthly generator.
+ *
+ * - Trial subscriptions are a no-op (`{ generated: false }`) — they are billed
+ *   only after the trial flips to active.
+ * - Idempotent: skips if an invoice already exists for (tenantId, periodStart).
+ * - Brand-new tenant → no usage events yet, so this is the plan line only.
+ */
+export async function generateInitialInvoiceForSubscription(
+  prisma: PrismaClient,
+  subscriptionId: string,
+  now: Date = new Date(),
+): Promise<{ generated: boolean; invoiceId?: string; invoiceNumber?: string }> {
+  const sub = await prisma.tenantSubscription.findUnique({
+    where: { id: subscriptionId },
+    select: {
+      id: true,
+      tenantId: true,
+      plan: true,
+      status: true,
+      customPriceMonthlyInPaise: true,
+      currentPeriodStart: true,
+      currentPeriodEnd: true,
+      tenant: {
+        select: {
+          active: true,
+          branches: {
+            where: { isDefault: true },
+            select: { state: true },
+            take: 1,
+          },
+        },
+      },
+    },
+  });
+  if (!sub) throw new Error(`TenantSubscription ${subscriptionId} not found`);
+  // Only active (no-trial) subscriptions bill immediately; trials wait for the
+  // daily trial-expiry cron to flip them to active.
+  if (sub.status !== "active" || !sub.tenant?.active) {
+    return { generated: false };
+  }
+
+  const periodStart = sub.currentPeriodStart;
+  const periodEnd = sub.currentPeriodEnd;
+
+  // Idempotency: never double-bill the same opening period.
+  const existing = await prisma.platformInvoice.findFirst({
+    where: { tenantId: sub.tenantId, periodStart },
+    select: { id: true },
+  });
+  if (existing) return { generated: false };
+
+  const planDef = await requirePlanByKey(prisma, sub.plan);
+  const planUnitPriceInPaise =
+    sub.customPriceMonthlyInPaise ?? planDef.monthlyPriceInPaise;
+
+  const tenantState = sub.tenant.branches?.[0]?.state ?? null;
+  const sameState =
+    !!tenantState &&
+    tenantState.trim().toLowerCase() === PLATFORM_OPERATOR_STATE.toLowerCase();
+
+  const monthLabel = `${MONTH_LABEL[periodStart.getUTCMonth()]} ${periodStart.getUTCFullYear()}`;
+  const yyyymm = `${periodStart.getUTCFullYear()}${String(
+    periodStart.getUTCMonth() + 1,
+  ).padStart(2, "0")}`;
+
+  const lineItems: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput[] = [
+    {
+      description: `MedCore HMS — ${planDef.name} subscription ${monthLabel}`,
+      unitPriceInPaise: planUnitPriceInPaise,
+      quantity: 1,
+      amountInPaise: planUnitPriceInPaise,
+      hsnSacCode: SAAS_HSN_SAC,
+      cgstRate: sameState ? CGST_RATE : 0,
+      sgstRate: sameState ? SGST_RATE : 0,
+      igstRate: sameState ? 0 : IGST_RATE,
+    },
+  ];
+
+  const subtotalInPaise = planUnitPriceInPaise;
+  const cgstInPaise = sameState
+    ? Math.round((subtotalInPaise * CGST_RATE) / 100)
+    : 0;
+  const sgstInPaise = sameState
+    ? Math.round((subtotalInPaise * SGST_RATE) / 100)
+    : 0;
+  const igstInPaise = sameState
+    ? 0
+    : Math.round((subtotalInPaise * IGST_RATE) / 100);
+  const totalInPaise = subtotalInPaise + cgstInPaise + sgstInPaise + igstInPaise;
+
+  const monthCount = await prisma.platformInvoice.count({
+    where: { invoiceNumber: { startsWith: `PI-${yyyymm}-` } },
+  });
+  const invoiceNumber = `PI-${yyyymm}-${String(monthCount + 1).padStart(4, "0")}`;
+
+  const invoice = await prisma.platformInvoice.create({
+    data: {
+      invoiceNumber,
+      tenantId: sub.tenantId,
+      subscriptionId: sub.id,
+      periodStart,
+      periodEnd,
+      subtotalInPaise,
+      cgstInPaise,
+      sgstInPaise,
+      igstInPaise,
+      totalInPaise,
+      status: "ISSUED",
+      issuedAt: now,
+      hsnSacCode: SAAS_HSN_SAC,
+      lineItems: { create: lineItems },
+    },
+    select: { id: true, invoiceNumber: true },
+  });
+
+  return {
+    generated: true,
+    invoiceId: invoice.id,
+    invoiceNumber: invoice.invoiceNumber,
+  };
+}
+
 export interface MarkInvoicePaidResult {
   status: "PAID" | "ALREADY_PAID";
   invoiceId: string;

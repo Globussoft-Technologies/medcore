@@ -194,11 +194,28 @@ function subscriptionStatusBadge(s: SubscriptionStatus): {
   }
 }
 
-function invoiceStatusBadge(s: InvoiceStatus): {
+function invoiceStatusBadge(
+  s: InvoiceStatus,
+  periodEnd?: string,
+): {
   cls: string;
   Icon: typeof Clock;
   label: string;
 } {
+  // An unpaid (ISSUED) invoice whose billing period has already ended is past
+  // due. Derived from the stored `periodEnd` — no separate persisted flag is
+  // needed since the date already lives on the row.
+  if (
+    s === "ISSUED" &&
+    periodEnd &&
+    new Date(periodEnd).getTime() < Date.now()
+  ) {
+    return {
+      cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300",
+      Icon: AlertCircle,
+      label: "Past due",
+    };
+  }
   switch (s) {
     case "DRAFT":
       return { cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300", Icon: FileText, label: "Draft" };
@@ -1009,6 +1026,7 @@ export default function PlatformBillingPage() {
                 <th scope="col" className="px-4 py-3 font-medium">Amount</th>
                 <th scope="col" className="px-4 py-3 font-medium">Status</th>
                 <th scope="col" className="px-4 py-3 font-medium">Trial end</th>
+                <th scope="col" className="px-4 py-3 font-medium">Period start</th>
                 <th scope="col" className="px-4 py-3 font-medium">Period end</th>
                 <th scope="col" className="px-4 py-3 font-medium text-right">
                   Actions
@@ -1019,7 +1037,7 @@ export default function PlatformBillingPage() {
               {subscriptions.length === 0 && !loading ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     data-testid="platform-billing-subscriptions-empty"
                   >
@@ -1078,6 +1096,9 @@ export default function PlatformBillingPage() {
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                       {formatDate(s.trialEndsAt)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
+                      {formatDate(s.currentPeriodStart)}
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
                       {formatDate(s.currentPeriodEnd)}
@@ -1169,7 +1190,7 @@ export default function PlatformBillingPage() {
                   </tr>
                 ) : null}
                 {invoices.map((inv) => {
-                  const badge = invoiceStatusBadge(inv.status);
+                  const badge = invoiceStatusBadge(inv.status, inv.periodEnd);
                   return (
                     <tr
                       key={inv.id}

@@ -850,7 +850,7 @@ export default function TenantsAdminPage() {
                       return (
                         <span
                           data-testid={`tenant-billing-${tt.subdomain}`}
-                          className={`rounded-full px-2 py-0.5 font-semibold uppercase tracking-wide ${b.cls}`}
+                          className={`rounded-full px-2 py-0.5 text-xs ${b.cls}`}
                         >
                           {b.label}
                         </span>
@@ -1003,10 +1003,12 @@ export default function TenantsAdminPage() {
         <CreateTenantModal
           planOptions={activePlanOptions}
           onClose={() => setCreateOpen(false)}
-          onCreated={(tenantId: string) => {
+          onCreated={() => {
+            // Super-admin create flow: just close + refresh the list. No
+            // auto-navigation to the onboarding wizard — the success toast is
+            // enough; the operator opens onboarding later if they want it.
             setCreateOpen(false);
             load();
-            router.push(`/dashboard/tenants/${tenantId}/onboarding`);
           }}
         />
       )}
@@ -1112,6 +1114,10 @@ function CreateTenantModal({
     code: "",
     // Default to the first active tier (or empty until the catalog loads).
     plan: (planOptions[0]?.key ?? "") as Plan,
+    // Pearl §8.3 — optional free trial. Off by default → tenant starts active
+    // per plan; when on, `trialDays` (7/15/30/60) is sent to the backend.
+    trial: false,
+    trialDays: 7,
     adminEmail: "",
     adminPassword: "",
     adminName: "",
@@ -1182,6 +1188,9 @@ function CreateTenantModal({
           name: form.name.trim(),
           subdomain: deriveSubdomain(form.name),
           plan: form.plan,
+          // Only send trialDays when the trial toggle is on; otherwise the
+          // backend starts the subscription active per plan (no trial).
+          trialDays: form.trial ? form.trialDays : undefined,
           code: form.code.trim() || undefined,
           adminEmail: form.adminEmail.trim(),
           adminPassword: form.adminPassword,
@@ -1195,7 +1204,7 @@ function CreateTenantModal({
         },
       );
       toast.success(
-        t("tenants.create.ok", "Tenant created. Continue with onboarding."),
+        t("tenants.create.ok", "Tenant created successfully."),
       );
       onCreated(res.data.tenant.id);
     } catch (err) {
@@ -1353,6 +1362,53 @@ function CreateTenantModal({
                     ))}
                   </select>
                 </Field>
+              </div>
+              {/* Pearl §8.3 — optional free trial. Checkbox reveals a
+                  duration dropdown; unchecked → starts active per plan. */}
+              <div className="rounded-lg border border-gray-200 bg-white/60 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-200">
+                  <input
+                    type="checkbox"
+                    data-testid="tenants-create-trial"
+                    checked={form.trial}
+                    onChange={(e) =>
+                      setForm({ ...form, trial: e.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                  />
+                  {t("tenants.create.trial", "Start with a free trial")}
+                </label>
+                {form.trial ? (
+                  <div className="mt-3">
+                    <Field
+                      label={t("tenants.create.trialDuration", "Trial duration")}
+                    >
+                      <select
+                        data-testid="tenants-create-trial-days"
+                        value={form.trialDays}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            trialDays: Number(e.target.value),
+                          })
+                        }
+                        className={inputCls}
+                      >
+                        <option value={7}>7 days</option>
+                        <option value={15}>15 days</option>
+                        <option value={30}>30 days</option>
+                        <option value={60}>60 days</option>
+                      </select>
+                    </Field>
+                  </div>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {t(
+                      "tenants.create.trial.hint",
+                      "No trial — billing starts immediately on the selected plan.",
+                    )}
+                  </p>
+                )}
               </div>
             </div>
           </section>

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { csrfFetch } from "@/lib/csrf-fetch";
 import { toast } from "@/lib/toast";
+import { openPlatformRazorpayCheckout } from "@/lib/razorpay";
 
 type InvoiceStatus = "DRAFT" | "ISSUED" | "PAID" | "VOID";
 
@@ -217,35 +218,31 @@ export default function PlatformInvoiceDetailPage() {
     if (typeof window !== "undefined") window.print();
   }
 
-  // Pay-Online (Pearl §8.3) — POST a Razorpay payment-link request, then
-  // open the returned `short_url` in a new tab. The endpoint uses the
-  // platform's own Razorpay merchant account; the platform webhook
-  // (routes/webhooks/platform-razorpay.ts) handles the success callback
-  // and flips the invoice to PAID automatically.
+  // Pay-Online (Pearl §8.3) — opens the embedded Razorpay checkout modal
+  // (same UX as hospital billing) against the platform's own merchant
+  // account. The helper POSTs /pay-online to create the order, opens the
+  // modal, and on success POSTs /verify-payment which HMAC-verifies and flips
+  // the invoice to PAID; we then refetch. A plain user-cancel is silent.
   async function handlePayOnline(): Promise<void> {
     if (payOnlineBusy || !invoice) return;
     setPayOnlineBusy(true);
     setPayOnlineError(null);
     try {
-      const res = await csrfFetch(
-        `/api/v1/platform-billing/invoices/${invoice.id}/payment-link`,
-        { method: "POST" },
-      );
-      const body = (await res.json().catch(() => ({}))) as {
-        success: boolean;
-        error: string | null;
-        data?: { shortUrl: string; paymentLinkId: string };
-      };
-      if (!res.ok || !body.success || !body.data?.shortUrl) {
-        throw new Error(body.error ?? `Request failed (${res.status})`);
-      }
-      if (typeof window !== "undefined") {
-        window.open(body.data.shortUrl, "_blank", "noopener,noreferrer");
-      }
+      await openPlatformRazorpayCheckout({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        onSuccess: () => {
+          toast.success("Payment received — invoice marked paid");
+          void fetchDetail();
+        },
+        onFailure: (reason) => {
+          if (reason && reason !== "Payment cancelled") {
+            setPayOnlineError(reason);
+          }
+        },
+      });
     } catch (err) {
-      setPayOnlineError(
-        err instanceof Error ? err.message : String(err),
-      );
+      setPayOnlineError(err instanceof Error ? err.message : String(err));
     } finally {
       setPayOnlineBusy(false);
     }

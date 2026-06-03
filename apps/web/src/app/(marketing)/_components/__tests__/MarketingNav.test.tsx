@@ -132,6 +132,12 @@ describe("MarketingNav", () => {
       const cta = screen.getByRole("link", { name: /book a demo/i });
       expect(cta.getAttribute("href")).toBe("/contact");
     });
+
+    it("renders the Book appointment CTA pointing at /book", () => {
+      render(<MarketingNav />);
+      const cta = screen.getByRole("link", { name: /book appointment/i });
+      expect(cta.getAttribute("href")).toBe("/book");
+    });
   });
 
   describe("mobile menu toggle", () => {
@@ -192,6 +198,30 @@ describe("MarketingNav", () => {
       expect(screen.getAllByRole("link", { name: /book a demo/i }).length).toBe(
         2
       );
+    });
+
+    it("mounts a duplicate Book appointment CTA in the drawer", () => {
+      render(<MarketingNav />);
+      fireEvent.click(screen.getByRole("button", { name: /toggle menu/i }));
+
+      expect(
+        screen.getAllByRole("link", { name: /book appointment/i }).length
+      ).toBe(2);
+    });
+
+    it("closes the drawer when the mobile Book appointment CTA is clicked", () => {
+      render(<MarketingNav />);
+      fireEvent.click(screen.getByRole("button", { name: /toggle menu/i }));
+
+      // Click the SECOND Book appointment link (the drawer copy) to invoke its
+      // onClick={() => setOpen(false)} close handler.
+      const ctas = screen.getAllByRole("link", { name: /book appointment/i });
+      fireEvent.click(ctas[1]);
+
+      expect(screen.getByTestId("icon-menu")).toBeInTheDocument();
+      expect(
+        screen.getAllByRole("link", { name: /book appointment/i }).length
+      ).toBe(1);
     });
 
     it("closes the drawer when a mobile nav link is clicked", () => {

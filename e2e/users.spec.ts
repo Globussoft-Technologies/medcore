@@ -81,6 +81,10 @@ test.describe("User Management — /dashboard/users edit / deactivate / role-cha
       page.getByRole("heading", { name: /user management/i }).first()
     ).toBeVisible({ timeout: 15_000 });
 
+    // The staff list paginates (25/page); narrow it to the seeded user via
+    // the search box so the row is on the page regardless of total count.
+    await page.locator('[data-testid="users-search"]').fill(staff.email);
+
     // The seeded row is keyed by user id — wait for it to be present.
     const editBtn = page.locator(`[data-testid="user-edit-${staff.id}"]`);
     await expect(editBtn).toBeVisible({ timeout: 15_000 });
@@ -128,6 +132,9 @@ test.describe("User Management — /dashboard/users edit / deactivate / role-cha
     await dismissTourIfPresent(page);
     await expectNotForbidden(page);
 
+    // Narrow the paginated list to the seeded user (avoids page-2+ misses).
+    await page.locator('[data-testid="users-search"]').fill(staff.email);
+
     const toggle = page.locator(`[data-testid="user-toggle-${staff.id}"]`);
     await expect(toggle).toBeVisible({ timeout: 15_000 });
     await expect(toggle).toContainText(/disable/i);
@@ -162,6 +169,9 @@ test.describe("User Management — /dashboard/users edit / deactivate / role-cha
     await page.goto("/dashboard/users");
     await dismissTourIfPresent(page);
     await expectNotForbidden(page);
+
+    // Narrow the paginated list to the seeded user (avoids page-2+ misses).
+    await page.locator('[data-testid="users-search"]').fill(staff.email);
 
     const editBtn = page.locator(`[data-testid="user-edit-${staff.id}"]`);
     await expect(editBtn).toBeVisible({ timeout: 15_000 });

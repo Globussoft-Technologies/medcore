@@ -156,6 +156,29 @@ describeIfDB("Tenants API (integration)", () => {
     await prisma.user.deleteMany({
       where: { email: { startsWith: "reg-admin-" } },
     });
+    // No-trial tenants now get a first PlatformInvoice auto-generated at
+    // creation; those rows FK-block `tenant.deleteMany`. Clear each doomed
+    // tenant's invoices (and their line items) before deleting the tenants.
+    const doomed = await prisma.tenant.findMany({
+      where: { subdomain: { not: "default" } },
+      select: { id: true },
+    });
+    if (doomed.length > 0) {
+      const tenantIds = doomed.map((t: { id: string }) => t.id);
+      const invoices = await prisma.platformInvoice.findMany({
+        where: { tenantId: { in: tenantIds } },
+        select: { id: true },
+      });
+      if (invoices.length > 0) {
+        const invoiceIds = invoices.map((i: { id: string }) => i.id);
+        await prisma.platformInvoiceLineItem.deleteMany({
+          where: { invoiceId: { in: invoiceIds } },
+        });
+        await prisma.platformInvoice.deleteMany({
+          where: { id: { in: invoiceIds } },
+        });
+      }
+    }
     await prisma.tenant.deleteMany({
       where: { subdomain: { not: "default" } },
     });

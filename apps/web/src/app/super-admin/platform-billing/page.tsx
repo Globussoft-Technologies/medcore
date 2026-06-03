@@ -152,6 +152,17 @@ const INVOICE_FILTER_CHIPS: Array<{ key: InvoiceFilter; label: string }> = [
   { key: "all", label: "All" },
 ];
 
+type SubFilter = "all" | "trial" | "active" | "suspended";
+
+const SUB_FILTER_CHIPS: Array<{ key: SubFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "trial", label: "Trial" },
+  { key: "active", label: "Active" },
+  // Filter labelled "Inactive" to match the Tenants page; still filters the
+  // `suspended` effective status under the hood.
+  { key: "suspended", label: "Inactive" },
+];
+
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   try {
@@ -241,6 +252,7 @@ export default function PlatformBillingPage() {
 
   const [tab, setTab] = useState<Tab>("subscriptions");
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("ISSUED");
+  const [subFilter, setSubFilter] = useState<SubFilter>("all");
 
   const [subscriptions, setSubscriptions] = useState<SubscriptionRow[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
@@ -847,13 +859,37 @@ export default function PlatformBillingPage() {
   // Subscription KPI counts from the loaded subscription list; the unpaid
   // total comes from `unpaidTotalPaise` (loaded by loadKpis) so it's correct
   // regardless of the active tab / invoice filter.
-  const totalTrial = subscriptions.filter((s) => s.status === "trial").length;
+  // A subscription on a SUSPENDED tenant (tenant.active === false) reads as
+  // "suspended" even if its billing status is still active/trial — the
+  // operator suspended the tenant, so that's the effective state used for the
+  // KPI counts, the badge, the filter, and the sort below.
+  const effStatus = (s: SubscriptionRow): SubscriptionStatus =>
+    s.tenant?.active === false ? "suspended" : s.status;
+  const totalTrial = subscriptions.filter((s) => effStatus(s) === "trial").length;
   const totalPastDue = subscriptions.filter(
-    (s) => s.status === "past_due",
+    (s) => effStatus(s) === "past_due",
   ).length;
   const totalActive = subscriptions.filter(
-    (s) => s.status === "active",
+    (s) => effStatus(s) === "active",
   ).length;
+
+  // Subscriptions-tab status filter (All / Trial / Active / Suspended) +
+  // ordering: Active on top, then Trial, then Suspended (past_due / cancelled
+  // sink to the bottom). Stable within each status (preserves API order).
+  const STATUS_RANK: Record<SubscriptionStatus, number> = {
+    active: 0,
+    trial: 1,
+    past_due: 2,
+    suspended: 3,
+    cancelled: 4,
+  };
+  const visibleSubs = (
+    subFilter === "all"
+      ? subscriptions
+      : subscriptions.filter((s) => effStatus(s) === subFilter)
+  )
+    .slice()
+    .sort((a, b) => STATUS_RANK[effStatus(a)] - STATUS_RANK[effStatus(b)]);
 
   return (
     <section
@@ -966,11 +1002,6 @@ export default function PlatformBillingPage() {
         >
           <CreditCard size={14} aria-hidden="true" />
           Invoices
-          {tab === "invoices" && openInvoiceCount > 0 ? (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-              {openInvoiceCount}
-            </span>
-          ) : null}
         </button>
         <button
           type="button"
@@ -1011,6 +1042,36 @@ export default function PlatformBillingPage() {
 
       {/* SUBSCRIPTIONS TAB */}
       {tab === "subscriptions" ? (
+        <>
+        {/* Status filter — All / Trial / Active / Suspended. Mirrors the
+            Invoices-tab segmented control; filters the loaded list client-side. */}
+        <div
+          role="tablist"
+          aria-label="Subscription filter"
+          className="mb-3 inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-gray-700 dark:bg-gray-800"
+          data-testid="platform-billing-subscription-filters"
+        >
+          {SUB_FILTER_CHIPS.map((chip) => {
+            const active = subFilter === chip.key;
+            return (
+              <button
+                key={chip.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                data-testid={`platform-billing-subscription-filter-${chip.key}`}
+                onClick={() => setSubFilter(chip.key)}
+                className={`inline-flex h-8 min-w-[80px] items-center justify-center rounded px-3.5 text-[13px] font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${
+                  active
+                    ? "bg-white text-slate-900 shadow-sm dark:bg-gray-700 dark:text-slate-100"
+                    : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                }`}
+              >
+                {chip.label}
+              </button>
+            );
+          })}
+        </div>
         <div
           className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800"
           data-testid="platform-billing-subscriptions-table-wrapper"
@@ -1034,21 +1095,33 @@ export default function PlatformBillingPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
-              {subscriptions.length === 0 && !loading ? (
+              {visibleSubs.length === 0 && !loading ? (
                 <tr>
                   <td
                     colSpan={8}
                     className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     data-testid="platform-billing-subscriptions-empty"
                   >
-                    No subscriptions yet.
+                    No subscriptions
+                    {subFilter === "all"
+                      ? " yet"
+                      : ` (${
+                          SUB_FILTER_CHIPS.find((c) => c.key === subFilter)
+                            ?.label ?? subFilter
+                        })`}
+                    .
                   </td>
                 </tr>
               ) : null}
-              {subscriptions.map((s) => {
-                const badge = subscriptionStatusBadge(s.status);
+              {visibleSubs.map((s) => {
+                const badge = subscriptionStatusBadge(effStatus(s));
+                // Plan can't be changed for a cancelled/suspended subscription
+                // OR a suspended tenant (active === false) — the tenant must be
+                // restored first.
                 const canChange =
-                  s.status !== "cancelled" && s.status !== "suspended";
+                  s.status !== "cancelled" &&
+                  s.status !== "suspended" &&
+                  s.tenant?.active !== false;
                 const monthlyPaise = subscriptionMonthlyPaise(s);
                 const planName = planByKey.get(s.plan)?.name ?? s.plan;
                 return (
@@ -1114,7 +1187,22 @@ export default function PlatformBillingPage() {
                           Change plan
                         </button>
                       ) : (
-                        <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
+                        // Suspended/inactive tenant: show the action disabled and
+                        // explain on click that the account must be restored first.
+                        <button
+                          type="button"
+                          aria-disabled="true"
+                          title="Restore the account to change the plan"
+                          onClick={() =>
+                            toast.error(
+                              "Restore the account to change the plan.",
+                            )
+                          }
+                          data-testid={`platform-billing-change-plan-${s.id}`}
+                          className="inline-flex h-9 cursor-not-allowed items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-400 dark:border-gray-700 dark:bg-gray-800/50 dark:text-slate-500"
+                        >
+                          Change plan
+                        </button>
                       )}
                     </td>
                   </tr>
@@ -1123,6 +1211,7 @@ export default function PlatformBillingPage() {
             </tbody>
           </table>
         </div>
+        </>
       ) : null}
 
       {/* INVOICES TAB */}
@@ -1154,6 +1243,16 @@ export default function PlatformBillingPage() {
                   }`}
                 >
                   {chip.label}
+                  {/* Unpaid count badge — shown only on the Unpaid chip AND
+                      only while the Unpaid filter is active (hidden on
+                      Paid / All). */}
+                  {chip.key === "ISSUED" &&
+                  invoiceFilter === "ISSUED" &&
+                  openInvoiceCount > 0 ? (
+                    <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                      {openInvoiceCount}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}

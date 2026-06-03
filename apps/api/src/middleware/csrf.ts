@@ -73,6 +73,14 @@ const CSRF_BYPASS_PATHS = [
   "/api/v1/patient-auth/otp-request",
   "/api/v1/patient-auth/otp-verify",
   "/api/v1/patient-auth/firebase-verify",
+  // Public quick-appointment booking (June 2026). Fully unauthenticated —
+  // the caller has no session and therefore no medcore_csrf cookie to echo,
+  // so CSRF can't apply. Defence in lieu of CSRF: per-IP rate limiting
+  // (suggest 20/min, book 10/min) + strict Zod validation on every body, and
+  // the booking only ever creates a PATIENT row keyed by the supplied phone
+  // (no privilege to escalate). See routes/public-booking.ts.
+  "/api/v1/public/booking/suggest-doctors",
+  "/api/v1/public/booking/book",
   // Razorpay webhook is authenticated by signature, not CSRF — and is
   // mounted before express.json so it doesn't even pass through here,
   // but list it for documentation.

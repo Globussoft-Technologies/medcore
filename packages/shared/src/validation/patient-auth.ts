@@ -46,11 +46,16 @@ const PATIENT_PHONE_REGEX = /^\+?[0-9]{10,15}$/;
  * value they can compare or store.
  */
 export function canonicalisePhone(raw: string): string {
-  const trimmed = raw.trim();
-  // Drop leading + and country-code 91 — most production rows look like
-  // "9876543210" (10 digits), so we collapse the +91 / 91 / leading-0
-  // variants to that shape.
-  let s = trimmed.startsWith("+") ? trimmed.slice(1) : trimmed;
+  // Strip ALL separators humans type (spaces, dashes, parentheses, dots) plus
+  // any leading "+", leaving digits only. Without this, a number entered as
+  // "+91 9876543210" or "98765-43210" was stored verbatim (space/dash intact)
+  // and never matched the digits-only candidates the login lookup builds —
+  // the patient could book but then never sign in (June 2026 bug). The
+  // public booking form's regex permits `\s` and `-`, so this is the
+  // load-bearing normaliser for that flow.
+  let s = raw.replace(/[^\d]/g, "");
+  // Collapse the +91 / 91 / leading-0 variants to the canonical 10-digit
+  // Indian shape that production rows use.
   if (s.length === 12 && s.startsWith("91")) s = s.slice(2);
   else if (s.length === 11 && s.startsWith("0")) s = s.slice(1);
   return s;

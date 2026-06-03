@@ -9,6 +9,7 @@ export * from "./types/api";
 export * from "./validation/auth";
 export * from "./validation/patient";
 export * from "./validation/appointment";
+export * from "./validation/public-booking";
 export * from "./validation/billing";
 export * from "./validation/prescription";
 export * from "./validation/pharmacy";

@@ -69,6 +69,13 @@ export function MarketingNav() {
           >
             Book a demo
           </Link>
+          {/* Public quick-appointment booking — no login needed. */}
+          <Link
+            href="/book"
+            className="rounded-full border border-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-600 shadow-sm hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+          >
+            Book appointment
+          </Link>
         </div>
 
         <button
@@ -106,6 +113,13 @@ export function MarketingNav() {
               className="mt-2 block rounded-full bg-blue-600 px-4 py-2 text-center text-base font-semibold text-white"
             >
               Book a demo
+            </Link>
+            <Link
+              href="/book"
+              onClick={() => setOpen(false)}
+              className="mt-2 block rounded-full border border-emerald-500 px-4 py-2 text-center text-base font-semibold text-emerald-600 dark:text-emerald-400"
+            >
+              Book appointment
             </Link>
           </div>
         </div>

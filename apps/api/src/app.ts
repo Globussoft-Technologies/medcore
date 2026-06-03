@@ -50,6 +50,7 @@ import { consultRailRouter } from "./routes/consult-rail";
 import { billingRouter, razorpayWebhookRouter } from "./routes/billing";
 import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescriptions";
 import { publicPatientRouter } from "./routes/public-patient";
+import { publicBookingRouter } from "./routes/public-booking";
 import { queueRouter } from "./routes/queue";
 import { notificationRouter } from "./routes/notifications";
 import { auditRouter } from "./routes/audit";
@@ -237,9 +238,22 @@ export function buildApp() {
     // ignore in test/CI sandboxes without write permission
   }
 
+  // CORS allow-list. `CORS_ORIGIN` may be a single origin OR a comma-separated
+  // list (e.g. "http://localhost:3000,http://127.0.0.1:3000"). The `cors`
+  // package and Socket.IO both accept a string[] of exact origins; passing the
+  // raw comma-joined string would be treated as ONE literal origin that never
+  // matches a real browser `Origin` header — the cause of the cross-origin
+  // rejection. Split + trim into an array so every listed origin is honoured.
+  // NOTE: `localhost` and `127.0.0.1` are DISTINCT origins to the browser even
+  // though they resolve to the same host, so both must be listed explicitly.
+  const corsOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000")
+    .split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+
   const io = new SocketServer(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+      origin: corsOrigins,
       methods: ["GET", "POST"],
     },
   });
@@ -278,7 +292,7 @@ export function buildApp() {
 
   // Middleware
   app.use(cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    origin: corsOrigins,
     credentials: true,
   }));
 
@@ -350,6 +364,11 @@ export function buildApp() {
   app.use("/api/v1/public", publicPrescriptionRouter);
   app.use("/api/v1/public", publicPatientRouter);
   app.use("/api/v1/public", publicCampaignsRouter);
+  // Public quick-appointment booking (June 2026) — UNAUTHENTICATED. Lets a
+  // prospective patient self-book from the marketing site: symptom + date →
+  // suggested doctors, then book (auto-registers the patient by phone + sends
+  // a WhatsApp confirmation). Per-IP rate-limited inside the router.
+  app.use("/api/v1/public/booking", publicBookingRouter);
   // Pearl §8.4 gap row 221 — public status endpoint. UNAUTHENTICATED;
   // mounted alongside the other /public routes (and BEFORE any router
   // that calls `router.use(authenticate)`). External uptime monitors

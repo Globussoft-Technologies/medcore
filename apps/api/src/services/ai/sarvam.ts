@@ -499,7 +499,14 @@ export async function runTriageTurn(
         withRetry(() =>
           sarvam.chat.completions.create({
             model: MODEL,
-            max_tokens: 1024,
+            // sarvam-105b is a REASONING model: it emits a long
+            // `<think>...</think>` chain-of-thought BEFORE the user-visible
+            // reply (stripped by stripSarvamThinking below). At max_tokens
+            // 1024 the think block alone exhausted the budget, the response
+            // truncated mid-think, and stripping the unterminated block left
+            // an EMPTY reply → blank chat bubble in /dashboard/ai-booking.
+            // Give it enough headroom to finish thinking AND answer.
+            max_tokens: 3000,
             // No `tools` / `tool_choice` — Sarvam-m doesn't support
             // function calling. Emergency detection happens via the
             // text marker convention documented above.
@@ -553,7 +560,20 @@ export async function runTriageTurn(
     return { reply: "", isEmergency: true, emergencyReason: reason };
   }
 
-  return { reply: textContent, isEmergency: false };
+  // Safety net: if stripping the <think> block (or a truncated response) left
+  // nothing, never render an empty chat bubble — ask a sensible follow-up so
+  // the conversation can continue toward a doctor suggestion.
+  const reply = textContent.trim();
+  if (!reply) {
+    return {
+      reply:
+        language === "hi"
+          ? "क्या आप अपने लक्षण थोड़े और विस्तार से बता सकते हैं? कब से है और कितनी तकलीफ़ है?"
+          : "Could you tell me a little more about your symptoms — when it started and how severe it feels?",
+      isEmergency: false,
+    };
+  }
+  return { reply, isEmergency: false };
 }
 
 // ── extractSymptomSummary ─────────────────────────────────────────────────────

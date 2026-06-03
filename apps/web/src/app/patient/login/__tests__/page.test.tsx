@@ -250,6 +250,10 @@ describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
       expect(apiPostMock).toHaveBeenCalledWith(
         "/patient-auth/firebase-verify",
         { idToken: "firebase-id-token-abc" },
+        // June 2026: the verify call opts out of the api lib's global 401
+        // handler so a failed sign-in shows the real inline error instead of
+        // the misleading "session expired" toast + bounce.
+        { skip401Redirect: true },
       );
     });
     await waitFor(() => {

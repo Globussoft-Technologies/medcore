@@ -144,6 +144,12 @@ export default function PatientLoginPage() {
       const res = await api.post<FirebaseVerifyResponse>(
         "/patient-auth/firebase-verify",
         { idToken },
+        // Opt out of the api lib's global 401 handler: a 401 here means
+        // "this phone isn't registered / token rejected", NOT an expired
+        // session. Without this, the generic "Your session has expired"
+        // toast fires and the page bounces to /login, masking the real
+        // reason. We surface the server's own message inline instead.
+        { skip401Redirect: true },
       );
       if (res?.success) {
         // Cookies set by server response — bounce to dashboard.

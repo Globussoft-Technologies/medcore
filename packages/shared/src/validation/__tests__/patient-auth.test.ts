@@ -250,11 +250,23 @@ describe("canonicalisePhone()", () => {
   it("handles a whitespace-only string by trimming to empty", () => {
     expect(canonicalisePhone("   ")).toBe("");
   });
-  it("preserves non-digit junk for callers (the helper is intentionally minimal)", () => {
-    // canonicalisePhone is a digit-prefix collapser, NOT a sanitiser. The
-    // schema regex is the gate that rejects malformed input — the helper only
-    // promises deterministic prefix collapse for already-shaped inputs.
-    expect(canonicalisePhone("abc")).toBe("abc");
+  it("strips ALL non-digit characters (June 2026 fix — was passing junk through)", () => {
+    // canonicalisePhone now strips every non-digit so a number entered with
+    // spaces/dashes/parens normalises to the same digits-only form the login
+    // lookup builds candidates against. Previously "abc" came back as "abc"
+    // and "+91 9876543210" kept its space, so a patient who booked with a
+    // formatted number could never sign in.
+    expect(canonicalisePhone("abc")).toBe("");
+  });
+  it("strips internal spaces from a formatted Indian E.164 number", () => {
+    // The public booking form permits spaces; this is the load-bearing case.
+    expect(canonicalisePhone("+91 9876543210")).toBe("9876543210");
+    expect(canonicalisePhone("91 98765 43210")).toBe("9876543210");
+  });
+  it("strips dashes and parentheses", () => {
+    expect(canonicalisePhone("98765-43210")).toBe("9876543210");
+    expect(canonicalisePhone("+91-9876543210")).toBe("9876543210");
+    expect(canonicalisePhone("(987) 654-3210")).toBe("9876543210");
   });
   it("collapses + then 91 exactly once (no double-strip)", () => {
     // After dropping +, "919876543210" is 12 digits starting with 91 → strip 91 once → 10 digits.

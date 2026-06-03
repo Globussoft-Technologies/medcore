@@ -157,11 +157,11 @@ function effectivelyPaid(row: InvoiceRow): boolean {
 }
 
 function statusPillClass(row: InvoiceRow): string {
-  if (effectivelyPaid(row)) return "bg-emerald-100 text-emerald-900";
-  if (row.paymentStatus === "REFUNDED") return "bg-slate-200 text-slate-700";
-  if (isOverdue(row)) return "bg-red-100 text-red-900";
-  if (row.paymentStatus === "PARTIAL") return "bg-amber-100 text-amber-900";
-  return "bg-blue-100 text-blue-900";
+  if (effectivelyPaid(row)) return "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200";
+  if (row.paymentStatus === "REFUNDED") return "bg-slate-200 dark:bg-gray-700 text-slate-700 dark:text-gray-200";
+  if (isOverdue(row)) return "bg-red-100 dark:bg-red-900/40 text-red-900 dark:text-red-200";
+  if (row.paymentStatus === "PARTIAL") return "bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200";
+  return "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200";
 }
 
 function statusPillLabel(row: InvoiceRow): string {
@@ -328,7 +328,7 @@ export default function PatientBillsPage() {
     return (
       <section
         data-testid="patient-bills-loading"
-        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-gray-400"
       >
         Loading your bills…
       </section>
@@ -339,7 +339,7 @@ export default function PatientBillsPage() {
     return (
       <section data-testid="patient-bills-unauth" className="space-y-4 py-6">
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           Please sign in to view your bills.
         </p>
         <Link
@@ -358,7 +358,7 @@ export default function PatientBillsPage() {
       <section
         data-testid="patient-bills-error"
         role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-800 dark:text-red-200"
       >
         Something went wrong loading your bills. Please refresh.
       </section>
@@ -376,7 +376,7 @@ export default function PatientBillsPage() {
           {sortedOpen.length > 0 ? (
             <span
               data-testid="patient-bills-open-count"
-              className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700"
+              className="rounded-full bg-slate-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-slate-700 dark:text-gray-200"
             >
               {sortedOpen.length} open
             </span>
@@ -385,7 +385,7 @@ export default function PatientBillsPage() {
         {totalOutstanding > 0 ? (
           <div
             data-testid="patient-bills-outstanding-total"
-            className="rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-900"
+            className="rounded-md bg-red-50 dark:bg-red-900/30 px-3 py-2 text-sm font-semibold text-red-900 dark:text-red-200"
           >
             Outstanding {formatRupees(totalOutstanding)}
           </div>
@@ -395,9 +395,9 @@ export default function PatientBillsPage() {
       {isEmpty ? (
         <div
           data-testid="patient-bills-empty"
-          className="space-y-3 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm"
+          className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center shadow-sm"
         >
-          <p className="text-base text-slate-700">
+          <p className="text-base text-slate-700 dark:text-gray-200">
             No bills yet. Invoices raised after a visit will appear here.
           </p>
         </div>
@@ -411,14 +411,14 @@ export default function PatientBillsPage() {
           >
             <h2
               id="open-heading"
-              className="text-sm font-medium uppercase tracking-wide text-slate-500"
+              className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
             >
               Open
             </h2>
             {sortedOpen.length === 0 ? (
               <p
                 data-testid="patient-bills-open-empty"
-                className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600"
+                className="rounded-md border border-dashed border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900 p-4 text-sm text-slate-600 dark:text-gray-300"
               >
                 No open bills. You&apos;re all caught up!
               </p>
@@ -437,7 +437,7 @@ export default function PatientBillsPage() {
                   disabled={loadingMore}
                   onClick={() => void fetchMoreOpen()}
                   data-testid="patient-bills-load-more"
-                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-6 text-sm font-medium text-slate-800 disabled:opacity-60"
+                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-6 text-sm font-medium text-slate-800 dark:text-gray-100 disabled:opacity-60"
                 >
                   {loadingMore ? "Loading…" : "Load more"}
                 </button>
@@ -455,7 +455,7 @@ export default function PatientBillsPage() {
               <div className="flex items-center justify-between">
                 <h2
                   id="paid-heading"
-                  className="text-sm font-medium uppercase tracking-wide text-slate-500"
+                  className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
                 >
                   Paid
                 </h2>
@@ -464,7 +464,7 @@ export default function PatientBillsPage() {
                   onClick={() => setShowPaid((v) => !v)}
                   aria-expanded={showPaid}
                   data-testid="patient-bills-paid-toggle"
-                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-800"
+                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-3 text-xs font-medium text-slate-800 dark:text-gray-100"
                 >
                   {showPaid ? "Hide paid bills" : "Show paid bills"}
                 </button>
@@ -473,7 +473,7 @@ export default function PatientBillsPage() {
                 sortedPaid.length === 0 ? (
                   <p
                     data-testid="patient-bills-paid-empty"
-                    className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600"
+                    className="rounded-md border border-dashed border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900 p-4 text-sm text-slate-600 dark:text-gray-300"
                   >
                     No past bills yet.
                   </p>
@@ -518,27 +518,27 @@ function BillCard({ invoice }: CardProps) {
     <li
       data-testid="patient-bills-row"
       data-invoice-id={invoice.id}
-      className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+      className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
           <p
             data-testid="patient-bills-row-number"
-            className="text-xs font-medium uppercase tracking-wide text-slate-500"
+            className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
           >
             #{invoice.invoiceNumber}
           </p>
-          <p className="text-base font-semibold text-slate-900">
+          <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
             {formatRupees(Number(invoice.totalAmount))}
           </p>
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-slate-600 dark:text-gray-300">
             Issued {formatDate(invoice.createdAt)}
           </p>
           {open && invoice.dueDate ? (
             <p
               data-testid="patient-bills-row-due"
               className={`text-xs font-medium ${
-                overdue ? "text-red-700" : "text-slate-600"
+                overdue ? "text-red-700 dark:text-red-300" : "text-slate-600 dark:text-gray-300"
               }`}
             >
               Due {formatDate(invoice.dueDate)}
@@ -548,7 +548,7 @@ function BillCard({ invoice }: CardProps) {
           {open && outstanding > 0 && outstanding !== Number(invoice.totalAmount) ? (
             <p
               data-testid="patient-bills-row-outstanding"
-              className="text-xs text-slate-700"
+              className="text-xs text-slate-700 dark:text-gray-200"
             >
               Outstanding {formatRupees(outstanding)}
             </p>
@@ -576,8 +576,8 @@ function BillCard({ invoice }: CardProps) {
             const cls = active
               ? "bg-slate-900 text-white"
               : done
-                ? "bg-emerald-100 text-emerald-900"
-                : "bg-slate-100 text-slate-600";
+                ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200"
+                : "bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300";
             return (
               <span
                 key={stage.key}
@@ -606,7 +606,7 @@ function BillCard({ invoice }: CardProps) {
         <Link
           href={`/patient/bills/${invoice.id}`}
           data-testid="patient-bills-view-btn"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
         >
           View detail
         </Link>
@@ -615,7 +615,7 @@ function BillCard({ invoice }: CardProps) {
           target="_blank"
           rel="noopener noreferrer"
           data-testid="patient-bills-gst-btn"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
         >
           Download GST invoice
         </a>

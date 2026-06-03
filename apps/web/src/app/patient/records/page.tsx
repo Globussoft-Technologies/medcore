@@ -124,9 +124,9 @@ const TYPE_LABEL: Record<EntryType, string> = {
 };
 
 const TYPE_PILL_CLASS: Record<EntryType, string> = {
-  appointment: "bg-blue-100 text-blue-900",
-  prescription: "bg-emerald-100 text-emerald-900",
-  lab: "bg-amber-100 text-amber-900",
+  appointment: "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200",
+  prescription: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200",
+  lab: "bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200",
 };
 
 const TYPE_ICON: Record<EntryType, string> = {
@@ -373,7 +373,7 @@ export default function PatientRecordsPage() {
     return (
       <section
         data-testid="patient-records-loading"
-        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-gray-400"
       >
         Loading your records…
       </section>
@@ -384,7 +384,7 @@ export default function PatientRecordsPage() {
     return (
       <section data-testid="patient-records-unauth" className="space-y-4 py-6">
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           Please sign in to view your health records.
         </p>
         <Link
@@ -403,7 +403,7 @@ export default function PatientRecordsPage() {
       <section
         data-testid="patient-records-error"
         role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-800 dark:text-red-200"
       >
         Something went wrong loading your records. Please refresh.
       </section>
@@ -418,7 +418,7 @@ export default function PatientRecordsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           My health records
         </h1>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-600 dark:text-gray-300">
           Your appointments, prescriptions, and lab results in one place.
           Stage 1 shows local Pearl records; Stage 2 will federate
           ABDM-linked records via HIU.
@@ -445,7 +445,7 @@ export default function PatientRecordsPage() {
               className={`inline-flex h-11 min-w-[44px] items-center justify-center gap-2 rounded-full px-4 text-sm font-medium ${
                 on
                   ? "bg-slate-900 text-white"
-                  : "border border-slate-300 bg-white text-slate-700"
+                  : "border border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-slate-700 dark:text-gray-200"
               }`}
             >
               <span aria-hidden="true">{TYPE_ICON[t]}</span>
@@ -458,10 +458,10 @@ export default function PatientRecordsPage() {
       {isEmpty ? (
         <div
           data-testid="patient-records-empty"
-          className="space-y-3 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm"
+          className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center shadow-sm"
         >
-          <p className="text-base text-slate-700">No records yet.</p>
-          <p className="text-xs text-slate-500">
+          <p className="text-base text-slate-700 dark:text-gray-200">No records yet.</p>
+          <p className="text-xs text-slate-500 dark:text-gray-400">
             Your appointments, prescriptions, and lab results will show up
             here once they&apos;re entered by the hospital.
           </p>
@@ -480,7 +480,7 @@ export default function PatientRecordsPage() {
             >
               <h2
                 data-testid="patient-records-day-header"
-                className="sticky top-0 z-10 bg-white py-1 text-xs font-semibold uppercase tracking-wide text-slate-500"
+                className="sticky top-0 z-10 bg-white dark:bg-gray-800 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-gray-400"
               >
                 {formatDateHeader(g.ts)}
               </h2>
@@ -505,7 +505,7 @@ export default function PatientRecordsPage() {
               void fetchWindow(next, "append");
             }}
             data-testid="patient-records-load-more"
-            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-6 text-sm font-medium text-slate-800 disabled:opacity-60"
+            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-6 text-sm font-medium text-slate-800 dark:text-gray-100 disabled:opacity-60"
           >
             {loadingMore ? "Loading…" : "Load older records"}
           </button>
@@ -525,26 +525,26 @@ function RecordCard({ entry }: CardProps) {
       data-testid="patient-records-row"
       data-entry-id={entry.id}
       data-entry-type={entry.type}
-      className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+      className="space-y-2 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
           <p
             data-testid="patient-records-row-time"
-            className="text-xs font-medium uppercase tracking-wide text-slate-500"
+            className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
           >
             {formatTime(entry.when)}
           </p>
           <p
             data-testid="patient-records-row-title"
-            className="text-base font-semibold text-slate-900"
+            className="text-base font-semibold text-slate-900 dark:text-gray-100"
           >
             {entry.title}
           </p>
           {entry.body ? (
             <p
               data-testid="patient-records-row-body"
-              className="text-sm text-slate-700"
+              className="text-sm text-slate-700 dark:text-gray-200"
             >
               {entry.body}
             </p>
@@ -565,7 +565,7 @@ function RecordCard({ entry }: CardProps) {
         <Link
           href={entry.href}
           data-testid="patient-records-row-view-btn"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
         >
           View detail
         </Link>

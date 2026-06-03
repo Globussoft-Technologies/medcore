@@ -171,11 +171,11 @@ function isOverdue(inv: InvoiceDetail): boolean {
 }
 
 function statusPillClass(inv: InvoiceDetail): string {
-  if (inv.paymentStatus === "PAID") return "bg-emerald-100 text-emerald-900";
-  if (inv.paymentStatus === "REFUNDED") return "bg-slate-200 text-slate-700";
-  if (isOverdue(inv)) return "bg-red-100 text-red-900";
-  if (inv.paymentStatus === "PARTIAL") return "bg-amber-100 text-amber-900";
-  return "bg-blue-100 text-blue-900";
+  if (inv.paymentStatus === "PAID") return "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200";
+  if (inv.paymentStatus === "REFUNDED") return "bg-slate-200 dark:bg-gray-700 text-slate-700 dark:text-gray-200";
+  if (isOverdue(inv)) return "bg-red-100 dark:bg-red-900/40 text-red-900 dark:text-red-200";
+  if (inv.paymentStatus === "PARTIAL") return "bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200";
+  return "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200";
 }
 
 function statusPillLabel(inv: InvoiceDetail): string {
@@ -187,17 +187,17 @@ function statusPillLabel(inv: InvoiceDetail): string {
 function paymentModePillClass(mode: string): string {
   switch (mode) {
     case "CASH":
-      return "bg-emerald-100 text-emerald-900";
+      return "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200";
     case "CARD":
       return "bg-indigo-100 text-indigo-900";
     case "UPI":
-      return "bg-violet-100 text-violet-900";
+      return "bg-violet-100 dark:bg-violet-900/40 text-violet-900 dark:text-violet-200";
     case "ONLINE":
-      return "bg-sky-100 text-sky-900";
+      return "bg-sky-100 dark:bg-sky-900/40 text-sky-900 dark:text-sky-200";
     case "INSURANCE":
-      return "bg-amber-100 text-amber-900";
+      return "bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200";
     default:
-      return "bg-slate-100 text-slate-700";
+      return "bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-200";
   }
 }
 
@@ -316,7 +316,7 @@ export default function PatientBillDetailPage() {
     return (
       <section
         data-testid="patient-bill-detail-loading"
-        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-gray-400"
       >
         Loading invoice…
       </section>
@@ -330,7 +330,7 @@ export default function PatientBillDetailPage() {
         className="space-y-4 py-6"
       >
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           Please sign in to view this invoice.
         </p>
         <Link
@@ -353,7 +353,7 @@ export default function PatientBillDetailPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           Invoice not found
         </h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           We couldn&apos;t find this invoice. It may have been removed, or
           you may not have access to it.
         </p>
@@ -373,7 +373,7 @@ export default function PatientBillDetailPage() {
       <section
         data-testid="patient-bill-detail-error"
         role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-800 dark:text-red-200"
       >
         Something went wrong loading this invoice. Please refresh.
       </section>
@@ -399,7 +399,7 @@ export default function PatientBillDetailPage() {
         <Link
           href="/patient/bills"
           data-testid="patient-bill-detail-back"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
         >
           ← Back to bills
         </Link>
@@ -408,30 +408,30 @@ export default function PatientBillDetailPage() {
       {/* ─── Header ────────────────────────────────────────────────────── */}
       <header
         data-testid="patient-bill-detail-header"
-        className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="space-y-1">
             <p
               data-testid="patient-bill-detail-number"
-              className="text-xs font-medium uppercase tracking-wide text-slate-500"
+              className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
             >
               Invoice #{invoice.invoiceNumber}
             </p>
             <p
               data-testid="patient-bill-detail-total"
-              className="text-2xl font-semibold text-slate-900"
+              className="text-2xl font-semibold text-slate-900 dark:text-gray-100"
             >
               {formatRupees(Number(invoice.totalAmount))}
             </p>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-600 dark:text-gray-300">
               Issued {formatDate(invoice.createdAt)}
             </p>
             {invoice.dueDate ? (
               <p
                 data-testid="patient-bill-detail-due"
                 className={`text-xs font-medium ${
-                  overdue ? "text-red-700" : "text-slate-600"
+                  overdue ? "text-red-700 dark:text-red-300" : "text-slate-600 dark:text-gray-300"
                 }`}
               >
                 Due {formatDate(invoice.dueDate)}
@@ -454,18 +454,18 @@ export default function PatientBillDetailPage() {
       <section
         data-testid="patient-bill-detail-items"
         aria-labelledby="items-heading"
-        className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
       >
         <h2
           id="items-heading"
-          className="text-sm font-medium uppercase tracking-wide text-slate-500"
+          className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
         >
           Line items
         </h2>
         {items.length === 0 ? (
           <p
             data-testid="patient-bill-detail-items-empty"
-            className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600"
+            className="rounded-md border border-dashed border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900 p-4 text-sm text-slate-600 dark:text-gray-300"
           >
             No line items on this invoice.
           </p>
@@ -473,7 +473,7 @@ export default function PatientBillDetailPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-slate-200 dark:border-gray-700 text-xs uppercase tracking-wide text-slate-500 dark:text-gray-400">
                   <th className="py-2 pr-3 font-medium">Description</th>
                   <th className="py-2 pr-3 font-medium">HSN/SAC</th>
                   <th className="py-2 pr-3 text-right font-medium">Qty</th>
@@ -495,21 +495,21 @@ export default function PatientBillDetailPage() {
                       key={it.id}
                       data-testid="patient-bill-detail-item-row"
                       data-item-id={it.id}
-                      className="border-b border-slate-100 last:border-b-0 text-slate-800"
+                      className="border-b border-slate-100 dark:border-gray-800 last:border-b-0 text-slate-800 dark:text-gray-100"
                     >
                       <td className="py-2 pr-3">
-                        <div className="font-medium text-slate-900">
+                        <div className="font-medium text-slate-900 dark:text-gray-100">
                           {it.description}
                         </div>
                         {it.category ? (
-                          <div className="text-xs text-slate-500">
+                          <div className="text-xs text-slate-500 dark:text-gray-400">
                             {it.category}
                           </div>
                         ) : null}
                       </td>
                       <td
                         data-testid="patient-bill-detail-item-hsn"
-                        className="py-2 pr-3 text-xs text-slate-600"
+                        className="py-2 pr-3 text-xs text-slate-600 dark:text-gray-300"
                       >
                         {it.hsnSac || "—"}
                       </td>
@@ -533,8 +533,8 @@ export default function PatientBillDetailPage() {
                 })}
               </tbody>
               <tfoot>
-                <tr className="text-slate-700">
-                  <td colSpan={6} className="pt-3 pr-3 text-right text-xs uppercase tracking-wide text-slate-500">
+                <tr className="text-slate-700 dark:text-gray-200">
+                  <td colSpan={6} className="pt-3 pr-3 text-right text-xs uppercase tracking-wide text-slate-500 dark:text-gray-400">
                     Subtotal
                   </td>
                   <td
@@ -545,33 +545,33 @@ export default function PatientBillDetailPage() {
                   </td>
                 </tr>
                 {headerDiscount > 0 ? (
-                  <tr className="text-slate-700">
-                    <td colSpan={6} className="pr-3 text-right text-xs uppercase tracking-wide text-slate-500">
+                  <tr className="text-slate-700 dark:text-gray-200">
+                    <td colSpan={6} className="pr-3 text-right text-xs uppercase tracking-wide text-slate-500 dark:text-gray-400">
                       Discount
                     </td>
                     <td
                       data-testid="patient-bill-detail-discount"
-                      className="text-right tabular-nums text-emerald-700"
+                      className="text-right tabular-nums text-emerald-700 dark:text-emerald-300"
                     >
                       − {formatRupees(headerDiscount)}
                     </td>
                   </tr>
                 ) : null}
                 {headerAdvance > 0 ? (
-                  <tr className="text-slate-700">
-                    <td colSpan={6} className="pr-3 text-right text-xs uppercase tracking-wide text-slate-500">
+                  <tr className="text-slate-700 dark:text-gray-200">
+                    <td colSpan={6} className="pr-3 text-right text-xs uppercase tracking-wide text-slate-500 dark:text-gray-400">
                       Advance applied
                     </td>
                     <td
                       data-testid="patient-bill-detail-advance"
-                      className="text-right tabular-nums text-emerald-700"
+                      className="text-right tabular-nums text-emerald-700 dark:text-emerald-300"
                     >
                       − {formatRupees(headerAdvance)}
                     </td>
                   </tr>
                 ) : null}
-                <tr className="text-slate-700">
-                  <td colSpan={6} className="pr-3 text-right text-xs uppercase tracking-wide text-slate-500">
+                <tr className="text-slate-700 dark:text-gray-200">
+                  <td colSpan={6} className="pr-3 text-right text-xs uppercase tracking-wide text-slate-500 dark:text-gray-400">
                     Total tax (CGST + SGST)
                   </td>
                   <td
@@ -581,7 +581,7 @@ export default function PatientBillDetailPage() {
                     {formatRupees(headerTax)}
                   </td>
                 </tr>
-                <tr className="border-t border-slate-200 text-slate-900">
+                <tr className="border-t border-slate-200 dark:border-gray-700 text-slate-900 dark:text-gray-100">
                   <td colSpan={6} className="pt-2 pr-3 text-right text-sm font-semibold uppercase tracking-wide">
                     Grand total
                   </td>
@@ -602,18 +602,18 @@ export default function PatientBillDetailPage() {
       <section
         data-testid="patient-bill-detail-payments"
         aria-labelledby="payments-heading"
-        className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
       >
         <h2
           id="payments-heading"
-          className="text-sm font-medium uppercase tracking-wide text-slate-500"
+          className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
         >
           Payments
         </h2>
         {payments.length === 0 ? (
           <p
             data-testid="patient-bill-detail-payments-empty"
-            className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600"
+            className="rounded-md border border-dashed border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900 p-4 text-sm text-slate-600 dark:text-gray-300"
           >
             No payments recorded yet.
           </p>
@@ -626,14 +626,14 @@ export default function PatientBillDetailPage() {
                   key={p.id}
                   data-testid="patient-bill-detail-payment-row"
                   data-payment-id={p.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 dark:border-gray-700 bg-slate-50 dark:bg-gray-900 px-3 py-2"
                 >
                   <div className="space-y-0.5">
-                    <p className="text-sm font-medium text-slate-900">
+                    <p className="text-sm font-medium text-slate-900 dark:text-gray-100">
                       {refund ? "Refund " : ""}
                       {formatRupees(Number(p.amount))}
                     </p>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-slate-600 dark:text-gray-300">
                       {formatDateTime(p.paidAt)}
                       {p.transactionId ? ` · Ref ${p.transactionId}` : ""}
                     </p>
@@ -658,34 +658,34 @@ export default function PatientBillDetailPage() {
       <section
         data-testid="patient-bill-detail-outstanding"
         aria-labelledby="outstanding-heading"
-        className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
       >
         <h2
           id="outstanding-heading"
-          className="text-sm font-medium uppercase tracking-wide text-slate-500"
+          className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
         >
           Outstanding
         </h2>
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div>
-            <p className="text-xs uppercase tracking-wide text-slate-500">
+            <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-gray-400">
               Paid to date
             </p>
             <p
               data-testid="patient-bill-detail-paid"
-              className="text-base font-semibold text-slate-900 tabular-nums"
+              className="text-base font-semibold text-slate-900 dark:text-gray-100 tabular-nums"
             >
               {formatRupees(paid)}
             </p>
           </div>
           <div>
-            <p className="text-xs uppercase tracking-wide text-slate-500">
+            <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-gray-400">
               Due
             </p>
             <p
               data-testid="patient-bill-detail-due-amount"
               className={`text-base font-semibold tabular-nums ${
-                due > 0 ? "text-red-700" : "text-slate-700"
+                due > 0 ? "text-red-700 dark:text-red-300" : "text-slate-700 dark:text-gray-200"
               }`}
             >
               {formatRupees(due)}
@@ -708,18 +708,18 @@ export default function PatientBillDetailPage() {
         <section
           data-testid="patient-bill-detail-stepper"
           aria-labelledby="nhcx-heading"
-          className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+          className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
         >
           <h2
             id="nhcx-heading"
-            className="text-sm font-medium uppercase tracking-wide text-slate-500"
+            className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
           >
             Cashless claim status
           </h2>
           {claim?.insuranceProvider ? (
             <p
               data-testid="patient-bill-detail-stepper-provider"
-              className="text-xs text-slate-600"
+              className="text-xs text-slate-600 dark:text-gray-300"
             >
               {claim.insuranceProvider}
               {claim?.claimAmount != null
@@ -740,8 +740,8 @@ export default function PatientBillDetailPage() {
               const cls = active
                 ? "bg-slate-900 text-white"
                 : done
-                  ? "bg-emerald-100 text-emerald-900"
-                  : "bg-slate-100 text-slate-600";
+                  ? "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200"
+                  : "bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300";
               return (
                 <span
                   key={stage.key}
@@ -755,7 +755,7 @@ export default function PatientBillDetailPage() {
               );
             })}
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-gray-400">
             Stage 1 displays a stub stepper; live insurer integration is
             Stage 3.
           </p>
@@ -766,15 +766,15 @@ export default function PatientBillDetailPage() {
       <section
         data-testid="patient-bill-detail-gst"
         aria-labelledby="gst-heading"
-        className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
       >
         <h2
           id="gst-heading"
-          className="text-sm font-medium uppercase tracking-wide text-slate-500"
+          className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
         >
           GST invoice
         </h2>
-        <p className="text-xs text-slate-600">
+        <p className="text-xs text-slate-600 dark:text-gray-300">
           A printable GST-format invoice is available for your records.
         </p>
         <a
@@ -782,7 +782,7 @@ export default function PatientBillDetailPage() {
           target="_blank"
           rel="noopener noreferrer"
           data-testid="patient-bill-detail-gst-btn"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
         >
           Download GST invoice PDF
         </a>

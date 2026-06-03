@@ -266,7 +266,7 @@ export default function PatientBillPayPage() {
     return (
       <section
         data-testid="patient-bill-pay-loading"
-        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-gray-400"
       >
         Loading payment…
       </section>
@@ -280,7 +280,7 @@ export default function PatientBillPayPage() {
         className="space-y-4 py-6"
       >
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           Please sign in to pay this bill.
         </p>
         <Link
@@ -303,7 +303,7 @@ export default function PatientBillPayPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           Invoice not found
         </h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           We couldn&apos;t find this invoice. It may have been removed, or you
           may not have access to it.
         </p>
@@ -330,7 +330,7 @@ export default function PatientBillPayPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           {fullyPaid ? "Invoice already paid" : "Online payment unavailable"}
         </h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           {fullyPaid
             ? `Invoice #${invoice.invoiceNumber} has no outstanding balance.`
             : "Online payment is not configured for this hospital right now. Please pay at the reception desk."}
@@ -351,7 +351,7 @@ export default function PatientBillPayPage() {
       <section
         data-testid="patient-bill-pay-error"
         role="alert"
-        className="space-y-3 rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        className="space-y-3 rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-800 dark:text-red-200"
       >
         <p>{errorMessage ?? "Something went wrong. Please refresh."}</p>
         <button
@@ -393,7 +393,7 @@ export default function PatientBillPayPage() {
         <Link
           href={`/patient/bills/${invoice.id}`}
           data-testid="patient-bill-pay-back"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
         >
           ← Back to invoice
         </Link>
@@ -402,21 +402,21 @@ export default function PatientBillPayPage() {
       {/* ─── Summary card ─────────────────────────────────────────────── */}
       <header
         data-testid="patient-bill-pay-summary"
-        className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="space-y-2 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
       >
         <p
           data-testid="patient-bill-pay-number"
-          className="text-xs font-medium uppercase tracking-wide text-slate-500"
+          className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
         >
           Invoice #{invoice.invoiceNumber}
         </p>
         <p
           data-testid="patient-bill-pay-due"
-          className="text-3xl font-semibold text-slate-900 tabular-nums"
+          className="text-3xl font-semibold text-slate-900 dark:text-gray-100 tabular-nums"
         >
           {formatRupees(due)}
         </p>
-        <p className="text-xs text-slate-600">
+        <p className="text-xs text-slate-600 dark:text-gray-300">
           Pay via UPI, card, or netbanking — secured by Razorpay.
         </p>
       </header>
@@ -426,7 +426,7 @@ export default function PatientBillPayPage() {
         <section
           data-testid="patient-bill-pay-success"
           role="status"
-          className="space-y-3 rounded-md border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900"
+          className="space-y-3 rounded-md border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 p-4 text-sm text-emerald-900 dark:text-emerald-200"
         >
           <p className="text-base font-medium">Payment received.</p>
           <p>
@@ -447,7 +447,7 @@ export default function PatientBillPayPage() {
         <section
           data-testid="patient-bill-pay-cancelled"
           role="status"
-          className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+          className="space-y-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 p-4 text-sm text-amber-900 dark:text-amber-200"
         >
           <p className="font-medium">Payment cancelled.</p>
           <p>
@@ -460,7 +460,7 @@ export default function PatientBillPayPage() {
         <section
           data-testid="patient-bill-pay-error-banner"
           role="alert"
-          className="space-y-2 rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+          className="space-y-2 rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-800 dark:text-red-200"
         >
           <p className="font-medium">Payment didn&apos;t go through.</p>
           <p>{errorMessage}</p>
@@ -489,7 +489,7 @@ export default function PatientBillPayPage() {
         </button>
       ) : null}
 
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-slate-500 dark:text-gray-400">
         You&apos;ll be charged exactly the amount above. Razorpay confirms
         within seconds; this page will update automatically.
       </p>

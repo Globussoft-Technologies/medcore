@@ -231,11 +231,49 @@ describeIfDB("Lead pipeline API (Pearl §3.3 — integration)", () => {
     expect(fifthMissingEmail.status).toBe(201);
   });
 
-  // Smoke: DOCTOR + ADMIN can list (just to ensure RBAC matrix is right).
-  it("DOCTOR + ADMIN can list leads", async () => {
-    const a = await request(app).get("/api/v1/leads").set("Authorization", `Bearer ${doctorToken}`);
-    expect(a.status).toBe(200);
-    const b = await request(app).get("/api/v1/leads").set("Authorization", `Bearer ${adminToken}`);
-    expect(b.status).toBe(200);
+  // RBAC matrix: reads on the pipeline (list + detail) are restricted to
+  // ADMIN + RECEPTION — they own the CRM pipeline and the Leads nav
+  // entry. DOCTOR can still CREATE a lead (e.g. from a patient profile)
+  // but must NOT be able to browse the pipeline. PATIENT is excluded
+  // everywhere. See LEAD_READ_ROLES in apps/api/src/routes/leads.ts.
+  it("ADMIN + RECEPTION can list leads; DOCTOR cannot (403)", async () => {
+    const admin = await request(app)
+      .get("/api/v1/leads")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(admin.status).toBe(200);
+
+    const reception = await request(app)
+      .get("/api/v1/leads")
+      .set("Authorization", `Bearer ${receptionToken}`);
+    expect(reception.status).toBe(200);
+
+    const doctor = await request(app)
+      .get("/api/v1/leads")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(doctor.status).toBe(403);
+  });
+
+  it("DOCTOR can create a lead but cannot read its detail (403)", async () => {
+    // DOCTOR keeps write access (the patient-profile "Create lead"
+    // action), so creation succeeds…
+    const created = await request(app)
+      .post("/api/v1/leads")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ name: "Doctor Made", phone: "+919876500011", source: "REFERRAL" });
+    expect(created.status).toBe(201);
+    const id = created.body.data.id;
+
+    // …but the detail read is pipeline-scoped and must reject DOCTOR.
+    const detail = await request(app)
+      .get(`/api/v1/leads/${id}`)
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(detail.status).toBe(403);
+
+    // ADMIN can still read the same lead.
+    const adminDetail = await request(app)
+      .get(`/api/v1/leads/${id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(adminDetail.status).toBe(200);
+    expect(adminDetail.body.data.id).toBe(id);
   });
 });

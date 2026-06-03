@@ -28,6 +28,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { istMidnightUtc, istTodayDateStr, istNowMinutes } from "../utils/ist-time";
+import { isDoctorOnConfirmedLeave } from "../utils/doctor-leave";
 import { recordCampaignConversion } from "../services/campaign-conversion";
 import {
   onAppointmentBooked,
@@ -132,6 +133,17 @@ router.post(
           });
           return;
         }
+      }
+
+      // Confirmed (APPROVED) doctor leave blocks booking on that date —
+      // mirrors the slot grid, which hides all slots for a leave day.
+      if (await isDoctorOnConfirmedLeave(doctorId, dateObj)) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Doctor is on leave on the selected date",
+        });
+        return;
       }
 
       // ── No-show policy enforcement ──
@@ -1018,6 +1030,18 @@ router.patch(
         return;
       }
 
+      // Server-side guard mirroring the hidden slot grid: a confirmed
+      // (APPROVED) doctor leave on the target date blocks the reschedule
+      // even if the client posts a slotStart directly.
+      if (await isDoctorOnConfirmedLeave(existing.doctorId, dateObj)) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Doctor is on leave on the selected date",
+        });
+        return;
+      }
+
       const tokenNumber =
         existing.date.toISOString().split("T")[0] === date
           ? existing.tokenNumber
@@ -1711,6 +1735,10 @@ router.get(
             where: { doctorId_date: { doctorId: doc.id, date: d } },
           });
           if (override?.isBlocked) continue;
+
+          // Skip days the doctor is on confirmed (APPROVED) leave — never
+          // suggest a "next available" slot the doctor can't honour.
+          if (await isDoctorOnConfirmedLeave(doc.id, d)) continue;
 
           const booked = await prisma.appointment.findMany({
             where: {

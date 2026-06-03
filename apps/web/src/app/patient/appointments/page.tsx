@@ -50,10 +50,22 @@ interface AppointmentRow {
   status: string;
   branchId?: string | null;
   branch?: BranchLite | null;
+  // doctorId is the scalar FK on the appointment row (the list endpoint
+  // uses `include: { doctor }`, so all scalar fields incl. doctorId come
+  // back). Needed to fetch the doctor's open slots when rescheduling.
+  doctorId?: string | null;
   doctor?: {
     user?: { name?: string | null } | null;
     specialty?: string | null;
   } | null;
+}
+
+// One open slot from GET /doctors/:id/slots. `isAvailable` is false for
+// slots already booked by someone else (shown but disabled).
+interface SlotRow {
+  startTime: string;
+  endTime: string;
+  isAvailable: boolean;
 }
 
 interface ApiList<T> {
@@ -185,6 +197,12 @@ export default function PatientAppointmentsPage() {
   const [cancelDraft, setCancelDraft] = useState<CancelDraft | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Reschedule slot picker — the patient picks from the doctor's open
+  // slots (token/slot-wise) instead of typing a free-form time. Slots
+  // are refetched whenever the draft's date changes.
+  const [rescheduleSlots, setRescheduleSlots] = useState<SlotRow[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsNotice, setSlotsNotice] = useState<string | null>(null);
   // Pearl §6.3 row 340 — per-row arrive state. `arriving` disables the button
   // while the PATCH is in flight; `arrived` flips the row to the "Arrived ✓"
   // pill optimistically. We don't refetch on success — the green pill is the
@@ -271,11 +289,65 @@ export default function PatientAppointmentsPage() {
     setRescheduleDraft({
       appointment: match,
       date: new Date(match.date).toISOString().slice(0, 10),
-      slotStart: (match.slotStart ?? "10:00").slice(0, 5),
+      // Start with no slot picked — the patient chooses from the doctor's
+      // open-slot grid (the old time may not be available anymore).
+      slotStart: "",
       reason: "",
     });
     setDidAutoOpenForId(target);
   }, [searchParams, appointments, state, didAutoOpenForId]);
+
+  // Fetch the doctor's open slots for the reschedule modal whenever the
+  // draft opens or its date changes. The patient picks token/slot-wise
+  // from this list instead of typing a free-form time. Mirrors the
+  // booking flow's GET /doctors/:id/slots?date= contract.
+  const rescheduleDoctorId = rescheduleDraft?.appointment.doctorId ?? null;
+  const rescheduleDate = rescheduleDraft?.date ?? null;
+  useEffect(() => {
+    if (!rescheduleDate) return;
+    if (!rescheduleDoctorId) {
+      // No doctorId on the row → can't resolve availability. Surface a
+      // clear notice rather than silently showing an empty grid.
+      setRescheduleSlots([]);
+      setSlotsNotice("Slots unavailable for this appointment.");
+      return;
+    }
+    let cancelled = false;
+    setSlotsLoading(true);
+    setSlotsNotice(null);
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: {
+            slots?: SlotRow[];
+            blocked?: boolean;
+            reason?: string | null;
+          };
+        }>(
+          `/doctors/${rescheduleDoctorId}/slots?date=${encodeURIComponent(rescheduleDate)}`,
+        );
+        if (cancelled) return;
+        if (res.data?.blocked) {
+          setRescheduleSlots([]);
+          setSlotsNotice(res.data.reason ?? "Doctor unavailable on this date.");
+        } else {
+          setRescheduleSlots(res.data?.slots ?? []);
+          setSlotsNotice(null);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        setRescheduleSlots([]);
+        setSlotsNotice(
+          err instanceof Error ? err.message : "Could not load slots.",
+        );
+      } finally {
+        if (!cancelled) setSlotsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [rescheduleDoctorId, rescheduleDate]);
 
   // Close any open modal on Esc — small QoL nicety since the modal is
   // hand-rolled without a library.
@@ -314,6 +386,12 @@ export default function PatientAppointmentsPage() {
 
   async function submitReschedule(): Promise<void> {
     if (!rescheduleDraft) return;
+    // The patient must pick an available slot (token/slot-wise) — no
+    // free-form time. slotStart is empty until a grid chip is clicked.
+    if (!rescheduleDraft.slotStart) {
+      setActionError("Please pick an available time slot.");
+      return;
+    }
     // Pearl §3.1 (gap closed 2026-05-29) — reschedule reason is now
     // required server-side (3-500 chars). The patient reschedule form's
     // reason input was already there but unwired; wire it through and
@@ -518,7 +596,8 @@ export default function PatientAppointmentsPage() {
                         setRescheduleDraft({
                           appointment: a,
                           date: new Date(a.date).toISOString().slice(0, 10),
-                          slotStart: (a.slotStart ?? "10:00").slice(0, 5),
+                          // No slot pre-selected — patient picks from grid.
+                          slotStart: "",
                           reason: "",
                         })
                       }
@@ -606,11 +685,17 @@ export default function PatientAppointmentsPage() {
             }
           }}
         >
-          <div className="w-full max-w-md space-y-4 rounded-lg bg-white p-4 shadow-xl">
-            <h3 id="reschedule-title" className="text-lg font-semibold">
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+            <h3
+              id="reschedule-title"
+              className="shrink-0 border-b border-slate-200 px-4 py-3 text-lg font-semibold"
+            >
               Reschedule appointment
             </h3>
-            <div className="space-y-3">
+            {/* Scrollable body — only this region scrolls when the slot
+                grid is tall (multi-shift doctors), so the header + footer
+                stay pinned and the modal never overflows the viewport. */}
+            <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
               <label className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
                   New date
@@ -620,32 +705,84 @@ export default function PatientAppointmentsPage() {
                   value={rescheduleDraft.date}
                   min={new Date().toISOString().slice(0, 10)}
                   onChange={(e) =>
+                    // Clear the picked slot — it may not exist on the new
+                    // date; the patient re-picks from the refreshed grid.
                     setRescheduleDraft({
                       ...rescheduleDraft,
                       date: e.target.value,
+                      slotStart: "",
                     })
                   }
                   data-testid="patient-appointments-reschedule-date"
                   className="block h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
                 />
               </label>
-              <label className="block text-sm">
+              {/* New time — slot/token-wise picker. The patient may only
+                  pick from the doctor's open slots, not a free-form time.
+                  Booked slots come back isAvailable=false and render
+                  disabled. */}
+              <div className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
                   New time
                 </span>
-                <input
-                  type="time"
-                  value={rescheduleDraft.slotStart}
-                  onChange={(e) =>
-                    setRescheduleDraft({
-                      ...rescheduleDraft,
-                      slotStart: e.target.value,
-                    })
-                  }
-                  data-testid="patient-appointments-reschedule-time"
-                  className="block h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
-                />
-              </label>
+                {slotsLoading ? (
+                  <p
+                    data-testid="patient-appointments-reschedule-slots-loading"
+                    className="text-sm text-slate-500"
+                  >
+                    Loading slots…
+                  </p>
+                ) : slotsNotice ? (
+                  <p
+                    data-testid="patient-appointments-reschedule-slots-notice"
+                    role="alert"
+                    className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                  >
+                    {slotsNotice}
+                  </p>
+                ) : rescheduleSlots.length === 0 ? (
+                  <p
+                    data-testid="patient-appointments-reschedule-slots-empty"
+                    className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600"
+                  >
+                    No slots available on this date.
+                  </p>
+                ) : (
+                  <div
+                    data-testid="patient-appointments-reschedule-slots-grid"
+                    className="grid grid-cols-3 gap-2 sm:grid-cols-4"
+                  >
+                    {rescheduleSlots.map((s) => {
+                      const selected =
+                        rescheduleDraft.slotStart === s.startTime;
+                      return (
+                        <button
+                          key={s.startTime}
+                          type="button"
+                          disabled={!s.isAvailable}
+                          data-testid={`patient-appointments-reschedule-slot-${s.startTime}`}
+                          data-selected={selected || undefined}
+                          onClick={() =>
+                            setRescheduleDraft({
+                              ...rescheduleDraft,
+                              slotStart: s.startTime,
+                            })
+                          }
+                          className={`inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border px-2 text-xs font-medium ${
+                            !s.isAvailable
+                              ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                              : selected
+                                ? "border-slate-900 bg-slate-900 text-white"
+                                : "border-slate-300 bg-white text-slate-800"
+                          }`}
+                        >
+                          {s.startTime}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <label className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
                   Reason <span className="text-red-600">*</span>
@@ -666,36 +803,40 @@ export default function PatientAppointmentsPage() {
                 />
               </label>
             </div>
-            {actionError ? (
-              <p
-                role="alert"
-                data-testid="patient-appointments-action-error"
-                className="rounded-md bg-red-50 p-2 text-xs text-red-800"
-              >
-                {actionError}
-              </p>
-            ) : null}
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  setRescheduleDraft(null);
-                  setActionError(null);
-                }}
-                className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
-                data-testid="patient-appointments-reschedule-cancel-btn"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={() => void submitReschedule()}
-                className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white disabled:opacity-60"
-                data-testid="patient-appointments-reschedule-submit"
-              >
-                {submitting ? "Saving…" : "Confirm reschedule"}
-              </button>
+            {/* Pinned footer — stays visible while the body scrolls so the
+                primary action is always reachable on small screens. */}
+            <div className="shrink-0 space-y-3 border-t border-slate-200 px-4 py-3">
+              {actionError ? (
+                <p
+                  role="alert"
+                  data-testid="patient-appointments-action-error"
+                  className="rounded-md bg-red-50 p-2 text-xs text-red-800"
+                >
+                  {actionError}
+                </p>
+              ) : null}
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRescheduleDraft(null);
+                    setActionError(null);
+                  }}
+                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+                  data-testid="patient-appointments-reschedule-cancel-btn"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting || !rescheduleDraft.slotStart}
+                  onClick={() => void submitReschedule()}
+                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white disabled:opacity-60"
+                  data-testid="patient-appointments-reschedule-submit"
+                >
+                  {submitting ? "Saving…" : "Confirm reschedule"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

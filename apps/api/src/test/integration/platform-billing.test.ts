@@ -431,4 +431,145 @@ describeIfDB("Operator platform-billing API (integration)", () => {
     });
     expect(row?.status).toBe("ISSUED");
   });
+
+  // ── 5. POST /invoices/:id/pay-online (Razorpay order) ───────────────
+  // In the test env (NODE_ENV=test, no RAZORPAY creds) createPaymentOrder
+  // returns a synthetic `order_mock_*` order so the flow is exercisable.
+  it("PLATFORM_BILLING_OPERATOR POST pay-online returns a Razorpay order + writes audit", async () => {
+    const seed = await seedInvoiceFixture();
+    const { token, userId } = await ensurePlatformOpUser("PLATFORM_BILLING_OPERATOR");
+    const res = await request(app)
+      .post(`/api/v1/platform-billing/invoices/${seed.invoiceId}/pay-online`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(typeof res.body.data.orderId).toBe("string");
+    expect(res.body.data.orderId.length).toBeGreaterThan(0);
+    expect(res.body.data.currency).toBe("INR");
+    expect(typeof res.body.data.keyId).toBe("string");
+
+    const prisma = await getPrisma();
+    const audit = await waitForAuditFlush(prisma, {
+      action: "PLATFORM_INVOICE_PAY_ONLINE_ORDER_CREATED",
+      entity: "platform_invoice",
+      entityId: seed.invoiceId,
+      userId,
+    });
+    expect(audit.action).toBe("PLATFORM_INVOICE_PAY_ONLINE_ORDER_CREATED");
+
+    // Creating the order does NOT pay the invoice — it stays ISSUED until verify.
+    const row = await prisma.platformInvoice.findUnique({
+      where: { id: seed.invoiceId },
+      select: { status: true },
+    });
+    expect(row?.status).toBe("ISSUED");
+  });
+
+  it("POST pay-online returns 409 on an already-PAID invoice", async () => {
+    const seed = await seedInvoiceFixture();
+    const { token } = await ensurePlatformOpUser("PLATFORM_BILLING_OPERATOR");
+    await request(app)
+      .post(`/api/v1/platform-billing/invoices/${seed.invoiceId}/mark-paid`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ paymentReference: "RZP-PAID" })
+      .expect(200);
+    const res = await request(app)
+      .post(`/api/v1/platform-billing/invoices/${seed.invoiceId}/pay-online`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("POST pay-online returns 404 on unknown invoice id", async () => {
+    const { token } = await ensurePlatformOpUser("PLATFORM_BILLING_OPERATOR");
+    const res = await request(app)
+      .post("/api/v1/platform-billing/invoices/00000000-0000-0000-0000-000000000000/pay-online")
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("POST pay-online 403s a tenant-less ADMIN", async () => {
+    const seed = await seedInvoiceFixture();
+    const { token } = await ensureTenantLessAdmin();
+    const res = await request(app)
+      .post(`/api/v1/platform-billing/invoices/${seed.invoiceId}/pay-online`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({});
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/PLATFORM_OPERATOR/);
+  });
+
+  // ── 6. POST /invoices/:id/verify-payment ────────────────────────────
+  // In the test env verifyPayment() short-circuits to true (mock mode), so a
+  // well-formed body flips ISSUED→PAID via the shared markInvoicePaid path.
+  it("PLATFORM_BILLING_OPERATOR POST verify-payment flips ISSUED→PAID (mock-verified)", async () => {
+    const seed = await seedInvoiceFixture();
+    const { token, userId } = await ensurePlatformOpUser("PLATFORM_BILLING_OPERATOR");
+    const res = await request(app)
+      .post(`/api/v1/platform-billing/invoices/${seed.invoiceId}/verify-payment`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        razorpayOrderId: "order_mock_test",
+        razorpayPaymentId: "pay_mock_test",
+        razorpaySignature: "sig_mock_test",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.transition).toBe("PAID");
+    expect(res.body.data.invoice.status).toBe("PAID");
+    // Razorpay payment id recorded as the reference.
+    expect(res.body.data.invoice.paymentReference).toBe("pay_mock_test");
+
+    const prisma = await getPrisma();
+    const row = await prisma.platformInvoice.findUnique({
+      where: { id: seed.invoiceId },
+      select: { status: true, paidByUserId: true },
+    });
+    expect(row?.status).toBe("PAID");
+    expect(row?.paidByUserId).toBe(userId);
+  });
+
+  it("POST verify-payment returns 400 when the signature fields are missing", async () => {
+    const seed = await seedInvoiceFixture();
+    const { token } = await ensurePlatformOpUser("PLATFORM_BILLING_OPERATOR");
+    const res = await request(app)
+      .post(`/api/v1/platform-billing/invoices/${seed.invoiceId}/verify-payment`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ razorpayOrderId: "order_mock_test" });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("POST verify-payment returns 404 on unknown invoice id", async () => {
+    const { token } = await ensurePlatformOpUser("PLATFORM_BILLING_OPERATOR");
+    const res = await request(app)
+      .post("/api/v1/platform-billing/invoices/00000000-0000-0000-0000-000000000000/verify-payment")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        razorpayOrderId: "order_mock_test",
+        razorpayPaymentId: "pay_mock_test",
+        razorpaySignature: "sig_mock_test",
+      });
+    expect(res.status).toBe(404);
+    expect(res.body.success).toBe(false);
+  });
+
+  it("POST verify-payment 403s a tenant-less ADMIN", async () => {
+    const seed = await seedInvoiceFixture();
+    const { token } = await ensureTenantLessAdmin();
+    const res = await request(app)
+      .post(`/api/v1/platform-billing/invoices/${seed.invoiceId}/verify-payment`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        razorpayOrderId: "order_mock_test",
+        razorpayPaymentId: "pay_mock_test",
+        razorpaySignature: "sig_mock_test",
+      });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/PLATFORM_OPERATOR/);
+  });
 });

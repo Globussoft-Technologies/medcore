@@ -422,15 +422,20 @@ export interface ApplyProrationResult {
 }
 
 /**
- * Compute `(newPrice - oldPrice) * (remainingDays / monthDays)` and
- * write the delta as a single-line `PlatformInvoice` (status `ISSUED`).
- * Negative deltas (downgrade) yield a negative line item (credit).
- * Uses the same `PI-YYYYMM-NNNN` numbering convention as the monthly
- * generator so historical traceability stays contiguous.
+ * Plan-change billing (no credits — the charge is never negative):
  *
- * If the proration delta is 0 (same-plan no-op call), returns
- * `{ deltaInPaise: 0 }` without writing anything — safe to invoke
- * speculatively from the plan-change UI.
+ *   charge = (daysUsed / totalDays) × OLD plan monthly   ← usage to date (≥ 0)
+ *          + NEW plan full monthly                        ← the plan switched to
+ *
+ * Written as a two-line `PlatformInvoice` (status `ISSUED`): the old-plan
+ * usage line (omitted on a same-day change, where daysUsed = 0) plus the new
+ * plan's monthly line. Subsequent cycles bill only the new plan's monthly
+ * amount via the regular monthly generator. Uses the same `PI-YYYYMM-NNNN`
+ * numbering convention so historical traceability stays contiguous.
+ *
+ * `deltaInPaise` in the result is the total (pre-GST) charge. A same-plan
+ * no-op call returns `{ deltaInPaise: 0 }` without writing anything — safe to
+ * invoke speculatively from the plan-change UI.
  */
 export async function applyProration(
   prisma: PrismaClient,
@@ -478,15 +483,27 @@ export async function applyProration(
   const periodStart = sub.currentPeriodStart;
   const periodEnd = sub.currentPeriodEnd;
   const totalCycleMs = periodEnd.getTime() - periodStart.getTime();
-  const remainingMs = Math.max(0, periodEnd.getTime() - now.getTime());
-  // Guard against degenerate windows (start > end or 0-length).
-  const prorationFactor = totalCycleMs > 0 ? remainingMs / totalCycleMs : 0;
-
-  const deltaInPaise = Math.round(
-    (newMonthlyPaise - oldMonthlyPaise) * prorationFactor,
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const totalDays = totalCycleMs > 0 ? totalCycleMs / DAY_MS : 0;
+  // Whole days the OLD plan was actually used this cycle. A same-day change
+  // (taken today, switched today) is 0 days → no charge for the old plan's
+  // used portion. Guards against degenerate windows (start > end / 0-length).
+  const usedDays = Math.max(
+    0,
+    Math.floor((now.getTime() - periodStart.getTime()) / DAY_MS),
   );
+  const prorationFactor = totalDays > 0 ? Math.min(1, usedDays / totalDays) : 0;
 
-  if (deltaInPaise === 0) {
+  // Billing model (no credits — never negative):
+  //   charge = (daysUsed / totalDays) × OLD plan   ← usage to date (≥ 0)
+  //          + NEW plan full monthly               ← the plan switched to
+  // Subsequent cycles bill only the new plan's monthly amount, as usual.
+  const oldUsedInPaise = Math.round(prorationFactor * oldMonthlyPaise);
+  const newPlanInPaise = newMonthlyPaise;
+  const deltaInPaise = oldUsedInPaise + newPlanInPaise;
+
+  // Same-plan no-op (or a zero charge) → write nothing.
+  if (fromPlan === toPlan || deltaInPaise === 0) {
     return {
       invoiceId: "",
       invoiceNumber: "",
@@ -504,58 +521,107 @@ export async function applyProration(
     !!tenantState &&
     tenantState.trim().toLowerCase() === PLATFORM_OPERATOR_STATE.toLowerCase();
 
-  const subtotalInPaise = deltaInPaise; // single line item, qty=1, sign-preserving
-  const absForGst = Math.abs(subtotalInPaise);
+  // Charge is always ≥ 0 now (used-days of old + full new monthly), so GST is
+  // a straight positive split — no sign juggling needed.
+  const subtotalInPaise = deltaInPaise;
   const cgstInPaise = sameState
-    ? Math.sign(subtotalInPaise) * Math.round((absForGst * CGST_RATE) / 100)
+    ? Math.round((subtotalInPaise * CGST_RATE) / 100)
     : 0;
   const sgstInPaise = sameState
-    ? Math.sign(subtotalInPaise) * Math.round((absForGst * SGST_RATE) / 100)
+    ? Math.round((subtotalInPaise * SGST_RATE) / 100)
     : 0;
   const igstInPaise = sameState
     ? 0
-    : Math.sign(subtotalInPaise) * Math.round((absForGst * IGST_RATE) / 100);
+    : Math.round((subtotalInPaise * IGST_RATE) / 100);
   const totalInPaise =
     subtotalInPaise + cgstInPaise + sgstInPaise + igstInPaise;
 
-  const monthCount = await prisma.platformInvoice.count({
-    where: { invoiceNumber: { startsWith: `PI-${yyyymm}-` } },
-  });
-  const invoiceNumber = `PI-${yyyymm}-${String(monthCount + 1).padStart(4, "0")}`;
+  const monthLabel = `${MONTH_LABEL[now.getUTCMonth()]} ${year}`;
+  const gstRates = {
+    hsnSacCode: SAAS_HSN_SAC,
+    cgstRate: sameState ? CGST_RATE : 0,
+    sgstRate: sameState ? SGST_RATE : 0,
+    igstRate: sameState ? 0 : IGST_RATE,
+  };
 
-  const description = `Plan change proration — ${fromPlanDef.name} → ${toPlanDef.name} (${MONTH_LABEL[now.getUTCMonth()]} ${year})`;
-
-  const lineItemCreate: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput =
-    {
-      description,
-      unitPriceInPaise: subtotalInPaise,
+  const lineItemCreates: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput[] =
+    [];
+  // Old-plan usage to date (omitted entirely on a same-day change → 0).
+  if (oldUsedInPaise > 0) {
+    lineItemCreates.push({
+      description: `${fromPlanDef.name} — usage to date (${usedDays}/${Math.round(totalDays)} days, ${monthLabel})`,
+      unitPriceInPaise: oldUsedInPaise,
       quantity: 1,
-      amountInPaise: subtotalInPaise,
-      hsnSacCode: SAAS_HSN_SAC,
-      cgstRate: sameState ? CGST_RATE : 0,
-      sgstRate: sameState ? SGST_RATE : 0,
-      igstRate: sameState ? 0 : IGST_RATE,
-    };
-
-  const invoice = await prisma.platformInvoice.create({
-    data: {
-      invoiceNumber,
-      tenantId: sub.tenantId,
-      subscriptionId: sub.id,
-      periodStart,
-      periodEnd,
-      subtotalInPaise,
-      cgstInPaise,
-      sgstInPaise,
-      igstInPaise,
-      totalInPaise,
-      status: "ISSUED",
-      issuedAt: now,
-      hsnSacCode: SAAS_HSN_SAC,
-      lineItems: { create: [lineItemCreate] },
-    },
-    select: { id: true, invoiceNumber: true },
+      amountInPaise: oldUsedInPaise,
+      ...gstRates,
+    });
+  }
+  // New plan's full monthly charge.
+  lineItemCreates.push({
+    description: `${toPlanDef.name} plan — monthly (${monthLabel})`,
+    unitPriceInPaise: newPlanInPaise,
+    quantity: 1,
+    amountInPaise: newPlanInPaise,
+    ...gstRates,
   });
+
+  // ── One invoice per tenant per month ────────────────────────────────
+  // Repeated plan changes within the same month must NOT spawn duplicate
+  // invoices (the PI-YYYYMM-000N pile-up). Reuse this tenant's existing
+  // UNPAID (ISSUED) invoice for the current month if there is one —
+  // replacing its line items + totals in place — otherwise mint a fresh one.
+  // A PAID invoice is never mutated; a later change writes a new one.
+  const sharedData = {
+    subscriptionId: sub.id,
+    periodStart,
+    periodEnd,
+    subtotalInPaise,
+    cgstInPaise,
+    sgstInPaise,
+    igstInPaise,
+    totalInPaise,
+    status: "ISSUED" as const,
+    issuedAt: now,
+    hsnSacCode: SAAS_HSN_SAC,
+  };
+
+  const existing = await prisma.platformInvoice.findFirst({
+    where: {
+      tenantId: sub.tenantId,
+      status: "ISSUED",
+      invoiceNumber: { startsWith: `PI-${yyyymm}-` },
+    },
+    orderBy: { issuedAt: "asc" },
+    select: { id: true },
+  });
+
+  let invoice: { id: string; invoiceNumber: string };
+  if (existing) {
+    // deleteMany-then-create in one nested write is atomic and avoids needing
+    // the line-item FK name; keeps the original invoiceNumber + row id.
+    invoice = await prisma.platformInvoice.update({
+      where: { id: existing.id },
+      data: {
+        ...sharedData,
+        lineItems: { deleteMany: {}, create: lineItemCreates },
+      },
+      select: { id: true, invoiceNumber: true },
+    });
+  } else {
+    const monthCount = await prisma.platformInvoice.count({
+      where: { invoiceNumber: { startsWith: `PI-${yyyymm}-` } },
+    });
+    const invoiceNumber = `PI-${yyyymm}-${String(monthCount + 1).padStart(4, "0")}`;
+    invoice = await prisma.platformInvoice.create({
+      data: {
+        invoiceNumber,
+        tenantId: sub.tenantId,
+        ...sharedData,
+        lineItems: { create: lineItemCreates },
+      },
+      select: { id: true, invoiceNumber: true },
+    });
+  }
 
   await writeStateAudit(prisma, "PLATFORM_SUBSCRIPTION_PRORATED", subscriptionId, {
     tenantId: sub.tenantId,
@@ -563,7 +629,10 @@ export async function applyProration(
     toPlan,
     oldMonthlyPaise,
     newMonthlyPaise,
+    usedDays,
     prorationFactor,
+    oldUsedInPaise,
+    newPlanInPaise,
     deltaInPaise,
     invoiceId: invoice.id,
     invoiceNumber: invoice.invoiceNumber,

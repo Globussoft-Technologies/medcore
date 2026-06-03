@@ -320,9 +320,9 @@ describe("createTenant — Pearl-billing auto-provisioning", () => {
     adminName: "Admin User",
   };
 
-  it("creates a TenantSubscription in the same transaction with status=trial and a 30-day window", async () => {
+  it("with trialDays=30 → creates a TenantSubscription with status=trial and a 30-day window", async () => {
     const before = Date.now();
-    const result = await createTenant(BASE_PARAMS);
+    const result = await createTenant({ ...BASE_PARAMS, trialDays: 30 });
     const after = Date.now();
 
     // Subscription was created.
@@ -364,6 +364,35 @@ describe("createTenant — Pearl-billing auto-provisioning", () => {
     expect(flags.lab).toBeUndefined();
     expect(flags.ipd).toBeUndefined();
     expect(flags.ai_scribe).toBeUndefined();
+  });
+
+  it("with no trialDays → subscription starts ACTIVE (no trial, billed per plan)", async () => {
+    const before = Date.now();
+    const result = await createTenant(BASE_PARAMS);
+    const after = Date.now();
+
+    expect(txStore.subscriptionCreate.status).toBe("active");
+    expect(txStore.subscriptionCreate.trialEndsAt).toBeNull();
+    // currentPeriodStart ≈ now; currentPeriodEnd ≈ one calendar month later.
+    const start = txStore.subscriptionCreate.currentPeriodStart as Date;
+    const end = txStore.subscriptionCreate.currentPeriodEnd as Date;
+    expect(start.getTime()).toBeGreaterThanOrEqual(before);
+    expect(start.getTime()).toBeLessThanOrEqual(after);
+    const oneMonthOut = new Date(start);
+    oneMonthOut.setUTCMonth(oneMonthOut.getUTCMonth() + 1);
+    expect(end.getTime()).toBe(oneMonthOut.getTime());
+
+    expect(result.subscription.status).toBe("active");
+    expect(result.subscription.trialEndsAt).toBeNull();
+  });
+
+  it("with trialDays=7 → trial window is exactly 7 days", async () => {
+    await createTenant({ ...BASE_PARAMS, trialDays: 7 });
+    expect(txStore.subscriptionCreate.status).toBe("trial");
+    const trialMs =
+      (txStore.subscriptionCreate.trialEndsAt as Date).getTime() -
+      (txStore.subscriptionCreate.currentPeriodStart as Date).getTime();
+    expect(trialMs).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
   it("respects initialPlan override (GROWTH → unlocks lab/radiology/abdm_m1)", async () => {

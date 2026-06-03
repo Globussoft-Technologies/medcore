@@ -193,6 +193,39 @@ describeIfDB("Tenants API (integration)", () => {
     expect(cfg.length).toBeGreaterThanOrEqual(6);
   });
 
+  // ── 1b. No-trial create → first invoice auto-generated ──────────────
+  it("auto-generates the first invoice for a no-trial (active) tenant", async () => {
+    const res = await request(app)
+      .post("/api/v1/tenants")
+      .set("Authorization", `Bearer ${superAdminToken}`)
+      .send(VALID_CREATE()); // no trialDays → active from day 1
+    expect(res.status).toBe(201);
+    expect(res.body.data.subscription.status).toBe("active");
+
+    const prisma = await getPrisma();
+    const invoices = await prisma.platformInvoice.findMany({
+      where: { tenantId: res.body.data.tenant.id },
+    });
+    expect(invoices.length).toBe(1);
+    expect(invoices[0].status).toBe("ISSUED");
+    expect(invoices[0].totalInPaise).toBeGreaterThan(0);
+  });
+
+  it("does NOT generate an invoice for a trial tenant", async () => {
+    const res = await request(app)
+      .post("/api/v1/tenants")
+      .set("Authorization", `Bearer ${superAdminToken}`)
+      .send({ ...VALID_CREATE(), trialDays: 30 });
+    expect(res.status).toBe(201);
+    expect(res.body.data.subscription.status).toBe("trial");
+
+    const prisma = await getPrisma();
+    const invoices = await prisma.platformInvoice.findMany({
+      where: { tenantId: res.body.data.tenant.id },
+    });
+    expect(invoices.length).toBe(0);
+  });
+
   // ── 2. Duplicate subdomain → 409 ─────────────────────────
   it("returns 409 for duplicate subdomain", async () => {
     const body = VALID_CREATE();

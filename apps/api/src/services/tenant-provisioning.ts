@@ -35,7 +35,7 @@ import type {
   NotificationType as NTy,
   LeaveType,
 } from "@prisma/client";
-import { TRIAL_DAYS, type Plan } from "@medcore/shared";
+import { type Plan } from "@medcore/shared";
 import { requirePlanByKey } from "./plan-catalog";
 
 // ─── Reserved subdomains ─────────────────────────────────────────────
@@ -238,6 +238,13 @@ export interface CreateTenantParams {
   adminPassword: string;
   adminName: string;
   /**
+   * Pearl §8.3 — optional free-trial length in days (7 / 15 / 30 / 60).
+   * `null`/`undefined`/0 → no trial: the subscription starts ACTIVE
+   * immediately and bills per plan from day 1. A positive value → the
+   * subscription starts in `trial` for that many days.
+   */
+  trialDays?: number | null;
+  /**
    * Pearl §8.1 — human-readable tenant code (e.g. "AHMD-01"). Operator-
    * supplied via the Create Tenant form; persisted in SystemConfig under
    * `tenant:<id>:code` and read back by the tenants list endpoint.
@@ -295,8 +302,9 @@ export interface CreateTenantResult {
   subscription: {
     id: string;
     plan: Plan;
-    status: "trial";
-    trialEndsAt: Date;
+    status: "trial" | "active";
+    /** Null when the tenant was onboarded with no trial (starts active). */
+    trialEndsAt: Date | null;
     currentPeriodStart: Date;
     currentPeriodEnd: Date;
   };
@@ -338,9 +346,26 @@ export async function createTenant(
     featureFlagsForPlan[key] = true;
   }
   const provisionedAt = new Date();
-  const trialEndsAt = new Date(
-    provisionedAt.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000,
-  );
+  // Pearl §8.3 — honour the operator's trial choice. A positive `trialDays`
+  // → subscription starts in `trial` for that many days; otherwise it starts
+  // ACTIVE immediately and the first billable window is one calendar month.
+  const trialDays =
+    typeof params.trialDays === "number" && params.trialDays > 0
+      ? params.trialDays
+      : 0;
+  const hasTrial = trialDays > 0;
+  const trialEndsAt = hasTrial
+    ? new Date(provisionedAt.getTime() + trialDays * 24 * 60 * 60 * 1000)
+    : null;
+  const subscriptionStatus: "trial" | "active" = hasTrial ? "trial" : "active";
+  // currentPeriodEnd: trial deadline if trialing, else one calendar month out.
+  const currentPeriodEnd = hasTrial
+    ? trialEndsAt!
+    : (() => {
+        const d = new Date(provisionedAt);
+        d.setUTCMonth(d.getUTCMonth() + 1);
+        return d;
+      })();
 
   return prisma.$transaction(
     async (tx) => {
@@ -510,10 +535,10 @@ export async function createTenant(
         data: {
           tenantId: tenant.id,
           plan: initialPlan,
-          status: "trial",
+          status: subscriptionStatus,
           trialEndsAt,
           currentPeriodStart: provisionedAt,
-          currentPeriodEnd: trialEndsAt,
+          currentPeriodEnd,
         },
       });
 
@@ -541,10 +566,10 @@ export async function createTenant(
         subscription: {
           id: subscription.id,
           plan: initialPlan,
-          status: "trial" as const,
+          status: subscriptionStatus,
           trialEndsAt,
           currentPeriodStart: provisionedAt,
-          currentPeriodEnd: trialEndsAt,
+          currentPeriodEnd,
         },
       };
     },

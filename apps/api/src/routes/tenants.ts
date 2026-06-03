@@ -30,6 +30,7 @@ import {
 } from "../services/plan-catalog";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { generateInitialInvoiceForSubscription } from "../services/platform-invoice-generator";
 import {
   createTenant,
   deactivateTenant,
@@ -66,6 +67,13 @@ const createTenantSchema = z.object({
         "Invalid subdomain: 3-30 chars, lowercase letters/digits/hyphens, not reserved",
     }),
   plan: planEnum,
+  // Pearl §8.3 — optional free trial. Omitted / null → the subscription
+  // starts ACTIVE immediately (billed per plan, no trial). Set to one of the
+  // allowed durations → it starts in `trial` for that many days, after which
+  // the daily cron flips it to active. Allowed: 7 / 15 / 30 / 60 days.
+  trialDays: z
+    .union([z.literal(7), z.literal(15), z.literal(30), z.literal(60)])
+    .nullish(),
   // Pearl §8.1 — operator-supplied tenant code (e.g. "AHMD-01").
   // Optional; format validated as 2–12 alphanumerics + hyphens so
   // SystemConfig stores something readable. Empty string clears.
@@ -346,6 +354,7 @@ router.post(
         name: body.name,
         subdomain: body.subdomain,
         plan: body.plan,
+        trialDays: body.trialDays ?? null,
         code: body.code,
         adminEmail: body.adminEmail,
         adminPassword: body.adminPassword,
@@ -365,6 +374,21 @@ router.post(
         plan: result.tenant.plan,
         adminEmail: result.adminUser.email,
       }).catch(console.error);
+
+      // Pearl §8.3 — a no-trial tenant is billed from day 1: generate its
+      // first invoice immediately (trial tenants are billed only after the
+      // trial flips to active). Best-effort — a billing hiccup must not fail
+      // tenant creation; the monthly generator is the backstop.
+      if (result.subscription.status === "active") {
+        try {
+          await generateInitialInvoiceForSubscription(
+            prisma,
+            result.subscription.id,
+          );
+        } catch (e) {
+          console.error("[tenants] initial invoice generation failed", e);
+        }
+      }
 
       res.status(201).json({ success: true, data: result, error: null });
     } catch (err) {
@@ -393,6 +417,11 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     };
 
     const where: Record<string, unknown> = {};
+    // Pearl §8.1 — the seeded "default" tenant hosts the super-admin + seed
+    // data; it is platform infrastructure, not a customer hospital, so it is
+    // never listed in the operator's tenant fleet. ANDed with any search /
+    // plan / active filters below.
+    where.subdomain = { not: "default" };
     if (typeof search === "string" && search.trim().length > 0) {
       const term = search.trim();
       where.OR = [

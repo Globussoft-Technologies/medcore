@@ -56,7 +56,11 @@ import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { markInvoicePaid } from "../services/platform-invoice-generator";
 import { sendSingleInvoiceReminder } from "../services/platform-invoice-mailer";
-import { createPlatformPaymentLink } from "../services/razorpay";
+import {
+  createPlatformPaymentLink,
+  createPaymentOrder,
+  verifyPayment,
+} from "../services/razorpay";
 import {
   applyProration,
   cancelSubscription,
@@ -613,6 +617,156 @@ router.post(
           shortUrl: link.shortUrl,
           amountInPaise: link.amountInPaise,
         },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+router.post(
+  "/invoices/:id/pay-online",
+  requirePlatformOperatorStrict,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const invoice = await prisma.platformInvoice.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          totalInPaise: true,
+          tenantId: true,
+        },
+      });
+      if (!invoice) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Invoice not found",
+        });
+        return;
+      }
+      if (invoice.status !== "ISSUED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Cannot start online payment for a ${invoice.status} invoice`,
+        });
+        return;
+      }
+
+      let order;
+      try {
+        // createPaymentOrder takes the amount in RUPEES (it converts to paise
+        // internally); platform account → tenantId null.
+        order = await createPaymentOrder(
+          invoice.id,
+          invoice.totalInPaise / 100,
+          null,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.status(502).json({ success: false, data: null, error: message });
+        return;
+      }
+
+      auditLog(
+        req,
+        "PLATFORM_INVOICE_PAY_ONLINE_ORDER_CREATED",
+        "platform_invoice",
+        invoice.id,
+        {
+          invoiceNumber: invoice.invoiceNumber,
+          tenantId: invoice.tenantId,
+          orderId: order.orderId,
+          amount: order.amount,
+        },
+      ).catch(console.error);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          orderId: order.orderId,
+          amount: order.amount,
+          currency: order.currency,
+          keyId: order.keyId,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+const platformVerifyPaymentSchema = z.object({
+  razorpayOrderId: z.string().min(1).max(200),
+  razorpayPaymentId: z.string().min(1).max(200),
+  razorpaySignature: z.string().min(1).max(400),
+});
+
+router.post(
+  "/invoices/:id/verify-payment",
+  requirePlatformOperatorStrict,
+  validate(platformVerifyPaymentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as z.infer<typeof platformVerifyPaymentSchema>;
+      const ok = await verifyPayment(
+        body.razorpayOrderId,
+        body.razorpayPaymentId,
+        body.razorpaySignature,
+        null,
+      );
+      if (!ok) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Payment signature verification failed",
+        });
+        return;
+      }
+
+      let result;
+      try {
+        result = await markInvoicePaid(
+          prisma,
+          req.params.id,
+          req.user!.userId,
+          body.razorpayPaymentId,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("not found")) {
+          res.status(404).json({
+            success: false,
+            data: null,
+            error: "Platform invoice not found",
+          });
+          return;
+        }
+        throw err;
+      }
+
+      const updated = await prisma.platformInvoice.findUnique({
+        where: { id: result.invoiceId },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          paidAt: true,
+          paymentReference: true,
+          paidByUserId: true,
+          totalInPaise: true,
+          tenantId: true,
+        },
+      });
+
+      res.status(200).json({
+        success: true,
+        data: { transition: result.status, invoice: updated },
         error: null,
       });
     } catch (err) {

@@ -292,7 +292,10 @@ export default function TenantsAdminPage() {
       const res = await api.get<{ data: Tenant[] }>(
         `/tenants${params.toString() ? `?${params.toString()}` : ""}`,
       );
-      setTenants(res.data);
+      // Hide the seeded "default" tenant — it hosts the super-admin + seed
+      // data (platform infrastructure), not a customer hospital. Filtered on
+      // the client so the API still returns it for onboarding / id-resolution.
+      setTenants(res.data.filter((t) => t.subdomain !== "default"));
     } catch (err) {
       const e = err as { status?: number; message?: string };
       if (e.status === 403) {

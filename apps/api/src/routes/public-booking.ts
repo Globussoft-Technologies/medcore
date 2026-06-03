@@ -37,6 +37,7 @@ import {
   canonicalisePhone,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
+import { istTodayDateStr, istNowMinutes } from "../utils/ist-time";
 import { rateLimit } from "../middleware/rate-limit";
 import { auditLog } from "../middleware/audit";
 import { extractSymptomSummary } from "../services/ai/sarvam";
@@ -189,11 +190,13 @@ async function computeOpenSlots(
   });
   if (schedules.length === 0) return [];
 
-  const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  // IST-anchored "now" — slot strings are clinic-local IST clock times,
+  // so the cutoff MUST be IST too. Using server-local time leaks elapsed
+  // slots on a UTC host (see istNowMinutes docs / the slot-leak bug).
+  const todayStr = istTodayDateStr();
   if (date < todayStr) return [];
   const isToday = date === todayStr;
-  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowMin = istNowMinutes();
 
   const existing = await prisma.appointment.findMany({
     where: {
@@ -374,12 +377,12 @@ publicBookingRouter.post(
       const phone = canonicalisePhone(req.body.phone);
       const dateObj = new Date(date);
 
-      // Same-day past-slot guard (mirrors /appointments/book).
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      // Same-day past-slot guard (mirrors /appointments/book). IST-anchored
+      // so a UTC-host server rejects the correct elapsed slots.
+      const todayStr = istTodayDateStr();
       if (date === todayStr) {
         const [sh, sm] = slotId.split(":").map(Number);
-        if (sh * 60 + sm < now.getHours() * 60 + now.getMinutes()) {
+        if (sh * 60 + sm < istNowMinutes()) {
           res.status(400).json({
             success: false,
             data: null,

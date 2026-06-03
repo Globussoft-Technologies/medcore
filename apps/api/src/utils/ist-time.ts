@@ -68,6 +68,44 @@ export function istTodayBounds(): { start: Date; end: Date } {
 }
 
 /**
+ * Returns today's IST calendar day as a `YYYY-MM-DD` string.
+ *
+ * Use for same-day comparisons of a caller-supplied date param against
+ * "today". MUST be used instead of `new Date().getFullYear()/...`,
+ * which returns the SERVER-local day — on a UTC host that's up to 5.5h
+ * behind IST, so a late-evening IST booking is mis-classified as a
+ * different calendar day. See the slot-leak bug class at the top of
+ * this file.
+ *
+ *   istTodayDateStr() → "2026-06-03"  (at any time on 3 Jun IST)
+ */
+export function istTodayDateStr(): string {
+  const istNow = new Date(Date.now() + IST_OFFSET_MIN * 60_000);
+  const y = istNow.getUTCFullYear();
+  const m = String(istNow.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(istNow.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Returns the number of minutes elapsed since IST midnight for "now"
+ * (0–1439). Use as the cutoff when filtering same-day HH:MM slot
+ * strings, which are clinic-local IST clock times.
+ *
+ * MUST be used instead of `new Date().getHours() * 60 + getMinutes()`,
+ * which yields SERVER-local minutes — on a UTC host that's 330 minutes
+ * behind IST, so the past-slot filter under-rejects and elapsed slots
+ * (e.g. 17:15 at 18:58 IST) leak into the availability grid. This was
+ * the medcore.globusdemos.com slot-leak bug.
+ *
+ *   istNowMinutes() → 1138  (when it's 18:58 IST)
+ */
+export function istNowMinutes(): number {
+  const istNow = new Date(Date.now() + IST_OFFSET_MIN * 60_000);
+  return istNow.getUTCHours() * 60 + istNow.getUTCMinutes();
+}
+
+/**
  * Parse a `YYYY-MM-DD` string as an IST midnight (returns the UTC
  * `Date`). Use when the caller passed a date as a query param and
  * meant "the IST calendar day".

@@ -27,7 +27,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
-import { istMidnightUtc } from "../utils/ist-time";
+import { istMidnightUtc, istTodayDateStr, istNowMinutes } from "../utils/ist-time";
 import { recordCampaignConversion } from "../services/campaign-conversion";
 import {
   onAppointmentBooked,
@@ -116,12 +116,14 @@ router.post(
       // DB. `slotId` from the booking form is HH:MM (the route comment
       // notes this); only block when it parses as a real time so any
       // legacy callers passing a true UUID slotId are unaffected.
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      // IST-anchored: slotId is a clinic-local IST HH:MM, so both the
+      // "today" comparison and the elapsed-time cutoff must be IST. A
+      // server-local cutoff on a UTC host accepts already-past slots.
+      const todayStr = istTodayDateStr();
       if (date === todayStr && /^\d{2}:\d{2}$/.test(slotId)) {
         const [sh, sm] = slotId.split(":").map(Number);
         const slotMin = sh * 60 + sm;
-        const nowMin = now.getHours() * 60 + now.getMinutes();
+        const nowMin = istNowMinutes();
         if (slotMin < nowMin) {
           res.status(400).json({
             success: false,
@@ -1689,11 +1691,13 @@ router.get(
         endTime: string;
       } | null = null;
 
+      // `todayIso` stays on the SAME UTC basis as `dIso` (both derive from
+      // toISOString on UTC-midnight dates) so the same-day gate at line
+      // ~1746 lines up. Only `nowMin` was the real bug — the elapsed-slot
+      // cutoff must be the IST clock, not the UTC-host server clock, or
+      // already-past slots get returned as "next available".
       const todayIso = new Date().toISOString().split("T")[0];
-      const nowMin = (() => {
-        const n = new Date();
-        return n.getHours() * 60 + n.getMinutes();
-      })();
+      const nowMin = istNowMinutes();
 
       for (const doc of doctors) {
         for (let i = 0; i < DAYS; i++) {

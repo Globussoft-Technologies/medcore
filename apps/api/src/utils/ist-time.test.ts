@@ -32,6 +32,8 @@ import {
   IST_OFFSET_MIN,
   istMidnightUtc,
   istTodayBounds,
+  istTodayDateStr,
+  istNowMinutes,
   parseIstDateOnly,
 } from "./ist-time";
 
@@ -191,6 +193,92 @@ describe("istTodayBounds", () => {
     const { start, end } = istTodayBounds();
     expect(start.toISOString()).toBe("2026-05-15T18:30:00.000Z");
     expect(end.toISOString()).toBe("2026-05-16T18:29:59.999Z");
+  });
+});
+
+describe("istTodayDateStr", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns the IST calendar day, not the UTC day, in the evening (the slot-leak bug window)", () => {
+    // 18:58 IST on 2026-06-03 == 13:28 UTC same day. Both happen to be
+    // the 3rd here, but pin it to prove we read IST.
+    vi.setSystemTime(new Date("2026-06-03T13:28:00.000Z"));
+    expect(istTodayDateStr()).toBe("2026-06-03");
+  });
+
+  it("rolls the IST day forward before the UTC day at the 18:30Z boundary", () => {
+    // 2026-06-03T19:00:00Z == 2026-06-04T00:30 IST. UTC is still the 3rd,
+    // but IST has already ticked to the 4th — istTodayDateStr MUST return
+    // the 4th (a server-local impl on a UTC host would wrongly say the 3rd).
+    vi.setSystemTime(new Date("2026-06-03T19:00:00.000Z"));
+    expect(istTodayDateStr()).toBe("2026-06-04");
+  });
+
+  it("still reports the prior IST day just before the boundary (18:29Z)", () => {
+    // 2026-06-03T18:29:00Z == 2026-06-03T23:59 IST — still the 3rd.
+    vi.setSystemTime(new Date("2026-06-03T18:29:00.000Z"));
+    expect(istTodayDateStr()).toBe("2026-06-03");
+  });
+
+  it("crosses month + year boundaries via the IST clock", () => {
+    // 2026-12-31T19:00:00Z == 2027-01-01T00:30 IST.
+    vi.setSystemTime(new Date("2026-12-31T19:00:00.000Z"));
+    expect(istTodayDateStr()).toBe("2027-01-01");
+  });
+});
+
+describe("istNowMinutes", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns IST minutes-since-midnight, reproducing the 18:58 bug scenario", () => {
+    // This is the exact medcore.globusdemos.com repro: a UTC-host server at
+    // 13:28 UTC. A server-local impl returns 808 (13:28) — which would keep
+    // the elapsed 17:15/18:00 slots. The IST-correct answer is 1138 (18:58).
+    vi.setSystemTime(new Date("2026-06-03T13:28:00.000Z"));
+    expect(istNowMinutes()).toBe(18 * 60 + 58); // 1138
+  });
+
+  it("is 0 at IST midnight", () => {
+    // IST midnight == 18:30Z the previous day.
+    vi.setSystemTime(new Date("2026-06-02T18:30:00.000Z"));
+    expect(istNowMinutes()).toBe(0);
+  });
+
+  it("is 1439 one minute before IST midnight", () => {
+    // 23:59 IST == 18:29Z.
+    vi.setSystemTime(new Date("2026-06-03T18:29:00.000Z"));
+    expect(istNowMinutes()).toBe(23 * 60 + 59); // 1439
+  });
+
+  it("wraps past the UTC-day boundary correctly (00:30 IST → 30)", () => {
+    // 19:00Z == 00:30 IST next day → 30 minutes past IST midnight.
+    vi.setSystemTime(new Date("2026-06-03T19:00:00.000Z"));
+    expect(istNowMinutes()).toBe(30);
+  });
+
+  it("always stays within [0, 1439]", () => {
+    for (const iso of [
+      "2026-06-03T00:00:00.000Z",
+      "2026-06-03T06:00:00.000Z",
+      "2026-06-03T13:28:00.000Z",
+      "2026-06-03T18:30:00.000Z",
+      "2026-06-03T23:59:59.000Z",
+    ]) {
+      vi.setSystemTime(new Date(iso));
+      const m = istNowMinutes();
+      expect(m).toBeGreaterThanOrEqual(0);
+      expect(m).toBeLessThanOrEqual(1439);
+    }
   });
 });
 

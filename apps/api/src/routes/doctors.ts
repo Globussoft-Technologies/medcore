@@ -22,6 +22,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { istTodayDateStr, istNowMinutes } from "../utils/ist-time";
 
 const router = Router();
 router.use(authenticate);
@@ -306,8 +307,10 @@ router.get(
       // they can't actually book. We string-compare YYYY-MM-DD against the
       // server's local today; the route never received timezone info from
       // the caller, so this stays consistent with the new Zod refine.
-      const now = new Date();
-      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      // IST-anchored today / now — slot strings are clinic-local IST clock
+      // times, so the cutoff MUST be IST (server-local leaks past slots on
+      // a UTC host). See istNowMinutes docs.
+      const todayStr = istTodayDateStr();
       const reqDateStr = String(date);
       if (reqDateStr < todayStr) {
         res.json({
@@ -318,7 +321,7 @@ router.get(
         return;
       }
       const isToday = reqDateStr === todayStr;
-      const nowMin = now.getHours() * 60 + now.getMinutes();
+      const nowMin = istNowMinutes();
 
       for (const schedule of schedules) {
         const startTime = override?.startTime || schedule.startTime;

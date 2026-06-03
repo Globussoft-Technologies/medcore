@@ -79,6 +79,7 @@ function bookActive(id: string, dateIso: string) {
     slotStart: "10:30:00",
     tokenNumber: 7,
     status: "BOOKED",
+    doctorId: "doc-1",
     doctor: { user: { name: "Sharma" }, specialty: "Obstetrics" },
   };
 }
@@ -289,10 +290,28 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
     expect(href).toContain(encodeURIComponent("12 MG Rd, Bengaluru"));
   });
 
-  it("submitting reschedule PATCHes /appointments/:id/reschedule with { date, slotStart }", async () => {
+  it("submitting reschedule PATCHes /appointments/:id/reschedule with { date, slotStart } picked from the doctor's slot grid", async () => {
     apiGetMock.mockImplementation((endpoint: string) => {
       if (endpoint.includes("status=BOOKED")) {
         return Promise.resolve(listOk([bookActive("appt-up-1", FUTURE)]));
+      }
+      // Slot/token-wise picker: the modal fetches the doctor's open slots
+      // for the chosen date instead of offering a free-form time input.
+      if (endpoint.startsWith("/doctors/doc-1/slots")) {
+        return Promise.resolve({
+          success: true,
+          data: {
+            date: "2099-12-31",
+            slots: [
+              { startTime: "15:00", endTime: "15:30", isAvailable: true },
+              { startTime: "15:30", endTime: "16:00", isAvailable: true },
+              { startTime: "16:00", endTime: "16:30", isAvailable: false },
+            ],
+            blocked: false,
+            reason: null,
+          },
+          error: null,
+        });
       }
       return Promise.resolve(listOk([]));
     });
@@ -312,11 +331,14 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
     const dateInput = screen.getByTestId(
       "patient-appointments-reschedule-date",
     );
-    const timeInput = screen.getByTestId(
-      "patient-appointments-reschedule-time",
-    );
     fireEvent.change(dateInput, { target: { value: "2099-12-31" } });
-    fireEvent.change(timeInput, { target: { value: "15:30" } });
+
+    // The slot grid loads for the chosen date; pick the 15:30 chip.
+    const slot1530 = await screen.findByTestId(
+      "patient-appointments-reschedule-slot-15:30",
+    );
+    fireEvent.click(slot1530);
+
     // Pearl §3.1 (gap closed 2026-05-29): reschedule reason is required
     // server-side (Zod, 3-500 chars). Local validation also short-circuits
     // the submit, so the test must enter a reason before clicking submit.
@@ -340,6 +362,56 @@ describe("Patient appointments page — gap #5 piece 3b", () => {
         },
       );
     });
+  });
+
+  it("disables the reschedule submit until a slot is picked, and blocks free-form times", async () => {
+    apiGetMock.mockImplementation((endpoint: string) => {
+      if (endpoint.includes("status=BOOKED")) {
+        return Promise.resolve(listOk([bookActive("appt-up-1", FUTURE)]));
+      }
+      if (endpoint.startsWith("/doctors/doc-1/slots")) {
+        return Promise.resolve({
+          success: true,
+          data: {
+            date: "2099-12-31",
+            slots: [
+              { startTime: "15:30", endTime: "16:00", isAvailable: true },
+            ],
+            blocked: false,
+            reason: null,
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve(listOk([]));
+    });
+
+    render(<PatientAppointmentsPage />);
+    await waitFor(() =>
+      expect(screen.getByTestId("patient-appointments")).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByTestId("patient-appointments-reschedule-btn"));
+    await screen.findByTestId("patient-appointments-reschedule-modal");
+
+    // No free-form time input exists anymore.
+    expect(
+      screen.queryByTestId("patient-appointments-reschedule-time"),
+    ).not.toBeInTheDocument();
+
+    // Submit is disabled before any slot is chosen.
+    const submit = screen.getByTestId(
+      "patient-appointments-reschedule-submit",
+    );
+    expect(submit).toBeDisabled();
+
+    // Pick the only available slot → submit enables.
+    fireEvent.click(
+      await screen.findByTestId(
+        "patient-appointments-reschedule-slot-15:30",
+      ),
+    );
+    expect(submit).toBeEnabled();
   });
 
   it("submitting cancel PATCHes /appointments/:id/status with { status: 'CANCELLED', cancellationReason }", async () => {

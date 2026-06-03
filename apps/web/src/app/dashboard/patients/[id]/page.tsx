@@ -46,6 +46,9 @@ import {
   Printer,
   AlertCircle,
   Edit as EditIcon,
+  MessageCircle,
+  PhoneCall,
+  UserPlus,
 } from "lucide-react";
 
 // ───────────────────────────────────────────────────────
@@ -383,6 +386,7 @@ export default function PatientDetailPage() {
   const { user } = useAuthStore();
   const promptDialog = usePrompt();
   const [patient, setPatient] = useState<PatientDetail | null>(null);
+  const [creatingLead, setCreatingLead] = useState(false);
   const [visits, setVisits] = useState<VisitRecord[]>([]);
   const [stats, setStats] = useState<PatientStats | null>(null);
   const [allergiesAlert, setAllergiesAlert] = useState<Allergy[]>([]);
@@ -431,6 +435,41 @@ export default function PatientDetailPage() {
       setConsultHistoryLoading(false);
     }
   }, [id, consultHistory.length]);
+
+  // Quick "Create lead" action — opens a CRM lead pre-filled from the
+  // patient's name / phone / email so staff can start a sales/follow-up
+  // track straight from the profile. On success, jumps to the new lead.
+  const createLead = useCallback(async () => {
+    if (!patient || creatingLead) return;
+    setCreatingLead(true);
+    try {
+      const res = await api.post<{ data: { id: string } }>("/leads", {
+        name: patient.user.name.trim(),
+        phone: patient.user.phone?.trim() || undefined,
+        email: patient.user.email?.trim() || undefined,
+        source: "REFERRAL",
+        notes: `Created from patient ${patient.mrNumber}`,
+      });
+      // Only ADMIN / RECEPTION can VIEW the leads pages (DOCTOR + NURSE
+      // can create via the API but have no Leads nav entry — navigating
+      // them to /dashboard/leads/:id dead-ends on a not-authorized
+      // shell). So only redirect roles that can actually see the page;
+      // others get a confirmation toast and stay on the patient profile.
+      toast.success("Lead created");
+      const leadId = res?.data?.id;
+      const canViewLeads =
+        user?.role === "ADMIN" || user?.role === "RECEPTION";
+      if (leadId && canViewLeads) {
+        router.push(`/dashboard/leads/${leadId}`);
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create lead",
+      );
+    } finally {
+      setCreatingLead(false);
+    }
+  }, [patient, creatingLead, router, user]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -865,6 +904,70 @@ export default function PatientDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Contact ACTIONS — one-click reach-out shortcuts wired to
+                native intents (WhatsApp / call / email) plus a vCard
+                download, so staff can contact or save the patient
+                without leaving the profile. Gated on having a phone or
+                email so the cluster doesn't render empty affordances. */}
+            {(patient.user.phone || patient.user.email) && (
+              <div
+                className="no-print mt-4 flex items-center gap-3 border-t pt-3"
+                data-testid="patient-contact-actions"
+              >
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  Actions
+                </span>
+                {patient.user.phone && (
+                  <a
+                    href={`https://wa.me/${patient.user.phone.replace(/[^\d]/g, "")}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Message on WhatsApp"
+                    aria-label="Message patient on WhatsApp"
+                    data-testid="patient-action-whatsapp"
+                    className="rounded-full p-1.5 text-green-600 hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/30"
+                  >
+                    <MessageCircle size={18} />
+                  </a>
+                )}
+                {patient.user.phone && (
+                  <a
+                    href={`tel:${patient.user.phone}`}
+                    title="Call patient"
+                    aria-label="Call patient"
+                    data-testid="patient-action-call"
+                    className="rounded-full p-1.5 text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                  >
+                    <PhoneCall size={18} />
+                  </a>
+                )}
+                {patient.user.email && (
+                  <a
+                    href={`mailto:${patient.user.email}`}
+                    title="Email patient"
+                    aria-label="Email patient"
+                    data-testid="patient-action-email"
+                    className="rounded-full p-1.5 text-purple-600 hover:bg-purple-50 dark:text-purple-400 dark:hover:bg-purple-900/30"
+                  >
+                    <Mail size={18} />
+                  </a>
+                )}
+                {(isReception || isAdmin || isDoctor || isNurse) && (
+                  <button
+                    type="button"
+                    onClick={createLead}
+                    disabled={creatingLead}
+                    title="Create CRM lead from this patient"
+                    aria-label="Create lead from patient"
+                    data-testid="patient-action-create-lead"
+                    className="rounded-full p-1.5 text-purple-600 hover:bg-purple-50 disabled:opacity-50 dark:text-purple-400 dark:hover:bg-purple-900/30"
+                  >
+                    <UserPlus size={18} />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

@@ -58,7 +58,7 @@ import {
   within,
 } from "@testing-library/react";
 
-const { apiMock, toastMock, authMock } = vi.hoisted(() => ({
+const { apiMock, toastMock, authMock, routerMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -72,12 +72,21 @@ const { apiMock, toastMock, authMock } = vi.hoisted(() => ({
     info: vi.fn(),
     warning: vi.fn(),
   },
+  // Selector-aware store mock: the page calls both useAuthStore() (object
+  // destructure for `user`) and useAuthStore((s) => s.isLoading). We back
+  // both with one state object — when called with a selector, apply it;
+  // otherwise return the whole state.
   authMock: vi.fn(),
+  routerMock: { replace: vi.fn(), push: vi.fn() },
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/lib/toast", () => ({ toast: toastMock }));
 vi.mock("@/lib/store", () => ({ useAuthStore: authMock }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => routerMock,
+  usePathname: () => "/dashboard/leads",
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: any) => (
     <a href={typeof href === "string" ? href : "#"} {...rest}>
@@ -128,25 +137,39 @@ function ok(leads: LeadRow[]) {
   return { data: leads };
 }
 
+// Drive the selector-aware store mock. `isLoading: false` so the route
+// gate's `!isAuthLoading` guard runs its redirect synchronously in tests.
+function setAuthUser(user: Record<string, unknown> | null) {
+  const state = { user, isLoading: false };
+  authMock.mockImplementation((selector?: (s: typeof state) => unknown) =>
+    typeof selector === "function" ? selector(state) : state,
+  );
+}
+
 function asStaff() {
-  authMock.mockReturnValue({
-    user: {
-      id: "u-recep",
-      userId: "u-recep",
-      role: "RECEPTION",
-      name: "Front Desk",
-    },
+  setAuthUser({
+    id: "u-recep",
+    userId: "u-recep",
+    role: "RECEPTION",
+    name: "Front Desk",
   });
 }
 
 function asPatient() {
-  authMock.mockReturnValue({
-    user: {
-      id: "u-pat",
-      userId: "u-pat",
-      role: "PATIENT",
-      name: "Pat",
-    },
+  setAuthUser({
+    id: "u-pat",
+    userId: "u-pat",
+    role: "PATIENT",
+    name: "Pat",
+  });
+}
+
+function asDoctor() {
+  setAuthUser({
+    id: "u-doc",
+    userId: "u-doc",
+    role: "DOCTOR",
+    name: "Dr. Who",
   });
 }
 
@@ -157,6 +180,8 @@ describe("Leads dashboard page (CRM pipeline)", () => {
     apiMock.patch.mockReset();
     Object.values(toastMock).forEach((fn: any) => fn.mockReset());
     authMock.mockReset();
+    routerMock.replace.mockReset();
+    routerMock.push.mockReset();
     asStaff();
   });
 
@@ -164,21 +189,38 @@ describe("Leads dashboard page (CRM pipeline)", () => {
     cleanup();
   });
 
-  it("renders the staff-only copy when the caller is a PATIENT (no table, no filter chips)", () => {
+  it("redirects a PATIENT to not-authorized and renders no pipeline chrome", async () => {
     apiMock.get.mockResolvedValue(ok([]));
     asPatient();
     render(<LeadsPage />);
-    // The early-return branch wins: copy renders, no table chrome, no filter
-    // chips. (Note: hooks run before the early return so a `load()` fetch
-    // does fire; that's a separate API-layer concern, gated by the
-    // /leads route's own authorize(...) — see CLAUDE.md gotcha #7.)
-    expect(
-      screen.getByText(/Lead pipeline is staff-only\./i),
-    ).toBeInTheDocument();
+    // The route gate redirects non-allowlisted roles and the component
+    // returns null in the meantime — no table, no heading, no create btn.
+    await waitFor(() =>
+      expect(routerMock.replace).toHaveBeenCalledWith(
+        expect.stringContaining("/dashboard/not-authorized"),
+      ),
+    );
     expect(
       screen.queryByRole("heading", { name: /^Leads$/i }),
     ).not.toBeInTheDocument();
     expect(screen.queryByTestId("leads-create-btn")).not.toBeInTheDocument();
+    // Never fires the /leads GET for a non-allowlisted role.
+    expect(apiMock.get).not.toHaveBeenCalled();
+  });
+
+  it("redirects a DOCTOR to not-authorized (pipeline is reception/admin-only)", async () => {
+    apiMock.get.mockResolvedValue(ok([]));
+    asDoctor();
+    render(<LeadsPage />);
+    await waitFor(() =>
+      expect(routerMock.replace).toHaveBeenCalledWith(
+        expect.stringContaining("/dashboard/not-authorized"),
+      ),
+    );
+    expect(
+      screen.queryByRole("heading", { name: /^Leads$/i }),
+    ).not.toBeInTheDocument();
+    expect(apiMock.get).not.toHaveBeenCalled();
   });
 
   it('renders the "Loading…" placeholder while the initial fetch is pending', async () => {

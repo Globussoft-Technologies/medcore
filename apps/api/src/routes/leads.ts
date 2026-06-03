@@ -32,8 +32,18 @@ import bcrypt from "bcryptjs";
 const router = Router();
 router.use(authenticate);
 
-// All lead surfaces are staff-only (PATIENT role excluded).
+// Lead WRITE surfaces (create / note / status) are open to all
+// clinical+front-desk staff so a DOCTOR or NURSE can spin up a lead
+// from a patient profile. PATIENT is excluded everywhere.
 const LEAD_ROLES = [Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE] as const;
+
+// Lead READ surfaces (list / detail / by-patient) are narrower: only
+// ADMIN + RECEPTION own the CRM pipeline and have the Leads nav entry.
+// DOCTOR/NURSE can create a lead but have no business browsing the
+// pipeline, so reads are gated tighter than writes. This is the real
+// security boundary behind the client-side route gate in
+// apps/web/src/app/dashboard/leads/*.
+const LEAD_READ_ROLES = [Role.ADMIN, Role.RECEPTION] as const;
 
 // ─── POST /leads — create
 router.post(
@@ -129,7 +139,7 @@ router.post(
 );
 
 // ─── GET /leads — list with filters
-router.get("/", authorize(...LEAD_ROLES), async (req: Request, res: Response, next: NextFunction) => {
+router.get("/", authorize(...LEAD_READ_ROLES), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const status = typeof req.query.status === "string" ? req.query.status : undefined;
     const source = typeof req.query.source === "string" ? req.query.source : undefined;
@@ -184,6 +194,10 @@ router.get("/", authorize(...LEAD_ROLES), async (req: Request, res: Response, ne
 // IMPORTANT: registered BEFORE /:id so Express's static-before-dynamic
 // matching doesn't swallow "by-patient" as a lead id (would 404 with the
 // wrong error shape). See CLAUDE.md §14 (post-fix verification grep).
+// NOTE: stays on the broader LEAD_ROLES (not LEAD_READ_ROLES) — this is
+// a per-patient lookup powering the CRM History panel on the patient
+// profile, which DOCTOR + NURSE see. It's a single-patient read, not
+// pipeline browsing, so it isn't restricted to ADMIN/RECEPTION.
 router.get(
   "/by-patient/:patientId",
   authorize(...LEAD_ROLES),
@@ -219,7 +233,7 @@ router.get(
 // ─── GET /leads/:id — detail
 router.get(
   "/:id",
-  authorize(...LEAD_ROLES),
+  authorize(...LEAD_READ_ROLES),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const lead = await prisma.lead.findUnique({

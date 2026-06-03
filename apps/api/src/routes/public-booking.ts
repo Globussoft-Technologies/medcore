@@ -38,6 +38,7 @@ import {
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { istTodayDateStr, istNowMinutes } from "../utils/ist-time";
+import { isDoctorOnConfirmedLeave } from "../utils/doctor-leave";
 import { rateLimit } from "../middleware/rate-limit";
 import { auditLog } from "../middleware/audit";
 import { extractSymptomSummary } from "../services/ai/sarvam";
@@ -184,6 +185,9 @@ async function computeOpenSlots(
     where: { doctorId_date: { doctorId, date: dateObj } },
   });
   if (override?.isBlocked) return [];
+
+  // Confirmed (APPROVED) doctor leave → no slots for the day.
+  if (await isDoctorOnConfirmedLeave(doctorId, dateObj)) return [];
 
   const schedules = await prisma.doctorSchedule.findMany({
     where: { doctorId, dayOfWeek },
@@ -404,6 +408,17 @@ publicBookingRouter.post(
       });
       if (!doctor) {
         res.status(404).json({ success: false, data: null, error: "Doctor not found" });
+        return;
+      }
+
+      // Confirmed (APPROVED) doctor leave blocks public booking on that
+      // date — mirrors the slot grid, which returns no slots for leave days.
+      if (await isDoctorOnConfirmedLeave(doctorId, dateObj)) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Doctor is on leave on the selected date",
+        });
         return;
       }
 

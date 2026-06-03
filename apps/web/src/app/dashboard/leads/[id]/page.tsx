@@ -19,7 +19,7 @@
 
 import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -93,6 +93,12 @@ const ACTIVITY_LABELS: Record<string, string> = {
 
 const WRITE_ROLES = new Set(["ADMIN", "RECEPTION", "DOCTOR"]);
 const CONVERT_ROLES = new Set(["ADMIN", "RECEPTION"]);
+// View access mirrors the list page + the Leads nav entry: only
+// ADMIN + RECEPTION own the CRM pipeline. DOCTOR/NURSE/PATIENT are
+// redirected to not-authorized (CLAUDE.md gotcha #7 — no client gate
+// otherwise). Note: this is stricter than WRITE_ROLES, which still
+// lists DOCTOR for the legacy note-append affordance.
+const VIEW_ROLES = new Set(["ADMIN", "RECEPTION"]);
 
 export default function LeadDetailPage({
   params,
@@ -101,9 +107,23 @@ export default function LeadDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  const pathname = usePathname();
   const { user } = useAuthStore();
+  const isAuthLoading = useAuthStore((s) => s.isLoading);
   const canWrite = !!user?.role && WRITE_ROLES.has(user.role);
   const canConvert = !!user?.role && CONVERT_ROLES.has(user.role);
+  const canViewLead = !!user?.role && VIEW_ROLES.has(user.role);
+
+  // Redirect non-allowlisted roles (DOCTOR / NURSE / PATIENT) before the
+  // lead detail renders. Mirrors the list page + queue gate.
+  useEffect(() => {
+    if (!isAuthLoading && user && !canViewLead) {
+      toast.error("Leads pipeline is reception/admin-only.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || `/dashboard/leads/${id}`)}`,
+      );
+    }
+  }, [isAuthLoading, user, canViewLead, router, pathname, id]);
 
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,9 +156,12 @@ export default function LeadDetailPage({
   }
 
   useEffect(() => {
+    // Skip the GET for non-allowlisted roles — it would 403 and toast a
+    // spurious error during the redirect flicker.
+    if (!canViewLead) return;
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [id, canViewLead]);
 
   async function changeStatus(status: LeadStatus) {
     if (!lead || !canWrite) return;
@@ -210,6 +233,11 @@ export default function LeadDetailPage({
 
   const isConverted = useMemo(() => Boolean(lead?.convertedPatientId), [lead]);
 
+  // Non-allowlisted roles are being redirected by the gate effect;
+  // render nothing so the lead detail never flashes for them.
+  if (!canViewLead) {
+    return null;
+  }
   if (loading) {
     return (
       <div className="flex items-center justify-center p-12 text-gray-400">

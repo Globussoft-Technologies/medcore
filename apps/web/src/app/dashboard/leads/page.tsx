@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -28,6 +29,13 @@ import { Plus, Search, UserCheck } from "lucide-react";
 // (with optional +). Email is optional, but if provided must be RFC-ish.
 const LEAD_PHONE_REGEX = /^\+?\d{10,15}$/;
 const LEAD_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Only ADMIN + RECEPTION own the CRM lead pipeline and have a Leads
+// nav entry (see navByRole in dashboard/layout.tsx). DOCTOR/NURSE can
+// create a lead from a patient profile via the API but have no business
+// browsing the pipeline — and PATIENT must never see it. Gate the page
+// (chrome renders for any authed user otherwise — CLAUDE.md gotcha #7).
+const LEADS_VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
 function validateLeadForm(input: {
   name: string;
@@ -79,6 +87,23 @@ const STATUS_COLORS: Record<LeadStatus, string> = {
 
 export default function LeadsPage() {
   const { user } = useAuthStore();
+  const isAuthLoading = useAuthStore((s) => s.isLoading);
+  const router = useRouter();
+  const pathname = usePathname();
+  const canViewLeads = !!user?.role && LEADS_VIEW_ALLOWED.has(user.role);
+
+  // Redirect non-allowlisted roles (DOCTOR / NURSE / PATIENT) to the
+  // chrome-wrapped not-authorized page instead of letting the pipeline
+  // shell render. Mirrors the queue page's gate (Issue #179 / #383).
+  useEffect(() => {
+    if (!isAuthLoading && user && !canViewLeads) {
+      toast.error("Leads pipeline is reception/admin-only.");
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/leads")}`,
+      );
+    }
+  }, [isAuthLoading, user, canViewLeads, router, pathname]);
+
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<LeadStatus | "ALL">("ALL");
@@ -106,8 +131,6 @@ export default function LeadsPage() {
   );
   const canSubmit = Object.keys(liveErrors).length === 0 && !submitting;
 
-  const isStaff = !!user?.role && user.role !== "PATIENT";
-
   const load = async () => {
     setLoading(true);
     try {
@@ -127,9 +150,12 @@ export default function LeadsPage() {
   };
 
   useEffect(() => {
+    // Don't fire the /leads GET for non-allowlisted roles — it would
+    // 403 and toast a spurious error during the redirect flicker.
+    if (!canViewLeads) return;
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, sourceFilter]);
+  }, [statusFilter, sourceFilter, canViewLeads]);
 
   const counts = useMemo(() => {
     const map: Record<string, number> = { ALL: leads.length };
@@ -215,12 +241,11 @@ export default function LeadsPage() {
     }
   };
 
-  if (!isStaff) {
-    return (
-      <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
-        Lead pipeline is staff-only.
-      </div>
-    );
+  // Non-allowlisted roles (DOCTOR / NURSE / PATIENT) get redirected by
+  // the gate effect above; render nothing in the meantime so the
+  // pipeline shell never flashes for them.
+  if (!canViewLeads) {
+    return null;
   }
 
   return (

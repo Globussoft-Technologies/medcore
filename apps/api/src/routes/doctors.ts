@@ -23,6 +23,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { istTodayDateStr, istNowMinutes } from "../utils/ist-time";
+import { isDoctorOnConfirmedLeave } from "../utils/doctor-leave";
 
 const router = Router();
 router.use(authenticate);
@@ -263,6 +264,22 @@ router.get(
         res.json({
           success: true,
           data: { date, slots: [], blocked: true, reason: override.reason },
+          error: null,
+        });
+        return;
+      }
+
+      // Confirmed (APPROVED) doctor leave hides ALL slots for the day —
+      // the patient must not be offered a time the doctor can't honour.
+      if (await isDoctorOnConfirmedLeave(req.params.id, dateObj)) {
+        res.json({
+          success: true,
+          data: {
+            date,
+            slots: [],
+            blocked: true,
+            reason: "Doctor is on leave on this date",
+          },
           error: null,
         });
         return;

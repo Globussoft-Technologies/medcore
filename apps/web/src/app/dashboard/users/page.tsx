@@ -109,6 +109,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [staffQuery, setStaffQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   // Issue #991 (UI follow-up): the API treats `address` and
   // `emergencyContact` as `.optional()` for non-PATIENT roles (the
@@ -529,9 +530,17 @@ export default function UsersPage() {
   };
 
 
-  const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+  const q = staffQuery.trim().toLowerCase();
+  const filteredUsers = q
+    ? users.filter((u) =>
+        [u.name, u.email, u.phone].some((f) =>
+          (f ?? "").toLowerCase().includes(q),
+        ),
+      )
+    : users;
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pagedUsers = users.slice(
+  const pagedUsers = filteredUsers.slice(
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   );
@@ -962,11 +971,24 @@ export default function UsersPage() {
       {/* Staff table — rendered when the Staff tab is active. */}
       {activeTab === "staff" && (
       <div className="rounded-xl bg-white shadow-sm dark:bg-gray-800">
+        <div className="border-b border-gray-100 p-3 dark:border-gray-700">
+          <input
+            type="search"
+            data-testid="users-search"
+            value={staffQuery}
+            onChange={(e) => {
+              setStaffQuery(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Search by name, email or phone..."
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+          />
+        </div>
         {loading ? (
           <div className="p-4" data-testid="users-loading" aria-busy="true">
             <SkeletonTable rows={5} columns={6} />
           </div>
-        ) : users.length === 0 ? (
+        ) : filteredUsers.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">No users found</div>
         ) : (
           <div className="overflow-x-auto">

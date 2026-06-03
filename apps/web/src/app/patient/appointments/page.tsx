@@ -160,13 +160,13 @@ function formatApptWhen(a: AppointmentRow): string {
 }
 
 function statusPillClass(status: string): string {
-  if (status === "BOOKED") return "bg-blue-100 text-blue-900";
-  if (status === "CHECKED_IN") return "bg-amber-100 text-amber-900";
-  if (status === "IN_CONSULTATION") return "bg-violet-100 text-violet-900";
-  if (status === "COMPLETED") return "bg-emerald-100 text-emerald-900";
-  if (status === "CANCELLED") return "bg-slate-200 text-slate-700";
-  if (status === "NO_SHOW") return "bg-red-100 text-red-900";
-  return "bg-slate-100 text-slate-700";
+  if (status === "BOOKED") return "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200";
+  if (status === "CHECKED_IN") return "bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200";
+  if (status === "IN_CONSULTATION") return "bg-violet-100 dark:bg-violet-900/40 text-violet-900 dark:text-violet-200";
+  if (status === "COMPLETED") return "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200";
+  if (status === "CANCELLED") return "bg-slate-200 dark:bg-gray-700 text-slate-700 dark:text-gray-200";
+  if (status === "NO_SHOW") return "bg-red-100 dark:bg-red-900/40 text-red-900 dark:text-red-200";
+  return "bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-200";
 }
 
 // ─── Modal helpers ──────────────────────────────────────────────────────
@@ -490,7 +490,7 @@ export default function PatientAppointmentsPage() {
     return (
       <section
         data-testid="patient-appointments-loading"
-        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-gray-400"
       >
         Loading your appointments…
       </section>
@@ -504,7 +504,7 @@ export default function PatientAppointmentsPage() {
         className="space-y-4 py-6"
       >
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           Please sign in to view your appointments.
         </p>
         <Link
@@ -523,7 +523,7 @@ export default function PatientAppointmentsPage() {
       <section
         data-testid="patient-appointments-error"
         role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-800 dark:text-red-200"
       >
         Something went wrong loading your appointments. Please refresh.
       </section>
@@ -553,9 +553,9 @@ export default function PatientAppointmentsPage() {
       {isEmpty ? (
         <div
           data-testid="patient-appointments-empty"
-          className="space-y-3 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm"
+          className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center shadow-sm"
         >
-          <p className="text-base text-slate-700">No appointments yet.</p>
+          <p className="text-base text-slate-700 dark:text-gray-200">No appointments yet.</p>
           <Link
             href="/patient/book"
             className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-6 text-sm font-medium text-white"
@@ -574,14 +574,14 @@ export default function PatientAppointmentsPage() {
           >
             <h2
               id="upcoming-heading"
-              className="text-sm font-medium uppercase tracking-wide text-slate-500"
+              className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
             >
               Upcoming
             </h2>
             {upcoming.length === 0 ? (
               <p
                 data-testid="patient-appointments-upcoming-empty"
-                className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600"
+                className="rounded-md border border-dashed border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900 p-4 text-sm text-slate-600 dark:text-gray-300"
               >
                 No upcoming appointments.
               </p>
@@ -614,7 +614,7 @@ export default function PatientAppointmentsPage() {
                   <p
                     role="alert"
                     data-testid="patient-appointments-arrive-error"
-                    className="rounded-md bg-red-50 p-2 text-xs text-red-800"
+                    className="rounded-md bg-red-50 dark:bg-red-900/30 p-2 text-xs text-red-800 dark:text-red-200"
                   >
                     {arriveError}
                   </p>
@@ -633,7 +633,7 @@ export default function PatientAppointmentsPage() {
               <div className="flex items-center justify-between">
                 <h2
                   id="past-heading"
-                  className="text-sm font-medium uppercase tracking-wide text-slate-500"
+                  className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
                 >
                   Past
                 </h2>
@@ -642,7 +642,7 @@ export default function PatientAppointmentsPage() {
                   onClick={() => setShowPast((v) => !v)}
                   data-testid="patient-appointments-past-toggle"
                   aria-expanded={showPast}
-                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-800"
+                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-3 text-xs font-medium text-slate-800 dark:text-gray-100"
                 >
                   {showPast ? "Hide past appointments" : "Show past appointments"}
                 </button>
@@ -685,10 +685,10 @@ export default function PatientAppointmentsPage() {
             }
           }}
         >
-          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+          <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-xl">
             <h3
               id="reschedule-title"
-              className="shrink-0 border-b border-slate-200 px-4 py-3 text-lg font-semibold"
+              className="shrink-0 border-b border-slate-200 dark:border-gray-700 px-4 py-3 text-lg font-semibold"
             >
               Reschedule appointment
             </h3>
@@ -697,7 +697,7 @@ export default function PatientAppointmentsPage() {
                 stay pinned and the modal never overflows the viewport. */}
             <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-slate-700">
+                <span className="mb-1 block font-medium text-slate-700 dark:text-gray-200">
                   New date
                 </span>
                 <input
@@ -714,7 +714,7 @@ export default function PatientAppointmentsPage() {
                     })
                   }
                   data-testid="patient-appointments-reschedule-date"
-                  className="block h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+                  className="block h-11 w-full rounded-md border border-slate-300 dark:border-gray-600 px-3 text-sm"
                 />
               </label>
               {/* New time — slot/token-wise picker. The patient may only
@@ -722,13 +722,13 @@ export default function PatientAppointmentsPage() {
                   Booked slots come back isAvailable=false and render
                   disabled. */}
               <div className="block text-sm">
-                <span className="mb-1 block font-medium text-slate-700">
+                <span className="mb-1 block font-medium text-slate-700 dark:text-gray-200">
                   New time
                 </span>
                 {slotsLoading ? (
                   <p
                     data-testid="patient-appointments-reschedule-slots-loading"
-                    className="text-sm text-slate-500"
+                    className="text-sm text-slate-500 dark:text-gray-400"
                   >
                     Loading slots…
                   </p>
@@ -736,14 +736,14 @@ export default function PatientAppointmentsPage() {
                   <p
                     data-testid="patient-appointments-reschedule-slots-notice"
                     role="alert"
-                    className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                    className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 p-3 text-sm text-amber-900 dark:text-amber-200"
                   >
                     {slotsNotice}
                   </p>
                 ) : rescheduleSlots.length === 0 ? (
                   <p
                     data-testid="patient-appointments-reschedule-slots-empty"
-                    className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600"
+                    className="rounded-md border border-dashed border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900 p-3 text-sm text-slate-600 dark:text-gray-300"
                   >
                     No slots available on this date.
                   </p>
@@ -770,10 +770,10 @@ export default function PatientAppointmentsPage() {
                           }
                           className={`inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border px-2 text-xs font-medium ${
                             !s.isAvailable
-                              ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                              ? "cursor-not-allowed border-slate-200 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 text-slate-400 dark:text-gray-500"
                               : selected
-                                ? "border-slate-900 bg-slate-900 text-white"
-                                : "border-slate-300 bg-white text-slate-800"
+                                ? "border-slate-900 dark:border-gray-300 bg-slate-900 text-white"
+                                : "border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-slate-800 dark:text-gray-100"
                           }`}
                         >
                           {s.startTime}
@@ -784,8 +784,8 @@ export default function PatientAppointmentsPage() {
                 )}
               </div>
               <label className="block text-sm">
-                <span className="mb-1 block font-medium text-slate-700">
-                  Reason <span className="text-red-600">*</span>
+                <span className="mb-1 block font-medium text-slate-700 dark:text-gray-200">
+                  Reason <span className="text-red-600 dark:text-red-300">*</span>
                 </span>
                 <textarea
                   value={rescheduleDraft.reason}
@@ -799,18 +799,18 @@ export default function PatientAppointmentsPage() {
                   maxLength={500}
                   placeholder="e.g. Schedule conflict; need a different time"
                   data-testid="patient-appointments-reschedule-reason"
-                  className="block w-full rounded-md border border-slate-300 p-2 text-sm"
+                  className="block w-full rounded-md border border-slate-300 dark:border-gray-600 p-2 text-sm"
                 />
               </label>
             </div>
             {/* Pinned footer — stays visible while the body scrolls so the
                 primary action is always reachable on small screens. */}
-            <div className="shrink-0 space-y-3 border-t border-slate-200 px-4 py-3">
+            <div className="shrink-0 space-y-3 border-t border-slate-200 dark:border-gray-700 px-4 py-3">
               {actionError ? (
                 <p
                   role="alert"
                   data-testid="patient-appointments-action-error"
-                  className="rounded-md bg-red-50 p-2 text-xs text-red-800"
+                  className="rounded-md bg-red-50 dark:bg-red-900/30 p-2 text-xs text-red-800 dark:text-red-200"
                 >
                   {actionError}
                 </p>
@@ -822,7 +822,7 @@ export default function PatientAppointmentsPage() {
                     setRescheduleDraft(null);
                     setActionError(null);
                   }}
-                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+                  className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
                   data-testid="patient-appointments-reschedule-cancel-btn"
                 >
                   Cancel
@@ -857,16 +857,16 @@ export default function PatientAppointmentsPage() {
             }
           }}
         >
-          <div className="w-full max-w-md space-y-4 rounded-lg bg-white p-4 shadow-xl">
+          <div className="w-full max-w-md space-y-4 rounded-lg bg-white dark:bg-gray-800 p-4 shadow-xl">
             <h3 id="cancel-title" className="text-lg font-semibold">
               Cancel appointment
             </h3>
-            <p className="text-sm text-slate-700">
+            <p className="text-sm text-slate-700 dark:text-gray-200">
               Are you sure you want to cancel this appointment?
             </p>
             <label className="block text-sm">
-              <span className="mb-1 block font-medium text-slate-700">
-                Reason <span className="text-red-600">*</span>
+              <span className="mb-1 block font-medium text-slate-700 dark:text-gray-200">
+                Reason <span className="text-red-600 dark:text-red-300">*</span>
               </span>
               <textarea
                 value={cancelDraft.reason}
@@ -877,9 +877,9 @@ export default function PatientAppointmentsPage() {
                 maxLength={500}
                 placeholder="e.g. Schedule conflict; feeling better"
                 data-testid="patient-appointments-cancel-reason"
-                className="block w-full rounded-md border border-slate-300 p-2 text-sm"
+                className="block w-full rounded-md border border-slate-300 dark:border-gray-600 p-2 text-sm"
               />
-              <span className="mt-1 block text-xs text-slate-500">
+              <span className="mt-1 block text-xs text-slate-500 dark:text-gray-400">
                 {cancelDraft.reason.trim().length} / 500 characters (min 3)
               </span>
             </label>
@@ -887,7 +887,7 @@ export default function PatientAppointmentsPage() {
               <p
                 role="alert"
                 data-testid="patient-appointments-action-error"
-                className="rounded-md bg-red-50 p-2 text-xs text-red-800"
+                className="rounded-md bg-red-50 dark:bg-red-900/30 p-2 text-xs text-red-800 dark:text-red-200"
               >
                 {actionError}
               </p>
@@ -899,7 +899,7 @@ export default function PatientAppointmentsPage() {
                   setCancelDraft(null);
                   setActionError(null);
                 }}
-                className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+                className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
                 data-testid="patient-appointments-cancel-keep-btn"
               >
                 Keep appointment
@@ -963,33 +963,33 @@ function AppointmentCard({
     <li
       data-testid="patient-appointments-row"
       data-appointment-id={appointment.id}
-      className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+      className="space-y-2 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
-          <p className="text-base font-semibold text-slate-900">
+          <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
             {appointment.doctor?.user?.name
               ? `Dr. ${appointment.doctor.user.name}`
               : "Doctor TBA"}
           </p>
           {appointment.doctor?.specialty ? (
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 dark:text-gray-300">
               {appointment.doctor.specialty}
             </p>
           ) : null}
           <p
             data-testid="patient-appointments-row-when"
-            className="text-sm text-slate-700"
+            className="text-sm text-slate-700 dark:text-gray-200"
           >
             {when}
           </p>
           {appointment.tokenNumber ? (
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-600 dark:text-gray-300">
               Token #{appointment.tokenNumber}
             </p>
           ) : null}
           {appointment.branch?.name ? (
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-slate-600 dark:text-gray-300">
               {appointment.branch.name}
             </p>
           ) : null}
@@ -1009,7 +1009,7 @@ function AppointmentCard({
           {arrived ? (
             <span
               data-testid={`patient-arrived-pill-${appointment.id}`}
-              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-emerald-100 px-4 text-sm font-medium text-emerald-900"
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-emerald-100 dark:bg-emerald-900/40 px-4 text-sm font-medium text-emerald-900 dark:text-emerald-200"
               aria-live="polite"
             >
               Arrived ✓
@@ -1040,7 +1040,7 @@ function AppointmentCard({
               type="button"
               onClick={onCancel ?? undefined}
               data-testid="patient-appointments-cancel-btn"
-              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-red-300 px-4 text-sm font-medium text-red-800"
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-red-300 dark:border-red-800 px-4 text-sm font-medium text-red-800 dark:text-red-200"
             >
               Cancel
             </button>
@@ -1051,7 +1051,7 @@ function AppointmentCard({
               target="_blank"
               rel="noopener noreferrer"
               data-testid="patient-appointments-share-location"
-              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
             >
               Share location
             </a>

@@ -398,7 +398,7 @@ export default function PatientDashboardPage() {
     return (
       <section
         data-testid="patient-dashboard-loading"
-        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-gray-400"
       >
         Loading your portal…
       </section>
@@ -412,7 +412,7 @@ export default function PatientDashboardPage() {
         className="space-y-4 py-6"
       >
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           Please sign in to view your appointments, prescriptions, and bills.
         </p>
         <Link
@@ -431,7 +431,7 @@ export default function PatientDashboardPage() {
       <section
         data-testid="patient-dashboard-error"
         role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/30 dark:text-red-200"
       >
         Something went wrong loading your dashboard. Please refresh.
       </section>
@@ -446,13 +446,13 @@ export default function PatientDashboardPage() {
           data-testid="patient-abha-prompt-banner"
           role="region"
           aria-label="Link your ABHA Health ID"
-          className="flex flex-col gap-3 rounded-lg border border-sky-200 bg-sky-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-3 rounded-lg border border-sky-200 bg-sky-50 p-4 shadow-sm dark:border-sky-800 dark:bg-sky-900/30 sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-sky-900">
+            <p className="text-sm font-semibold text-sky-900 dark:text-sky-200">
               Link your ABHA Health ID for portable medical records.
             </p>
-            <p className="text-xs text-sky-800">
+            <p className="text-xs text-sky-800 dark:text-sky-300">
               Skip for now if you don't have one — you can link it any time
               from your profile.
             </p>
@@ -468,7 +468,7 @@ export default function PatientDashboardPage() {
             <button
               type="button"
               onClick={dismissAbhaPrompt}
-              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-sky-300 bg-white px-4 text-sm font-medium text-sky-900"
+              className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-sky-300 bg-white px-4 text-sm font-medium text-sky-900 dark:border-sky-700 dark:bg-gray-800 dark:text-sky-200"
               data-testid="patient-abha-prompt-skip"
             >
               Skip for now
@@ -484,33 +484,33 @@ export default function PatientDashboardPage() {
       {/* ─── Next Appointment ───────────────────────────────────────── */}
       <article
         data-testid="patient-dashboard-next-appointment"
-        className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800"
       >
         <header className="mb-3">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400">
             Next appointment
           </h2>
         </header>
         {nextAppointment ? (
           <div className="space-y-2">
-            <p className="text-base font-semibold text-slate-900">
+            <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
               {nextAppointment.doctor?.user?.name
                 ? `Dr. ${nextAppointment.doctor.user.name}`
                 : "Doctor TBA"}
             </p>
             {nextAppointment.doctor?.specialty ? (
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-slate-600 dark:text-gray-300">
                 {nextAppointment.doctor.specialty}
               </p>
             ) : null}
             <p
               data-testid="patient-dashboard-next-appointment-when"
-              className="text-sm text-slate-700"
+              className="text-sm text-slate-700 dark:text-gray-200"
             >
               {formatApptWhen(nextAppointment)}
             </p>
             {nextAppointment.tokenNumber ? (
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-slate-600 dark:text-gray-300">
                 Token #{nextAppointment.tokenNumber}
               </p>
             ) : null}
@@ -526,7 +526,7 @@ export default function PatientDashboardPage() {
                 <span
                   data-testid="patient-dashboard-next-appointment-arrived-pill"
                   aria-live="polite"
-                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md bg-emerald-100 px-4 text-sm font-medium text-emerald-900"
+                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md bg-emerald-100 px-4 text-sm font-medium text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200"
                 >
                   Arrived ✓
                 </span>
@@ -545,7 +545,7 @@ export default function PatientDashboardPage() {
                 <button
                   type="button"
                   disabled
-                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-400 disabled:cursor-not-allowed"
+                  className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-400 dark:text-gray-500 disabled:cursor-not-allowed"
                   data-testid="patient-dashboard-next-appointment-arrived"
                   title="Available on the day of your appointment"
                 >
@@ -557,7 +557,7 @@ export default function PatientDashboardPage() {
               <p
                 role="alert"
                 data-testid="patient-dashboard-arrive-error"
-                className="rounded-md bg-red-50 p-2 text-xs text-red-800"
+                className="rounded-md bg-red-50 p-2 text-xs text-red-800 dark:bg-red-900/30 dark:text-red-200"
               >
                 {arriveError}
               </p>
@@ -568,7 +568,7 @@ export default function PatientDashboardPage() {
             data-testid="patient-dashboard-next-appointment-empty"
             className="space-y-3"
           >
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-slate-600 dark:text-gray-300">
               You don't have any upcoming appointments.
             </p>
             <Link
@@ -585,16 +585,16 @@ export default function PatientDashboardPage() {
       {/* ─── Recent Prescriptions ───────────────────────────────────── */}
       <article
         data-testid="patient-dashboard-prescriptions"
-        className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800"
       >
         <header className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400">
             Recent prescriptions
           </h2>
           {prescriptions.length > 0 ? (
             <Link
               href="/patient/prescriptions"
-              className="text-xs font-medium text-slate-700 underline-offset-2 hover:underline"
+              className="text-xs font-medium text-slate-700 dark:text-gray-200 underline-offset-2 hover:underline"
               data-testid="patient-dashboard-prescriptions-all"
             >
               See all
@@ -602,7 +602,7 @@ export default function PatientDashboardPage() {
           ) : null}
         </header>
         {prescriptions.length > 0 ? (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-slate-100 dark:divide-gray-700">
             {prescriptions.map((rx) => {
               const first = rx.items?.[0]?.medicineName ?? "Prescription";
               const more = Math.max(0, (rx.items?.length ?? 0) - 1);
@@ -612,13 +612,13 @@ export default function PatientDashboardPage() {
                   data-testid="patient-dashboard-prescription-row"
                   className="space-y-1 py-3 first:pt-0 last:pb-0"
                 >
-                  <p className="text-sm font-medium text-slate-900">
+                  <p className="text-sm font-medium text-slate-900 dark:text-gray-100">
                     {first}
                     {more > 0 ? (
-                      <span className="text-slate-500"> + {more} more</span>
+                      <span className="text-slate-500 dark:text-gray-400"> + {more} more</span>
                     ) : null}
                   </p>
-                  <p className="text-xs text-slate-600">
+                  <p className="text-xs text-slate-600 dark:text-gray-300">
                     {new Date(rx.createdAt).toLocaleDateString("en-IN", {
                       day: "2-digit",
                       month: "short",
@@ -631,7 +631,7 @@ export default function PatientDashboardPage() {
                   <div className="flex gap-2 pt-1">
                     <a
                       href={buildPdfUrl(rx.id)}
-                      className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-800"
+                      className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-3 text-xs font-medium text-slate-800 dark:text-gray-100"
                       data-testid="patient-dashboard-prescription-download"
                       target="_blank"
                       rel="noopener noreferrer"
@@ -654,7 +654,7 @@ export default function PatientDashboardPage() {
                       type="button"
                       onClick={() => shareViaWhatsApp(rx.id)}
                       disabled={sharingRxId === rx.id}
-                      className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-3 text-xs font-medium text-slate-800 dark:text-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
                       data-testid="patient-dashboard-prescription-share"
                     >
                       {sharingRxId === rx.id ? "Sharing…" : "Share on WhatsApp"}
@@ -667,7 +667,7 @@ export default function PatientDashboardPage() {
         ) : (
           <p
             data-testid="patient-dashboard-prescriptions-empty"
-            className="text-sm text-slate-600"
+            className="text-sm text-slate-600 dark:text-gray-300"
           >
             No prescriptions yet — they'll appear here after your next visit.
           </p>
@@ -677,16 +677,16 @@ export default function PatientDashboardPage() {
       {/* ─── Open Bills ─────────────────────────────────────────────── */}
       <article
         data-testid="patient-dashboard-bills"
-        className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800"
       >
         <header className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400">
             Open bills
           </h2>
           {invoices.length > 0 ? (
             <Link
               href="/patient/bills"
-              className="text-xs font-medium text-slate-700 underline-offset-2 hover:underline"
+              className="text-xs font-medium text-slate-700 dark:text-gray-200 underline-offset-2 hover:underline"
               data-testid="patient-dashboard-bills-all"
             >
               See all
@@ -697,16 +697,16 @@ export default function PatientDashboardPage() {
           <div className="space-y-3">
             <div
               data-testid="patient-dashboard-bills-total"
-              className="rounded-md bg-amber-50 p-3 text-sm"
+              className="rounded-md bg-amber-50 p-3 text-sm dark:bg-amber-900/30"
             >
-              <p className="font-semibold text-amber-900">
+              <p className="font-semibold text-amber-900 dark:text-amber-200">
                 {formatINR(openBillsTotal)} outstanding
               </p>
-              <p className="text-xs text-amber-800">
+              <p className="text-xs text-amber-800 dark:text-amber-300">
                 {invoices.length} open bill{invoices.length === 1 ? "" : "s"}
               </p>
             </div>
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-gray-700">
               {invoices.map((inv) => {
                 const due =
                   toNumber(inv.totalAmount) - toNumber(inv.paidAmount);
@@ -727,10 +727,10 @@ export default function PatientDashboardPage() {
                     data-testid="patient-dashboard-bill-row"
                     className="space-y-1 py-3 first:pt-0 last:pb-0"
                   >
-                    <p className="text-sm font-medium text-slate-900">
+                    <p className="text-sm font-medium text-slate-900 dark:text-gray-100">
                       {inv.invoiceNumber}
                     </p>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-slate-600 dark:text-gray-300">
                       {new Date(inv.createdAt).toLocaleDateString("en-IN", {
                         day: "2-digit",
                         month: "short",
@@ -741,7 +741,7 @@ export default function PatientDashboardPage() {
                     {isSettled ? (
                       <Link
                         href={`/patient/bills/${inv.id}`}
-                        className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-xs font-medium text-slate-800"
+                        className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-xs font-medium text-slate-800 dark:text-gray-100"
                         data-testid="patient-dashboard-bill-view"
                       >
                         View detail
@@ -763,7 +763,7 @@ export default function PatientDashboardPage() {
         ) : (
           <p
             data-testid="patient-dashboard-bills-empty"
-            className="text-sm text-slate-600"
+            className="text-sm text-slate-600 dark:text-gray-300"
           >
             No open bills — you're all paid up.
           </p>

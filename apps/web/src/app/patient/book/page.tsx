@@ -133,9 +133,9 @@ function modeBadge(mode: AppointmentMode | null | undefined): string {
 }
 
 function modeBadgeClass(mode: AppointmentMode | null | undefined): string {
-  if (mode === "SLOT") return "bg-violet-100 text-violet-900";
-  if (mode === "CALLING") return "bg-amber-100 text-amber-900";
-  return "bg-blue-100 text-blue-900"; // TOKEN + default
+  if (mode === "SLOT") return "bg-violet-100 dark:bg-violet-900/40 text-violet-900 dark:text-violet-200";
+  if (mode === "CALLING") return "bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200";
+  return "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200"; // TOKEN + default
 }
 
 export default function PatientBookAppointmentPage() {
@@ -296,7 +296,7 @@ export default function PatientBookAppointmentPage() {
       <section
         data-testid="pwa-book-loading"
         aria-busy="true"
-        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-gray-400"
       >
         Loading…
       </section>
@@ -310,7 +310,7 @@ export default function PatientBookAppointmentPage() {
         className="space-y-4 py-6"
       >
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           Please sign in to book an appointment.
         </p>
         <Link
@@ -329,7 +329,7 @@ export default function PatientBookAppointmentPage() {
       <section
         data-testid="pwa-book-error"
         role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-800 dark:text-red-200"
       >
         Something went wrong loading the booking page. Please refresh.
       </section>
@@ -342,7 +342,7 @@ export default function PatientBookAppointmentPage() {
         <h1 className="text-2xl font-semibold tracking-tight">
           Book an appointment
         </h1>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-600 dark:text-gray-300">
           {step === "pick-doctor"
             ? "Step 1 of 3 — pick your doctor"
             : step === "pick-date"
@@ -357,7 +357,7 @@ export default function PatientBookAppointmentPage() {
           {doctors.length === 0 ? (
             <p
               data-testid="pwa-book-doctors-empty"
-              className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600"
+              className="rounded-md border border-dashed border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900 p-4 text-sm text-slate-600 dark:text-gray-300"
             >
               No doctors available right now. Please check back later.
             </p>
@@ -373,15 +373,15 @@ export default function PatientBookAppointmentPage() {
                       setSelectedSlot(null);
                       setStep("pick-date");
                     }}
-                    className="block w-full rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-slate-400"
+                    className="block w-full rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-left shadow-sm hover:border-slate-400"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-1">
-                        <p className="text-base font-semibold text-slate-900">
+                        <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
                           {d.user?.name ? `Dr. ${d.user.name}` : "Doctor"}
                         </p>
                         {d.specialty ? (
-                          <p className="text-sm text-slate-600">
+                          <p className="text-sm text-slate-600 dark:text-gray-300">
                             {d.specialty}
                           </p>
                         ) : null}
@@ -404,15 +404,15 @@ export default function PatientBookAppointmentPage() {
       {/* ─── Step 2: date + mode-specific input ────────────────────────── */}
       {step === "pick-date" && selectedDoctor ? (
         <div className="space-y-4">
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <p className="text-sm text-slate-600">Booking with</p>
-            <p className="text-base font-semibold text-slate-900">
+          <div className="rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+            <p className="text-sm text-slate-600 dark:text-gray-300">Booking with</p>
+            <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
               {selectedDoctor.user?.name
                 ? `Dr. ${selectedDoctor.user.name}`
                 : "Doctor"}
             </p>
             {selectedDoctor.specialty ? (
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-slate-600 dark:text-gray-300">
                 {selectedDoctor.specialty}
               </p>
             ) : null}
@@ -424,7 +424,7 @@ export default function PatientBookAppointmentPage() {
           </div>
 
           <label className="block text-sm">
-            <span className="mb-1 block font-medium text-slate-700">
+            <span className="mb-1 block font-medium text-slate-700 dark:text-gray-200">
               Pick a date
             </span>
             <input
@@ -433,20 +433,20 @@ export default function PatientBookAppointmentPage() {
               min={todayYmd()}
               onChange={(e) => setDate(e.target.value)}
               data-testid="pwa-book-date-input"
-              className="block h-11 w-full rounded-md border border-slate-300 px-3 text-sm"
+              className="block h-11 w-full rounded-md border border-slate-300 dark:border-gray-600 px-3 text-sm"
             />
           </label>
 
           {/* SLOT mode — availability grid */}
           {selectedDoctor.appointmentMode === "SLOT" ? (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-700">
+              <p className="text-sm font-medium text-slate-700 dark:text-gray-200">
                 Pick a time slot
               </p>
               {slotsLoading ? (
                 <p
                   data-testid="pwa-book-slots-loading"
-                  className="text-sm text-slate-500"
+                  className="text-sm text-slate-500 dark:text-gray-400"
                 >
                   Loading slots…
                 </p>
@@ -454,14 +454,14 @@ export default function PatientBookAppointmentPage() {
                 <p
                   data-testid="pwa-book-slots-blocked"
                   role="alert"
-                  className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                  className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 p-3 text-sm text-amber-900 dark:text-amber-200"
                 >
                   {slotsBlocked.reason ?? "No slots on this date"}
                 </p>
               ) : slots.length === 0 ? (
                 <p
                   data-testid="pwa-book-slots-empty"
-                  className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm text-slate-600"
+                  className="rounded-md border border-dashed border-slate-300 dark:border-gray-600 bg-slate-50 dark:bg-gray-900 p-3 text-sm text-slate-600 dark:text-gray-300"
                 >
                   No slots available on this date.
                 </p>
@@ -480,10 +480,10 @@ export default function PatientBookAppointmentPage() {
                       onClick={() => setSelectedSlot(s.startTime)}
                       className={`inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border px-2 text-xs font-medium ${
                         !s.isAvailable
-                          ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                          ? "cursor-not-allowed border-slate-200 dark:border-gray-700 bg-slate-100 dark:bg-gray-800 text-slate-400 dark:text-gray-500"
                           : selectedSlot === s.startTime
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-slate-300 bg-white text-slate-800"
+                            ? "border-slate-900 dark:border-gray-300 bg-slate-900 text-white"
+                            : "border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-slate-800 dark:text-gray-100"
                       }`}
                     >
                       {s.startTime}
@@ -498,10 +498,10 @@ export default function PatientBookAppointmentPage() {
           {selectedDoctor.appointmentMode === "TOKEN" ? (
             <div
               data-testid="pwa-book-token-info"
-              className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"
+              className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 p-3 text-sm text-blue-900 dark:text-blue-200"
             >
               <p className="font-medium">Token mode</p>
-              <p className="text-blue-800">
+              <p className="text-blue-800 dark:text-blue-300">
                 You'll be issued the next available token when you confirm.
                 Your token number will appear on your appointments page.
               </p>
@@ -512,10 +512,10 @@ export default function PatientBookAppointmentPage() {
           {selectedDoctor.appointmentMode === "CALLING" ? (
             <div
               data-testid="pwa-book-calling-info"
-              className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+              className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 p-3 text-sm text-amber-900 dark:text-amber-200"
             >
               <p className="font-medium">Calling mode</p>
-              <p className="text-amber-800">
+              <p className="text-amber-800 dark:text-amber-300">
                 This doctor sees patients in arrival order. Confirm to join
                 the queue — you'll be called in turn on the clinic display.
               </p>
@@ -531,7 +531,7 @@ export default function PatientBookAppointmentPage() {
                 setSlots([]);
               }}
               data-testid="pwa-book-back-to-doctors"
-              className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+              className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
             >
               Back
             </button>
@@ -557,15 +557,15 @@ export default function PatientBookAppointmentPage() {
         <div className="space-y-4">
           <div
             data-testid="pwa-book-summary"
-            className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+            className="rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
           >
-            <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
+            <p className="text-sm font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400">
               Review your booking
             </p>
             <dl className="mt-3 space-y-2 text-sm">
               <div className="flex justify-between gap-3">
-                <dt className="text-slate-600">Doctor</dt>
-                <dd className="font-medium text-slate-900">
+                <dt className="text-slate-600 dark:text-gray-300">Doctor</dt>
+                <dd className="font-medium text-slate-900 dark:text-gray-100">
                   {selectedDoctor.user?.name
                     ? `Dr. ${selectedDoctor.user.name}`
                     : "Doctor"}
@@ -573,12 +573,12 @@ export default function PatientBookAppointmentPage() {
               </div>
               {selectedDoctor.specialty ? (
                 <div className="flex justify-between gap-3">
-                  <dt className="text-slate-600">Specialty</dt>
-                  <dd className="text-slate-900">{selectedDoctor.specialty}</dd>
+                  <dt className="text-slate-600 dark:text-gray-300">Specialty</dt>
+                  <dd className="text-slate-900 dark:text-gray-100">{selectedDoctor.specialty}</dd>
                 </div>
               ) : null}
               <div className="flex justify-between gap-3">
-                <dt className="text-slate-600">Mode</dt>
+                <dt className="text-slate-600 dark:text-gray-300">Mode</dt>
                 <dd>
                   <span
                     className={`rounded-full px-2 py-1 text-xs font-medium ${modeBadgeClass(selectedDoctor.appointmentMode)}`}
@@ -588,15 +588,15 @@ export default function PatientBookAppointmentPage() {
                 </dd>
               </div>
               <div className="flex justify-between gap-3">
-                <dt className="text-slate-600">Date</dt>
-                <dd className="font-medium text-slate-900">{date}</dd>
+                <dt className="text-slate-600 dark:text-gray-300">Date</dt>
+                <dd className="font-medium text-slate-900 dark:text-gray-100">{date}</dd>
               </div>
               {selectedDoctor.appointmentMode === "SLOT" && selectedSlot ? (
                 <div className="flex justify-between gap-3">
-                  <dt className="text-slate-600">Time</dt>
+                  <dt className="text-slate-600 dark:text-gray-300">Time</dt>
                   <dd
                     data-testid="pwa-book-summary-slot"
-                    className="font-medium text-slate-900"
+                    className="font-medium text-slate-900 dark:text-gray-100"
                   >
                     {selectedSlot}
                   </dd>
@@ -604,16 +604,16 @@ export default function PatientBookAppointmentPage() {
               ) : null}
               {selectedDoctor.appointmentMode === "TOKEN" ? (
                 <div className="flex justify-between gap-3">
-                  <dt className="text-slate-600">Token</dt>
-                  <dd className="text-slate-700">
+                  <dt className="text-slate-600 dark:text-gray-300">Token</dt>
+                  <dd className="text-slate-700 dark:text-gray-200">
                     Issued at confirmation
                   </dd>
                 </div>
               ) : null}
               {selectedDoctor.appointmentMode === "CALLING" ? (
                 <div className="flex justify-between gap-3">
-                  <dt className="text-slate-600">Queue</dt>
-                  <dd className="text-slate-700">
+                  <dt className="text-slate-600 dark:text-gray-300">Queue</dt>
+                  <dd className="text-slate-700 dark:text-gray-200">
                     Joined on confirmation
                   </dd>
                 </div>
@@ -625,7 +625,7 @@ export default function PatientBookAppointmentPage() {
             <p
               role="alert"
               data-testid="pwa-book-submit-error"
-              className="rounded-md bg-red-50 p-2 text-sm text-red-800"
+              className="rounded-md bg-red-50 dark:bg-red-900/30 p-2 text-sm text-red-800 dark:text-red-200"
             >
               {submitError}
             </p>
@@ -637,7 +637,7 @@ export default function PatientBookAppointmentPage() {
               onClick={() => setStep("pick-date")}
               disabled={submitting}
               data-testid="pwa-book-back-to-date"
-              className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800 disabled:opacity-60"
+              className="inline-flex h-11 min-w-[44px] flex-1 items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100 disabled:opacity-60"
             >
               Back
             </button>

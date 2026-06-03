@@ -81,13 +81,13 @@ function formatDate(iso: string): string {
 }
 
 function statusPillClass(status: string | null | undefined): string {
-  if (!status) return "bg-slate-100 text-slate-700";
+  if (!status) return "bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-200";
   if (status === "ACTIVE" || status === "ISSUED" || status === "SIGNED")
-    return "bg-emerald-100 text-emerald-900";
-  if (status === "DRAFT") return "bg-amber-100 text-amber-900";
+    return "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-900 dark:text-emerald-200";
+  if (status === "DRAFT") return "bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200";
   if (status === "CANCELLED" || status === "REJECTED")
-    return "bg-slate-200 text-slate-700";
-  return "bg-slate-100 text-slate-700";
+    return "bg-slate-200 dark:bg-gray-700 text-slate-700 dark:text-gray-200";
+  return "bg-slate-100 dark:bg-gray-800 text-slate-700 dark:text-gray-200";
 }
 
 // Build the verify URL the public `/verify/rx/[id]` page accepts. On the
@@ -199,7 +199,7 @@ export default function PatientPrescriptionsPage() {
     return (
       <section
         data-testid="patient-prescriptions-loading"
-        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500"
+        className="flex min-h-[40vh] items-center justify-center text-sm text-slate-500 dark:text-gray-400"
       >
         Loading your prescriptions…
       </section>
@@ -213,7 +213,7 @@ export default function PatientPrescriptionsPage() {
         className="space-y-4 py-6"
       >
         <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="text-base text-slate-600">
+        <p className="text-base text-slate-600 dark:text-gray-300">
           Please sign in to view your prescriptions.
         </p>
         <Link
@@ -232,7 +232,7 @@ export default function PatientPrescriptionsPage() {
       <section
         data-testid="patient-prescriptions-error"
         role="alert"
-        className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        className="rounded-md border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-800 dark:text-red-200"
       >
         Something went wrong loading your prescriptions. Please refresh.
       </section>
@@ -255,7 +255,7 @@ export default function PatientPrescriptionsPage() {
           {total > 0 ? (
             <span
               data-testid="patient-prescriptions-count"
-              className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700"
+              className="rounded-full bg-slate-100 dark:bg-gray-800 px-2 py-1 text-xs font-medium text-slate-700 dark:text-gray-200"
             >
               {total}
             </span>
@@ -266,9 +266,9 @@ export default function PatientPrescriptionsPage() {
       {isEmpty ? (
         <div
           data-testid="patient-prescriptions-empty"
-          className="space-y-3 rounded-lg border border-slate-200 bg-white p-6 text-center shadow-sm"
+          className="space-y-3 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center shadow-sm"
         >
-          <p className="text-base text-slate-700">
+          <p className="text-base text-slate-700 dark:text-gray-200">
             No prescriptions yet. Your doctor will prescribe digital scripts
             here after a consult.
           </p>
@@ -293,7 +293,7 @@ export default function PatientPrescriptionsPage() {
             disabled={loadingMore}
             onClick={() => void fetchPage(page + 1, "append")}
             data-testid="patient-prescriptions-load-more"
-            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-6 text-sm font-medium text-slate-800 disabled:opacity-60"
+            className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-6 text-sm font-medium text-slate-800 dark:text-gray-100 disabled:opacity-60"
           >
             {loadingMore ? "Loading…" : "Load more"}
           </button>
@@ -330,33 +330,33 @@ function PrescriptionCard({ prescription, onShare, sharing }: CardProps) {
     <li
       data-testid="patient-prescriptions-row"
       data-prescription-id={prescription.id}
-      className="space-y-2 rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+      className="space-y-2 rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm"
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
           <p
             data-testid="patient-prescriptions-row-date"
-            className="text-xs font-medium uppercase tracking-wide text-slate-500"
+            className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400"
           >
             {formatDate(prescription.createdAt)}
           </p>
-          <p className="text-base font-semibold text-slate-900">
+          <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
             {doctorName ? `Dr. ${doctorName}` : "Doctor"}
           </p>
           {specialty ? (
-            <p className="text-sm text-slate-600">{specialty}</p>
+            <p className="text-sm text-slate-600 dark:text-gray-300">{specialty}</p>
           ) : null}
           <p
             data-testid="patient-prescriptions-row-items"
-            className="text-sm text-slate-700"
+            className="text-sm text-slate-700 dark:text-gray-200"
           >
             {first}
             {more > 0 ? (
-              <span className="text-slate-500"> · +{more} more</span>
+              <span className="text-slate-500 dark:text-gray-400"> · +{more} more</span>
             ) : null}
           </p>
           {prescription.diagnosis ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-500 dark:text-gray-400">
               Diagnosis: {prescription.diagnosis}
             </p>
           ) : null}
@@ -388,7 +388,7 @@ function PrescriptionCard({ prescription, onShare, sharing }: CardProps) {
           onClick={() => void onShare(prescription.id)}
           disabled={sharing}
           data-testid="patient-prescriptions-share-btn"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-emerald-300 bg-emerald-50 px-4 text-sm font-medium text-emerald-900 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-4 text-sm font-medium text-emerald-900 dark:text-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {sharing ? "Sharing…" : "Share via WhatsApp"}
         </button>
@@ -397,7 +397,7 @@ function PrescriptionCard({ prescription, onShare, sharing }: CardProps) {
           target="_blank"
           rel="noopener noreferrer"
           data-testid="patient-prescriptions-verify-btn"
-          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-800"
+          className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md border border-slate-300 dark:border-gray-600 px-4 text-sm font-medium text-slate-800 dark:text-gray-100"
         >
           Verify QR
         </a>

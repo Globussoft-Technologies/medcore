@@ -417,11 +417,6 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     };
 
     const where: Record<string, unknown> = {};
-    // Pearl §8.1 — the seeded "default" tenant hosts the super-admin + seed
-    // data; it is platform infrastructure, not a customer hospital, so it is
-    // never listed in the operator's tenant fleet. ANDed with any search /
-    // plan / active filters below.
-    where.subdomain = { not: "default" };
     if (typeof search === "string" && search.trim().length > 0) {
       const term = search.trim();
       where.OR = [

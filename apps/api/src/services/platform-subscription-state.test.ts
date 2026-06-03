@@ -111,6 +111,27 @@ function buildPrismaMock(subs: FakeSubscription[]) {
         if (!prefix) return invoiceStore.length;
         return invoiceStore.filter((i) => i.invoiceNumber.startsWith(prefix)).length;
       }),
+      // Upsert support: by default no existing current-month invoice, so the
+      // create path runs. Tests that want the in-place-update path push a row
+      // into invoiceStore beforehand.
+      findFirst: vi.fn(async ({ where }: any) => {
+        const prefix: string | undefined = where?.invoiceNumber?.startsWith;
+        const match = invoiceStore.find(
+          (i) =>
+            (where?.status ? i.status === where.status : true) &&
+            (prefix ? i.invoiceNumber.startsWith(prefix) : true),
+        );
+        return match ? { id: match.id } : null;
+      }),
+      update: vi.fn(async ({ where, data }: any) => {
+        const row = invoiceStore.find((i) => i.id === where.id);
+        if (row) {
+          // Nested deleteMany/create on lineItems is irrelevant to these
+          // assertions; just merge the scalar fields.
+          Object.assign(row, data);
+        }
+        return { id: where.id, invoiceNumber: row?.invoiceNumber ?? "PI-UPDATED" };
+      }),
       create: vi.fn(async ({ data }: any) => {
         const id = `inv-${invoiceStore.length + 1}`;
         const row = { id, ...data };
@@ -376,10 +397,10 @@ describe("checkGracePeriodExpirations", () => {
 describe("applyProration", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("upgrade STARTER → GROWTH at the half-cycle mark writes a positive delta invoice", async () => {
+  it("upgrade STARTER → GROWTH bills used-days of old + full new monthly (no credit)", async () => {
     // periodStart = 2026-05-01, periodEnd = 2026-06-01 (31 days).
-    // NOW = 2026-05-15T12:00:00Z → remainingMs ≈ 16.5 days of 31 = factor ~0.532.
-    // delta = (500_000 - 100_000) * 0.532 ≈ 212_903 paise (rounded).
+    // NOW = 2026-05-15T12:00:00Z → 14 whole days used of 31 → factor ~0.4516.
+    // charge = (0.4516 × OLD STARTER 100_000) + NEW GROWTH 500_000 ≈ 545_161.
     const { prismaMock, invoiceStore, auditStore } = buildPrismaMock([
       baseSubscription({ plan: "STARTER" }),
     ]);
@@ -388,11 +409,12 @@ describe("applyProration", () => {
 
     expect(r).not.toBeNull();
     expect(r!.deltaInPaise).toBeGreaterThan(0);
-    expect(r!.deltaInPaise).toBeLessThan(500_000 - 100_000); // < full month delta
+    // Charge is at least the full new-plan monthly (old-usage adds on top).
+    expect(r!.deltaInPaise).toBeGreaterThan(500_000);
     expect(invoiceStore).toHaveLength(1);
     expect(invoiceStore[0].status).toBe("ISSUED");
     expect(invoiceStore[0].subtotalInPaise).toBe(r!.deltaInPaise);
-    // Maharashtra ≠ Karnataka → IGST 18%, sign matches subtotal sign.
+    // Maharashtra ≠ Karnataka → IGST 18% on the positive subtotal.
     expect(invoiceStore[0].cgstInPaise).toBe(0);
     expect(invoiceStore[0].sgstInPaise).toBe(0);
     expect(invoiceStore[0].igstInPaise).toBeGreaterThan(0);
@@ -402,20 +424,20 @@ describe("applyProration", () => {
     );
   });
 
-  it("downgrade GROWTH → STARTER writes a negative-delta (credit) line item", async () => {
+  it("downgrade GROWTH → STARTER writes a positive (no-credit) invoice", async () => {
     const { prismaMock, invoiceStore } = buildPrismaMock([
       baseSubscription({ plan: "GROWTH" }),
     ]);
 
     const r = await applyProration(prismaMock, "sub-1", "GROWTH", "STARTER", NOW);
 
+    // No negative/credit lines anymore: charge = used-days of GROWTH + STARTER
+    // monthly, always ≥ 0.
     expect(r).not.toBeNull();
-    expect(r!.deltaInPaise).toBeLessThan(0);
-    expect(invoiceStore[0].subtotalInPaise).toBeLessThan(0);
-    // Sign preservation on GST so negative subtotal yields a negative GST
-    // contribution (credit-back), keeping total = sub + tax internally consistent.
-    expect(invoiceStore[0].igstInPaise).toBeLessThan(0);
-    expect(invoiceStore[0].totalInPaise).toBeLessThan(0);
+    expect(r!.deltaInPaise).toBeGreaterThan(0);
+    expect(invoiceStore[0].subtotalInPaise).toBeGreaterThan(0);
+    expect(invoiceStore[0].igstInPaise).toBeGreaterThan(0);
+    expect(invoiceStore[0].totalInPaise).toBeGreaterThan(0);
   });
 
   it("same-plan call (no delta) returns zero without writing an invoice or audit", async () => {

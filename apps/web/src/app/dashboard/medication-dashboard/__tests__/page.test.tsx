@@ -72,7 +72,7 @@ const { apiMock, toastMock, promptMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/lib/toast", () => ({ toast: toastMock }));
-vi.mock("@/lib/use-dialog", () => ({ usePrompt: () => promptMock }));
+vi.mock("@/lib/use-dialog", () => ({ usePrompt: () => promptMock, useConfirm: () => async () => true }));
 vi.mock("@/components/Skeleton", () => ({
   SkeletonCard: ({ className }: { className?: string }) => (
     <div data-testid="skeleton-card" className={className} />

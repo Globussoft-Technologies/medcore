@@ -309,7 +309,9 @@ test.describe("Edge cases", () => {
     await loginAs(page, request, "ADMIN");
     await page.goto("/dashboard");
     await dismissTourIfPresent(page);
-    const opener = page.getByRole("button", { name: /open menu|menu/i }).first();
+    // Match the mobile drawer opener specifically ("Open menu") — NOT the
+    // sidebar's "Reorder menu" toggle, which also contains the word "menu".
+    const opener = page.getByRole("button", { name: /open menu/i }).first();
     if (!(await opener.isVisible().catch(() => false))) {
       test.skip(true, "Mobile menu opener not visible");
     }

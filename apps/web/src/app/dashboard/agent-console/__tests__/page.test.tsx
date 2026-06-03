@@ -134,6 +134,7 @@ vi.mock("@/lib/i18n", () => ({
 }));
 vi.mock("@/lib/use-dialog", () => ({
   usePrompt: () => promptMock,
+  useConfirm: () => async () => true,
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({

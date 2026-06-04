@@ -56,6 +56,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { PatientAvatar } from "@/components/PatientAvatar";
 
 interface PatientInfo {
   id?: string;
@@ -455,6 +456,19 @@ export default function PatientProfilePage() {
           className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
         >
           <h2 className="mb-4 text-lg font-semibold">Personal</h2>
+          {/* Profile photo — resolved display URL from GET /auth/me
+              (registration / reception-set photo). Read-only here; editing
+              the photo lives on the staff profile + patient-edit surfaces. */}
+          <div
+            className="mb-4 flex items-center gap-4"
+            data-testid="patient-profile-photo"
+          >
+            <PatientAvatar
+              photoUrl={me?.photoUrl ?? null}
+              name={form.name || me?.name}
+              size={56}
+            />
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Full name">
               <input

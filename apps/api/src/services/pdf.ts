@@ -10,6 +10,7 @@ import {
 } from "@medcore/shared";
 import { computePayroll, daysInMonth as daysInMonthFor } from "./payroll";
 import { formatDoctorName } from "../lib/format-doctor-name";
+import { resolveFirstPhotoUrl } from "../lib/patient-photo";
 
 // ─── Helpers ────────────────────────────────────────────
 
@@ -902,13 +903,21 @@ export async function generatePatientIdCardHTML(
 ): Promise<string> {
   const patient = await prisma.patient.findUnique({
     where: { id: patientId },
-    include: { user: { select: { name: true, phone: true } } },
+    include: { user: { select: { name: true, phone: true, photoUrl: true } } },
   });
   if (!patient) throw new Error("Patient not found");
   const h = await getHospitalInfo();
 
-  const photo = patient.photoUrl
-    ? `<img src="${escapeHtml(patient.photoUrl)}" alt="Photo" style="width:60px;height:75px;object-fit:cover;border:1px solid #e2e8f0;" />`
+  // Resolve the photo to a displayable URL — from the Patient row first,
+  // then the linked User row (Settings-set photo). The ID card is served
+  // as HTML, so the browser loads a signed/data/http URL directly. Without
+  // this resolve a bare storage key rendered a broken image.
+  const photoSrc = await resolveFirstPhotoUrl(
+    patient.photoUrl,
+    patient.user?.photoUrl,
+  );
+  const photo = photoSrc
+    ? `<img src="${escapeHtml(photoSrc)}" alt="Photo" style="width:60px;height:75px;object-fit:cover;border:1px solid #e2e8f0;" />`
     : `<div style="width:60px;height:75px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:10px;">PHOTO</div>`;
 
   const qrDataUrl = await generatePatientQrDataUrl(patient.id, patient.mrNumber);

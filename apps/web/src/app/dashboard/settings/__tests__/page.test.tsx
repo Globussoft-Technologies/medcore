@@ -362,10 +362,11 @@ describe("SettingsPage — Profile tab", () => {
     await waitFor(() => expect(apiMock.patch).toHaveBeenCalledTimes(1));
     const [url, body] = apiMock.patch.mock.calls[0];
     expect(url).toBe("/auth/me");
+    // photoUrl is OMITTED when the photo wasn't changed this session — so a
+    // name/phone-only save never clobbers the stored photo with null.
     expect(body).toEqual({
       name: "Renamed Self",
       phone: "+919876543210",
-      photoUrl: null,
     });
     expect(toastMock.success).toHaveBeenCalledWith("Profile updated");
     expect(refreshUserMock).toHaveBeenCalled();
@@ -409,9 +410,12 @@ describe("SettingsPage — Profile tab", () => {
     );
   });
 
-  it("uploads a profile photo and reads signedUrl from /uploads response (Issue #665)", async () => {
+  it("uploads a profile photo (non-medical mode) and shows the signedUrl preview", async () => {
     apiMock.post.mockResolvedValue({
-      data: { signedUrl: "https://cdn.example/u/abc.jpg" },
+      data: {
+        signedUrl: "https://cdn.example/u/abc.jpg",
+        filePath: "ehr/abc.jpg",
+      },
     });
 
     render(<SettingsPage />);
@@ -445,7 +449,9 @@ describe("SettingsPage — Profile tab", () => {
       const [url, body] = apiMock.post.mock.calls[0];
       expect(url).toBe("/uploads");
       expect(body.filename).toBe("avatar.png");
-      expect(body.type).toBe("profile_photo");
+      // Non-medical mode: no `type`/`patientId`, so the endpoint returns a
+      // stable storage key the page persists (and shows the signedUrl).
+      expect(body.type).toBeUndefined();
       expect(toastMock.success).toHaveBeenCalledWith(
         "Photo uploaded — click Save",
       );

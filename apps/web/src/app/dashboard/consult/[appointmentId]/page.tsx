@@ -26,6 +26,7 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { ConsultRightRail } from "@/components/ConsultRightRail";
 import { Skeleton, SkeletonText } from "@/components/Skeleton";
+import { PatientAvatar } from "@/components/PatientAvatar";
 import { Pill, FlaskConical } from "lucide-react";
 
 interface AppointmentDetail {
@@ -42,6 +43,8 @@ interface AppointmentDetail {
     gender: string | null;
     bloodGroup: string | null;
     address: string | null;
+    // Resolved signed avatar URL (from User or Patient photoUrl).
+    photoSignedUrl?: string | null;
     user: { name: string; phone: string | null };
   };
   doctor: {
@@ -576,16 +579,7 @@ export default function ConsultPage() {
   const patientAge = appointment?.patient.age ?? null;
   const patientSex = appointment?.patient.gender ?? null;
   const patientPhone = appointment?.patient.user.phone ?? null;
-  const initials = useMemo(() => {
-    return (
-      patientName
-        .trim()
-        .split(/\s+/)
-        .slice(0, 2)
-        .map((w) => w[0]?.toUpperCase() ?? "")
-        .join("") || "?"
-    );
-  }, [patientName]);
+  // Initials now derived inside <PatientAvatar>; no local computation.
 
   if (loading) {
     return (
@@ -732,9 +726,12 @@ export default function ConsultPage() {
           {/* Horizontal card on <md (mobile/tablet stack), vertical
               centered card on md+ where the rail is its own column. */}
           <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gradient-to-b from-gray-50 to-white p-3 text-left dark:border-gray-700 dark:from-gray-900 dark:to-gray-800 md:flex-col md:items-center md:p-4 md:text-center">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-blue-600 text-base font-bold text-white shadow-md md:h-14 md:w-14 md:text-lg xl:h-16 xl:w-16 xl:text-xl">
-              {initials}
-            </div>
+            <PatientAvatar
+              photoUrl={appointment?.patient.photoSignedUrl ?? null}
+              name={patientName}
+              size={56}
+              className="shadow-md"
+            />
             <div className="min-w-0 flex-1 md:flex-none">
               <p className="truncate text-sm font-semibold text-gray-900 dark:text-gray-100 md:mt-2 md:whitespace-normal">
                 {patientName}

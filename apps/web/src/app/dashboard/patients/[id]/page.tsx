@@ -11,6 +11,7 @@ import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
 import { PatientEditModal } from "@/components/PatientEditModal";
 import { PatientCRMActivity } from "@/components/PatientCRMActivity";
+import { PatientAvatar } from "@/components/PatientAvatar";
 import { SkeletonCard, SkeletonText } from "@/components/Skeleton";
 import {
   ArrowLeft,
@@ -73,6 +74,10 @@ interface PatientDetail {
   emergencyContactPhone?: string | null;
   noShowCount?: number;
   pricingTier?: string | null;
+  // Profile photo: photoUrl is the bare storage key; photoSignedUrl is the
+  // display URL the API resolves on read. The avatar renders the latter.
+  photoUrl?: string | null;
+  photoSignedUrl?: string | null;
   user: { id: string; name: string; email: string; phone: string };
 }
 
@@ -696,9 +701,13 @@ export default function PatientDetailPage() {
         className="mb-4 rounded-xl bg-white p-6 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100"
       >
         <div className="flex items-start gap-6">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 dark:bg-primary/20">
-            <User size={28} className="text-primary" aria-hidden="true" />
-          </div>
+          <PatientAvatar
+            photoUrl={patient.photoSignedUrl}
+            name={patient.user.name}
+            size={64}
+          />
+          {/* Edit button overlay below handled inline; the avatar is the
+              source of truth for the patient's face across the app. */}
           <div className="flex-1">
             <div className="flex items-center gap-3">
               <h1
@@ -1378,10 +1387,15 @@ export default function PatientDetailPage() {
         onClose={() => setEditOpen(false)}
         onSaved={(updated) => {
           const u = updated as Partial<PatientDetail> | null | undefined;
-          if (u && u.id) {
+          // The PATCH echoes the row but NOT a resolved photoSignedUrl
+          // (only the GET endpoints attach it). If the photo key changed,
+          // refetch so the header avatar gets a fresh signed URL; otherwise
+          // a cheap in-place merge is enough.
+          const photoChanged =
+            !!u && "photoUrl" in u && u.photoUrl !== patient?.photoUrl;
+          if (u && u.id && !photoChanged) {
             setPatient((prev) => (prev ? { ...prev, ...u } : prev));
           } else {
-            // Fall back to a re-fetch if the server didn't echo the row.
             api
               .get<{ data: PatientDetail }>(`/patients/${id}`)
               .then((r) => setPatient(r.data))
@@ -4794,18 +4808,11 @@ function Patient360Tab({
           {/* Hero */}
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
             <div className="flex items-center gap-3">
-              {patient.photoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={patient.photoUrl}
-                  alt={patient.user.name}
-                  className="h-14 w-14 rounded-full object-cover"
-                />
-              ) : (
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 dark:bg-primary/20">
-                  <User size={24} className="text-primary" />
-                </div>
-              )}
+              <PatientAvatar
+                photoUrl={patient.photoSignedUrl}
+                name={patient.user.name}
+                size={56}
+              />
               <div className="min-w-0">
                 <p className="truncate font-semibold text-gray-800 dark:text-gray-100">
                   {patient.user.name}

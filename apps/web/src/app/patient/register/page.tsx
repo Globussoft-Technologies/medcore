@@ -35,7 +35,7 @@
 // (the patient PWA route group's bare chrome — no LanguageDropdown, no
 // BranchPicker).
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -52,8 +52,42 @@ import {
   HeartPulse,
   ArrowLeft,
   ArrowRight,
+  Camera,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { toast } from "@/lib/toast";
+import { PatientAvatar } from "@/components/PatientAvatar";
+
+// Load + downscale a chosen image to a small square JPEG data URL so the
+// inline base64 stays under the API's ~1MB photoUrl cap. The registrant is
+// logged out (can't use the authed upload endpoint), so the photo rides
+// along in the /auth/register body and is stored on Patient.photoUrl.
+function downscaleImage(file: File, max: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read failed"));
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onerror = () => reject(new Error("decode failed"));
+      img.onload = () => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("no canvas"));
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 type Step = "basics" | "details";
 
@@ -96,8 +130,32 @@ export default function PatientRegisterPage() {
     emergencyContactName: "",
     emergencyContactPhone: "",
     emergencyContactRelationship: "",
+    // Optional profile photo as a downscaled base64 image data URL.
+    photoUrl: "",
   });
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  // Pick + downscale a profile photo into form.photoUrl (a JPEG data URL).
+  async function pickPhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.error("Photo must be a JPEG, PNG, or WEBP image.");
+      return;
+    }
+    setPhotoBusy(true);
+    try {
+      const dataUrl = await downscaleImage(file, 256);
+      update("photoUrl", dataUrl);
+    } catch {
+      toast.error("Could not process that image. Try another.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   function update(field: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -122,8 +180,8 @@ export default function PatientRegisterPage() {
     else if (!STRICT_EMAIL_REGEX.test(form.email.trim()))
       errs.email = "Enter a valid email address";
     if (!form.password) errs.password = "Password is required";
-    else if (form.password.length < 12)
-      errs.password = "Password must be at least 12 characters";
+    else if (form.password.length < 6)
+      errs.password = "Password must be at least 6 characters";
     else if (!/[A-Za-z]/.test(form.password))
       errs.password = "Password must contain at least one letter";
     else if (!/\d/.test(form.password))
@@ -168,7 +226,7 @@ export default function PatientRegisterPage() {
     return errs;
   }
 
-  function nextStep(): void {
+  async function nextStep(): Promise<void> {
     setError(null);
     const errs = validateBasics();
     if (Object.keys(errs).length > 0) {
@@ -176,6 +234,33 @@ export default function PatientRegisterPage() {
       return;
     }
     setFieldErrors({});
+
+    // Check whether the email / phone already exist before advancing, so the
+    // user fixes it here instead of failing at the final submit.
+    setBusy(true);
+    try {
+      const res = await api.post<{
+        data: { emailTaken: boolean; phoneTaken: boolean };
+      }>("/auth/check-availability", {
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+      });
+      const taken: Record<string, string> = {};
+      if (res?.data?.emailTaken)
+        taken.email = "This email is already registered. Please sign in.";
+      if (res?.data?.phoneTaken)
+        taken.phone = "This phone number is already registered. Please sign in.";
+      if (Object.keys(taken).length > 0) {
+        setFieldErrors(taken);
+        return;
+      }
+    } catch {
+      // If the availability check itself fails, don't block signup — the
+      // final /register submit still enforces uniqueness server-side.
+    } finally {
+      setBusy(false);
+    }
+
     setStep("details");
   }
 
@@ -204,19 +289,13 @@ export default function PatientRegisterPage() {
           relationship: form.emergencyContactRelationship.trim(),
         },
         acceptedTerms: true,
+        photoUrl: form.photoUrl || undefined,
         role: "PATIENT",
       });
       if (res?.success) {
-        // The server sets httpOnly auth cookies (medcore_at / medcore_rt /
-        // medcore_csrf) on the 201 response so we're authenticated by the
-        // time this resolves. Bounce to the dashboard.
-        //
-        // Anti-enumeration note (#480): the server returns 201 + success:true
-        // for BOTH a brand-new account AND a duplicate-email submission, but
-        // the duplicate path returns no token / no cookie — the /auth/me
-        // probe on the landing page will then 401 and the dashboard will
-        // bounce us to /patient/login. From the patient's perspective both
-        // cases land them in the right place to recover.
+        // The server sets httpOnly auth cookies on the 201 response so we're
+        // authenticated by the time this resolves — go straight to the
+        // dashboard.
         router.push("/patient/dashboard");
         return;
       }
@@ -367,9 +446,10 @@ export default function PatientRegisterPage() {
             <div className="mt-6">
               {step === "basics" ? (
                 <form
+                  noValidate
                   onSubmit={(e) => {
                     e.preventDefault();
-                    nextStep();
+                    void nextStep();
                   }}
                   className="space-y-4"
                 >
@@ -423,8 +503,9 @@ export default function PatientRegisterPage() {
                       label="Password"
                       icon={Lock}
                       type="password"
+                      revealable
                       autoComplete="new-password"
-                      placeholder="12+ chars, 1 digit"
+                      placeholder="6+ chars, 1 letter + 1 digit"
                       value={form.password}
                       onChange={(v) => update("password", v)}
                       error={fieldErrors.password}
@@ -437,6 +518,7 @@ export default function PatientRegisterPage() {
                       label="Confirm password"
                       icon={Lock}
                       type="password"
+                      revealable
                       autoComplete="new-password"
                       placeholder="Retype password"
                       value={form.confirmPassword}
@@ -458,12 +540,61 @@ export default function PatientRegisterPage() {
                 </form>
               ) : (
                 <form
+                  noValidate
                   onSubmit={(e) => {
                     e.preventDefault();
                     void submitRegister();
                   }}
                   className="space-y-4"
                 >
+                  {/* Optional profile photo — avatar preview + picker. The
+                      image is downscaled client-side and sent inline in the
+                      register body (no auth = no upload endpoint). */}
+                  <div
+                    className="flex items-center gap-4"
+                    data-testid="patient-register-photo"
+                  >
+                    <PatientAvatar
+                      photoUrl={form.photoUrl || null}
+                      name={form.name}
+                      size={56}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <input
+                        ref={photoInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        onChange={pickPhoto}
+                        data-testid="patient-register-photo-input"
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => photoInputRef.current?.click()}
+                        disabled={photoBusy}
+                        data-testid="patient-register-photo-button"
+                        className="inline-flex h-11 w-fit items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+                      >
+                        <Camera className="h-4 w-4" />
+                        {photoBusy
+                          ? "Processing…"
+                          : form.photoUrl
+                            ? "Change photo"
+                            : "Add photo (optional)"}
+                      </button>
+                      {form.photoUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => update("photoUrl", "")}
+                          data-testid="patient-register-photo-remove"
+                          className="w-fit text-xs text-red-600 hover:underline dark:text-red-400"
+                        >
+                          Remove photo
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field
                       id="patient-register-dob"
@@ -704,6 +835,9 @@ interface FieldProps {
   disabled?: boolean;
   required?: boolean;
   icon?: React.ComponentType<{ className?: string }>;
+  /** When true (password fields), renders a show/hide eye toggle on the
+   *  right that switches the input between password and plain text. */
+  revealable?: boolean;
 }
 
 function Field({
@@ -720,7 +854,12 @@ function Field({
   disabled,
   required,
   icon: Icon,
+  revealable,
 }: FieldProps) {
+  const [revealed, setRevealed] = useState(false);
+  // When revealable, flip password→text on toggle; non-revealable fields
+  // keep the type they were given.
+  const effectiveType = revealable ? (revealed ? "text" : "password") : type;
   return (
     <div className="space-y-1.5">
       <label
@@ -736,7 +875,7 @@ function Field({
         <input
           id={id}
           data-testid={testid}
-          type={type}
+          type={effectiveType}
           inputMode={inputMode}
           autoComplete={autoComplete}
           placeholder={placeholder}
@@ -744,12 +883,29 @@ function Field({
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
           required={required}
-          className={`block h-12 w-full rounded-xl border bg-white pr-3 text-base text-gray-900 placeholder:text-gray-400 transition focus:outline-none focus:ring-4 dark:bg-gray-950 dark:text-white ${
+          className={`block h-12 w-full rounded-xl border bg-white text-base text-gray-900 placeholder:text-gray-400 transition focus:outline-none focus:ring-4 dark:bg-gray-950 dark:text-white ${
             error
               ? "border-red-300 focus:border-red-500 focus:ring-red-500/15 dark:border-red-900/60"
               : "border-gray-300 focus:border-blue-500 focus:ring-blue-500/15 dark:border-gray-700"
-          } ${Icon ? "pl-10" : "pl-3"}`}
+          } ${Icon ? "pl-10" : "pl-3"} ${revealable ? "pr-11" : "pr-3"}`}
         />
+        {revealable ? (
+          <button
+            type="button"
+            onClick={() => setRevealed((s) => !s)}
+            disabled={disabled}
+            data-testid={`${testid}-toggle`}
+            aria-label={revealed ? "Hide password" : "Show password"}
+            aria-pressed={revealed}
+            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:hover:text-gray-200"
+          >
+            {revealed ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </button>
+        ) : null}
       </div>
       {error ? (
         <p

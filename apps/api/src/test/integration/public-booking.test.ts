@@ -29,7 +29,10 @@ vi.mock("../../services/ai/sarvam", () => ({
   }),
 }));
 
-vi.mock("../../services/channels/whatsapp", () => ({
+// Public booking now sends confirmations via the Meta Cloud sender
+// (same module prescriptions use) — mock that so no real Meta API call
+// fires during the test.
+vi.mock("../../services/messaging/whatsapp", () => ({
   sendWhatsApp: vi.fn().mockResolvedValue({ ok: true, messageId: "wa-test" }),
 }));
 

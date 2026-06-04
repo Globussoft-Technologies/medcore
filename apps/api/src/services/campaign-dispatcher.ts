@@ -17,9 +17,12 @@
 import type { PrismaClient } from "@prisma/client";
 import { compileAudience } from "./audience-compiler";
 import type { AudienceRules } from "@medcore/shared";
-import { sendWhatsApp } from "./channels/whatsapp";
+// WhatsApp + Email go through the SAME senders prescriptions use
+// (messaging/*) so campaigns deliver with the configured Meta WhatsApp
+// token + the real email gateway — not the stubbed channels/* adapters.
+import { sendWhatsApp as sendWhatsAppMeta } from "./messaging/whatsapp";
+import { sendEmail as sendEmailReal } from "./messaging/email";
 import { sendSMS } from "./channels/sms";
-import { sendEmail } from "./channels/email";
 import { sendPush } from "./channels/push";
 import type { ChannelResult } from "./channels/whatsapp";
 
@@ -195,6 +198,27 @@ const PREF_CHANNEL: Record<CampaignChannel, "WHATSAPP" | "SMS" | "EMAIL" | "PUSH
   PUSH: "PUSH",
 };
 
+// Render a plain-text campaign body as a simple branded HTML email. The
+// body is already token-substituted; we only escape HTML + keep newlines.
+function campaignBodyToHtml(subject: string, body: string): string {
+  const esc = (s: string) =>
+    s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  const safeBody = esc(body).replace(/\n/g, "<br/>");
+  const heading = subject ? esc(subject) : "MedCore";
+  return `
+    <div style="font-family:Segoe UI,Tahoma,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a;">
+      <h2 style="color:#4f46e5;margin:0 0 12px;">${heading}</h2>
+      <p style="font-size:15px;line-height:1.6;">${safeBody}</p>
+      <p style="font-size:12px;color:#94a3b8;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:12px;">
+        MedCore — Care. Innovation. Impact.
+      </p>
+    </div>
+  `;
+}
+
 async function deliverToChannel(
   channel: CampaignChannel,
   recipient: {
@@ -208,13 +232,20 @@ async function deliverToChannel(
   switch (channel) {
     case "WHATSAPP":
       if (!recipient.phone) return { ok: false, error: "no phone", addressMissing: true };
-      return sendWhatsApp(recipient.phone, body);
+      // Meta Cloud sender (configured WHATSAPP_ACCESS_TOKEN / PHONE_NUMBER_ID).
+      return sendWhatsAppMeta({ to: recipient.phone, body });
     case "SMS":
       if (!recipient.phone) return { ok: false, error: "no phone", addressMissing: true };
       return sendSMS(recipient.phone, body);
     case "EMAIL":
       if (!recipient.email) return { ok: false, error: "no email", addressMissing: true };
-      return sendEmail(recipient.email, subject || "Message", body);
+      // Wrap the plain-text campaign body in minimal branded HTML so it
+      // renders cleanly (the email gateway requires an html part).
+      return sendEmailReal({
+        to: recipient.email,
+        subject: subject || "Message from MedCore",
+        html: campaignBodyToHtml(subject, body),
+      });
     case "PUSH":
       if (!recipient.pushToken) return { ok: false, error: "no push token", addressMissing: true };
       return sendPush([recipient.pushToken], subject || "MedCore", body);

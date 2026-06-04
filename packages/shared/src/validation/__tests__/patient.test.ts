@@ -41,9 +41,24 @@ describe("createPatientSchema", () => {
         .success
     ).toBe(true);
   });
-  it("rejects bad photoUrl", () => {
+  it("accepts a photoUrl storage key (no longer must be a full URL)", () => {
+    // photoUrl now stores the BARE storage key (e.g. "ehr/uuid.jpg") OR a
+    // data:/http URL — not strictly a URL — so a plain string is valid.
     expect(
-      createPatientSchema.safeParse({ ...validPatient, photoUrl: "not a url" }).success
+      createPatientSchema.safeParse({ ...validPatient, photoUrl: "ehr/abc-photo.jpg" })
+        .success,
+    ).toBe(true);
+    // Empty string clears the photo and is allowed too.
+    expect(
+      createPatientSchema.safeParse({ ...validPatient, photoUrl: "" }).success,
+    ).toBe(true);
+  });
+  it("rejects an over-long photoUrl (>512 chars)", () => {
+    expect(
+      createPatientSchema.safeParse({
+        ...validPatient,
+        photoUrl: "a".repeat(513),
+      }).success,
     ).toBe(false);
   });
 

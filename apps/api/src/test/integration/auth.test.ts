@@ -31,7 +31,7 @@ import { expectAntiEnumeration } from "../helpers/security-assertions";
 let app: any;
 
 // Issues #706 + #713 (May 2026): public PATIENT registration now requires
-// address + emergencyContact, and the password floor is 12 characters (was 8).
+// address + emergencyContact, and the password floor is 6 characters.
 // This helper packs the registration body with the demographic fields so the
 // existing tests continue to focus on the behaviour-under-test (anti-enum,
 // identity-binding, mass-assignment) rather than re-spelling the demographic
@@ -467,23 +467,22 @@ describeIfDB("Auth API (integration)", () => {
     expect(res.body?.success).toBeFalsy();
   });
 
-  // ─── Issue #706 (registration password floor lifted from 8 → 12) ────────
+  // ─── Registration password floor is 6 chars (relaxed from 12, 2026-06) ──
   //
-  // The shared `validatePasswordStrength` helper enforced 8 chars + letter +
-  // digit + denylist. /register now layers on a 12-char floor at the route
-  // surface so passwords that pass /change-password (8 chars) are still
-  // rejected on a public sign-up. The denylist is the existing one in
-  // `packages/shared/src/validation/security.ts` — these tests pin the bump.
-  it("rejects 8-char password on /register (#706 — 12-char floor)", async () => {
+  // The /register strict password still requires letter + digit + denylist,
+  // but the length floor is now 6. A 5-char password (under the floor) must
+  // still be rejected; 6+ with letter+digit is accepted (covered by the
+  // happy-path register test above).
+  it("rejects sub-6-char password on /register", async () => {
     const res = await request(app).post("/api/v1/auth/register").send(patientBody({
       name: "Short Pass",
       email: "shortpw@test.local",
       phone: "9123450001",
-      password: "Abcd1234", // 8 chars, letter+digit, NOT denylisted — used to pass
+      password: "Ab12c", // 5 chars — under the 6-char floor
     }));
     expect(res.status).toBe(400);
     const errStr = JSON.stringify(res.body).toLowerCase();
-    expect(errStr).toMatch(/password|12 characters/);
+    expect(errStr).toMatch(/password|6 characters/);
   });
 
   it("rejects denylisted 'password' on /register (#706 — denylist)", async () => {
@@ -491,7 +490,7 @@ describeIfDB("Auth API (integration)", () => {
       name: "Common Pass",
       email: "commonpw@test.local",
       phone: "9123450002",
-      password: "password", // denylist + under 12 chars
+      password: "password", // rejected by the common-password denylist
     }));
     expect(res.status).toBe(400);
     expect(res.body?.success).toBeFalsy();
@@ -507,7 +506,7 @@ describeIfDB("Auth API (integration)", () => {
   // accounts. These tests pin the rejection contract on the staff path
   // specifically so a future regression that splits the staff-create
   // surface off /register (or replaces the schema) is caught immediately.
-  it("#688 admin staff-create on /register rejects 8-char password", async () => {
+  it("#688 admin staff-create on /register rejects a sub-6-char password", async () => {
     const adminLogin = await request(app)
       .post("/api/v1/auth/login")
       .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
@@ -522,12 +521,12 @@ describeIfDB("Auth API (integration)", () => {
         name: "Weak Pass Nurse",
         email: "weakpw.nurse@test.local",
         phone: "9123456001",
-        password: "Abcd1234", // 8 chars, letter+digit, NOT denylisted — same case as #706
+        password: "Ab12c", // 5 chars — under the (now 6-char) floor
         role: "NURSE",
       }));
     expect(res.status).toBe(400);
     const errStr = JSON.stringify(res.body).toLowerCase();
-    expect(errStr).toMatch(/password|12 characters/);
+    expect(errStr).toMatch(/password|6 characters/);
   });
 
   // ─── Issue #991 (admin staff-create via cookie-only auth) ──────────────

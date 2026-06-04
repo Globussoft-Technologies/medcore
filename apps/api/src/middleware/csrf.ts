@@ -43,6 +43,10 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const CSRF_BYPASS_PATHS = [
   "/api/v1/auth/login",
   "/api/v1/auth/register",
+  // Pre-signup email/phone availability probe. Caller has no session/CSRF
+  // cookie yet (it runs on the register form before submit), and it's a
+  // read-only existence check — rate-limited at the route.
+  "/api/v1/auth/check-availability",
   "/api/v1/auth/refresh",
   "/api/v1/auth/2fa-verify",
   "/api/v1/auth/2fa-validate",

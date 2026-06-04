@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
@@ -10,6 +10,7 @@ import { useTranslation } from "@/lib/i18n";
 import { formatPatientAge } from "@/lib/format";
 import { Search, Plus, Users, MessageCircle, Phone, Mail, UserPlus, KeyRound } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
+import { PatientAvatar } from "@/components/PatientAvatar";
 import { extractFieldErrors } from "@/lib/field-errors";
 
 // Issue #104 (Apr 2026): mirror the server-side patient name regex so we
@@ -49,6 +50,9 @@ interface PatientRecord {
   // WHATSAPP / PHONE / OTHER). Optional on the wire for back-compat
   // with cached responses that pre-date the column.
   source?: string | null;
+  // Signed avatar URL resolved by the list endpoint (photoUrl is the bare
+  // key; this is the display URL). Null when no photo.
+  photoSignedUrl?: string | null;
   user: { id: string; name: string; email: string; phone: string };
   // Flattened fields for sort/filter/CSV:
   name?: string;
@@ -100,6 +104,8 @@ export default function PatientsPage() {
     gender: "MALE",
     address: "",
     bloodGroup: "",
+    // Profile photo — bare storage key from POST /uploads ("" = none).
+    photoUrl: "",
     // Pearl §2.1.1 — attribution tag. Default WALK_IN: the staff form is
     // most often used to capture an in-person walk-in registration. The
     // API treats an omitted source as "WEB" (staff web-panel keying),
@@ -107,6 +113,10 @@ export default function PatientsPage() {
     // matches the receptionist's intent.
     source: "WALK_IN",
   });
+  // Add-patient photo preview + uploading flag (the key lives on form.photoUrl).
+  const [addPhotoPreview, setAddPhotoPreview] = useState<string | null>(null);
+  const [addPhotoUploading, setAddPhotoUploading] = useState(false);
+  const addPhotoInputRef = useRef<HTMLInputElement | null>(null);
   // Pearl §2.1.1 (gap row 40) — optional ABHA-link CTA on the patient
   // registration form. Collapsed by default so it does not slow the
   // happy-path register flow. When filled, the form fires a second POST
@@ -252,6 +262,41 @@ export default function PatientsPage() {
     }
   }
 
+  // Upload the chosen image to POST /uploads (non-medical mode) and stash
+  // the returned storage key on form.photoUrl (POSTed with the patient).
+  async function handleAddPhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      toast.error("Photo must be a JPEG, PNG, or WEBP image.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Photo is too large (max 5 MB).");
+      return;
+    }
+    setAddPhotoUploading(true);
+    try {
+      const base64Content: string = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("Could not read the image."));
+        reader.readAsDataURL(file);
+      });
+      const res = await api.post<{ data: { filePath: string; signedUrl: string } }>(
+        "/uploads",
+        { filename: file.name, base64Content },
+      );
+      setForm((f) => ({ ...f, photoUrl: res.data.filePath }));
+      setAddPhotoPreview(res.data.signedUrl);
+    } catch (e2) {
+      toast.error((e2 as Error).message || "Photo upload failed.");
+    } finally {
+      setAddPhotoUploading(false);
+    }
+  }
+
   async function handleCreatePatient(e: React.FormEvent) {
     e.preventDefault();
     const errs: Record<string, string> = {};
@@ -334,8 +379,11 @@ export default function PatientsPage() {
         gender: "MALE",
         address: "",
         bloodGroup: "",
+        photoUrl: "",
         source: "WALK_IN",
       });
+      setAddPhotoPreview(null);
+      setAddPhotoUploading(false);
       setAbhaAddress("");
       setAbhaExpanded(false);
       loadPatients();
@@ -423,7 +471,16 @@ export default function PatientsPage() {
       label: t("dashboard.patients.col.name"),
       sortable: true,
       filterable: true,
-      render: (p) => <span className="font-medium">{p.user?.name}</span>,
+      render: (p) => (
+        <span className="flex items-center gap-2">
+          <PatientAvatar
+            photoUrl={p.photoSignedUrl}
+            name={p.user?.name}
+            size={28}
+          />
+          <span className="font-medium">{p.user?.name}</span>
+        </span>
+      ),
     },
     {
       key: "phone",
@@ -604,6 +661,36 @@ export default function PatientsPage() {
           <h2 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">
             {t("dashboard.patients.register")}
           </h2>
+          {/* Optional profile photo */}
+          <div className="mb-4 flex items-center gap-4" data-testid="patient-add-photo">
+            <PatientAvatar photoUrl={addPhotoPreview} name={form.name} size={56} />
+            <div className="flex flex-col gap-1">
+              <input
+                ref={addPhotoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleAddPhotoChange}
+                data-testid="patient-add-photo-input"
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => addPhotoInputRef.current?.click()}
+                disabled={addPhotoUploading}
+                data-testid="patient-add-photo-upload"
+                className="inline-flex w-fit items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
+              >
+                {addPhotoUploading
+                  ? "Uploading…"
+                  : addPhotoPreview
+                    ? "Change photo"
+                    : "Add photo (optional)"}
+              </button>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                JPEG, PNG, or WEBP · max 5 MB
+              </p>
+            </div>
+          </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
               <label htmlFor="patient-name" className="sr-only">

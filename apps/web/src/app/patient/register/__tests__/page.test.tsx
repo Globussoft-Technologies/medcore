@@ -108,20 +108,60 @@ describe("Patient self-register page — Pearl §6.3 audit fix", () => {
     expect(loginLink).toHaveAttribute("href", "/patient/login");
   });
 
-  it("advances from step 1 to step 2 without calling the API when basics are valid", () => {
+  it("advances from step 1 to step 2 after the availability check passes", async () => {
+    // Continue runs a /auth/check-availability probe (email/phone not taken)
+    // before advancing.
+    apiPostMock.mockResolvedValueOnce({
+      success: true,
+      data: { emailTaken: false, phoneTaken: false },
+      error: null,
+    });
+
     render(<PatientRegisterPage />);
     fillBasics();
-    fireEvent.click(screen.getByTestId("patient-register-next"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("patient-register-next"));
+    });
 
-    // Step 2 specific input now in the DOM.
-    expect(
-      screen.getByTestId("patient-register-dob-input"),
-    ).toBeInTheDocument();
-    // No API call should have fired — register is a single POST at the end.
-    expect(apiPostMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("patient-register-dob-input"),
+      ).toBeInTheDocument();
+    });
+    expect(apiPostMock).toHaveBeenCalledWith(
+      "/auth/check-availability",
+      expect.objectContaining({ email: expect.any(String) }),
+    );
+  });
+
+  it("blocks advancing when the email is already registered", async () => {
+    apiPostMock.mockResolvedValueOnce({
+      success: true,
+      data: { emailTaken: true, phoneTaken: false },
+      error: null,
+    });
+
+    render(<PatientRegisterPage />);
+    fillBasics();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("patient-register-next"));
+    });
+
+    // Stays on step 1 (no DOB input) and shows the taken-email error.
+    await waitFor(() => {
+      expect(
+        screen.queryByTestId("patient-register-dob-input"),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("submitting step 2 POSTs /auth/register with the full payload and redirects to /patient/dashboard", async () => {
+    // 1st POST = /auth/check-availability (Continue), 2nd = /auth/register.
+    apiPostMock.mockResolvedValueOnce({
+      success: true,
+      data: { emailTaken: false, phoneTaken: false },
+      error: null,
+    });
     apiPostMock.mockResolvedValueOnce({
       success: true,
       data: { user: { id: "u1", name: "Asha Verma", role: "PATIENT" } },
@@ -130,17 +170,21 @@ describe("Patient self-register page — Pearl §6.3 audit fix", () => {
 
     render(<PatientRegisterPage />);
     fillBasics();
-    fireEvent.click(screen.getByTestId("patient-register-next"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("patient-register-next"));
+    });
     fillDetails();
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("patient-register-submit"));
     });
 
-    await waitFor(() => {
-      expect(apiPostMock).toHaveBeenCalledTimes(1);
-    });
-    const [endpoint, body] = apiPostMock.mock.calls[0];
+    // Find the /auth/register call (not the availability probe).
+    const registerCall = apiPostMock.mock.calls.find(
+      (c) => c[0] === "/auth/register",
+    );
+    expect(registerCall).toBeTruthy();
+    const [endpoint, body] = registerCall!;
     expect(endpoint).toBe("/auth/register");
     expect(body).toMatchObject({
       name: "Asha Verma",
@@ -161,13 +205,21 @@ describe("Patient self-register page — Pearl §6.3 audit fix", () => {
   });
 
   it("surfaces an API error inline at patient-register-error and does not redirect", async () => {
+    // 1st POST = availability probe (passes), 2nd = register (rejects).
+    apiPostMock.mockResolvedValueOnce({
+      success: true,
+      data: { emailTaken: false, phoneTaken: false },
+      error: null,
+    });
     apiPostMock.mockRejectedValueOnce(
       Object.assign(new Error("Email already registered"), { status: 409 }),
     );
 
     render(<PatientRegisterPage />);
     fillBasics();
-    fireEvent.click(screen.getByTestId("patient-register-next"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("patient-register-next"));
+    });
     fillDetails();
 
     await act(async () => {
@@ -183,9 +235,17 @@ describe("Patient self-register page — Pearl §6.3 audit fix", () => {
   });
 
   it("blocks step 2 submit when T&C consent is not ticked", async () => {
+    // Availability probe passes so Continue advances to step 2.
+    apiPostMock.mockResolvedValueOnce({
+      success: true,
+      data: { emailTaken: false, phoneTaken: false },
+      error: null,
+    });
     render(<PatientRegisterPage />);
     fillBasics();
-    fireEvent.click(screen.getByTestId("patient-register-next"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("patient-register-next"));
+    });
     // Fill details EXCEPT the terms checkbox.
     fireEvent.change(screen.getByTestId("patient-register-dob-input"), {
       target: { value: "1992-04-17" },
@@ -213,7 +273,10 @@ describe("Patient self-register page — Pearl §6.3 audit fix", () => {
       fireEvent.click(screen.getByTestId("patient-register-submit"));
     });
 
-    expect(apiPostMock).not.toHaveBeenCalled();
+    // Availability probe fired (Continue), but /auth/register must NOT.
+    expect(
+      apiPostMock.mock.calls.some((c) => c[0] === "/auth/register"),
+    ).toBe(false);
     expect(
       screen.getByTestId("patient-register-field-error-terms"),
     ).toHaveTextContent(/terms/i);

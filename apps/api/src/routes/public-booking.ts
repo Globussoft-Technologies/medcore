@@ -43,7 +43,11 @@ import { rateLimit } from "../middleware/rate-limit";
 import { auditLog } from "../middleware/audit";
 import { extractSymptomSummary } from "../services/ai/sarvam";
 import { onAppointmentBooked } from "../services/notification-triggers";
-import { sendWhatsApp } from "../services/channels/whatsapp";
+// Use the Meta Cloud sender (same one prescriptions use) so booking
+// confirmations actually go out with the configured WHATSAPP_ACCESS_TOKEN
+// / WHATSAPP_PHONE_NUMBER_ID env. The older channels/whatsapp adapter
+// needs different env vars (WHATSAPP_API_URL/_KEY) and otherwise stubs.
+import { sendWhatsApp } from "../services/messaging/whatsapp";
 
 export const publicBookingRouter = Router();
 
@@ -587,7 +591,9 @@ publicBookingRouter.post(
         `${dateStr}${timeLine}.${tokenLine}\n\n` +
         `You can view your appointments and reports anytime — just sign in with this ` +
         `phone number. — MedCore`;
-      sendWhatsApp(phone, waMessage, tenantId).catch((e) =>
+      // Fire-and-forget — a WhatsApp failure must never block the 201.
+      // The sender normalises the phone to E.164 itself.
+      sendWhatsApp({ to: phone, body: waMessage }).catch((e) =>
         console.error("[public-booking] WhatsApp confirm failed (non-fatal)", e),
       );
 

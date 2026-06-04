@@ -19,7 +19,7 @@
 //       3. Token substitution — body `Hi {{patient.firstName}} ...`
 //          renders with the patient's first name before being handed to
 //          the channel adapter. We assert via a spy on
-//          `services/channels/whatsapp.ts:sendWhatsApp`.
+//          `services/messaging/whatsapp.ts:sendWhatsApp`.
 //       4. No-audience guard — a SCHEDULED campaign with `audienceId =
 //          null` gets CANCELLED with a machine-readable `cancelReason`.
 //   - Stub mode for the WhatsApp adapter: with no
@@ -38,10 +38,12 @@ import { describeIfDB, resetDB, getPrisma } from "../setup";
 // the module to a stub that records calls AND mirrors the real
 // stub-mode contract (`{ok: true, messageId: "stub-..."}`) so the
 // dispatcher writes `status=SENT` to CampaignSend.
+// Campaigns now send WhatsApp via messaging/whatsapp ({ to, body }), the
+// same Meta sender prescriptions use.
 const whatsappCalls: Array<{ to: string; text: string }> = [];
-vi.mock("../../services/channels/whatsapp", () => ({
-  sendWhatsApp: vi.fn(async (to: string, text: string) => {
-    whatsappCalls.push({ to, text });
+vi.mock("../../services/messaging/whatsapp", () => ({
+  sendWhatsApp: vi.fn(async (input: { to: string; body: string }) => {
+    whatsappCalls.push({ to: input.to, text: input.body });
     return { ok: true, messageId: `stub-${Date.now()}` };
   }),
 }));

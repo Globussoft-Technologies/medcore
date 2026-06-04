@@ -548,7 +548,7 @@ exports[`generatePrescriptionPDF — HTML snapshot > snapshot: empty / default p
     </div>
     <div style="flex:1;text-align:right;">
       <h3 style="font-size:11px;color:#94a3b8;text-transform:uppercase;margin-bottom:6px;">Doctor</h3>
-      <p style="font-weight:600;">Dr. Dr Snapshot</p>
+      <p style="font-weight:600;">Dr. Snapshot</p>
       <p style="font-size:12px;color:#64748b;">MBBS</p>
       
       <p style="font-size:12px;color:#64748b;margin-top:4px;">Date: —</p>
@@ -574,7 +574,7 @@ exports[`generatePrescriptionPDF — HTML snapshot > snapshot: empty / default p
   <div class="signblock">
     <div class="sig">
       <div class="signline"></div>
-      <p style="font-weight:600;font-size:13px;">Dr. Dr Snapshot</p>
+      <p style="font-weight:600;font-size:13px;">Dr. Snapshot</p>
       <p style="font-size:11px;color:#64748b;">MBBS</p>
     </div>
   </div>

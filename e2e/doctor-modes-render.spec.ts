@@ -198,12 +198,11 @@ test.describe("Pearl §6 row 324 — all 3 doctor modes (CALLING / TOKEN / SLOT)
         },
       });
     }
-    // TOKEN-mode doctor likewise needs a schedule — the slot-shell only
-    // renders if slotsWithPast.length > 0 OR the no-slots empty-state
-    // surfaces (which also needs a date target). The shell's outer guard
-    // is (channel === SLOT || channel === TOKEN), so a TOKEN doctor with
-    // zero schedule rows surfaces the empty-state branch, which is still
-    // a TOKEN-mode rendering (the assertion accepts either).
+    // Seed a schedule for the TOKEN doctor too. TOKEN no longer reuses the
+    // SLOT slot-grid — it renders its own sequential-token shell
+    // (appt-book-token-mode) which doesn't depend on schedule rows — but we
+    // keep the seed so the doctor is fully provisioned and parallel to the
+    // CALLING/SLOT fixtures.
     for (let day = 0; day <= 6; day++) {
       await adminApi.post(`${API_BASE}/doctors/${tokenDoctor.id}/schedule`, {
         data: {
@@ -282,30 +281,27 @@ test.describe("Pearl §6 row 324 — all 3 doctor modes (CALLING / TOKEN / SLOT)
 
     // ─── Mode 2 — TOKEN doctor. ──────────────────────────────────────────
     // Affirmative: appt-book-channel-token button visible (mode-distinct
-    // testid) AND one of appt-book-slots / appt-book-no-slots visible
-    // (TOKEN reuses the slot-shell — page.tsx:2005-2006 gates on
-    // `channel === SLOT || channel === TOKEN`).
+    // testid) AND the sequential-token shell (appt-book-token-mode) visible.
+    // TOKEN no longer reuses the SLOT slot-grid — it has its own no-slot
+    // "Book (assign token)" shell.
     // Negative: CALLING panel + WALKIN panel both absent (auto-select
     // picks the primary channel TOKEN, not WALKIN).
     await pickDoctor(page, tokenDoctor.id);
     await expect(page.getByTestId("appt-book-channel-token")).toBeVisible({
       timeout: 10_000,
     });
-    const tokenSlots = page.getByTestId("appt-book-slots");
-    const tokenNoSlots = page.getByTestId("appt-book-no-slots");
-    await Promise.race([
-      tokenSlots.waitFor({ state: "visible", timeout: 10_000 }).catch(() => null),
-      tokenNoSlots
-        .waitFor({ state: "visible", timeout: 10_000 })
-        .catch(() => null),
-    ]);
-    const tokenSlotsVisible = await tokenSlots.isVisible().catch(() => false);
-    const tokenNoSlotsVisible = await tokenNoSlots
-      .isVisible()
-      .catch(() => false);
+    // TOKEN mode no longer reuses the slot grid — it renders its own
+    // sequential-token shell (appt-book-token-mode): a "no slot needed"
+    // message plus a "Book (assign token)" action (or the daily-limit
+    // notice). Assert that shell shows instead of appt-book-slots /
+    // appt-book-no-slots (which are now SLOT-only).
+    const tokenShell = page.getByTestId("appt-book-token-mode");
+    await tokenShell
+      .waitFor({ state: "visible", timeout: 10_000 })
+      .catch(() => null);
     expect(
-      tokenSlotsVisible || tokenNoSlotsVisible,
-      "TOKEN-mode doctor must surface either appt-book-slots or appt-book-no-slots (the shared SLOT/TOKEN shell)."
+      await tokenShell.isVisible().catch(() => false),
+      "TOKEN-mode doctor must surface the sequential-token shell (appt-book-token-mode)."
     ).toBeTruthy();
     await expect(page.getByTestId("appt-book-calling-mode")).toHaveCount(0);
     await expect(page.getByTestId("appt-book-calling-add")).toHaveCount(0);

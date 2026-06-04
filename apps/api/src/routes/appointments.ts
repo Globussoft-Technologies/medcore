@@ -1308,15 +1308,6 @@ router.post(
             where: { doctorId, date: d },
             orderBy: { tokenNumber: "desc" },
           });
-          
-            if (await isDoctorOnConfirmedLeave(existing.doctorId, dateObj)) {
-        res.status(409).json({
-          success: false,
-          data: null,
-          error: "Doctor is on leave on the selected date",
-        });
-        return;
-      }
           const tokenNumber = (last?.tokenNumber ?? 0) + 1;
 
           const apt = await tx.appointment.create({

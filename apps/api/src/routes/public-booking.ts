@@ -275,16 +275,24 @@ publicBookingRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { symptom, date } = req.body as { symptom: string; date: string };
-      const tenantId = await resolveTenant(req);
+      // TEMP (2026-06-03): tenant resolution disabled here so the doctor
+      // list isn't scoped — see the findMany comment below. Restore with
+      // `const tenantId = await resolveTenant(req);` when re-enabling.
+      // const tenantId = await resolveTenant(req);
 
       const specialties = await symptomToSpecialties(symptom);
 
-      // Pull active doctors in the matched specialties for this tenant.
+      // Pull active doctors in the matched specialties.
       // Specialty match is case-insensitive contains so "General Medicine"
       // matches a doctor stored as "General Medicine / Diabetology".
+      // TEMP (2026-06-03): tenant scoping commented out so the public
+      // booking page surfaces ALL doctors in production while the demo
+      // data lives across multiple tenants. Re-enable the
+      // `...(tenantId ? { tenantId } : {})` line below to restore
+      // per-tenant scoping once each tenant has its own doctor roster.
       const doctors = await prisma.doctor.findMany({
         where: {
-          ...(tenantId ? { tenantId } : {}),
+          // ...(tenantId ? { tenantId } : {}),
           user: { isActive: true },
           OR: specialties.map((s) => ({
             specialization: { contains: s, mode: "insensitive" as const },

@@ -1295,4 +1295,180 @@ describe("AppointmentsPage — colocated coverage", () => {
     ).toBeInTheDocument();
     void within;
   });
+
+  // ─── ⋮ status-action menu + reversal dialogs ──────────────────────
+  // Covers buildStatusActions, the floating overflow menu, and the
+  // Undo / No-show / Restore handlers added for status reversal.
+
+  const renderWithRow = async (status: string, extra: Record<string, unknown> = {}) => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/appointments")) {
+        return Promise.resolve({ data: [appt({ id: "row-1", status, ...extra })] });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    apiMock.patch.mockResolvedValue({ data: { status } });
+    apiMock.post.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(
+      await screen.findByRole("button", { name: /more actions for asha roy/i }),
+    );
+    return user;
+  };
+
+  it("⋮ menu: Undo Check-in reverts a CHECKED_IN row to BOOKED", async () => {
+    const user = await renderWithRow("CHECKED_IN");
+    await user.click(
+      await screen.findByRole("button", { name: /undo check-in for asha roy/i }),
+    );
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith("/appointments/row-1/status", {
+        status: "BOOKED",
+      }),
+    );
+  });
+
+  it("⋮ menu: Undo Consult reverts an IN_CONSULTATION row to CHECKED_IN", async () => {
+    const user = await renderWithRow("IN_CONSULTATION");
+    await user.click(
+      await screen.findByRole("button", {
+        name: /undo consultation start for asha roy/i,
+      }),
+    );
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith("/appointments/row-1/status", {
+        status: "CHECKED_IN",
+      }),
+    );
+  });
+
+  it("⋮ menu: Mark as Booked reverts a NO_SHOW row to BOOKED", async () => {
+    const user = await renderWithRow("NO_SHOW");
+    await user.click(
+      await screen.findByRole("button", { name: /undo no-show for asha roy/i }),
+    );
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith("/appointments/row-1/status", {
+        status: "BOOKED",
+      }),
+    );
+  });
+
+  it("⋮ menu: Mark No-show opens a reason dialog and PATCHes NO_SHOW with the reason", async () => {
+    const user = await renderWithRow("BOOKED");
+    await user.click(
+      await screen.findByRole("button", { name: /mark no-show for asha roy/i }),
+    );
+    await user.type(await screen.findByTestId("noshow-reason"), "Did not arrive");
+    await user.click(screen.getByRole("button", { name: /^mark no-show$/i }));
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith("/appointments/row-1/status", {
+        status: "NO_SHOW",
+        noShowReason: "Did not arrive",
+      }),
+    );
+  });
+
+  it("⋮ menu: Restore (CANCELLED) opens a reason dialog, PATCHes BOOKED, and mirrors the reason into Remarks", async () => {
+    const user = await renderWithRow("CANCELLED");
+    await user.click(
+      await screen.findByRole("button", { name: /restore to booked for asha roy/i }),
+    );
+    await user.type(
+      await screen.findByTestId("restore-reason"),
+      "Cancelled by mistake",
+    );
+    await user.click(screen.getByRole("button", { name: /^restore to booked$/i }));
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith("/appointments/row-1/status", {
+        status: "BOOKED",
+      }),
+    );
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/appointments/row-1/remarks",
+        expect.objectContaining({ body: expect.stringContaining("Restored to booked") }),
+      ),
+    );
+  });
+
+  it("⋮ menu: a terminal COMPLETED row shows 'No actions available'", async () => {
+    const user = await renderWithRow("COMPLETED");
+    expect(await screen.findByText(/no actions available/i)).toBeInTheDocument();
+    void user;
+  });
+
+  it("⋮ menu: Keep Cancelled dismisses the Restore dialog without a PATCH", async () => {
+    const user = await renderWithRow("CANCELLED");
+    await user.click(
+      await screen.findByRole("button", { name: /restore to booked for asha roy/i }),
+    );
+    await screen.findByTestId("restore-reason");
+    await user.click(screen.getByRole("button", { name: /keep cancelled/i }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("restore-reason")).not.toBeInTheDocument(),
+    );
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  // ─── Token-mode reschedule (no slot grid; same-date guard) ─────────
+  it("Token reschedule: same-date guard, then confirming a future date PATCHes /reschedule with no slotStart", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/appointments/row-1/")) {
+        // full-appointment re-fetch used by loadReschedSlots
+        return Promise.resolve({ data: { doctorId: "doc-1" } });
+      }
+      if (url.includes("/appointments/next-token")) {
+        return Promise.resolve({
+          data: { mode: "TOKEN", tokenLabel: "T-5", limitReached: false },
+        });
+      }
+      if (url.startsWith("/appointments")) {
+        return Promise.resolve({
+          data: [
+            appt({
+              id: "row-1",
+              status: "BOOKED",
+              doctor: {
+                user: { name: "Dr. Singh" },
+                appointmentMode: "TOKEN",
+                tokenPrefix: "T",
+              },
+            }),
+          ],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    apiMock.patch.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: /reschedule appointment for asha roy/i,
+      }),
+    );
+    // Opens on the appointment's own (today's) date → same-date guard shows,
+    // no confirm button yet.
+    expect(await screen.findByTestId("resched-token-samedate")).toBeInTheDocument();
+
+    // Move to a future date → token confirm button appears (no slot grid).
+    fireEvent.change(screen.getByLabelText(/new date/i), {
+      target: { value: "2099-01-01" },
+    });
+    const confirmBtn = await screen.findByTestId("resched-token-confirm");
+    fireEvent.change(screen.getByTestId("resched-reason"), {
+      target: { value: "Patient asked to move" },
+    });
+    await user.click(confirmBtn);
+
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith(
+        "/appointments/row-1/reschedule",
+        { date: "2099-01-01", reason: "Patient asked to move" },
+      ),
+    );
+  });
 });

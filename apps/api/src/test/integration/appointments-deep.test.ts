@@ -83,6 +83,14 @@ describeIfDB("Appointments API — deep edges", () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
     const prisma = await getPrisma();
+    // Slot conflicts only apply to SLOT-mode doctors. The doctor factory
+    // defaults to TOKEN (schema default), and TOKEN reschedules carry no
+    // slotStart so the conflict check is skipped — force SLOT here so this
+    // test exercises the slot-collision branch it's asserting.
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "SLOT" },
+    });
     const date = new Date(daysFromNow(2));
     // Seed a booking in slot 12:00
     await prisma.appointment.create({

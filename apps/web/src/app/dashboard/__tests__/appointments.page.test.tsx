@@ -199,7 +199,14 @@ describe("AppointmentsPage", () => {
         if (url === "/doctors")
           return Promise.resolve({
             data: [
-              { id: "d1", user: { name: "Dr. Rajesh Sharma" }, specialization: "GP" },
+              // SLOT mode — past-slot gating only applies to the time-slot
+              // grid (TOKEN/CALLING modes have no slot times to gate).
+              {
+                id: "d1",
+                user: { name: "Dr. Rajesh Sharma" },
+                specialization: "GP",
+                appointmentMode: "SLOT",
+              },
             ],
           });
         if (url.startsWith("/appointments"))
@@ -371,11 +378,13 @@ describe("AppointmentsPage", () => {
       ]);
       await user.click(await screen.findByTestId("appt-book-doctor"));
       await user.click(await screen.findByRole("option", { name: /Dr\. Token/i }));
-      // Wait for slot grid (proves the doctor is selected + TOKEN channel
-      // is active — only SLOT/TOKEN render the slot grid).
+      // TOKEN mode shows the "assign token" block (no slot grid — slot time
+      // is optional for sequential-token booking), proving the doctor is
+      // selected + TOKEN channel is active.
       await waitFor(() =>
-        expect(screen.getByTestId("appt-book-slots")).toBeInTheDocument()
+        expect(screen.getByTestId("appt-book-token-mode")).toBeInTheDocument()
       );
+      expect(screen.queryByTestId("appt-book-slots")).not.toBeInTheDocument();
       // Only one channel available → picker is hidden (no friction).
       expect(screen.queryByTestId("appt-book-channel-picker")).not.toBeInTheDocument();
       // WALKIN block must NOT be present (channel not enabled).

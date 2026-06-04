@@ -118,17 +118,25 @@ export function displayStatusForAppointment(
 export function appointmentRefLabel(appt: {
   tokenNumber: number | null;
   arrivalSeq?: number | null;
-  doctor?: { appointmentMode?: "CALLING" | "TOKEN" | "SLOT" | null };
+  doctor?: {
+    appointmentMode?: "CALLING" | "TOKEN" | "SLOT" | null;
+    tokenPrefix?: string | null;
+  };
 }): string {
   const mode = appt.doctor?.appointmentMode;
+  // Use the doctor's configured token prefix (e.g. "R") rather than a
+  // hardcoded letter; fall back to "T" only when none is set.
+  const tokenPrefix = appt.doctor?.tokenPrefix || "T";
   if (mode === "CALLING") {
     return appt.arrivalSeq != null ? `A-${appt.arrivalSeq}` : "—";
   }
   if (mode === "SLOT") {
-    return appt.tokenNumber != null ? `T-${appt.tokenNumber}` : "—";
+    return appt.tokenNumber != null
+      ? `${tokenPrefix}-${appt.tokenNumber}`
+      : "—";
   }
   // TOKEN or unknown — prefer tokenNumber, fall back to arrivalSeq.
-  if (appt.tokenNumber != null) return `T-${appt.tokenNumber}`;
+  if (appt.tokenNumber != null) return `${tokenPrefix}-${appt.tokenNumber}`;
   if (appt.arrivalSeq != null) return `A-${appt.arrivalSeq}`;
   return "—";
 }

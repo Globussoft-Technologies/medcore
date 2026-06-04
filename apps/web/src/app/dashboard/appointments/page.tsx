@@ -19,7 +19,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { TablePagination } from "@/components/TablePagination";
 import { EntityPicker } from "@/components/EntityPicker";
 import { AppointmentRemarksModal } from "@/components/AppointmentRemarksModal";
-import { Calendar, MessageSquare } from "lucide-react";
+import { Calendar, MessageSquare, MoreVertical } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
 
@@ -101,6 +101,7 @@ interface Appointment {
   doctor: {
     user: { name: string };
     appointmentMode?: "CALLING" | "TOKEN" | "SLOT";
+    tokenPrefix?: string | null;
   };
   // Pearl §2.1.3 — projected from the appointment's Consultation row
   // (1:1 via appointmentId). Lets the row hide Re-consult / Complete
@@ -111,6 +112,9 @@ interface Appointment {
     status: string;
     signedAt: string | null;
   } | null;
+  // Pearl §2.1.7 — relation count from the list endpoint, used to badge the
+  // Remarks button with the number of threaded remarks on this row.
+  _count?: { remarks: number };
 }
 
 interface Slot {
@@ -459,15 +463,24 @@ export default function AppointmentsPage() {
   // mode + channel set is available to derive the channel correctly.
   const searchParams = useSearchParams();
   const isPatient = user?.role === "PATIENT";
+  // A logged-in DOCTOR books only for themselves — the booking-form doctor
+  // selector is locked to their own record (matched via the shared User name).
+  // Other roles (ADMIN/RECEPTION/NURSE) keep the full doctor list.
+  const isDoctor = user?.role === "DOCTOR";
 
   // Issue #491 (2026-05-03): every "future-date" input on this page (book a
   // new appointment, reschedule, waitlist preferred date, recurring start,
-  // coordinated visit) needs a `min={today}` so the native date picker
-  // stops the user from selecting a past date in the first place. The
-  // backend Zod schema also rejects past dates as a defence-in-depth, but
-  // a UX guard here prevents the slot grid from rendering at all. Filter
-  // and stats inputs deliberately do *not* set this min — those are for
-  // querying historical records.
+  // coordinated visit) needs a `min={today}` so the native date picker stops
+  // the user from selecting a past date in the first place. The backend Zod
+  // schema also rejects past dates as defence-in-depth, but a UX guard here
+  // prevents an invalid pick. Filter and stats inputs deliberately do *not*
+  // set this min — those are for querying historical records.
+  //
+  // For reschedule the floor is still today (a future appointment can even be
+  // moved back to today); the one date that's NOT a valid target is the
+  // appointment's OWN current date — that's handled separately as a same-date
+  // guard on the Reschedule action, since a native date input can't exclude a
+  // single date in the middle of its allowed range.
   const todayMin = toISODate(new Date());
 
   // View toggle
@@ -512,6 +525,14 @@ export default function AppointmentsPage() {
   // Pearl §3.1 (gap closed 2026-05-29) — cancel requires a reason
   // (server-enforced via Zod, 3-500 chars).
   const [cancelReason, setCancelReason] = useState("");
+  // No-show capture — NO_SHOW requires a reason server-side (Zod, 3-500 chars),
+  // so marking a not-arrived patient opens a small reason dialog like Cancel.
+  const [noShowId, setNoShowId] = useState<string | null>(null);
+  const [noShowReason, setNoShowReason] = useState("");
+  // Restore a CANCELLED appointment back to BOOKED — captured reason is mirrored
+  // into the Remarks thread (no dedicated column for a "restore" reason).
+  const [restoreId, setRestoreId] = useState<string | null>(null);
+  const [restoreReason, setRestoreReason] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -552,6 +573,13 @@ export default function AppointmentsPage() {
     slotStartTime: string;
     slotEndTime: string;
   }>({ open: false, slotStartTime: "", slotEndTime: "" });
+  // For a TOKEN-mode doctor, the exact token (e.g. "R5") is minted server-side
+  // from the doctor's prefix/start/limit; preview it in the Confirm dialog via
+  // GET /appointments/next-token.
+  const [tokenPreview, setTokenPreview] = useState<{
+    label: string | null;
+    limitReached: boolean;
+  } | null>(null);
 
   // Reschedule modal
   const [reschedTarget, setReschedTarget] = useState<Appointment | null>(null);
@@ -562,9 +590,63 @@ export default function AppointmentsPage() {
   // reason (Zod-enforced server side, 3-500 chars). Captured here so
   // the slot-click handler can send it inline with date+slotStart.
   const [reschedReason, setReschedReason] = useState("");
+  // TOKEN-mode doctors have no slot grid in the reschedule modal — instead we
+  // preview the next sequential token the target date would assign (and the
+  // daily-limit state) via /appointments/next-token. null = not a token row.
+  const [reschedToken, setReschedToken] = useState<{
+    label: string | null;
+    limitReached: boolean;
+  } | null>(null);
 
   // Pearl §2.1.7 — remarks modal target (single appointment).
   const [remarksTarget, setRemarksTarget] = useState<Appointment | null>(null);
+  // Per-user "seen" remark counts so the Remarks badge behaves as an UNREAD
+  // indicator: it shows only the number of remarks added since this user last
+  // opened the thread, and disappears once they've viewed them. Persisted to
+  // localStorage (keyed by user id) so it survives reloads; falls back to an
+  // empty map when storage is unavailable.
+  const [seenRemarks, setSeenRemarks] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      const raw = localStorage.getItem(`medcore:remark-seen:${user.id}`);
+      setSeenRemarks(raw ? JSON.parse(raw) : {});
+    } catch {
+      setSeenRemarks({});
+    }
+  }, [user?.id]);
+  const markRemarksSeen = useCallback(
+    (appointmentId: string, count: number) => {
+      if (!user?.id) return;
+      setSeenRemarks((prev) => {
+        if (prev[appointmentId] === count) return prev;
+        const next = { ...prev, [appointmentId]: count };
+        try {
+          localStorage.setItem(
+            `medcore:remark-seen:${user.id}`,
+            JSON.stringify(next)
+          );
+        } catch {
+          /* storage full / unavailable — badge just won't persist */
+        }
+        return next;
+      });
+    },
+    [user?.id]
+  );
+  // After the remarks modal closes we reload the list; once the refreshed row
+  // (with its new remark count) lands, mark that appointment fully seen so any
+  // remark the user just added/read in the modal clears the badge too.
+  const pendingSeenAppointmentId = useRef<string | null>(null);
+  useEffect(() => {
+    const id = pendingSeenAppointmentId.current;
+    if (!id) return;
+    const appt = appointments.find((a) => a.id === id);
+    if (appt) {
+      markRemarksSeen(id, appt._count?.remarks ?? 0);
+      pendingSeenAppointmentId.current = null;
+    }
+  }, [appointments, markRemarksSeen]);
 
   // ─── Calendar view state ──────────
   const [calWeekStart, setCalWeekStart] = useState<Date>(startOfWeek(new Date()));
@@ -691,6 +773,65 @@ export default function AppointmentsPage() {
     }
     prefillAppliedRef.current = sig;
   }, [searchParams, doctors, isPatient]);
+
+  // DOCTOR self-select: a logged-in doctor books only for themselves, so once
+  // the doctor list loads, lock the booking form to their own record (matched
+  // by the shared User name) and derive its channel. No-op for other roles or
+  // if no match (then the full dropdown stays — safe fallback).
+  useEffect(() => {
+    if (!isDoctor || selectedDoctor || doctors.length === 0) return;
+    const mine = doctors.find((d) => d.user?.name === user?.name);
+    if (!mine) return;
+    setSelectedDoctor(mine.id);
+    setSelectedChannel(availableChannelsFor(mine)[0]);
+    loadSlots(mine.id, selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDoctor, doctors, user?.name]);
+
+  // Preview the next token (e.g. "R-5") + daily-limit status for a TOKEN-mode
+  // doctor — fetched from the doctor's DB token settings. Runs whenever the
+  // token booking block is shown OR the Confirm dialog is open, so the
+  // "Book (assign token)" button can disable itself when the cap is reached.
+  useEffect(() => {
+    const dId = nextAvailableLock?.doctorId ?? selectedDoctor;
+    const date = nextAvailableLock?.date ?? selectedDate;
+    const d = doctors.find((x) => x.id === dId);
+    const isTokenDoctor = d?.appointmentMode === "TOKEN";
+    const shouldFetch =
+      isTokenDoctor &&
+      !!dId &&
+      !!date &&
+      (confirmDialog.open || selectedChannel === "TOKEN");
+    if (!shouldFetch) {
+      setTokenPreview(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ data: { tokenLabel: string | null; limitReached: boolean } }>(
+        `/appointments/next-token?doctorId=${encodeURIComponent(dId)}&date=${encodeURIComponent(date)}`,
+      )
+      .then((r) => {
+        if (cancelled) return;
+        setTokenPreview({
+          label: r.data?.tokenLabel ?? null,
+          limitReached: !!r.data?.limitReached,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setTokenPreview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    confirmDialog.open,
+    selectedChannel,
+    selectedDoctor,
+    selectedDate,
+    nextAvailableLock,
+    doctors,
+  ]);
 
   useEffect(() => {
     if (!isPatient) return;
@@ -867,12 +1008,12 @@ export default function AppointmentsPage() {
     // confirm prompt.
     const bookDoctorId = nextAvailableLock?.doctorId ?? selectedDoctor;
     const bookDate = nextAvailableLock?.date ?? selectedDate;
-    // Pearl ERP Stage 1 §2.1.2 — CALLING-mode doctors don't take a slot.
-    // For SLOT and TOKEN, we still require the picker to have produced
-    // a slotStartTime (the slot picker is the only path into this fn).
+    // Pearl ERP Stage 1 §2.1.2 — only SLOT-mode requires a slot time.
+    // CALLING (arrival queue) and TOKEN (sequential token — slot optional)
+    // both book with no slotStartTime via their own "Book" buttons.
     const doctorMode =
       doctors.find((d) => d.id === bookDoctorId)?.appointmentMode ?? "TOKEN";
-    if (doctorMode !== "CALLING" && !slotStartTime) {
+    if (doctorMode === "SLOT" && !slotStartTime) {
       toast.error("Please pick a slot before booking");
       return;
     }
@@ -919,8 +1060,16 @@ export default function AppointmentsPage() {
 
   async function updateStatus(appointmentId: string, status: string) {
     try {
-      await api.patch(`/appointments/${appointmentId}/status`, { status });
-      loadAppointments();
+      const res = await api.patch<{ data: { status?: string } | null }>(
+        `/appointments/${appointmentId}/status`,
+        { status }
+      );
+      // Update just this row's status from the API response so the rest of the
+      // table doesn't reload/flicker (Check In / Undo Check-in / Complete).
+      const newStatus = res?.data?.status ?? status;
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === appointmentId ? { ...a, status: newStatus } : a))
+      );
       if (view === "calendar") loadCalendar();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Update failed");
@@ -929,6 +1078,87 @@ export default function AppointmentsPage() {
 
   function handleCancelClick(appointmentId: string) {
     setCancellingId(appointmentId);
+  }
+
+  // ─── Secondary status actions (⋮ overflow menu) ───────────────────────
+  // Primary actions (Remarks / Reschedule / Calendar Invite / Cancel / Check
+  // In / Start Consult) stay inline; the less-frequent lifecycle actions move
+  // into a per-row kebab menu so the Actions column stays a constant width and
+  // doesn't shift the rest of the table when buttons appear/disappear.
+  const [statusMenu, setStatusMenu] = useState<{
+    id: string;
+    top: number;
+    left: number;
+  } | null>(null);
+
+  type RowStatusAction = {
+    key: string;
+    label: string;
+    ariaLabel: string;
+    onClick: () => void;
+    tone: "default" | "primary" | "success" | "warn";
+  };
+  function buildStatusActions(apt: Appointment): RowStatusAction[] {
+    const actions: RowStatusAction[] = [];
+    // Mark no-show — patient hasn't checked in (still BOOKED); any staff can
+    // flag them as a no-show. Opens a reason dialog (server requires a reason).
+    if (!isPatient && apt.status === "BOOKED") {
+      actions.push({
+        key: "noshow",
+        label: "Mark No-show",
+        ariaLabel: `Mark no-show for ${apt.patient.user.name}`,
+        onClick: () => setNoShowId(apt.id),
+        tone: "warn",
+      });
+    }
+    // Undo no-show — patient was marked NO_SHOW but actually arrived (or it was
+    // a mistake); any staff can put the row back to BOOKED so it can proceed.
+    if (!isPatient && apt.status === "NO_SHOW") {
+      actions.push({
+        key: "undo-noshow",
+        label: "Mark as Booked",
+        ariaLabel: `Undo no-show for ${apt.patient.user.name}`,
+        onClick: () => updateStatus(apt.id, "BOOKED"),
+        tone: "warn",
+      });
+    }
+    // Restore a CANCELLED appointment back to BOOKED, with a reason (mirrored
+    // into Remarks). Opens a reason dialog like Cancel / No-show.
+    if (!isPatient && apt.status === "CANCELLED") {
+      actions.push({
+        key: "restore",
+        label: "Mark as Booked",
+        ariaLabel: `Restore to booked for ${apt.patient.user.name}`,
+        onClick: () => setRestoreId(apt.id),
+        tone: "warn",
+      });
+    }
+    // Undo check-in — any staff, CHECKED_IN.
+    if (!isPatient && apt.status === "CHECKED_IN") {
+      actions.push({
+        key: "undo",
+        label: "Undo Check-in",
+        ariaLabel: `Undo check-in for ${apt.patient.user.name}`,
+        onClick: () => updateStatus(apt.id, "BOOKED"),
+        tone: "warn",
+      });
+    }
+    // Undo consult — consult was started by mistake; revert IN_CONSULTATION
+    // back to CHECKED_IN. Only while the encounter is still unsigned.
+    if (
+      !isPatient &&
+      apt.status === "IN_CONSULTATION" &&
+      apt.consultation?.status !== "SIGNED"
+    ) {
+      actions.push({
+        key: "undo-consult",
+        label: "Undo Consult",
+        ariaLabel: `Undo consultation start for ${apt.patient.user.name}`,
+        onClick: () => updateStatus(apt.id, "CHECKED_IN"),
+        tone: "warn",
+      });
+    }
+    return actions;
   }
 
   async function confirmCancel() {
@@ -952,10 +1182,87 @@ export default function AppointmentsPage() {
     }
   }
 
+  async function confirmNoShow() {
+    if (!noShowId) return;
+    const reason = noShowReason.trim();
+    if (reason.length < 3) {
+      toast.error("Please enter a no-show reason (min 3 characters).");
+      return;
+    }
+    try {
+      await api.patch(`/appointments/${noShowId}/status`, {
+        status: "NO_SHOW",
+        noShowReason: reason,
+      });
+      // Update just this row (no full reload), consistent with the other
+      // status actions. Also bump the remark count so the Remarks badge
+      // reflects the no-show reason that was just mirrored into the thread.
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === noShowId
+            ? {
+                ...a,
+                status: "NO_SHOW",
+                _count: { remarks: (a._count?.remarks ?? 0) + 1 },
+              }
+            : a
+        )
+      );
+      setNoShowId(null);
+      setNoShowReason("");
+      if (view === "calendar") loadCalendar();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Mark no-show failed");
+    }
+  }
+
+  async function confirmRestore() {
+    if (!restoreId) return;
+    const reason = restoreReason.trim();
+    if (reason.length < 3) {
+      toast.error("Please enter a reason (min 3 characters).");
+      return;
+    }
+    try {
+      await api.patch(`/appointments/${restoreId}/status`, { status: "BOOKED" });
+      // Mirror the restore reason into Remarks (best-effort) — there's no
+      // dedicated column for it, the Remarks thread is the record.
+      try {
+        await api.post(`/appointments/${restoreId}/remarks`, {
+          body: `Restored to booked: ${reason}`,
+          visibility: "ALL_STAFF",
+          parentRemarkId: null,
+        });
+      } catch {
+        /* remark is best-effort; the status change already succeeded */
+      }
+      setAppointments((prev) =>
+        prev.map((a) =>
+          a.id === restoreId
+            ? {
+                ...a,
+                status: "BOOKED",
+                _count: { remarks: (a._count?.remarks ?? 0) + 1 },
+              }
+            : a
+        )
+      );
+      setRestoreId(null);
+      setRestoreReason("");
+      if (view === "calendar") loadCalendar();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Restore failed");
+    }
+  }
+
   function openReschedule(apt: Appointment) {
     setReschedTarget(apt);
-    setReschedDate(apt.date.slice(0, 10));
-    loadReschedSlots(apt, apt.date.slice(0, 10));
+    // Open on the appointment's own current date so the same-date guard kicks
+    // in immediately (Reschedule disabled + "pick another date") — the user
+    // must actively choose a different day before they can confirm.
+    const current = apt.date.slice(0, 10);
+    setReschedDate(current);
+    loadReschedSlots(apt, current);
   }
 
   async function loadReschedSlots(apt: Appointment, date: string) {
@@ -968,17 +1275,42 @@ export default function AppointmentsPage() {
         `/appointments/${apt.id}`
       );
       const doctorId = full.data.doctorId;
-      const res = await api.get<{ data: { slots: Slot[] } }>(
-        `/doctors/${doctorId}/slots?date=${date}`
-      );
-      setReschedSlots(res.data.slots);
+      // Ask the server what the target date would assign. TOKEN doctors have
+      // no slots — we render the would-be token instead of a slot grid.
+      let preview: {
+        mode: string;
+        tokenLabel: string | null;
+        limitReached: boolean;
+      } | null = null;
+      try {
+        const tk = await api.get<{
+          data: { mode: string; tokenLabel: string | null; limitReached: boolean };
+        }>(`/appointments/next-token?doctorId=${doctorId}&date=${date}`);
+        preview = tk.data;
+      } catch {
+        preview = null;
+      }
+      if (preview?.mode === "TOKEN") {
+        setReschedToken({
+          label: preview.tokenLabel,
+          limitReached: preview.limitReached,
+        });
+        setReschedSlots([]);
+      } else {
+        setReschedToken(null);
+        const res = await api.get<{ data: { slots: Slot[] } }>(
+          `/doctors/${doctorId}/slots?date=${date}`
+        );
+        setReschedSlots(res.data.slots);
+      }
     } catch {
       setReschedSlots([]);
+      setReschedToken(null);
     }
     setReschedLoading(false);
   }
 
-  async function confirmReschedule(slotStart: string) {
+  async function confirmReschedule(slotStart?: string) {
     if (!reschedTarget) return;
     // Pearl §3.1 — reason is required server-side (3-500 chars). Block
     // the request locally so the user gets a clearer message than the
@@ -989,14 +1321,19 @@ export default function AppointmentsPage() {
       return;
     }
     try {
-      await api.patch(`/appointments/${reschedTarget.id}/reschedule`, {
+      // TOKEN reschedules send no slotStart — the server mints the next
+      // sequential token for the target date. SLOT reschedules carry the
+      // chosen HH:MM start.
+      const body: { date: string; reason: string; slotStart?: string } = {
         date: reschedDate,
-        slotStart,
         reason,
-      });
+      };
+      if (slotStart) body.slotStart = slotStart;
+      await api.patch(`/appointments/${reschedTarget.id}/reschedule`, body);
       toast.success("Appointment rescheduled.");
       setReschedTarget(null);
       setReschedSlots([]);
+      setReschedToken(null);
       setReschedReason("");
       loadAppointments();
       if (view === "calendar") loadCalendar();
@@ -1012,6 +1349,14 @@ export default function AppointmentsPage() {
     map[reschedDate] = reschedSlots;
     return map;
   }, [reschedSlots, reschedDate]);
+
+  // The appointment's OWN current date is not a valid reschedule target — you
+  // can't move it to the day it's already on. Used to block the TOKEN
+  // Reschedule action and prompt the user to pick a different date. (SLOT
+  // doctors are unaffected: moving to a different slot on the same day is a
+  // legitimate reschedule.)
+  const reschedSameDate =
+    !!reschedTarget && reschedDate === reschedTarget.date.slice(0, 10);
 
   // ─── Past-slot detection (issue #34) ────────────────────
   // Ticks every 30s so slots that roll into the past while the booking
@@ -1103,32 +1448,6 @@ export default function AppointmentsPage() {
 
   // ─── CSV export ───────────────────
 
-  async function downloadCalendarInvite(appointmentId: string) {
-    try {
-      const token =
-        typeof window !== "undefined"
-          ? localStorage.getItem("medcore_token")
-          : null;
-      const base =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
-      const res = await fetch(`${base}/appointments/${appointmentId}/calendar.ics`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      if (!res.ok) throw new Error("Failed to download .ics");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `appointment-${appointmentId.slice(0, 8)}.ics`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Download failed");
-    }
-  }
-
   async function findNextAvailable() {
     try {
       const res = await api.get<{
@@ -1161,14 +1480,20 @@ export default function AppointmentsPage() {
       // user at the picker — the field turns red only if they then
       // click a slot / Next Available again without picking.
       if (!isPatient && patientIdInput.trim().length === 0) {
+        if (!showBooking) {
+          // Booking form isn't open yet — just open it so the user can pick a
+          // patient. No error on this first click.
+          setShowBooking(true);
+          return;
+        }
+        // Form is already open but no patient was picked — now show a
+        // meaningful prompt pointing the user at the patient picker.
         toast.error(
           t(
             "dashboard.appointments.pickPatientFirst",
             "Please pick a patient first, then try Next Available again.",
           ),
         );
-        // Bring the picker into view by opening the booking panel.
-        setShowBooking(true);
         return;
       }
       if (
@@ -1483,6 +1808,113 @@ export default function AppointmentsPage() {
         </div>
       )}
 
+      {/* No-show confirmation dialog — mirrors Cancel; NO_SHOW needs a reason. */}
+      {noShowId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h3 className="text-lg font-semibold text-gray-800">
+              Mark as No-show
+            </h3>
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
+              The patient did not check in. Mark this appointment as a no-show?
+            </p>
+            <div className="mt-4">
+              <label
+                htmlFor="noshow-reason"
+                className="mb-1 block text-sm font-medium"
+              >
+                Reason <span className="text-red-600">*</span>
+              </label>
+              <textarea
+                id="noshow-reason"
+                data-testid="noshow-reason"
+                value={noShowReason}
+                onChange={(e) => setNoShowReason(e.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="e.g. Patient did not arrive; no response to call"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:bg-gray-900 dark:text-gray-100"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {noShowReason.trim().length} / 500 characters
+              </p>
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setNoShowId(null);
+                  setNoShowReason("");
+                }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                Keep Booked
+              </button>
+              <button
+                onClick={confirmNoShow}
+                disabled={noShowReason.trim().length < 3}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Mark No-show
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restore-to-booked dialog — revert a CANCELLED appointment with a
+          reason (mirrored into Remarks). */}
+      {restoreId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h3 className="text-lg font-semibold text-gray-800">
+              Restore to Booked
+            </h3>
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-200">
+              Re-activate this cancelled appointment and put it back to booked?
+            </p>
+            <div className="mt-4">
+              <label
+                htmlFor="restore-reason"
+                className="mb-1 block text-sm font-medium"
+              >
+                Reason <span className="text-red-600">*</span>
+              </label>
+              <textarea
+                id="restore-reason"
+                data-testid="restore-reason"
+                value={restoreReason}
+                onChange={(e) => setRestoreReason(e.target.value)}
+                rows={3}
+                maxLength={500}
+                placeholder="e.g. Cancelled by mistake; patient still wants this appointment"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:bg-gray-900 dark:text-gray-100"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {restoreReason.trim().length} / 500 characters
+              </p>
+            </div>
+            <div className="mt-5 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setRestoreId(null);
+                  setRestoreReason("");
+                }}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                Keep Cancelled
+              </button>
+              <button
+                onClick={confirmRestore}
+                disabled={restoreReason.trim().length < 3}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Restore to Booked
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirm Appointment dialog — used by both patient self-booking
           AND staff pre-picked-patient flow. Previews doctor / date / time /
           patient name before posting to /book. */}
@@ -1547,15 +1979,40 @@ export default function AppointmentsPage() {
                   </dd>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <dt className="font-medium text-gray-500 dark:text-gray-400">Time</dt>
-                  <dd
-                    className="text-right text-gray-900 dark:text-gray-100"
-                    data-testid="confirm-appointment-time"
-                  >
-                    {confirmDialog.slotEndTime
-                      ? `${confirmDialog.slotStartTime} – ${confirmDialog.slotEndTime}`
-                      : confirmDialog.slotStartTime}
-                  </dd>
+                  {doctor?.appointmentMode === "TOKEN" ? (
+                    <>
+                      {/* TOKEN mode has no slot time — a sequential token is
+                          minted server-side on confirm, so show "Token" here
+                          instead of an empty "Time". */}
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">
+                        Token
+                      </dt>
+                      <dd
+                        className="text-right text-gray-900 dark:text-gray-100"
+                        data-testid="confirm-appointment-token"
+                      >
+                        {tokenPreview?.limitReached
+                          ? "Daily limit reached"
+                          : tokenPreview?.label
+                            ? tokenPreview.label
+                            : "Auto-assigned (sequential)"}
+                      </dd>
+                    </>
+                  ) : (
+                    <>
+                      <dt className="font-medium text-gray-500 dark:text-gray-400">
+                        Time
+                      </dt>
+                      <dd
+                        className="text-right text-gray-900 dark:text-gray-100"
+                        data-testid="confirm-appointment-time"
+                      >
+                        {confirmDialog.slotEndTime
+                          ? `${confirmDialog.slotStartTime} – ${confirmDialog.slotEndTime}`
+                          : confirmDialog.slotStartTime}
+                      </dd>
+                    </>
+                  )}
                 </div>
               </dl>
               <div className="mt-5 flex justify-end gap-2">
@@ -1597,12 +2054,71 @@ export default function AppointmentsPage() {
       })()}
 
 
+      {/* ⋮ overflow menu for a row's secondary status actions. Rendered at
+          the root (fixed-positioned at the kebab button) so it isn't clipped
+          by the table's overflow-x container. */}
+      {statusMenu &&
+        (() => {
+          const apt = appointments.find((a) => a.id === statusMenu.id);
+          if (!apt) return null;
+          const rowActions = buildStatusActions(apt);
+          const toneText: Record<RowStatusAction["tone"], string> = {
+            default: "text-gray-700 dark:text-gray-200",
+            primary: "text-indigo-600 dark:text-indigo-400",
+            success: "text-green-700 dark:text-green-400",
+            warn: "text-amber-700 dark:text-amber-400",
+          };
+          return (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                aria-hidden="true"
+                onClick={() => setStatusMenu(null)}
+              />
+              <div
+                className="fixed z-50 min-w-[160px] -translate-x-full overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800"
+                style={{ top: statusMenu.top, left: statusMenu.left }}
+              >
+                {rowActions.length === 0 ? (
+                  <span className="block px-3 py-1.5 text-xs text-gray-400 dark:text-gray-500">
+                    No actions available
+                  </span>
+                ) : (
+                  rowActions.map((a) => (
+                    <button
+                      key={a.key}
+                      type="button"
+                      aria-label={a.ariaLabel}
+                      onClick={() => {
+                        setStatusMenu(null);
+                        a.onClick();
+                      }}
+                      className={`block w-full px-3 py-1.5 text-left text-xs hover:bg-gray-100 dark:hover:bg-gray-700 ${toneText[a.tone]}`}
+                    >
+                      {a.label}
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          );
+        })()}
+
       {/* Pearl §2.1.7 — Remarks modal */}
       {remarksTarget && (
         <AppointmentRemarksModal
           appointmentId={remarksTarget.id}
           patientName={remarksTarget.patient.user.name}
-          onClose={() => setRemarksTarget(null)}
+          onClose={() => {
+            // Mark this thread as seen once the refreshed row lands (handled
+            // by the pendingSeenAppointmentId effect), so the unread badge
+            // clears — including any remark just added in the modal.
+            pendingSeenAppointmentId.current = remarksTarget?.id ?? null;
+            setRemarksTarget(null);
+            // Refresh so the Remarks button's count badge reflects any
+            // remark added or deleted while the modal was open.
+            loadAppointments();
+          }}
         />
       )}
 
@@ -1622,6 +2138,7 @@ export default function AppointmentsPage() {
                 onClick={() => {
                   setReschedTarget(null);
                   setReschedSlots([]);
+                  setReschedToken(null);
                   setReschedReason("");
                 }}
                 className="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
@@ -1636,6 +2153,7 @@ export default function AppointmentsPage() {
                 id="resched-new-date"
                 type="date"
                 value={reschedDate}
+                min={todayMin}
                 onChange={(e) => {
                   setReschedDate(e.target.value);
                   loadReschedSlots(reschedTarget, e.target.value);
@@ -1665,6 +2183,48 @@ export default function AppointmentsPage() {
                 {reschedReason.trim().length} / 500 characters
               </p>
             </div>
+            {reschedToken ? (
+              // TOKEN-mode doctor: no slot grid. The patient simply joins the
+              // target date's queue at the next sequential token.
+              <div className="mt-4">
+                {reschedLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+                ) : reschedSameDate ? (
+                  <p
+                    data-testid="resched-token-samedate"
+                    className="rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                  >
+                    This appointment is already on {formatShortDate(reschedDate)}.
+                    Pick another date to reschedule.
+                  </p>
+                ) : reschedToken.limitReached ? (
+                  <p
+                    data-testid="resched-token-limit"
+                    className="rounded-lg bg-rose-100 px-3 py-2 text-sm font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                  >
+                    Daily appointment limit reached for this doctor on{" "}
+                    {formatShortDate(reschedDate)} — pick another date.
+                  </p>
+                ) : (
+                  <>
+                    <p className="mb-2 text-sm text-gray-600 dark:text-gray-300">
+                      This doctor uses <strong>sequential token</strong> booking.
+                      No slot time needed — the appointment moves to{" "}
+                      {formatShortDate(reschedDate)}{" "}
+                      keeping its place in that day&apos;s token order.
+                    </p>
+                    <button
+                      type="button"
+                      data-testid="resched-token-confirm"
+                      onClick={() => confirmReschedule()}
+                      className="w-full rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+                    >
+                      Reschedule
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
             <div className="mt-4">
               <p className="mb-2 text-sm font-medium">Available Slots</p>
               {reschedLoading ? (
@@ -1697,6 +2257,7 @@ export default function AppointmentsPage() {
                 ))
               )}
             </div>
+            )}
           </div>
         </div>
       )}
@@ -2056,35 +2617,55 @@ export default function AppointmentsPage() {
                   <label htmlFor="appt-book-doctor" className="mb-1 block text-sm font-medium">
                     {t("dashboard.appointments.doctor")}
                   </label>
-                  <DoctorSelect
-                    doctors={doctors}
-                    value={selectedDoctor}
-                    placeholder={t("dashboard.appointments.selectDoctor")}
-                    onChange={(id) => {
-                      setSelectedDoctor(id);
-                      // Issue #950 — the user is now manually choosing a
-                      // doctor, so the "Next Available" suggestion lock
-                      // is no longer authoritative. Drop it so the next
-                      // booking uses the form-state pair.
-                      setNextAvailableLock(null);
-                      // Pearl §3.1 (gap row 71) — re-derive the booking
-                      // channel for the newly-picked doctor. Single-channel
-                      // doctors lock immediately to that channel; multi-
-                      // channel doctors land on the primary mode channel
-                      // (the receptionist can still segmented-control over
-                      // to WALKIN). Clearing the doctor resets the channel.
-                      if (id) {
-                        const d = doctors.find((x) => x.id === id);
-                        if (d) {
-                          const avail = availableChannelsFor(d);
-                          setSelectedChannel(avail[0]);
-                        }
-                        loadSlots(id, selectedDate);
-                      } else {
-                        setSelectedChannel("");
-                      }
-                    }}
-                  />
+                  {(() => {
+                    // A logged-in DOCTOR books only for themselves: show their
+                    // name as a static read-only field (no dropdown). The
+                    // self-select effect already locked `selectedDoctor`.
+                    // Everyone else gets the searchable dropdown. (Fallback to
+                    // the dropdown if a doctor has no matching Doctor record.)
+                    const myDoctor = isDoctor
+                      ? doctors.find((d) => d.user?.name === user?.name)
+                      : undefined;
+                    if (myDoctor) {
+                      return (
+                        <div
+                          data-testid="appt-book-doctor-self"
+                          aria-label={t("dashboard.appointments.doctor")}
+                          className="flex min-h-[42px] items-center rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                        >
+                          {formatDoctorName(myDoctor.user.name)} —{" "}
+                          {myDoctor.specialization}
+                        </div>
+                      );
+                    }
+                    return (
+                      <DoctorSelect
+                        doctors={doctors}
+                        value={selectedDoctor}
+                        placeholder={t("dashboard.appointments.selectDoctor")}
+                        onChange={(id) => {
+                          setSelectedDoctor(id);
+                          // Issue #950 — the user is now manually choosing a
+                          // doctor, so the "Next Available" suggestion lock
+                          // is no longer authoritative. Drop it so the next
+                          // booking uses the form-state pair.
+                          setNextAvailableLock(null);
+                          // Pearl §3.1 (gap row 71) — re-derive the booking
+                          // channel for the newly-picked doctor.
+                          if (id) {
+                            const d = doctors.find((x) => x.id === id);
+                            if (d) {
+                              const avail = availableChannelsFor(d);
+                              setSelectedChannel(avail[0]);
+                            }
+                            loadSlots(id, selectedDate);
+                          } else {
+                            setSelectedChannel("");
+                          }
+                        }}
+                      />
+                    );
+                  })()}
                 </div>
                 <div>
                   <label htmlFor="appt-book-date" className="mb-1 block text-sm font-medium">
@@ -2094,6 +2675,7 @@ export default function AppointmentsPage() {
                     id="appt-book-date"
                     type="date"
                     value={selectedDate}
+                    min={todayMin}
                     onChange={(e) => {
                       setSelectedDate(e.target.value);
                       // Issue #950 — drop the "Next Available" lock when
@@ -2282,8 +2864,48 @@ export default function AppointmentsPage() {
                   </div>
                 )}
 
+              {/* Pearl §2.1.2 — TOKEN channel: sequential token, slot time is
+                  optional → no slot grid. Just a message + a Book button that
+                  mints the next token (same no-slot booking path as CALLING). */}
+              {selectedDoctor && selectedChannel === "TOKEN" && (
+                <div
+                  className="mt-4 rounded-lg border border-indigo-300 bg-indigo-50 p-4 text-sm text-indigo-900 dark:border-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-100"
+                  data-testid="appt-book-token-mode"
+                >
+                  <p className="mb-3">
+                    This doctor uses <strong>sequential token</strong> booking.
+                    No slot time needed — a token number is assigned
+                    automatically.
+                  </p>
+                  {tokenPreview?.limitReached ? (
+                    // Daily appointment cap hit — block further token bookings
+                    // for this doctor/date.
+                    <p
+                      data-testid="appt-book-token-limit"
+                      className="rounded-lg bg-rose-100 px-3 py-2 text-sm font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
+                    >
+                      {isDoctor
+                        ? "You've reached your daily appointment limit — no more tokens can be booked today."
+                        : "Daily appointment limit reached for this doctor — no more tokens can be booked today."}
+                    </p>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="appt-book-token-add"
+                      disabled={bookingInFlight}
+                      onClick={() => bookAppointment("")}
+                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {tokenPreview?.label
+                        ? `Book (assign token ${tokenPreview.label})`
+                        : "Book (assign token)"}
+                    </button>
+                  )}
+                </div>
+              )}
+
               {selectedDoctor &&
-                (selectedChannel === "SLOT" || selectedChannel === "TOKEN") &&
+                selectedChannel === "SLOT" &&
                 slotsWithPast.length === 0 && (
                 <div
                   className="mt-4 rounded-lg border border-dashed border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200"
@@ -2303,7 +2925,7 @@ export default function AppointmentsPage() {
               )}
 
               {selectedDoctor &&
-                (selectedChannel === "SLOT" || selectedChannel === "TOKEN") &&
+                selectedChannel === "SLOT" &&
                 slotsWithPast.length > 0 && (
                 <div className="mt-4" data-testid="appt-book-slots">
                   <p className="mb-2 text-sm font-medium">
@@ -2525,7 +3147,11 @@ export default function AppointmentsPage() {
                       <td className="px-4 py-3 text-sm">{apt.doctor.user.name}</td>
                       <td className="px-4 py-3 text-sm">{apt.date.slice(0, 10)}</td>
                       <td className="px-4 py-3 text-sm">
-                        {displayTime || apt.slotStart || "Walk-in"}
+                        {/* Only WALK_IN rows are labelled "Walk-in"; TOKEN /
+                            CALLING bookings have no slot time → show "—". */}
+                        {displayTime ||
+                          apt.slotStart ||
+                          (apt.type === "WALK_IN" ? "Walk-in" : "—")}
                       </td>
                       <td className="px-4 py-3">
                         <span
@@ -2554,23 +3180,56 @@ export default function AppointmentsPage() {
                           ~120 px of horizontal table real-estate. */}
                       {!(isPatient && patientTab === "past") && (
                       <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex items-start gap-2">
+                          <div className="flex flex-wrap gap-1.5">
                           {/* Pearl §2.1.7 — Remarks panel. Any non-PATIENT
                               role can open the threaded remarks for an
                               appointment. The server enforces visibility
                               scoping (DOCTOR_ONLY / RECEPTION_ONLY / PRIVATE
                               are filtered by viewer role). */}
-                          {!isPatient && (
-                            <button
-                              onClick={() => setRemarksTarget(apt)}
-                              aria-label={`Open remarks for ${apt.patient.user.name}`}
-                              className="flex items-center gap-1 rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
-                              title="Threaded remarks"
-                            >
-                              <MessageSquare size={12} aria-hidden="true" />
-                              Remarks
-                            </button>
-                          )}
+                          {!isPatient && (() => {
+                              // Unread = remarks added since this user last
+                              // opened the thread. Hidden once seen; reappears
+                              // when new remarks arrive.
+                              const unseen = Math.max(
+                                0,
+                                (apt._count?.remarks ?? 0) -
+                                  (seenRemarks[apt.id] ?? 0)
+                              );
+                              return (
+                                <button
+                                  onClick={() => {
+                                    // Opening counts as seeing the current
+                                    // thread — clear the badge immediately.
+                                    markRemarksSeen(
+                                      apt.id,
+                                      apt._count?.remarks ?? 0
+                                    );
+                                    setRemarksTarget(apt);
+                                  }}
+                                  aria-label={`Open remarks for ${apt.patient.user.name}${
+                                    unseen
+                                      ? ` (${unseen} new remark${
+                                          unseen === 1 ? "" : "s"
+                                        })`
+                                      : ""
+                                  }`}
+                                  className="relative flex items-center gap-1 rounded border border-gray-300 bg-white px-1.5 py-1 text-[11px] text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                                  title="Threaded remarks"
+                                >
+                                  <MessageSquare size={12} aria-hidden="true" />
+                                  Remarks
+                                  {unseen > 0 && (
+                                    <span
+                                      data-testid="remark-count-badge"
+                                      className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold leading-none text-white"
+                                    >
+                                      {unseen > 99 ? "99+" : unseen}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })()}
                           {/* Reschedule for BOOKED / CHECKED_IN */}
                           {["BOOKED", "CHECKED_IN"].includes(apt.status) &&
                             (isPatient ||
@@ -2581,7 +3240,7 @@ export default function AppointmentsPage() {
                               <button
                                 onClick={() => openReschedule(apt)}
                                 aria-label={`Reschedule appointment for ${apt.patient.user.name} (token ${apt.tokenNumber})`}
-                                className="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700"
+                                className="rounded bg-indigo-600 px-1.5 py-1 text-[11px] text-white hover:bg-indigo-700"
                               >
                                 {t("dashboard.actions.reschedule")}
                               </button>
@@ -2593,17 +3252,21 @@ export default function AppointmentsPage() {
                               <button
                                 onClick={() => handleCancelClick(apt.id)}
                                 aria-label={`Cancel appointment for ${apt.patient.user.name} (token ${apt.tokenNumber})`}
-                                className="rounded bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-700"
+                                className="rounded bg-red-600 px-1.5 py-1 text-[11px] text-white hover:bg-red-700"
                               >
                                 {t("common.cancel")}
                               </button>
                             )}
                           {["BOOKED", "CHECKED_IN"].includes(apt.status) && (
                             <button
-                              onClick={() => downloadCalendarInvite(apt.id)}
-                              aria-label={`Download calendar invite for token ${apt.tokenNumber}`}
-                              className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs text-emerald-800 hover:bg-emerald-100"
-                              title="Download .ics file"
+                              onClick={() =>
+                                router.push(
+                                  `/dashboard/calendar?date=${apt.date.slice(0, 10)}&from=appointments`,
+                                )
+                              }
+                              aria-label={`Open calendar for ${apt.patient.user.name} (token ${apt.tokenNumber})`}
+                              className="rounded border border-emerald-300 bg-emerald-50 px-1.5 py-1 text-[11px] text-emerald-800 hover:bg-emerald-100"
+                              title="Open the calendar to schedule the next appointment"
                             >
                               {t("dashboard.actions.calendarInvite")}
                             </button>
@@ -2612,12 +3275,14 @@ export default function AppointmentsPage() {
                             <button
                               onClick={() => updateStatus(apt.id, "CHECKED_IN")}
                               aria-label={`Check in ${apt.patient.user.name}`}
-                              className="rounded bg-yellow-600 px-2 py-1 text-xs text-white hover:bg-yellow-700"
+                              className="rounded bg-yellow-600 px-1.5 py-1 text-[11px] text-white hover:bg-yellow-700"
                             >
                               {t("dashboard.actions.checkIn")}
                             </button>
                           )}
-                          {!isPatient && apt.status === "CHECKED_IN" && (
+                          {/* Only the DOCTOR conducts the encounter — front
+                              desk / nurse / admin never see Start Consult. */}
+                          {isDoctor && apt.status === "CHECKED_IN" && (
                             <button
                               onClick={async () => {
                                 // Pearl §2.1.3 — Start Consult now does
@@ -2635,25 +3300,14 @@ export default function AppointmentsPage() {
                                 );
                               }}
                               aria-label={`Start consultation for ${apt.patient.user.name}`}
-                              className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
+                              className="rounded bg-green-600 px-1.5 py-1 text-[11px] text-white hover:bg-green-700"
                             >
                               {t("dashboard.actions.startConsult")}
                             </button>
                           )}
-                          {/* Pearl §2.1.3 — once IN_CONSULTATION the
-                              doctor needs to be able to RESUME the
-                              SOAP consult page (e.g. they navigated
-                              back to this list mid-encounter to look
-                              up something else). Re-consult opens the
-                              consult UI without touching status; the
-                              adjacent Complete button still finalizes
-                              the appointment.
-                              Both buttons hide if the consultation is
-                              already SIGNED — the encounter is done,
-                              so re-opening / completing again is wrong
-                              (the consult itself is read-only and the
-                              appointment should already be COMPLETED). */}
-                          {!isPatient &&
+                          {/* Re-consult stays inline (doctor resumes the SOAP
+                              page mid-encounter). Hidden once SIGNED. */}
+                          {isDoctor &&
                             apt.status === "IN_CONSULTATION" &&
                             apt.consultation?.status !== "SIGNED" && (
                               <button
@@ -2663,43 +3317,62 @@ export default function AppointmentsPage() {
                                   )
                                 }
                                 aria-label={`Resume consultation for ${apt.patient.user.name}`}
-                                className="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700"
+                                className="rounded bg-indigo-600 px-1.5 py-1 text-[11px] text-white hover:bg-indigo-700"
                               >
                                 Re-consult
                               </button>
                             )}
+                          {/* Complete — inline. IN_CONSULTATION, not signed. */}
                           {!isPatient &&
                             apt.status === "IN_CONSULTATION" &&
                             apt.consultation?.status !== "SIGNED" && (
                               <button
-                                onClick={() =>
-                                  updateStatus(apt.id, "COMPLETED")
-                                }
+                                onClick={() => updateStatus(apt.id, "COMPLETED")}
                                 aria-label={`Mark consultation complete for ${apt.patient.user.name}`}
-                                className="rounded bg-gray-700 px-2 py-1 text-xs text-white hover:bg-gray-800"
+                                className="rounded bg-gray-700 px-1.5 py-1 text-[11px] text-white hover:bg-gray-800"
                               >
                                 {t("dashboard.actions.complete")}
                               </button>
                             )}
-                          {/* Stale-row recovery: if consultation is
-                              SIGNED but appointment somehow didn't
-                              advance, surface a single "Mark Complete"
-                              button so staff can resolve the row in
-                              one click — no editor needed since the
-                              consult itself is read-only. */}
+                          {/* Stale-row recovery: consultation SIGNED but the
+                              appointment didn't advance — surface Mark Complete
+                              so staff can resolve the row in one click. */}
                           {!isPatient &&
                             apt.status === "IN_CONSULTATION" &&
                             apt.consultation?.status === "SIGNED" && (
                               <button
-                                onClick={() =>
-                                  updateStatus(apt.id, "COMPLETED")
-                                }
+                                onClick={() => updateStatus(apt.id, "COMPLETED")}
                                 aria-label={`Mark complete for ${apt.patient.user.name}`}
-                                className="rounded bg-emerald-600 px-2 py-1 text-xs text-white hover:bg-emerald-700"
+                                className="rounded bg-emerald-600 px-1.5 py-1 text-[11px] text-white hover:bg-emerald-700"
                               >
                                 Mark Complete
                               </button>
                             )}
+                          </div>
+                          {/* ⋮ overflow menu — always present for staff and
+                              pinned to the right (ml-auto) so the icon sits in a
+                              constant spot on every row. Opens that row's
+                              secondary (undo) actions. */}
+                          {!isPatient && (
+                            <button
+                              type="button"
+                              aria-haspopup="menu"
+                              aria-expanded={statusMenu?.id === apt.id}
+                              aria-label={`More actions for ${apt.patient.user.name}`}
+                              onClick={(e) => {
+                                const r = e.currentTarget.getBoundingClientRect();
+                                setStatusMenu((cur) =>
+                                  cur?.id === apt.id
+                                    ? null
+                                    : { id: apt.id, top: r.bottom + 4, left: r.right }
+                                );
+                              }}
+                              className="ml-auto shrink-0 rounded border border-gray-300 bg-white px-1.5 py-1 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                              title="More actions"
+                            >
+                              <MoreVertical size={14} aria-hidden="true" />
+                            </button>
+                          )}
                         </div>
                       </td>
                       )}

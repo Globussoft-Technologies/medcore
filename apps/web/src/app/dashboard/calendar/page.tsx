@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { formatDoctorName } from "@/lib/format-doctor-name";
@@ -152,7 +153,20 @@ type ViewMode = "month" | "week" | "day";
 
 export default function UnifiedCalendarPage() {
   const { user } = useAuthStore();
+  // When opened from an appointment's "Calendar Invite" action we receive a
+  // `?date=YYYY-MM-DD` param — start the calendar on that month so the user
+  // lands on the relevant date to schedule the next appointment.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const dateParam = searchParams.get("date");
+  // Show a "Back to Appointments" affordance when the user arrived here via an
+  // appointment's "Calendar Invite" action (?from=appointments).
+  const fromAppointments = searchParams.get("from") === "appointments";
   const [cursor, setCursor] = useState(() => {
+    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+      const [y, m] = dateParam.split("-").map(Number);
+      return new Date(y, m - 1, 1);
+    }
     const d = new Date();
     return new Date(d.getFullYear(), d.getMonth(), 1);
   });
@@ -497,6 +511,15 @@ export default function UnifiedCalendarPage() {
             Unified view of all scheduled events
           </p>
         </div>
+        {fromAppointments && (
+          <button
+            type="button"
+            onClick={() => router.push("/dashboard/appointments")}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50"
+          >
+            <ChevronLeft size={16} aria-hidden="true" /> Back to Appointments
+          </button>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           {/* Issue #431: Day/Week/Month view toggle. Previously absent — the
               calendar only rendered a month grid, so users clicking the

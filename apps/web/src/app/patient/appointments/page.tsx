@@ -35,6 +35,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 interface BranchLite {
   id: string;
@@ -969,7 +970,7 @@ function AppointmentCard({
         <div className="space-y-1">
           <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
             {appointment.doctor?.user?.name
-              ? `Dr. ${appointment.doctor.user.name}`
+              ? formatDoctorName(appointment.doctor.user.name)
               : "Doctor TBA"}
           </p>
           {appointment.doctor?.specialty ? (

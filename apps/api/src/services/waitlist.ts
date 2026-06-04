@@ -1,6 +1,7 @@
 import { prisma } from "@medcore/db";
 import { NotificationType } from "@medcore/shared";
 import { sendNotification } from "./notification";
+import { formatDoctorName } from "../lib/format-doctor-name";
 
 /**
  * Find the first WAITING entry for a given doctor and send the patient a
@@ -27,7 +28,7 @@ export async function notifyNextInWaitlist(doctorId: string): Promise<void> {
     userId: entry.patient.user.id,
     type: NotificationType.APPOINTMENT_REMINDER,
     title: "A slot has opened up",
-    message: `Hi ${entry.patient.user.name}, a slot with Dr. ${entry.doctor.user.name} just opened up. Please book now to secure your appointment.`,
+    message: `Hi ${entry.patient.user.name}, a slot with ${formatDoctorName(entry.doctor.user.name)} just opened up. Please book now to secure your appointment.`,
     data: {
       waitlistEntryId: entry.id,
       doctorId: entry.doctorId,

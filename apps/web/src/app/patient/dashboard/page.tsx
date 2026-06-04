@@ -29,6 +29,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 interface AppointmentRow {
   id: string;
@@ -495,7 +496,7 @@ export default function PatientDashboardPage() {
           <div className="space-y-2">
             <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
               {nextAppointment.doctor?.user?.name
-                ? `Dr. ${nextAppointment.doctor.user.name}`
+                ? formatDoctorName(nextAppointment.doctor.user.name)
                 : "Doctor TBA"}
             </p>
             {nextAppointment.doctor?.specialty ? (
@@ -625,7 +626,7 @@ export default function PatientDashboardPage() {
                       year: "numeric",
                     })}
                     {rx.doctor?.user?.name
-                      ? ` · Dr. ${rx.doctor.user.name}`
+                      ? ` · ${formatDoctorName(rx.doctor.user.name)}`
                       : ""}
                   </p>
                   <div className="flex gap-2 pt-1">

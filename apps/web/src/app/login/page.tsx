@@ -602,7 +602,9 @@ function LoginPageInner() {
                 {t("login.patientLoginCta")}
               </Link>
             </p>
-            <p className="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
+            {/* TEMP (2026-06-04): "New Patient? Register here" link hidden
+                on the staff Sign In page. Restore by un-commenting. */}
+            {/* <p className="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
               {t("login.newPatient")}{" "}
               <Link
                 href="/register"
@@ -610,7 +612,7 @@ function LoginPageInner() {
               >
                 {t("login.register")}
               </Link>
-            </p>
+            </p> */}
           </div>
         </section>
       </div>

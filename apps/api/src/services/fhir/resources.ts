@@ -405,7 +405,11 @@ export function doctorToFhir(doctor: any): FhirPractitioner {
     { system: SYSTEMS.DOCTOR_USER_ID, value: doctor.id, use: "official" },
   ];
 
-  const nameParts = splitName(doctor.user?.name);
+  // Strip any leading "Dr." (incl. repeated "Dr. Dr.") BEFORE splitting so
+  // the FHIR given/family fields carry the bare name (the honorific is a
+  // prefix, not a name part) and `text` shows exactly one "Dr.".
+  const bareDoctorName = (doctor.user?.name ?? "").replace(/^(Dr\.?\s+)+/i, "").trim();
+  const nameParts = splitName(bareDoctorName);
   const names: FhirHumanName[] = nameParts.text
     ? [{ use: "official", text: `Dr. ${nameParts.text}`, family: nameParts.family, given: nameParts.given }]
     : [{ use: "official", text: `Doctor ${doctor.id}` }];

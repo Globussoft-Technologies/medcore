@@ -1,6 +1,13 @@
 import { sanitizeUserInput } from "./prompt-safety";
 import { getChatClient } from "./model-router";
 
+// Strip any leading "Dr." so the letter templates (which already prepend
+// "Dr. ") don't produce "Dr. Dr. <name>". Mirrors formatDoctorName's
+// strip, but returns the BARE name since the templates add the prefix.
+function stripDrPrefix(name: string): string {
+  return name.replace(/^(Dr\.?\s+)+/i, "").trim();
+}
+
 const sarvam = getChatClient("sarvam");
 const MODEL = process.env.SARVAM_MODEL ?? "sarvam-m";
 
@@ -45,11 +52,13 @@ export async function generateReferralLetter(opts: {
   // (clinical summary, history, medications, names) are sanitized before
   // concatenation. Letters are clinician-facing but still benefit from
   // hardening because a malicious earlier note could steer the letter text.
-  const safeFromDoctor = sanitizeUserInput(opts.fromDoctorName, { maxLen: 100 });
+  const safeFromDoctor = stripDrPrefix(
+    sanitizeUserInput(opts.fromDoctorName, { maxLen: 100 }),
+  );
   const safeFromHospital = sanitizeUserInput(opts.fromHospital, { maxLen: 150 });
   const safeToSpecialty = sanitizeUserInput(opts.toSpecialty, { maxLen: 100 });
   const safeToDoctorName = opts.toDoctorName
-    ? sanitizeUserInput(opts.toDoctorName, { maxLen: 100 })
+    ? stripDrPrefix(sanitizeUserInput(opts.toDoctorName, { maxLen: 100 }))
     : undefined;
   const safePatientName = sanitizeUserInput(opts.patientName, { maxLen: 100 });
   const safePatientGender = opts.patientGender
@@ -138,7 +147,9 @@ export async function generateDischargeSummary(opts: {
   // concatenating into the discharge-summary prompt.
   const safeHospital = sanitizeUserInput(opts.hospital, { maxLen: 150 });
   const rawDoctorName = sanitizeUserInput(opts.doctorName, { maxLen: 100 });
-  const safeDoctorName = rawDoctorName.replace(/^Dr\.\s*/i, "").trim();
+  // Strip ALL leading "Dr." repetitions (was a single-strip regex, which
+  // left "Dr. Dr. X" → "Dr. X"); the templates below add one "Dr. ".
+  const safeDoctorName = stripDrPrefix(rawDoctorName);
   const safePatientName = sanitizeUserInput(opts.patientName, { maxLen: 100 });
   const safeAdmissionDate = sanitizeUserInput(opts.admissionDate, { maxLen: 40 });
   const safeDischargeDate = sanitizeUserInput(opts.dischargeDate, { maxLen: 40 });

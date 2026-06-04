@@ -17,14 +17,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("./audience-compiler", () => ({
   compileAudience: vi.fn(() => ({})),
 }));
-vi.mock("./channels/whatsapp", () => ({
+// WhatsApp + Email now route through messaging/* (same as prescriptions).
+vi.mock("./messaging/whatsapp", () => ({
   sendWhatsApp: vi.fn(),
+}));
+vi.mock("./messaging/email", () => ({
+  sendEmail: vi.fn(),
 }));
 vi.mock("./channels/sms", () => ({
   sendSMS: vi.fn(),
-}));
-vi.mock("./channels/email", () => ({
-  sendEmail: vi.fn(),
 }));
 vi.mock("./channels/push", () => ({
   sendPush: vi.fn(),
@@ -32,9 +33,9 @@ vi.mock("./channels/push", () => ({
 
 import { dispatchCampaign } from "./campaign-dispatcher";
 import { compileAudience } from "./audience-compiler";
-import { sendWhatsApp } from "./channels/whatsapp";
+import { sendWhatsApp } from "./messaging/whatsapp";
 import { sendSMS } from "./channels/sms";
-import { sendEmail } from "./channels/email";
+import { sendEmail } from "./messaging/email";
 import { sendPush } from "./channels/push";
 
 const compileAudienceMock = vi.mocked(compileAudience);
@@ -273,10 +274,11 @@ describe("dispatchCampaign — happy path (single channel)", () => {
       tenantId: "tenant-1",
     });
     expect(sendWhatsAppMock).toHaveBeenCalledTimes(1);
-    const [phone, body] = sendWhatsAppMock.mock.calls[0];
-    expect(phone).toBe("+91111");
-    expect(body).toContain("Hello Bob");
-    expect(body).toContain("/public/campaigns/click/send-1");
+    // messaging/whatsapp takes a single { to, body } object.
+    const arg = sendWhatsAppMock.mock.calls[0][0];
+    expect(arg.to).toBe("+91111");
+    expect(arg.body).toContain("Hello Bob");
+    expect(arg.body).toContain("/public/campaigns/click/send-1");
   });
 
   it("scopes the audience patient query to tenantId via AND[compiled-where]", async () => {
@@ -347,11 +349,13 @@ describe("dispatchCampaign — multi-channel fan-out", () => {
       campaignId: "camp-1",
       tenantId: "tenant-1",
     });
-    expect(sendWhatsAppMock.mock.calls[0][0]).toBe("+919876543210");
+    // messaging/whatsapp + messaging/email take { to, ... } objects;
+    // sms + push remain positional.
+    expect(sendWhatsAppMock.mock.calls[0][0].to).toBe("+919876543210");
     expect(sendSMSMock.mock.calls[0][0]).toBe("+919876543210");
-    const [emailTo, emailSubject] = sendEmailMock.mock.calls[0];
-    expect(emailTo).toBe("asha@example.com");
-    expect(emailSubject).toContain("Hello!");
+    const emailArg = sendEmailMock.mock.calls[0][0];
+    expect(emailArg.to).toBe("asha@example.com");
+    expect(emailArg.subject).toContain("Hello!");
     expect(sendPushMock.mock.calls[0][0]).toEqual(["expo-xyz"]);
   });
 });
@@ -558,8 +562,8 @@ describe("dispatchCampaign — failure resilience", () => {
   });
 
   it("rolls up mixed sent/failed/suppressed across one batch correctly", async () => {
-    sendWhatsAppMock.mockImplementation(async (phone: string) => {
-      if (phone === "+91-fail") return { ok: false, error: "x" };
+    sendWhatsAppMock.mockImplementation(async ({ to }) => {
+      if (to === "+91-fail") return { ok: false, error: "x" };
       return { ok: true, messageId: "m" };
     });
     const prisma = makePrismaMock(
@@ -640,7 +644,7 @@ describe("dispatchCampaign — A/B variant resolution", () => {
     });
     expect(prisma.sends[0].variantId).toBe("VA");
     // The overridden body was substituted, not the campaign default
-    const [, body] = sendWhatsAppMock.mock.calls[0];
+    const body = sendWhatsAppMock.mock.calls[0][0].body;
     expect(body).toContain("Body A Asha");
   });
 
@@ -698,7 +702,7 @@ describe("dispatchCampaign — token context edge cases", () => {
       campaignId: "camp-1",
       tenantId: "tenant-1",
     });
-    const [, body] = sendWhatsAppMock.mock.calls[0];
+    const body = sendWhatsAppMock.mock.calls[0][0].body;
     expect(body).toBe("Hi Madonna||Madonna");
   });
 
@@ -714,7 +718,7 @@ describe("dispatchCampaign — token context edge cases", () => {
       campaignId: "camp-1",
       tenantId: "tenant-1",
     });
-    const [, body] = sendWhatsAppMock.mock.calls[0];
+    const body = sendWhatsAppMock.mock.calls[0][0].body;
     expect(body).toBe("From []");
   });
 
@@ -727,7 +731,7 @@ describe("dispatchCampaign — token context edge cases", () => {
       campaignId: "camp-1",
       tenantId: "tenant-1",
     });
-    const [, body] = sendWhatsAppMock.mock.calls[0];
+    const body = sendWhatsAppMock.mock.calls[0][0].body;
     expect(body).toBe("MR: []");
   });
 
@@ -743,7 +747,7 @@ describe("dispatchCampaign — token context edge cases", () => {
       campaignId: "camp-1",
       tenantId: "tenant-1",
     });
-    const [, subject] = sendEmailMock.mock.calls[0];
+    const subject = sendEmailMock.mock.calls[0][0].subject;
     expect(subject).toBe("Hello Asha");
   });
 
@@ -756,8 +760,8 @@ describe("dispatchCampaign — token context edge cases", () => {
       campaignId: "camp-1",
       tenantId: "tenant-1",
     });
-    const [, subject] = sendEmailMock.mock.calls[0];
-    expect(subject).toBe("Message");
+    const subject = sendEmailMock.mock.calls[0][0].subject;
+    expect(subject).toBe("Message from MedCore");
   });
 
   it("uses the default 'MedCore' title for PUSH when campaign.subject is null", async () => {
@@ -800,7 +804,7 @@ describe("dispatchCampaign — CampaignSend row contract", () => {
       campaignId: "camp-1",
       tenantId: "tenant-1",
     });
-    const [, body] = sendWhatsAppMock.mock.calls[0];
+    const body = sendWhatsAppMock.mock.calls[0][0].body;
     expect(body).toContain("send-1");
   });
 });

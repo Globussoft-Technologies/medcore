@@ -70,7 +70,13 @@ const patientBaseSchema = z.object({
   preferredLanguage: z.string().optional(),
   abhaId: z.string().optional(),
   aadhaarMasked: z.string().optional(),
-  photoUrl: z.string().url().optional().or(z.literal("")),
+  // Stores the BARE storage KEY returned by POST /uploads (e.g.
+  // "ehr/uuid-name.jpg") — NOT a full URL. The patient read endpoints
+  // resolve a short-lived signed URL (photoSignedUrl) for display,
+  // mirroring how radiology images + documents work. Kept loose (any
+  // non-empty string ≤512 chars) so both a key and a legacy full URL
+  // validate. Empty string clears the photo.
+  photoUrl: z.string().max(512).optional().or(z.literal("")),
   pricingTier: z
     .enum(["STANDARD", "EMPLOYEE", "SENIOR_CITIZEN", "BPL", "VIP"])
     .optional(),

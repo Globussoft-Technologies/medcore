@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { X, Upload, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useTranslation } from "@/lib/i18n";
+import { PatientAvatar } from "@/components/PatientAvatar";
+
+// Client-side cap mirroring the API's UPLOAD_MAX_BYTES (10 MB) so we reject
+// oversize images before the round-trip. Photos are usually well under this.
+const PHOTO_MAX_BYTES = 5 * 1024 * 1024; // 5 MB is plenty for an avatar
+const PHOTO_ACCEPT = "image/jpeg,image/png,image/webp";
 
 // Shape of the patient fields the modal reads/writes. Loose here because the
 // detail page's PatientDetail interface varies slightly across tabs.
@@ -25,6 +31,10 @@ export interface EditablePatient {
   // the only entry point besides the dedicated /insurance dashboard).
   insuranceProvider?: string | null;
   insurancePolicyNumber?: string | null;
+  // Profile photo: photoUrl is the bare storage key; photoSignedUrl is the
+  // current display URL the API resolves on read (used for the preview).
+  photoUrl?: string | null;
+  photoSignedUrl?: string | null;
   user: { name: string; email: string | null; phone: string | null };
 }
 
@@ -73,6 +83,17 @@ function isoDateInput(v: string | Date | null | undefined): string {
   // Accept either a full ISO timestamp or a YYYY-MM-DD string.
   const trimmed = s.length >= 10 ? s.slice(0, 10) : s;
   return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : "";
+}
+
+// Read a File as a base64 data URL string — the shape POST /uploads accepts
+// (it strips the "data:...;base64," prefix server-side).
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Could not read the image file."));
+    reader.readAsDataURL(file);
+  });
 }
 
 /**
@@ -134,6 +155,17 @@ export function PatientEditModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const firstFieldRef = useRef<HTMLInputElement | null>(null);
+  // Profile photo state:
+  //  - photoKey: the storage key to PATCH ("" clears it server-side).
+  //  - photoPreview: the URL shown in the avatar preview (signed URL on
+  //    open, or a local object-URL right after a new upload).
+  //  - photoUploading: disables the form while the image is in flight.
+  const [photoKey, setPhotoKey] = useState<string>(patient.photoUrl ?? "");
+  const [photoPreview, setPhotoPreview] = useState<string | null>(
+    patient.photoSignedUrl ?? null,
+  );
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset local state whenever the modal re-opens with a possibly different
   // patient (e.g. the user switched records without unmounting the modal).
@@ -150,6 +182,9 @@ export function PatientEditModal({
     setEmergencyPhone(patient.emergencyContactPhone ?? "");
     setInsuranceProvider(patient.insuranceProvider ?? "");
     setInsurancePolicyNumber(patient.insurancePolicyNumber ?? "");
+    setPhotoKey(patient.photoUrl ?? "");
+    setPhotoPreview(patient.photoSignedUrl ?? null);
+    setPhotoUploading(false);
     setErr(null);
     const id = requestAnimationFrame(() => firstFieldRef.current?.focus());
     return () => cancelAnimationFrame(id);
@@ -170,6 +205,47 @@ export function PatientEditModal({
   const valid = useMemo(() => {
     return name.trim().length >= 2 && phone.trim().length >= 10;
   }, [name, phone]);
+
+  // Upload a chosen image to POST /uploads (non-medical mode — no
+  // patientId/type, so the endpoint allows JPEG/PNG/WEBP) and stash the
+  // returned storage key + signed URL for the preview. The key is PATCHed
+  // onto Patient.photoUrl when the form saves.
+  async function onPhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset the input so picking the same file again re-fires onChange.
+    e.target.value = "";
+    if (!file) return;
+    if (!PHOTO_ACCEPT.split(",").includes(file.type)) {
+      setErr("Photo must be a JPEG, PNG, or WEBP image.");
+      return;
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      setErr("Photo is too large (max 5 MB).");
+      return;
+    }
+    setErr(null);
+    setPhotoUploading(true);
+    try {
+      const base64Content = await fileToBase64(file);
+      const res = await api.post<{
+        data: { filePath: string; signedUrl: string };
+      }>("/uploads", { filename: file.name, base64Content });
+      setPhotoKey(res.data.filePath);
+      setPhotoPreview(res.data.signedUrl);
+    } catch (e2) {
+      const msg = (e2 as Error).message || "Photo upload failed.";
+      setErr(msg);
+      toast.error(msg);
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  function removePhoto() {
+    // Empty key → PATCH clears Patient.photoUrl (server maps "" → null).
+    setPhotoKey("");
+    setPhotoPreview(null);
+  }
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -203,6 +279,11 @@ export function PatientEditModal({
       // without us hiding the field. The server schema accepts both.
       payload.insuranceProvider = insuranceProvider.trim();
       payload.insurancePolicyNumber = insurancePolicyNumber.trim();
+      // Profile photo: send the storage key only when it changed (empty
+      // string clears it server-side). Avoids re-PATCHing an unchanged key.
+      if (photoKey !== (patient.photoUrl ?? "")) {
+        payload.photoUrl = photoKey;
+      }
 
       const res = await api.patch<{ data: unknown }>(
         `/patients/${patient.id}`,
@@ -257,6 +338,53 @@ export function PatientEditModal({
         </div>
 
         <div className="max-h-[75vh] space-y-3 overflow-y-auto p-5">
+          {/* Profile photo — avatar preview + upload / remove. Uploads to
+              POST /uploads (non-medical mode) and stores the returned key
+              on Patient.photoUrl when the form saves. */}
+          <div className="flex items-center gap-4" data-testid="patient-edit-photo">
+            <PatientAvatar photoUrl={photoPreview} name={name} size={64} />
+            <div className="flex flex-col gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={PHOTO_ACCEPT}
+                onChange={onPhotoChange}
+                data-testid="patient-edit-photo-input"
+                className="hidden"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={photoUploading}
+                  data-testid="patient-edit-photo-upload"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
+                >
+                  <Upload size={13} />
+                  {photoUploading
+                    ? "Uploading…"
+                    : photoPreview
+                      ? "Change photo"
+                      : "Upload photo"}
+                </button>
+                {photoPreview && (
+                  <button
+                    type="button"
+                    onClick={removePhoto}
+                    disabled={photoUploading}
+                    data-testid="patient-edit-photo-remove"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-red-400 dark:hover:bg-red-900/20"
+                  >
+                    <Trash2 size={13} /> Remove
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                JPEG, PNG, or WEBP · max 5 MB
+              </p>
+            </div>
+          </div>
+
           {/* MR Number — read only */}
           <div>
             <label htmlFor="patient-edit-mr-number" className="text-xs text-gray-600 dark:text-gray-300">
@@ -484,7 +612,7 @@ export function PatientEditModal({
           </button>
           <button
             type="submit"
-            disabled={saving || !valid}
+            disabled={saving || photoUploading || !valid}
             data-testid="patient-edit-save"
             className="rounded-md bg-primary px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >

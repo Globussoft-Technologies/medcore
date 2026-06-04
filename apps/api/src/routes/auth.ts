@@ -47,6 +47,11 @@ import {
   buildOtpAuthUri,
   generateBackupCodes,
 } from "../services/totp";
+// Resolve a stored photo key/data-URL into a displayable URL. /auth/me
+// stores the BARE key on User.photoUrl; the profile pages render it in an
+// <img>, so it must be resolved (signed) on read — same as the patient
+// endpoints do for Patient.photoUrl.
+import { resolvePatientPhotoUrl } from "../lib/patient-photo";
 
 /**
  * Resolve the caller's IP for lockout / audit purposes. Mirrors the same
@@ -431,7 +436,10 @@ const strictStaffName = z
 // already used by the shared rule.
 const strictRegisterPassword = z
   .string()
-  .min(12, "Password must be at least 12 characters")
+  // Floor relaxed 12 → 6 (2026-06): patient self-registration password
+  // minimum lowered per product. Letter+digit + common-password denylist
+  // are kept so it's not trivially weak.
+  .min(6, "Password must be at least 6 characters")
   .refine((pw) => /[A-Za-z]/.test(pw), {
     message: "Password must contain at least one letter",
   })
@@ -515,6 +523,22 @@ const strictRegisterSchema = registerSchema
       .regex(/^\d{4}-\d{2}-\d{2}$/, "Date of birth must be YYYY-MM-DD")
       .optional(),
     acceptedTerms: z.literal(true).optional(),
+    // Optional profile photo for self-registration. The registrant is
+    // logged OUT, so they can't use the authed POST /uploads pipeline —
+    // instead the photo arrives as an inline base64 image data URL and is
+    // stored directly on Patient.photoUrl (data URLs never expire and need
+    // no signing). Constrained to JPEG/PNG/WEBP and ~1.4MB encoded
+    // (≈1MB raw — plenty for an avatar) so an anonymous caller can't dump
+    // arbitrary blobs into the row. The web form downscales before sending.
+    photoUrl: z
+      .string()
+      .regex(
+        /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/,
+        "Photo must be a JPEG, PNG, or WEBP image",
+      )
+      .max(1_400_000, "Photo is too large (max ~1MB)")
+      .optional()
+      .or(z.literal("")),
   });
 
 // Issue #712: forgot-password schema with the strict email refine on top of
@@ -621,12 +645,60 @@ export function sanitizeNextPath(next: unknown): string {
 //     `containsHtmlOrScript`, but the sanitizer normalizes whitespace and
 //     enforces the same maxLength so what lands in the DB is exactly what
 //     downstream renderers expect.
+// POST /api/v1/auth/check-availability — does this email / phone already
+// exist? Used by the patient register form on the "Continue" step so the
+// user is told up-front instead of failing at submit. Rate-limited
+// (10/min/IP) to soften the account-enumeration surface this exposes.
+router.post(
+  "/check-availability",
+  rateLimit(10, 60_000),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const emailRaw =
+        typeof req.body?.email === "string" ? req.body.email.trim() : "";
+      const phoneRaw =
+        typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+
+      let emailTaken = false;
+      let phoneTaken = false;
+
+      if (emailRaw) {
+        // Match register's own lookup (case-insensitive contains-equals so
+        // "Asha@x.com" and "asha@x.com" both hit). The register endpoint
+        // stores the email as-typed but its uniqueness is effectively
+        // case-insensitive in practice.
+        const u = await prisma.user.findFirst({
+          where: { email: { equals: emailRaw, mode: "insensitive" } },
+          select: { id: true },
+        });
+        emailTaken = !!u;
+      }
+      if (phoneRaw) {
+        const phone = canonicalisePhone(phoneRaw);
+        const u = await prisma.user.findFirst({
+          where: { phone },
+          select: { id: true },
+        });
+        phoneTaken = !!u;
+      }
+
+      res.json({
+        success: true,
+        data: { emailTaken, phoneTaken },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 router.post(
   "/register",
   validate(strictRegisterSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, phone: rawPhone, password, address, emergencyContact, dateOfBirth, gender, age } = req.body as {
+      const { email, phone: rawPhone, password, address, emergencyContact, dateOfBirth, gender, age, photoUrl } = req.body as {
         email: string;
         phone: string;
         password: string;
@@ -636,6 +708,9 @@ router.post(
           phone: string;
           relationship: string;
         };
+        // Inline base64 image data URL (self-registration photo), stored
+        // directly on Patient.photoUrl. Validated by strictRegisterSchema.
+        photoUrl?: string;
         // Issue #617: ISO calendar string YYYY-MM-DD when sent by the web form.
         dateOfBirth?: string;
         // Gender on PATIENT self-registration. Required by the public web
@@ -801,6 +876,10 @@ router.post(
             // clients that don't send it land null and can fill in via the
             // patient-edit modal later.
             dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+            // Self-registration photo: stored as the inline base64 data URL
+            // (renders directly via <img src>, never expires). Empty/absent
+            // → null and the avatar falls back to initials.
+            photoUrl: photoUrl ? photoUrl : null,
           },
         });
 
@@ -1230,7 +1309,22 @@ router.get(
         },
       });
 
-      res.json({ success: true, data: user, error: null });
+      // Resolve the photo to a displayable URL for the profile pages'
+      // <img src>. Prefer the User-level photo (set via PATCH /auth/me on
+      // the Settings page); fall back to the patient's photo (set at
+      // self-registration / by reception) so it shows on the patient
+      // profile too. Bare storage keys → signed URL; data:/http URLs pass
+      // through; null when neither is set (avatar falls back to initials).
+      const rawPhoto =
+        user?.photoUrl ??
+        (user?.patient as { photoUrl?: string | null } | null)?.photoUrl ??
+        null;
+      const resolvedPhoto = await resolvePatientPhotoUrl(rawPhoto);
+      const data = user
+        ? { ...user, photoUrl: resolvedPhoto }
+        : user;
+
+      res.json({ success: true, data, error: null });
     } catch (err) {
       next(err);
     }

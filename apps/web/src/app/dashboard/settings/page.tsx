@@ -249,7 +249,12 @@ function ProfileTab() {
   const { user, refreshUser } = useAuthStore();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  // `photoUrl` is the DISPLAY value (resolved signed URL / data URL) shown
+  // in the <img>. `pendingPhotoKey` is the stable storage KEY from a fresh
+  // upload that we PATCH to User.photoUrl on save — null means "photo not
+  // changed", so save() leaves the stored photo untouched.
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [pendingPhotoKey, setPendingPhotoKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   // Issue #138: render per-field errors next to the inputs instead of a
@@ -309,8 +314,12 @@ function ProfileTab() {
       await api.patch("/auth/me", {
         name: nameCheck.value,
         phone: trimmedPhone,
-        photoUrl,
+        // Only send the photo when it changed this session — PATCH the
+        // stable KEY, never the resolved/expiring display URL. Omitting it
+        // leaves the stored photo as-is.
+        ...(pendingPhotoKey !== null ? { photoUrl: pendingPhotoKey } : {}),
       });
+      setPendingPhotoKey(null);
       toast.success("Profile updated");
       setFieldErrors({});
       await refreshUser();
@@ -344,16 +353,19 @@ function ProfileTab() {
       // load directly — so the avatar rendered as a broken image. Read
       // the right field, but keep the legacy fallbacks for any older
       // server build still on the wire.
+      // Non-medical upload (no `type`/`patientId`) so the endpoint accepts
+      // the image and returns a stable storage KEY (filePath) plus a
+      // short-lived signedUrl. We PATCH the stable KEY to User.photoUrl
+      // (it survives expiry — GET /auth/me resolves a fresh signed URL on
+      // read), and show the signedUrl only as the immediate preview.
       const res = await api.post<{
-        data: { signedUrl?: string; url?: string; filePath?: string };
+        data: { signedUrl?: string; filePath?: string };
       }>("/uploads", {
         filename: file.name,
         base64Content: base64,
-        type: "profile_photo",
       });
-      const url =
-        res.data.signedUrl || res.data.url || res.data.filePath || base64;
-      setPhotoUrl(url);
+      setPendingPhotoKey(res.data.filePath || base64);
+      setPhotoUrl(res.data.signedUrl || base64);
       toast.success("Photo uploaded — click Save");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Upload failed");

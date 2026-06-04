@@ -29,6 +29,11 @@ import { validate } from "../middleware/validate";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { istMidnightUtc, istTodayDateStr, istNowMinutes } from "../utils/ist-time";
 import { isDoctorOnConfirmedLeave } from "../utils/doctor-leave";
+import { resolveFirstPhotoUrl } from "../lib/patient-photo";
+// Meta Cloud WhatsApp sender (same module prescriptions + public booking
+// use) so reschedule confirmations actually go out with the configured
+// WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID env.
+import { sendWhatsApp } from "../services/messaging/whatsapp";
 import { recordCampaignConversion } from "../services/campaign-conversion";
 import {
   onAppointmentBooked,
@@ -1052,13 +1057,16 @@ router.patch(
   }
 );
 
-// Local stub trigger for reschedule notifications (fire-and-forget)
+// Reschedule notification trigger (fire-and-forget). Fires on EVERY
+// reschedule regardless of who did it — the patient via the PWA or a
+// MedCore staff member (reception/doctor/nurse/admin) — because both go
+// through the single PATCH /:id/reschedule handler that calls this.
 async function onAppointmentRescheduled(appointment: {
   id: string;
-  tokenNumber: number;
+  tokenNumber: number | null;
   date: Date;
   slotStart?: string | null;
-  patient: { user: { name: string } };
+  patient: { user: { name: string; phone?: string | null } };
   doctor: { user: { name: string } };
 }): Promise<void> {
   const dateStr = new Date(appointment.date).toLocaleDateString("en-IN", {
@@ -1067,9 +1075,29 @@ async function onAppointmentRescheduled(appointment: {
     year: "numeric",
   });
   const timeStr = appointment.slotStart ? ` at ${appointment.slotStart}` : "";
+  const doctorName = formatDoctorName(appointment.doctor.user.name);
   console.log(
-    `[notification] Appointment rescheduled: ${appointment.patient.user.name} with ${formatDoctorName(appointment.doctor.user.name)} → ${dateStr}${timeStr} (Token #${appointment.tokenNumber})`
+    `[notification] Appointment rescheduled: ${appointment.patient.user.name} with ${doctorName} → ${dateStr}${timeStr} (Token #${appointment.tokenNumber})`
   );
+
+  // WhatsApp confirmation to the patient (non-fatal — a send failure must
+  // never unwind the reschedule). The sender normalises the phone itself.
+  const phone = appointment.patient.user.phone;
+  if (phone) {
+    const tokenLine =
+      appointment.tokenNumber != null
+        ? `\nYour token: ${appointment.tokenNumber}`
+        : "";
+    const body =
+      `Hi ${appointment.patient.user.name}, your appointment with ${doctorName} ` +
+      `has been rescheduled to ${dateStr}${timeStr}.${tokenLine}\n\n` +
+      `Sign in with this phone number to view or manage it. — MedCore`;
+    try {
+      await sendWhatsApp({ to: phone, body });
+    } catch (e) {
+      console.error("[reschedule] WhatsApp confirm failed (non-fatal)", e);
+    }
+  }
 }
 
 // PATCH /api/v1/appointments/:id/reschedule — reschedule appointment
@@ -1694,7 +1722,14 @@ router.get(
         where: { id: req.params.id },
         include: {
           patient: {
-            include: { user: { select: { name: true, phone: true, email: true } } },
+            // photoUrl from BOTH the User row (Settings) and Patient row
+            // (registration/edit) so the consult rail avatar resolves from
+            // either. See resolveFirstPhotoUrl below.
+            include: {
+              user: {
+                select: { name: true, phone: true, email: true, photoUrl: true },
+              },
+            },
           },
           doctor: {
             include: { user: { select: { name: true } } },
@@ -1713,7 +1748,22 @@ router.get(
 
       if (!(await assertPatientOwnsResource(req, res, appointment.patientId))) return;
 
-      res.json({ success: true, data: appointment, error: null });
+      // Attach a resolved signed avatar URL onto the patient for the
+      // consult rail + any other appointment-detail consumer.
+      const photoSignedUrl = await resolveFirstPhotoUrl(
+        appointment.patient?.photoUrl,
+        appointment.patient?.user?.photoUrl,
+      );
+      res.json({
+        success: true,
+        data: {
+          ...appointment,
+          patient: appointment.patient
+            ? { ...appointment.patient, photoSignedUrl }
+            : appointment.patient,
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

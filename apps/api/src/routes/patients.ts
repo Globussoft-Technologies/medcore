@@ -18,6 +18,7 @@ import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { formatDoctorName } from "../lib/format-doctor-name";
+import { resolvePatientPhotoUrl, resolveFirstPhotoUrl } from "../lib/patient-photo";
 
 const router = Router();
 
@@ -70,7 +71,9 @@ router.get(
           where,
           include: {
             user: {
-              select: { id: true, name: true, email: true, phone: true },
+              // Select user.photoUrl too — the photo may live on the User
+              // row (Settings) or the Patient row (registration/edit).
+              select: { id: true, name: true, email: true, phone: true, photoUrl: true },
             },
           },
           skip,
@@ -80,9 +83,21 @@ router.get(
         prisma.patient.count({ where }),
       ]);
 
+      // Attach a signed avatar URL per row — resolved from the Patient
+      // photo first, then the linked User photo. Parallel; ≤100 rows.
+      const withPhotos = await Promise.all(
+        patients.map(async (p) => ({
+          ...p,
+          photoSignedUrl: await resolveFirstPhotoUrl(
+            p.photoUrl,
+            p.user?.photoUrl,
+          ),
+        })),
+      );
+
       res.json({
         success: true,
-        data: patients,
+        data: withPhotos,
         error: null,
         meta: { page: parseInt(page as string), limit: take, total },
       });
@@ -150,7 +165,10 @@ router.get(
         where: { id: req.params.id },
         include: {
           user: {
-            select: { id: true, name: true, email: true, phone: true },
+            // photoUrl: the patient's photo can be set on the User row
+            // (Settings → Profile) OR the Patient row (registration /
+            // edit). Select both so the avatar resolves from either.
+            select: { id: true, name: true, email: true, phone: true, photoUrl: true },
           },
         },
       });
@@ -202,6 +220,13 @@ router.get(
         data: {
           ...patient,
           user: maskPlaceholderEmail(patient.user),
+          // Signed URL for the profile photo — resolved from the Patient
+          // row first, then the linked User row (Settings-set photo), so
+          // it shows regardless of which surface uploaded it.
+          photoSignedUrl: await resolveFirstPhotoUrl(
+            patient.photoUrl,
+            patient.user?.photoUrl,
+          ),
           appointments,
           vitals,
           prescriptions,
@@ -425,6 +450,9 @@ router.post(
             emergencyContactPhone: data.emergencyContactPhone,
             insuranceProvider: data.insuranceProvider,
             insurancePolicyNumber: data.insurancePolicyNumber,
+            // Profile photo — bare storage key from POST /uploads (empty
+            // string from the form means "no photo" → store null).
+            photoUrl: data.photoUrl ? data.photoUrl : undefined,
             // Pearl §2.1.1 source tagging: this endpoint is the staff
             // dashboard "Add Patient" surface, so an omitted source
             // defaults to WEB (a staff member keying the row through the
@@ -810,6 +838,11 @@ router.patch(
       delete patientData.mrNumber;
       if (dateOfBirth !== undefined) {
         patientData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth as string) : null;
+      }
+      // Profile photo: an empty string from the editor means "remove the
+      // photo" → persist null so the avatar falls back to initials.
+      if (patientData.photoUrl === "") {
+        patientData.photoUrl = null;
       }
 
       await prisma.$transaction(async (tx) => {

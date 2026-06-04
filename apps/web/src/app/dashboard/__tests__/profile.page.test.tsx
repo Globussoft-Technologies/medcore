@@ -95,12 +95,14 @@ describe("ProfilePage", () => {
     expect(screen.getByTestId("profile-phone-input")).toBeInTheDocument();
   });
 
-  it("shows Loading state in name field before fetch resolves", async () => {
+  it("shows a skeleton loader before fetch resolves", async () => {
     let resolve: any;
     apiMock.get.mockReturnValue(new Promise((r) => (resolve = r)));
     render(<ProfilePage />);
+    // Loading now renders the shared Skeleton kit (.mc-skeleton) instead of a
+    // "Loading…" marker in the header name field.
     await waitFor(() =>
-      expect(screen.getByTestId("profile-header-name").textContent).toMatch(/loading/i)
+      expect(document.querySelector(".mc-skeleton")).toBeInTheDocument()
     );
     resolve(me);
   });

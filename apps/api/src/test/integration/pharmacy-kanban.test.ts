@@ -25,6 +25,8 @@ import {
   createAppointmentFixture,
   createDoctorWithToken,
   createPrescriptionFixture,
+  createMedicineFixture,
+  createInventoryFixture,
 } from "../factories";
 import { waitForAuditFlush } from "../helpers/audit-wait";
 
@@ -114,6 +116,80 @@ describeIfDB("Pharmacy Kanban — gap row 104 (Pearl §4.3)", () => {
       .send({ status: "DISPENSING" });
     expect(res.status).toBe(200);
     expect(res.body.data?.status).toBe("DISPENSING");
+  });
+
+  it("READY → DISPENSED draws down inventory (FEFO) + records a DISPENSED movement", async () => {
+    // Seed a medicine + stock that matches the default Rx line
+    // ("Paracetamol 500mg", duration "5 days" → qty 5).
+    const med = await createMedicineFixture({ name: "Paracetamol 500mg" });
+    const inv = await createInventoryFixture({
+      medicineId: med.id,
+      overrides: { quantity: 100 },
+    });
+
+    const rx = await makeRx();
+    await prisma.prescription.update({
+      where: { id: rx.id },
+      data: { status: "READY" },
+    });
+    const res = await request(app)
+      .patch(`/api/v1/pharmacy/prescriptions/${rx.id}/status`)
+      .set("Authorization", `Bearer ${pharmacistToken}`)
+      .send({ status: "DISPENSED" });
+    expect(res.status).toBe(200);
+    expect(res.body.data?.status).toBe("DISPENSED");
+
+    // On-hand quantity dropped by the dispensed qty (5).
+    const reloadedInv = await prisma.inventoryItem.findUnique({
+      where: { id: inv.id },
+    });
+    expect(reloadedInv?.quantity).toBe(95);
+
+    // A negative DISPENSED stock movement references this prescription.
+    const mv = await prisma.stockMovement.findFirst({
+      where: { type: "DISPENSED", referenceId: rx.id },
+    });
+    expect(mv?.quantity).toBe(-5);
+  });
+
+  it("dispensing is idempotent — no double-decrement if stock was already drawn down", async () => {
+    const med = await createMedicineFixture({ name: "Paracetamol 500mg" });
+    const inv = await createInventoryFixture({
+      medicineId: med.id,
+      overrides: { quantity: 100 },
+    });
+    const rx = await makeRx();
+    // Simulate a prior full dispense: a DISPENSED movement already exists.
+    await prisma.stockMovement.create({
+      data: {
+        inventoryItemId: inv.id,
+        type: "DISPENSED",
+        quantity: -5,
+        referenceId: rx.id,
+        performedBy: (await prisma.user.findFirst({ where: { role: "PHARMACIST" } }))!.id,
+        reason: "pre-existing dispense",
+      },
+    });
+    await prisma.inventoryItem.update({
+      where: { id: inv.id },
+      data: { quantity: 95 },
+    });
+
+    await prisma.prescription.update({
+      where: { id: rx.id },
+      data: { status: "READY" },
+    });
+    const res = await request(app)
+      .patch(`/api/v1/pharmacy/prescriptions/${rx.id}/status`)
+      .set("Authorization", `Bearer ${pharmacistToken}`)
+      .send({ status: "DISPENSED" });
+    expect(res.status).toBe(200);
+
+    // Quantity unchanged (still 95) — the move did not decrement a second time.
+    const reloadedInv = await prisma.inventoryItem.findUnique({
+      where: { id: inv.id },
+    });
+    expect(reloadedInv?.quantity).toBe(95);
   });
 
   it("ADMIN can mutate", async () => {

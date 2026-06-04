@@ -479,11 +479,19 @@ describe("TenantsAdminPage", () => {
     const input = await screen.findByTestId(
       "tenants-detail-session-idle-input",
     );
+    // Wait for the /tenants/t1 detail fetch to settle so the drawer's
+    // detail-load effect has already seeded the draft to the loaded value (30).
+    // Otherwise, under full-suite load, that fetch can resolve AFTER we type
+    // below and clobber the edited value — clearing the error (flaky).
+    await waitFor(() => expect(input).toHaveValue(30));
+
     // Below floor (5) → error + Save stays disabled.
     fireEvent.change(input, { target: { value: "4" } });
-    expect(
-      screen.getByTestId("tenants-detail-session-idle-error"),
-    ).toHaveTextContent("Minimum 5 minutes");
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("tenants-detail-session-idle-error"),
+      ).toHaveTextContent("Minimum 5 minutes"),
+    );
     expect(
       (screen.getByTestId("tenants-detail-session-idle-save") as HTMLButtonElement)
         .disabled,
@@ -491,9 +499,11 @@ describe("TenantsAdminPage", () => {
 
     // Above ceiling (1440) → error.
     fireEvent.change(input, { target: { value: "2000" } });
-    expect(
-      screen.getByTestId("tenants-detail-session-idle-error"),
-    ).toHaveTextContent("Maximum 1440 minutes (24 h)");
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("tenants-detail-session-idle-error"),
+      ).toHaveTextContent("Maximum 1440 minutes (24 h)"),
+    );
     expect(
       (screen.getByTestId("tenants-detail-session-idle-save") as HTMLButtonElement)
         .disabled,

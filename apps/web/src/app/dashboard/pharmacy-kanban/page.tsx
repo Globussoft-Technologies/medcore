@@ -211,13 +211,22 @@ export default function PharmacyKanbanPage() {
 
   return (
     <div data-testid="pharmacy-kanban-page">
+      <button
+        type="button"
+        onClick={() => router.push("/dashboard/pharmacy")}
+        className="mb-4 inline-flex items-center gap-2 text-sm text-gray-600 hover:text-primary dark:text-gray-400"
+        data-testid="pharmacy-kanban-back"
+        aria-label="Back to Pharmacy"
+      >
+        <ArrowLeft size={16} aria-hidden="true" /> Back to Pharmacy
+      </button>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900 sm:text-2xl dark:text-gray-100">
             <Package className="text-primary" /> Pharmacy Kanban
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Drag scripts between columns (or use the move buttons). Pearl §4.3.
+            Drag scripts between columns (or use the move buttons).
           </p>
         </div>
         <button

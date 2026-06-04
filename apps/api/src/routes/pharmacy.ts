@@ -126,6 +126,87 @@ const KANBAN_TRANSITIONS: Record<string, ReadonlyArray<string>> = {
 const router = Router();
 router.use(authenticate);
 
+// Draw down inventory for every line of a prescription when it is dispensed
+// via the Kanban board (Move → Dispensed). Mirrors the FEFO (earliest-expiry-
+// first) decrement + DISPENSED stock-movement that POST /pharmacy/dispense
+// performs, so dispensing from the board actually reduces on-hand quantity.
+//
+// Idempotent: if this prescription already has DISPENSED movements (e.g. it
+// was dispensed via the full POST /pharmacy/dispense path), we skip so stock
+// is never double-decremented. Missing-medicine / insufficient-stock lines are
+// reported as warnings rather than failing the move.
+async function autoDecrementStockForPrescription(
+  prescriptionId: string,
+  userId: string,
+): Promise<string[]> {
+  const warnings: string[] = [];
+
+  const already = await prisma.stockMovement.findFirst({
+    where: { type: "DISPENSED", referenceId: prescriptionId },
+    select: { id: true },
+  });
+  if (already) return warnings;
+
+  const prescription = await prisma.prescription.findUnique({
+    where: { id: prescriptionId },
+    include: { items: true },
+  });
+  if (!prescription) return warnings;
+
+  await prisma.$transaction(async (tx) => {
+    for (const item of prescription.items) {
+      // Quantity heuristic matches /pharmacy/dispense: pull the first integer
+      // out of `duration`, default to 1 unit.
+      const qtyMatch = item.duration?.match(/(\d+)/);
+      const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+
+      const medicine = await tx.medicine.findFirst({
+        where: {
+          OR: [
+            { name: { equals: item.medicineName, mode: "insensitive" } },
+            { genericName: { equals: item.medicineName, mode: "insensitive" } },
+            { name: { contains: item.medicineName, mode: "insensitive" } },
+          ],
+        },
+      });
+      if (!medicine) {
+        warnings.push(`Medicine not found: ${item.medicineName}`);
+        continue;
+      }
+
+      const inv = await tx.inventoryItem.findFirst({
+        where: {
+          medicineId: medicine.id,
+          quantity: { gte: qty },
+          expiryDate: { gt: new Date() },
+        },
+        orderBy: { expiryDate: "asc" },
+      });
+      if (!inv) {
+        warnings.push(`Insufficient stock for ${item.medicineName} (need ${qty})`);
+        continue;
+      }
+
+      await tx.inventoryItem.update({
+        where: { id: inv.id },
+        data: { quantity: inv.quantity - qty },
+      });
+      await tx.stockMovement.create({
+        data: {
+          inventoryItemId: inv.id,
+          type: "DISPENSED",
+          quantity: -qty,
+          referenceId: prescriptionId,
+          performedBy: userId,
+          reason: `Dispensed via Kanban for prescription ${prescriptionId}`,
+        },
+      });
+    }
+  });
+
+  return warnings;
+}
+
 // GET /api/v1/pharmacy/inventory?search=&lowStock=true
 // RBAC (issue #98): RECEPTION must NOT see stock levels. Reads restricted
 // to clinical + pharmacy roles only.
@@ -912,6 +993,17 @@ router.patch(
         where: { id: existing.id },
         data: { status: target as any },
       });
+      // Dispensing from the board must actually draw down stock. When the
+      // script lands in DISPENSED (and wasn't already), decrement inventory
+      // FEFO-style and record DISPENSED movements — idempotent so the full
+      // POST /pharmacy/dispense path doesn't double-count.
+      let dispenseWarnings: string[] = [];
+      if (target === "DISPENSED" && existing.status !== "DISPENSED") {
+        dispenseWarnings = await autoDecrementStockForPrescription(
+          existing.id,
+          req.user!.userId,
+        );
+      }
       // Use the AWAITED auditLog (not safeAudit) so callers + tests
       // can read AuditLog immediately after the 200 — every Kanban
       // move surfaces in the per-row history with the from/to pair
@@ -923,7 +1015,12 @@ router.patch(
         existing.id,
         { from: existing.status, to: target, prescriptionId: existing.id }
       );
-      res.json({ success: true, data: updated, error: null });
+      res.json({
+        success: true,
+        data: updated,
+        error: null,
+        ...(dispenseWarnings.length ? { warnings: dispenseWarnings } : {}),
+      });
     } catch (err) {
       next(err);
     }

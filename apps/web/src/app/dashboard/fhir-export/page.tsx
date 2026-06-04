@@ -26,6 +26,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import { Skeleton, SkeletonCard } from "@/components/Skeleton";
 
 interface PatientOpt {
   id: string;
@@ -129,8 +130,26 @@ export default function FhirExportPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      <div className="mx-auto max-w-5xl">
+        {/* Header skeleton */}
+        <div className="mb-6 flex items-center gap-3">
+          <Skeleton variant="rect" width={24} height={24} className="rounded" />
+          <div className="flex-1 space-y-2">
+            <Skeleton variant="text" width="30%" height={24} />
+            <Skeleton variant="text" width="70%" />
+          </div>
+        </div>
+        {/* Patient picker skeleton */}
+        <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <Skeleton variant="text" width="15%" className="mb-2" />
+          <Skeleton variant="rect" height={40} className="rounded-lg" />
+        </div>
+        {/* Export action cards skeleton */}
+        <div className="grid gap-3 md:grid-cols-3">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       </div>
     );
   }

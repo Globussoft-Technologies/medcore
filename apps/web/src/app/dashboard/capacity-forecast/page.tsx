@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonCard } from "@/components/Skeleton";
 
 // ─── Types ─────────────────────────────────────────────
 
@@ -170,6 +171,24 @@ export default function CapacityForecastPage() {
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           <strong>Error:</strong> {error}
         </div>
+      )}
+
+      {loading && !data && (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+          <div className="rounded-lg border border-gray-200 bg-white p-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonCard key={i} className="h-24" />
+              ))}
+            </div>
+          </div>
+        </>
       )}
 
       {data && (

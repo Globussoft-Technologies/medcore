@@ -33,8 +33,8 @@ import {
   CheckCircle2,
   MessageSquarePlus,
   UserPlus,
-  Loader2,
 } from "lucide-react";
+import { Skeleton, SkeletonCard, SkeletonText } from "@/components/Skeleton";
 
 interface LeadActivity {
   id: string;
@@ -240,9 +240,27 @@ export default function LeadDetailPage({
   }
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-12 text-gray-400">
-        <Loader2 size={20} className="mr-2 animate-spin" />
-        Loading…
+      <div className="p-6">
+        <Skeleton variant="text" width={80} className="mb-4" />
+        {/* Title + status row */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex-1 space-y-2">
+            <Skeleton variant="text" width="40%" height={28} />
+            <Skeleton variant="text" width="60%" />
+          </div>
+          <Skeleton variant="rect" width={140} height={32} className="rounded-md" />
+        </div>
+        {/* Meta cards */}
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+        {/* Activity timeline */}
+        <div className="mt-6 space-y-3">
+          <Skeleton variant="text" width="20%" />
+          <SkeletonText lines={4} />
+        </div>
       </div>
     );
   }

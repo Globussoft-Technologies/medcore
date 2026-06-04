@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 import { Calendar, CheckCircle, Clock, Loader2, RefreshCw, User } from "lucide-react";
+import { SkeletonCard } from "@/components/Skeleton";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -108,8 +109,10 @@ export default function AIFollowupPage() {
       </header>
 
       {loading ? (
-        <div className="flex justify-center py-10 text-gray-500">
-          <Loader2 className="w-5 h-5 animate-spin" />
+        <div className="space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
         </div>
       ) : rows.length === 0 ? (
         <div className="text-sm text-gray-500 py-10 text-center">

@@ -1043,7 +1043,11 @@ describe("SettingsPage — Branding tab (ADMIN, Issues #716 / #717)", () => {
     await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
     fireEvent.click(screen.getByRole("button", { name: /^Branding$/i }));
 
-    expect(await screen.findByText(/Loading branding/i)).toBeInTheDocument();
+    // Loading now renders the shared Skeleton kit (.mc-skeleton) instead of a
+    // "Loading branding…" text placeholder.
+    await waitFor(() =>
+      expect(document.querySelector(".mc-skeleton")).toBeInTheDocument(),
+    );
 
     resolveBranding({
       data: { hospitalName: "MedCore Demo", primaryColor: "#1e40af", logoUrl: "" },
@@ -1201,7 +1205,11 @@ describe("SettingsPage — Integrations tab (ADMIN, Issue #716)", () => {
     await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
     fireEvent.click(screen.getByRole("button", { name: /^Integrations$/i }));
 
-    expect(await screen.findByText(/Loading integrations/i)).toBeInTheDocument();
+    // Loading now renders the shared Skeleton kit (.mc-skeleton) instead of a
+    // "Loading integrations…" text placeholder.
+    await waitFor(() =>
+      expect(document.querySelector(".mc-skeleton")).toBeInTheDocument(),
+    );
     resolveIntegrations({ data: { integrations: [] } });
   });
 

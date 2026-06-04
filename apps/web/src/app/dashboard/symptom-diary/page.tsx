@@ -21,6 +21,7 @@ import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { sanitizeUserInput } from "@medcore/shared";
 import { extractFieldErrors } from "@/lib/field-errors";
+import { Skeleton } from "@/components/Skeleton";
 import { Plus, X, Activity, ChevronDown, ChevronRight } from "lucide-react";
 
 // Roles allowed to *view* the diary at all. PATIENT sees their own; staff
@@ -320,8 +321,20 @@ export default function SymptomDiaryPage() {
 
       {/* Loading / error states */}
       {loading && (
-        <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">
-          Loading symptom diary...
+        <div className="space-y-3" data-testid="symptom-diary-loading">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+            >
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <Skeleton variant="text" width={120} />
+                <Skeleton variant="rect" width={80} height={20} className="rounded-full" />
+              </div>
+              <Skeleton variant="text" width="45%" />
+              <Skeleton variant="text" width="80%" className="mt-2" />
+            </div>
+          ))}
         </div>
       )}
       {error && (

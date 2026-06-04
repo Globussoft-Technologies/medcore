@@ -22,8 +22,8 @@ import {
   Pencil,
   Archive,
   ArchiveRestore,
-  Loader2,
 } from "lucide-react";
+import { SkeletonCard, SkeletonText } from "@/components/Skeleton";
 
 interface MemberPatient {
   id: string;
@@ -205,7 +205,11 @@ export default function CohortDetailPage() {
   if (loading) {
     return (
       <div className="p-6" data-testid="cohort-detail-loading">
-        <Loader2 className="mx-auto mt-12 h-6 w-6 animate-spin text-gray-400" />
+        <div className="mb-6 max-w-sm">
+          <SkeletonText lines={2} />
+        </div>
+        <SkeletonCard className="mb-6 h-28" />
+        <SkeletonCard className="h-64" />
       </div>
     );
   }

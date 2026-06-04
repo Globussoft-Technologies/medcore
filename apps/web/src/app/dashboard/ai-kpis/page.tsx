@@ -14,6 +14,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
+import { SkeletonCard } from "@/components/Skeleton";
 
 // ─── Types ────────────────────────────────────────────────
 
@@ -404,9 +405,11 @@ export default function AIKpisPage() {
         {loading && !f1 && !f2 && (
           <div
             data-testid="ai-kpis-loading"
-            className="text-sm text-gray-500 dark:text-gray-400 py-10 text-center"
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
           >
-            {t("aiKpis.loading")}
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
         )}
 

@@ -17,8 +17,8 @@ import {
   Users2,
   Archive,
   ArchiveRestore,
-  Loader2,
 } from "lucide-react";
+import { SkeletonRow } from "@/components/Skeleton";
 
 interface Cohort {
   id: string;
@@ -189,11 +189,9 @@ export default function CohortsPage() {
           </thead>
           <tbody data-testid="cohorts-list">
             {loading ? (
-              <tr>
-                <td colSpan={5} className="p-12 text-center">
-                  <Loader2 className="mx-auto h-5 w-5 animate-spin text-gray-400" />
-                </td>
-              </tr>
+              Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonRow key={i} columns={5} />
+              ))
             ) : visible.length === 0 ? (
               <tr>
                 <td

@@ -174,21 +174,14 @@ describe("ProfilePage — self-service /dashboard/profile (Issue #303)", () => {
     cleanup();
   });
 
-  it("renders the loading placeholder while GET /auth/me is pending and disables the inputs", async () => {
+  it("renders a skeleton placeholder while GET /auth/me is pending", async () => {
     apiMock.get.mockImplementation(() => new Promise(() => {}));
     render(<ProfilePage />);
 
-    // Page chrome + loading header marker still visible.
+    // Page chrome still visible; the loading state now renders the shared
+    // Skeleton kit (.mc-skeleton) instead of the form with disabled inputs.
     expect(screen.getByTestId("profile-page")).toBeInTheDocument();
-    expect(screen.getByTestId("profile-header-name").textContent).toBe(
-      "Loading…",
-    );
-    // Inputs are disabled while loading.
-    expect(screen.getByTestId("profile-name-input")).toBeDisabled();
-    expect(screen.getByTestId("profile-phone-input")).toBeDisabled();
-    expect(screen.getByTestId("profile-language-input")).toBeDisabled();
-    // Save starts disabled.
-    expect(screen.getByTestId("profile-save-btn")).toBeDisabled();
+    expect(document.querySelector(".mc-skeleton")).toBeInTheDocument();
   });
 
   it("hydrates form fields, header pill, and avatar initial from /auth/me", async () => {

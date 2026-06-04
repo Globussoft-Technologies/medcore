@@ -26,6 +26,7 @@ import { extractFieldErrors } from "@/lib/field-errors";
 import { useTranslation, type Lang } from "@/lib/i18n";
 import { sanitizeUserInput } from "@medcore/shared";
 import { PasswordInput } from "@/components/PasswordInput";
+import { Skeleton, SkeletonCard, SkeletonText } from "@/components/Skeleton";
 import { KeyRound, X } from "lucide-react";
 
 interface MeResponse {
@@ -177,6 +178,35 @@ export default function ProfilePage() {
 
   const initial = (name || email || "?").trim().charAt(0).toUpperCase();
   const saveDisabled = saving || !dirty || !formValid;
+
+  if (loading) {
+    return (
+      <div data-testid="profile-page">
+        <h1 className="mb-6 text-2xl font-bold">My Profile</h1>
+        <div className="space-y-6">
+          {/* Header card skeleton */}
+          <div className="flex flex-col items-start gap-4 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 sm:flex-row sm:items-center">
+            <Skeleton variant="circle" width={64} height={64} />
+            <div className="flex-1 space-y-2">
+              <Skeleton variant="text" width="40%" height={20} />
+              <Skeleton variant="text" width="55%" />
+              <Skeleton variant="text" width="20%" />
+            </div>
+          </div>
+          {/* Personal details skeleton */}
+          <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+            <Skeleton variant="text" width="30%" height={20} className="mb-4" />
+            <div className="grid gap-6 md:grid-cols-2">
+              <SkeletonText lines={2} />
+              <SkeletonText lines={2} />
+              <SkeletonText lines={2} />
+              <SkeletonText lines={2} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div data-testid="profile-page">

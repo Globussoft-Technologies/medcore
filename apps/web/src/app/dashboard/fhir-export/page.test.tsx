@@ -51,10 +51,12 @@ describe("FhirExportPage", () => {
     ).toBeDisabled();
   });
 
-  it("shows a loading spinner while auth is loading", () => {
+  it("shows a skeleton loader while auth is loading", () => {
     authMock.mockReturnValue({ user: null, isLoading: true });
     const { container } = render(<FhirExportPage />);
-    expect(container.querySelector("svg.animate-spin")).toBeInTheDocument();
+    // Loading state now renders the shared Skeleton kit (.mc-skeleton) instead
+    // of a spinner.
+    expect(container.querySelector(".mc-skeleton")).toBeInTheDocument();
   });
 
   it("redirects non-admin users to the dashboard", async () => {

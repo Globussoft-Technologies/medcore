@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // ─── Types ─────────────────────────────────────────────
 
@@ -310,6 +311,18 @@ export default function PharmacyForecastPage() {
             </p>
           )}
           {insights && <InsightsText text={insights} />}
+        </div>
+      )}
+
+      {/* Loading skeleton — the forecast is button-triggered; show a
+          table-shaped skeleton screen while the request is in flight so
+          the page doesn't sit blank between click and first paint. */}
+      {loading && !forecast && (
+        <div
+          data-testid="forecast-skeleton"
+          className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm dark:border-white/10 dark:shadow-none"
+        >
+          <SkeletonTable rows={6} columns={8} />
         </div>
       )}
 

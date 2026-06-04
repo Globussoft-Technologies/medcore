@@ -39,6 +39,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 import { toast } from "@/lib/toast";
 
 interface PrescriptionItem {
@@ -341,7 +342,7 @@ function PrescriptionCard({ prescription, onShare, sharing }: CardProps) {
             {formatDate(prescription.createdAt)}
           </p>
           <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
-            {doctorName ? `Dr. ${doctorName}` : "Doctor"}
+            {doctorName ? formatDoctorName(doctorName) : "Doctor"}
           </p>
           {specialty ? (
             <p className="text-sm text-slate-600 dark:text-gray-300">{specialty}</p>

@@ -110,7 +110,7 @@ export async function onTokenCalled(appointment: {
     userId: patient.userId,
     type: NotificationType.TOKEN_CALLED,
     title: "Your Turn is Next",
-    message: `Hi ${patient.user.name}, Token #${tokenNumber} — your turn is next! Please proceed to Dr. ${doctor.user.name}'s room.`,
+    message: `Hi ${patient.user.name}, Token #${tokenNumber} — your turn is next! Please proceed to ${formatDoctorName(doctor.user.name)}'s room.`,
     data: { appointmentId: appointment.id, tokenNumber, doctorName: doctor.user.name },
   });
 }
@@ -155,7 +155,7 @@ export async function notifyQueuePosition(appointmentId: string): Promise<void> 
     userId: appt.patient.user.id,
     type: NotificationType.TOKEN_CALLED,
     title: "Your queue position",
-    message: `Hi ${appt.patient.user.name}, you are #${position} in queue for Dr. ${appt.doctor.user.name}. Estimated wait: ${estimatedWaitMin} minutes.`,
+    message: `Hi ${appt.patient.user.name}, you are #${position} in queue for ${formatDoctorName(appt.doctor.user.name)}. Estimated wait: ${estimatedWaitMin} minutes.`,
     data: {
       appointmentId,
       position,
@@ -201,7 +201,7 @@ export async function onPrescriptionReady(prescription: {
     userId: patient.userId,
     type: NotificationType.PRESCRIPTION_READY,
     title: "Prescription Ready",
-    message: `Hi ${patient.user.name}, your prescription from Dr. ${doctor.user.name} is ready. View it here: ${prescriptionLink}`,
+    message: `Hi ${patient.user.name}, your prescription from ${formatDoctorName(doctor.user.name)} is ready. View it here: ${prescriptionLink}`,
     data: { prescriptionId: prescription.id, link: prescriptionLink },
   });
 }
@@ -309,7 +309,7 @@ export async function onDoctorScheduleSummary(doctorId: string): Promise<void> {
     userId: doctor.user.id,
     type: NotificationType.SCHEDULE_SUMMARY,
     title: "Today's Schedule Summary",
-    message: `Good morning Dr. ${doctor.user.name}, you have ${count} appointment${count !== 1 ? "s" : ""} today.\n${patientList}${moreText}`,
+    message: `Good morning ${formatDoctorName(doctor.user.name)}, you have ${count} appointment${count !== 1 ? "s" : ""} today.\n${patientList}${moreText}`,
     data: {
       doctorId,
       date: today.toISOString().split("T")[0],

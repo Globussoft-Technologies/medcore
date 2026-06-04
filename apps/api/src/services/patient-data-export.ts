@@ -30,6 +30,7 @@ import PDFDocument from "pdfkit";
 import { prisma as rawPrisma } from "@medcore/db";
 import { tenantScopedPrisma as prisma } from "./tenant-prisma";
 import { runWithTenant } from "./tenant-context";
+import { formatDoctorName } from "../lib/format-doctor-name";
 import {
   patientToFhir,
   doctorToFhir,
@@ -507,7 +508,7 @@ export function buildPdfExport(bag: PatientDataBag): Promise<Buffer> {
           ? new Date(a.date).toISOString().slice(0, 10)
           : "-";
         const docName = a?.doctor?.user?.name
-          ? `Dr. ${a.doctor.user.name}`
+          ? formatDoctorName(a.doctor.user.name)
           : "-";
         doc.text(
           `  • ${dt} — ${docName} — ${a?.status ?? "-"}`

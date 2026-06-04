@@ -9,6 +9,7 @@ import {
   derivePaymentStatus,
 } from "@medcore/shared";
 import { computePayroll, daysInMonth as daysInMonthFor } from "./payroll";
+import { formatDoctorName } from "../lib/format-doctor-name";
 
 // ─── Helpers ────────────────────────────────────────────
 
@@ -282,7 +283,7 @@ export async function generatePrescriptionPDF(
     </div>
     <div style="flex:1;text-align:right;">
       <h3 style="font-size:11px;color:#94a3b8;text-transform:uppercase;margin-bottom:6px;">Doctor</h3>
-      <p style="font-weight:600;">Dr. ${escapeHtml(doctor.user.name)}</p>
+      <p style="font-weight:600;">${escapeHtml(formatDoctorName(doctor.user.name))}</p>
       ${doctor.qualification ? `<p style="font-size:12px;color:#64748b;">${escapeHtml(doctor.qualification)}</p>` : ""}
       ${doctor.specialization ? `<p style="font-size:12px;color:#64748b;">${escapeHtml(doctor.specialization)}</p>` : ""}
       <p style="font-size:12px;color:#64748b;margin-top:4px;">Date: ${createdDate}</p>
@@ -308,7 +309,7 @@ export async function generatePrescriptionPDF(
   <div class="signblock">
     <div class="sig">
       ${sigBlock}
-      <p style="font-weight:600;font-size:13px;">Dr. ${escapeHtml(doctor.user.name)}</p>
+      <p style="font-weight:600;font-size:13px;">${escapeHtml(formatDoctorName(doctor.user.name))}</p>
       ${doctor.qualification ? `<p style="font-size:11px;color:#64748b;">${escapeHtml(doctor.qualification)}</p>` : ""}
     </div>
   </div>
@@ -411,7 +412,7 @@ export async function generateDischargeSummaryHTML(
       <p><strong>Admitted:</strong> ${formatDateTime(admission.admittedAt)}</p>
       <p><strong>Discharged:</strong> ${formatDateTime(admission.dischargedAt)}</p>
       <p><strong>Ward / Bed:</strong> ${escapeHtml(admission.bed.ward.name)} / ${escapeHtml(admission.bed.bedNumber)}</p>
-      <p><strong>Attending Doctor:</strong> Dr. ${escapeHtml(admission.doctor.user.name)}</p>
+      <p><strong>Attending Doctor:</strong> ${escapeHtml(formatDoctorName(admission.doctor.user.name))}</p>
     </div>
   </div>
 
@@ -456,7 +457,7 @@ export async function generateDischargeSummaryHTML(
   <div class="signblock">
     <div class="sig">
       <div class="signline"></div>
-      <p style="font-weight:600;font-size:13px;">Dr. ${escapeHtml(admission.doctor.user.name)}</p>
+      <p style="font-weight:600;font-size:13px;">${escapeHtml(formatDoctorName(admission.doctor.user.name))}</p>
       <p style="font-size:11px;color:#64748b;">Attending Physician</p>
     </div>
   </div>
@@ -550,7 +551,7 @@ export async function generateLabReportHTML(
       <p><strong>Age / Gender:</strong> ${p.age ?? "—"} / ${escapeHtml(p.gender)}</p>
     </div>
     <div style="flex:1;">
-      <p><strong>Referring Doctor:</strong> Dr. ${escapeHtml(order.doctor.user.name)}</p>
+      <p><strong>Referring Doctor:</strong> ${escapeHtml(formatDoctorName(order.doctor.user.name))}</p>
       <p><strong>Ordered:</strong> ${formatDateTime(order.orderedAt)}</p>
       <p><strong>Collected:</strong> ${formatDateTime(order.collectedAt)}</p>
       <p><strong>Completed:</strong> ${formatDateTime(order.completedAt)}</p>
@@ -567,7 +568,7 @@ export async function generateLabReportHTML(
     </div>
     <div style="text-align:center;">
       <div class="signline"></div>
-      <p style="font-size:12px;font-weight:600;">${verifierName ? "Dr. " + escapeHtml(verifierName) : "Verified By"}</p>
+      <p style="font-size:12px;font-weight:600;">${verifierName ? escapeHtml(formatDoctorName(verifierName)) : "Verified By"}</p>
       <p style="font-size:10px;color:#64748b;">Pathologist</p>
     </div>
   </div>
@@ -1313,7 +1314,7 @@ export async function generateBirthCertificateHTML(
   <div class="signblock">
     <div class="sig">
       <div class="signline"></div>
-      <p style="font-weight:600;font-size:13px;">Dr. ${escapeHtml(anc.doctor.user.name)}</p>
+      <p style="font-weight:600;font-size:13px;">${escapeHtml(formatDoctorName(anc.doctor.user.name))}</p>
       <p style="font-size:11px;color:#64748b;">Attending Obstetrician</p>
     </div>
   </div>
@@ -1473,7 +1474,7 @@ export async function generatePrescriptionVerifyHTML(
     <table>
       <tr><td><strong>Prescription ID</strong></td><td style="font-family:monospace;">${escapeHtml(rx.id)}</td></tr>
       <tr><td><strong>Patient (Initial)</strong></td><td>${escapeHtml(initial)}</td></tr>
-      <tr><td><strong>Doctor</strong></td><td>Dr. ${escapeHtml(rx.doctor.user.name)}</td></tr>
+      <tr><td><strong>Doctor</strong></td><td>${escapeHtml(formatDoctorName(rx.doctor.user.name))}</td></tr>
       <tr><td><strong>Date Issued</strong></td><td>${formatDate(rx.createdAt)}</td></tr>
       <tr><td><strong>Status</strong></td><td>${rx.printed ? "Issued & Printed" : "Issued"}</td></tr>
     </table>

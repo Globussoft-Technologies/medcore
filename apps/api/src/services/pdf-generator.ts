@@ -17,6 +17,7 @@
 import PDFDocument from "pdfkit";
 import QRCode from "qrcode";
 import { prisma } from "@medcore/db";
+import { formatDoctorName } from "../lib/format-doctor-name";
 import {
   computeInvoiceTotals,
   computeLineItemTax,
@@ -280,7 +281,7 @@ export async function generatePrescriptionPDFBuffer(
   drawKeyVal(doc, "Age / Gender",
     `${patient.age ?? "-"} / ${patient.gender}`, 40, topY + 56);
 
-  drawKeyVal(doc, "Doctor", `Dr. ${doctor.user.name}`, 310, topY);
+  drawKeyVal(doc, "Doctor", formatDoctorName(doctor.user.name), 310, topY);
   drawKeyVal(doc, "Qualification", doctor.qualification || "-", 310, topY + 28);
   // Pearl ERP Stage 1 §2.1.4 — every signed Rx must carry the NMC
   // registration number. Renders "-" when blank so admins can spot
@@ -374,7 +375,7 @@ export async function generatePrescriptionPDFBuffer(
     }
   }
   doc.font("Helvetica-Bold").fontSize(10).fillColor("#1e293b")
-    .text(`Dr. ${doctor.user.name}`, 380, qrY + 70, { width: 175, align: "center" });
+    .text(formatDoctorName(doctor.user.name), 380, qrY + 70, { width: 175, align: "center" });
   if (doctor.qualification) {
     doc.font("Helvetica").fontSize(8).fillColor("#64748b")
       .text(doctor.qualification, 380, qrY + 84, { width: 175, align: "center" });
@@ -668,7 +669,7 @@ export async function generateDischargeSummaryPDFBuffer(
   drawKeyVal(doc, "Ward / Bed",
     `${admission.bed.ward.name} / ${admission.bed.bedNumber}`, 40, doc.y);
   drawKeyVal(doc, "Attending Doctor",
-    `Dr. ${admission.doctor.user.name}`, 310, doc.y);
+    formatDoctorName(admission.doctor.user.name), 310, doc.y);
   doc.y += 30;
 
   drawSectionTitle(doc, "Final Diagnosis");
@@ -773,7 +774,7 @@ export async function generateDischargeSummaryPDFBuffer(
   doc.strokeColor("#475569").lineWidth(0.5)
     .moveTo(380, sy).lineTo(545, sy).stroke();
   doc.font("Helvetica-Bold").fontSize(10).fillColor("#1e293b")
-    .text(`Dr. ${admission.doctor.user.name}`, 380, sy + 4, { width: 165, align: "center" });
+    .text(formatDoctorName(admission.doctor.user.name), 380, sy + 4, { width: 165, align: "center" });
   doc.font("Helvetica").fontSize(8).fillColor("#64748b")
     .text("Attending Physician", 380, sy + 18, { width: 165, align: "center" });
 

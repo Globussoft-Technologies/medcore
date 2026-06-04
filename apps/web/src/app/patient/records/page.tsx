@@ -49,6 +49,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 // ─── API types ────────────────────────────────────────────────────────────
 
@@ -156,7 +157,7 @@ function appointmentToEntry(a: AppointmentRow): TimelineEntry {
   }
   const doctorName = a.doctor?.user?.name;
   const title = doctorName
-    ? `Consultation with Dr. ${doctorName}`
+    ? `Consultation with ${formatDoctorName(doctorName)}`
     : "Consultation";
   const bodyBits: string[] = [];
   if (a.doctor?.specialty) bodyBits.push(a.doctor.specialty);
@@ -181,7 +182,7 @@ function prescriptionToEntry(p: PrescriptionRow): TimelineEntry {
     ? `Prescription — ${top}${more > 0 ? ` (+${more} more)` : ""}`
     : "Prescription";
   const bodyBits: string[] = [];
-  if (p.doctor?.user?.name) bodyBits.push(`Dr. ${p.doctor.user.name}`);
+  if (p.doctor?.user?.name) bodyBits.push(formatDoctorName(p.doctor.user.name));
   if (p.diagnosis) bodyBits.push(p.diagnosis);
   if (p.status) bodyBits.push(p.status);
   return {

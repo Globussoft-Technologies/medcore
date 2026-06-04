@@ -56,6 +56,7 @@ import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { formatDoctorName } from "@/lib/format-doctor-name";
 
 type AppointmentMode = "TOKEN" | "SLOT" | "CALLING";
 
@@ -378,7 +379,7 @@ export default function PatientBookAppointmentPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-1">
                         <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
-                          {d.user?.name ? `Dr. ${d.user.name}` : "Doctor"}
+                          {d.user?.name ? formatDoctorName(d.user.name) : "Doctor"}
                         </p>
                         {d.specialty ? (
                           <p className="text-sm text-slate-600 dark:text-gray-300">
@@ -408,7 +409,7 @@ export default function PatientBookAppointmentPage() {
             <p className="text-sm text-slate-600 dark:text-gray-300">Booking with</p>
             <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
               {selectedDoctor.user?.name
-                ? `Dr. ${selectedDoctor.user.name}`
+                ? formatDoctorName(selectedDoctor.user.name)
                 : "Doctor"}
             </p>
             {selectedDoctor.specialty ? (
@@ -567,7 +568,7 @@ export default function PatientBookAppointmentPage() {
                 <dt className="text-slate-600 dark:text-gray-300">Doctor</dt>
                 <dd className="font-medium text-slate-900 dark:text-gray-100">
                   {selectedDoctor.user?.name
-                    ? `Dr. ${selectedDoctor.user.name}`
+                    ? formatDoctorName(selectedDoctor.user.name)
                     : "Doctor"}
                 </dd>
               </div>

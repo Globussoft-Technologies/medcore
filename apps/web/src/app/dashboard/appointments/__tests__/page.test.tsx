@@ -37,7 +37,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const { apiMock, authMock, toastMock, confirmMock } = vi.hoisted(() => ({
+const { apiMock, authMock, toastMock, confirmMock, pushMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -53,6 +53,7 @@ const { apiMock, authMock, toastMock, confirmMock } = vi.hoisted(() => ({
     warning: vi.fn(),
   },
   confirmMock: vi.fn(),
+  pushMock: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
@@ -63,7 +64,7 @@ vi.mock("@/lib/use-dialog", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: vi.fn(),
+    push: pushMock,
     replace: vi.fn(),
     back: vi.fn(),
     forward: vi.fn(),
@@ -132,6 +133,7 @@ describe("AppointmentsPage — colocated coverage", () => {
     toastMock.warning.mockReset();
     confirmMock.mockReset();
     confirmMock.mockResolvedValue(true);
+    pushMock.mockReset();
     asRole("RECEPTION");
     apiMock.get.mockResolvedValue({ data: [] });
     document.documentElement.classList.remove("dark");
@@ -463,13 +465,27 @@ describe("AppointmentsPage — colocated coverage", () => {
   // ─── Status transitions ────────────────────────────────────────────
 
   it("status-transition buttons (Check In / Start Consult / Complete) fire PATCH /status with the right state", async () => {
+    // Start Consult / Re-consult are DOCTOR-only (only the doctor conducts the
+    // encounter), so this transition test must run as a doctor.
+    asRole("DOCTOR");
+    // updateStatus now patches just the clicked row in place (no full reload),
+    // so the row's new status persists. Give each fixture a distinct patient
+    // name and scope each query by name so the three transitions don't collide
+    // (e.g. once the BOOKED row is checked in it also exposes a Start Consult
+    // button, which would make an unscoped /start consultation/ query
+    // ambiguous).
+    const named = (name: string, extra: Record<string, unknown>) =>
+      appt({
+        patient: { user: { name, phone: "9000000009" }, mrNumber: "MR-X" },
+        ...extra,
+      });
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/appointments")) {
         return Promise.resolve({
           data: [
-            appt({ id: "a-booked", status: "BOOKED", tokenNumber: 21 }),
-            appt({ id: "a-checked", status: "CHECKED_IN", tokenNumber: 22 }),
-            appt({ id: "a-in", status: "IN_CONSULTATION", tokenNumber: 23 }),
+            named("Booked Bob", { id: "a-booked", status: "BOOKED", tokenNumber: 21 }),
+            named("Checked Chloe", { id: "a-checked", status: "CHECKED_IN", tokenNumber: 22 }),
+            named("Inconsult Ivan", { id: "a-in", status: "IN_CONSULTATION", tokenNumber: 23 }),
           ],
         });
       }
@@ -479,7 +495,7 @@ describe("AppointmentsPage — colocated coverage", () => {
     const user = userEvent.setup();
     render(<AppointmentsPage />);
 
-    const checkInBtn = await screen.findByRole("button", { name: /check in asha roy/i });
+    const checkInBtn = await screen.findByRole("button", { name: /check in booked bob/i });
     await user.click(checkInBtn);
     await waitFor(() =>
       expect(apiMock.patch).toHaveBeenCalledWith(
@@ -488,7 +504,9 @@ describe("AppointmentsPage — colocated coverage", () => {
       ),
     );
 
-    const startBtn = screen.getByRole("button", { name: /start consultation/i });
+    const startBtn = screen.getByRole("button", {
+      name: /start consultation for checked chloe/i,
+    });
     await user.click(startBtn);
     await waitFor(() =>
       expect(apiMock.patch).toHaveBeenCalledWith(
@@ -497,7 +515,9 @@ describe("AppointmentsPage — colocated coverage", () => {
       ),
     );
 
-    const completeBtn = screen.getByRole("button", { name: /mark consultation complete/i });
+    const completeBtn = screen.getByRole("button", {
+      name: /mark consultation complete for inconsult ivan/i,
+    });
     await user.click(completeBtn);
     await waitFor(() =>
       expect(apiMock.patch).toHaveBeenCalledWith(
@@ -941,7 +961,7 @@ describe("AppointmentsPage — colocated coverage", () => {
 
   // ─── Calendar .ics download ───────────────────────────────────────
 
-  it("Calendar invite button fetches /calendar.ics and triggers a blob download", async () => {
+  it("Calendar invite button navigates to the calendar page for that appointment's date", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/appointments")) {
         return Promise.resolve({
@@ -950,57 +970,18 @@ describe("AppointmentsPage — colocated coverage", () => {
       }
       return Promise.resolve({ data: [] });
     });
-    const fetchSpy = vi.fn().mockResolvedValue({
-      ok: true,
-      blob: () => Promise.resolve(new Blob(["BEGIN:VCALENDAR"])),
-    });
-    (globalThis as any).__fetchMockLocked = true;
-    (globalThis as any).fetch = fetchSpy;
-    const createObjectURL = vi.spyOn(URL, "createObjectURL");
 
     const user = userEvent.setup();
     render(<AppointmentsPage />);
-    const dl = await screen.findByRole("button", {
-      name: /download calendar invite for token 1/i,
+    const inviteBtn = await screen.findByRole("button", {
+      name: /open calendar for asha roy/i,
     });
-    await user.click(dl);
+    await user.click(inviteBtn);
     await waitFor(() =>
-      expect(fetchSpy).toHaveBeenCalledWith(
-        expect.stringContaining("/appointments/a-booked/calendar.ics"),
-        expect.any(Object),
+      expect(pushMock).toHaveBeenCalledWith(
+        expect.stringContaining(`/dashboard/calendar?date=${todayIso()}`),
       ),
     );
-    expect(createObjectURL).toHaveBeenCalled();
-
-    delete (globalThis as any).__fetchMockLocked;
-  });
-
-  it("Calendar invite rejection surfaces toast.error", async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url.startsWith("/appointments")) {
-        return Promise.resolve({
-          data: [appt({ id: "a-booked", status: "BOOKED" })],
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    const fetchSpy = vi.fn().mockResolvedValue({ ok: false });
-    (globalThis as any).__fetchMockLocked = true;
-    (globalThis as any).fetch = fetchSpy;
-
-    const user = userEvent.setup();
-    render(<AppointmentsPage />);
-    const dl = await screen.findByRole("button", {
-      name: /download calendar invite for token 1/i,
-    });
-    await user.click(dl);
-    await waitFor(() =>
-      expect(toastMock.error).toHaveBeenCalledWith(
-        expect.stringMatching(/failed to download/i),
-      ),
-    );
-
-    delete (globalThis as any).__fetchMockLocked;
   });
 
   // ─── Recurring booking POST ───────────────────────────────────────

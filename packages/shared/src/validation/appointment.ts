@@ -222,7 +222,10 @@ export const rescheduleAppointmentSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
     .refine(isBookingDateNotPast, "Appointment date must be today or later"),
-  slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
+  // Optional: SLOT-mode reschedules carry the chosen HH:MM start, but
+  // TOKEN-mode doctors have no slots — they reschedule by date alone and
+  // the server mints the next sequential token for the target date.
+  slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM").optional(),
   // Pearl §3.1 (gap closed 2026-05-29) — reason captured at the wire so
   // the audit trail records WHY this row's date/slot moved.
   reason: z

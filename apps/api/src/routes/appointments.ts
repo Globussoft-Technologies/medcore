@@ -64,7 +64,11 @@ router.use(authenticate);
 // A range filter on the *day boundary* normalizes both: any row whose
 // stored date falls inside that 24h window is captured regardless of
 // how the timestamp was originally injected.
-async function getNextToken(doctorId: string, date: Date): Promise<number> {
+async function getNextToken(
+  doctorId: string,
+  date: Date,
+  startNumber?: number | null,
+): Promise<number> {
 // Use UTC boundaries so setHours(0,0,0,0) in local time doesn't shift the
 // window and miss same-day rows stored at a different UTC offset.
   const dayStart = new Date(date);
@@ -75,7 +79,41 @@ async function getNextToken(doctorId: string, date: Date): Promise<number> {
     where: { doctorId, date: { gte: dayStart, lt: dayEnd } },
     _max: { tokenNumber: true },
   });
- return (result._max.tokenNumber ?? 0) + 1;
+  // Pearl §3.2 — honour the doctor's configured starting token number: the
+  // FIRST booking of the day starts at `tokenStartNumber` (default 1), and
+  // every subsequent booking increments the running max. Math.max guards
+  // against legacy rows below the configured start.
+  const start = startNumber ?? 1;
+  const existingMax = result._max.tokenNumber;
+  return Math.max((existingMax ?? start - 1) + 1, start);
+}
+
+// Is a given token number already claimed by a live (non-cancelled,
+// non-no-show) appointment for this doctor on this date? Used by the TOKEN
+// reschedule path, which preserves the patient's ORIGINAL token number to
+// keep their relative order on the destination day — but must detect a clash
+// with a token already sitting on that date and fall back to the queue tail.
+async function isTokenTakenOnDate(
+  doctorId: string,
+  date: Date,
+  tokenNumber: number,
+  excludeAppointmentId: string,
+): Promise<boolean> {
+  const dayStart = new Date(date);
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const dayEnd = new Date(dayStart);
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+  const hit = await prisma.appointment.findFirst({
+    where: {
+      doctorId,
+      date: { gte: dayStart, lt: dayEnd },
+      tokenNumber,
+      status: { notIn: ["CANCELLED", "NO_SHOW"] },
+      id: { not: excludeAppointmentId },
+    },
+    select: { id: true },
+  });
+  return hit !== null;
 }
 
 // Pearl ERP Stage 1 §2.1.2 — CALLING-mode arrival counter, scoped per
@@ -205,6 +243,7 @@ router.post(
         select: {
           appointmentMode: true,
           tokenPrefix: true,
+          tokenStartNumber: true,
           dailyAppointmentLimit: true,
           lastHourPolicy: true,
         },
@@ -320,7 +359,11 @@ router.post(
       let arrivalSeq: number | null = null;
       let slotStartToUse: string | null = null;
       if (mode === "TOKEN") {
-        tokenNumber = await getNextToken(doctorId, dateObj);
+        tokenNumber = await getNextToken(
+          doctorId,
+          dateObj,
+          doctor.tokenStartNumber,
+        );
         slotStartToUse = slotId ?? null;
       } else if (mode === "SLOT") {
         slotStartToUse = slotId!; // required-for-SLOT, validated above
@@ -458,7 +501,7 @@ router.post(
       //                a future cleanup may reject them outright)
       const doctorRow = await prisma.doctor.findUnique({
         where: { id: doctorId },
-        select: { appointmentMode: true },
+        select: { appointmentMode: true, tokenStartNumber: true },
       });
       const mode = doctorRow?.appointmentMode ?? "TOKEN";
 
@@ -467,7 +510,11 @@ router.post(
       if (mode === "CALLING") {
         arrivalSeq = await getNextArrivalSeq(doctorId, today);
       } else {
-        tokenNumber = await getNextToken(doctorId, today);
+        tokenNumber = await getNextToken(
+          doctorId,
+          today,
+          doctorRow?.tokenStartNumber,
+        );
       }
 
       let appointment: any;
@@ -684,6 +731,11 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
           consultation: {
             select: { id: true, status: true, signedAt: true },
           },
+          // Pearl §2.1.7 — surface a remark count so the list can badge the
+          // Remarks button. Counts all threaded remarks on the row (the
+          // badge reveals only "how many", never content; the modal still
+          // applies per-viewer visibility scoping when opened).
+          _count: { select: { remarks: true } },
         },
         skip,
         take,
@@ -809,6 +861,15 @@ router.patch(
       const extraData: Record<string, unknown> = { status: req.body.status };
       const now = new Date();
       if (req.body.status === "CHECKED_IN") extraData.checkInAt = now;
+      // Reverting a row back to BOOKED clears the stale lifecycle fields so it
+      // reads as a fresh booking again: the arrival timestamp from a mistaken
+      // check-in, the no-show reason when undoing a NO_SHOW, and the cancel
+      // reason when restoring a CANCELLED appointment.
+      if (req.body.status === "BOOKED") {
+        extraData.checkInAt = null;
+        extraData.noShowReason = null;
+        extraData.cancellationReason = null;
+      }
       if (req.body.status === "IN_CONSULTATION") extraData.consultationStartedAt = now;
       if (req.body.status === "COMPLETED") extraData.consultationEndedAt = now;
       // Pearl §3.1 (gap closed 2026-05-29) — persist the cancel/no-show
@@ -858,6 +919,26 @@ router.patch(
 
       // Fire-and-forget notifications based on status
       if (req.body.status === "CANCELLED" && prev?.status !== "CANCELLED") {
+        // Mirror the cancellation reason into the threaded Remarks so it
+        // surfaces in the Remarks panel. Best-effort; staff only.
+        if (
+          req.body.cancellationReason &&
+          req.user &&
+          req.user.role !== Role.PATIENT
+        ) {
+          prisma.appointmentRemark
+            .create({
+              data: {
+                appointmentId: appointment.id,
+                authorUserId: req.user.userId,
+                parentRemarkId: null,
+                body: `Cancelled: ${req.body.cancellationReason}`,
+                visibility: "ALL_STAFF",
+                tenantId: req.tenantId ?? appointment.tenantId,
+              },
+            })
+            .catch(console.error);
+        }
         onAppointmentCancelled(appointment as any).catch(console.error);
         // Auto-notify next waitlisted patient for this doctor
         notifyNextInWaitlist(appointment.doctorId).catch(console.error);
@@ -874,6 +955,22 @@ router.patch(
 
       // No-show policy: increment counter + add fee when transitioning to NO_SHOW
       if (req.body.status === "NO_SHOW" && prev?.status !== "NO_SHOW") {
+        // Mirror the no-show reason into the threaded Remarks so it surfaces in
+        // the Remarks panel alongside the audit trail. Best-effort; staff only.
+        if (req.body.noShowReason && req.user && req.user.role !== Role.PATIENT) {
+          prisma.appointmentRemark
+            .create({
+              data: {
+                appointmentId: appointment.id,
+                authorUserId: req.user.userId,
+                parentRemarkId: null,
+                body: `Marked no-show: ${req.body.noShowReason}`,
+                visibility: "ALL_STAFF",
+                tenantId: req.tenantId ?? appointment.tenantId,
+              },
+            })
+            .catch(console.error);
+        }
         try {
           await prisma.patient.update({
             where: { id: appointment.patientId },
@@ -1010,42 +1107,71 @@ router.patch(
         return;
       }
 
-      // Verify the new slot is available for that doctor
-      const conflict = await prisma.appointment.findFirst({
-        where: {
-          doctorId: existing.doctorId,
-          date: dateObj,
-          slotStart,
-          status: { notIn: ["CANCELLED", "NO_SHOW"] },
-          id: { not: existing.id },
-        },
+      // Resolve the doctor's booking mode. TOKEN-mode doctors have no slot
+      // grid — a reschedule just moves the row to a new date and mints the
+      // next sequential token for that date (honouring the configured start
+      // number), so the patient joins the tail of that day's queue.
+      const doctor = await prisma.doctor.findUnique({
+        where: { id: existing.doctorId },
+        select: { appointmentMode: true, tokenStartNumber: true },
       });
+      const isTokenDoctor = doctor?.appointmentMode === "TOKEN";
+      const sameDate = existing.date.toISOString().split("T")[0] === date;
+      // TOKEN rows never store a slotStart; SLOT/CALLING keep the chosen one.
+      const effectiveSlot = isTokenDoctor ? null : slotStart;
 
-      if (conflict) {
-        res.status(409).json({
-          success: false,
-          data: null,
-          error: "The requested slot is already booked",
+      // Verify the new slot is available — only meaningful when an actual
+      // slot is being claimed (SLOT mode). TOKEN reschedules skip this.
+      if (effectiveSlot) {
+        const conflict = await prisma.appointment.findFirst({
+          where: {
+            doctorId: existing.doctorId,
+            date: dateObj,
+            slotStart: effectiveSlot,
+            status: { notIn: ["CANCELLED", "NO_SHOW"] },
+            id: { not: existing.id },
+          },
         });
-        return;
+
+        if (conflict) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: "The requested slot is already booked",
+          });
+          return;
+        }
       }
 
-      // Server-side guard mirroring the hidden slot grid: a confirmed
-      // (APPROVED) doctor leave on the target date blocks the reschedule
-      // even if the client posts a slotStart directly.
-      if (await isDoctorOnConfirmedLeave(existing.doctorId, dateObj)) {
-        res.status(409).json({
-          success: false,
-          data: null,
-          error: "Doctor is on leave on the selected date",
-        });
-        return;
+      // Token assignment on reschedule:
+      //   • Same date          → keep the existing token (no-op move).
+      //   • TOKEN doctor, new date → KEEP the patient's ORIGINAL token number
+      //     so their position relative to other moved patients is preserved
+      //     regardless of the order staff reschedule them (the one who held
+      //     the smaller token on the old day stays ahead on the new day).
+      //     Only if that exact number is already taken on the target date do
+      //     we fall back to the next free token at/after the configured start.
+      //   • SLOT/CALLING, new date → next sequential token for that date.
+      let tokenNumber: number | null;
+      if (sameDate) {
+        tokenNumber = existing.tokenNumber;
+      } else if (isTokenDoctor && existing.tokenNumber != null) {
+        const clash = await isTokenTakenOnDate(
+          existing.doctorId,
+          dateObj,
+          existing.tokenNumber,
+          existing.id,
+        );
+        tokenNumber = clash
+          ? await getNextToken(existing.doctorId, dateObj, doctor?.tokenStartNumber)
+          : existing.tokenNumber;
+      } else {
+        tokenNumber = await getNextToken(
+          existing.doctorId,
+          dateObj,
+          isTokenDoctor ? doctor?.tokenStartNumber : undefined,
+        );
       }
-
-      const tokenNumber =
-        existing.date.toISOString().split("T")[0] === date
-          ? existing.tokenNumber
-          : await getNextToken(existing.doctorId, dateObj);
 
       // Pearl §3.1 (gap closed 2026-05-29) — persist the reschedule
       // reason on the row (Zod enforces presence + length 3-500 at the
@@ -1054,7 +1180,7 @@ router.patch(
         where: { id: req.params.id },
         data: {
           date: dateObj,
-          slotStart,
+          slotStart: effectiveSlot,
           tokenNumber,
           rescheduleReason: req.body.reason,
         },
@@ -1069,6 +1195,26 @@ router.patch(
         },
       });
 
+      // Record the reschedule reason as a remark on the appointment so it
+      // surfaces in the threaded Remarks history (visible to staff) rather
+      // than only living in the rescheduleReason column / audit log. Best
+      // effort — a remark failure must not fail the reschedule itself.
+      if (req.user && req.user.role !== Role.PATIENT) {
+        const movedTo = effectiveSlot ? `${date} ${effectiveSlot}` : date;
+        prisma.appointmentRemark
+          .create({
+            data: {
+              appointmentId: appointment.id,
+              authorUserId: req.user.userId,
+              parentRemarkId: null,
+              body: `Rescheduled to ${movedTo}: ${req.body.reason}`,
+              visibility: "ALL_STAFF",
+              tenantId: req.tenantId ?? existing.tenantId,
+            },
+          })
+          .catch(console.error);
+      }
+
       const io = req.app.get("io");
       if (io) {
         io.to(`queue:${appointment.doctorId}`).emit("queue-updated", {
@@ -1082,7 +1228,7 @@ router.patch(
         oldDate: existing.date.toISOString().split("T")[0],
         oldSlotStart: existing.slotStart,
         newDate: date,
-        newSlotStart: slotStart,
+        newSlotStart: effectiveSlot,
         reason: req.body.reason,
       }).catch(console.error);
 
@@ -1162,6 +1308,15 @@ router.post(
             where: { doctorId, date: d },
             orderBy: { tokenNumber: "desc" },
           });
+          
+            if (await isDoctorOnConfirmedLeave(existing.doctorId, dateObj)) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Doctor is on leave on the selected date",
+        });
+        return;
+      }
           const tokenNumber = (last?.tokenNumber ?? 0) + 1;
 
           const apt = await tx.appointment.create({
@@ -1345,6 +1500,81 @@ router.get(
       res.json({
         success: true,
         data: { hasConflict: conflicts.length > 0, conflicts },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/appointments/next-token?doctorId=&date=YYYY-MM-DD
+// Preview the next sequential token a TOKEN-mode doctor would mint on a given
+// date. Reads the doctor's tokenPrefix / tokenStartNumber / dailyAppointmentLimit
+// from the DB so the booking confirm dialog can show the exact token (e.g.
+// "R5") that will be assigned, and flag when the daily cap is already reached.
+router.get(
+  "/next-token",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const doctorId = String(req.query.doctorId ?? "");
+      const dateStr = String(req.query.date ?? "");
+      if (!doctorId || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "doctorId and date (YYYY-MM-DD) are required",
+        });
+        return;
+      }
+      const doctor = await prisma.doctor.findUnique({
+        where: { id: doctorId },
+        select: {
+          appointmentMode: true,
+          tokenPrefix: true,
+          tokenStartNumber: true,
+          dailyAppointmentLimit: true,
+        },
+      });
+      if (!doctor) {
+        res.status(404).json({ success: false, data: null, error: "Doctor not found" });
+        return;
+      }
+      const dateObj = new Date(`${dateStr}T00:00:00.000Z`);
+      const dayStart = new Date(dateObj);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+      const bookedCount = await prisma.appointment.count({
+        where: {
+          doctorId,
+          date: { gte: dayStart, lt: dayEnd },
+          status: { notIn: ["CANCELLED", "NO_SHOW"] },
+        },
+      });
+      const dailyLimit = doctor.dailyAppointmentLimit ?? null;
+      const limitReached = dailyLimit !== null && bookedCount >= dailyLimit;
+      let tokenNumber: number | null = null;
+      let tokenLabel: string | null = null;
+      if (doctor.appointmentMode === "TOKEN" && !limitReached) {
+        tokenNumber = await getNextToken(doctorId, dateObj, doctor.tokenStartNumber);
+        // Hyphenate prefix + number for the booking-confirm preview (e.g.
+        // "R-5"); bare number when no prefix is configured.
+        tokenLabel = doctor.tokenPrefix
+          ? `${doctor.tokenPrefix}-${tokenNumber}`
+          : `${tokenNumber}`;
+      }
+      res.json({
+        success: true,
+        data: {
+          mode: doctor.appointmentMode,
+          tokenNumber,
+          tokenLabel,
+          dailyLimit,
+          bookedCount,
+          limitReached,
+        },
         error: null,
       });
     } catch (err) {

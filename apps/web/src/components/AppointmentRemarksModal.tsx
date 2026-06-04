@@ -14,7 +14,7 @@
 //   (we display the parent's visibility instead and let the server
 //   enforce inheritance).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
@@ -62,6 +62,37 @@ const VISIBILITY_ICON: Record<Visibility, React.ComponentType<{ size?: number; c
   PRIVATE: Lock,
 };
 
+// Human-readable, colour-coded author-role badges (raw enums like "LAB_TECH"
+// read poorly in the thread). Unknown roles fall back to Title Case + grey.
+const ROLE_LABEL: Record<string, string> = {
+  DOCTOR: "Doctor",
+  ADMIN: "Admin",
+  SUPER_ADMIN: "Super Admin",
+  RECEPTION: "Reception",
+  NURSE: "Nurse",
+  PHARMACIST: "Pharmacist",
+  LAB_TECH: "Lab Tech",
+  PATIENT: "Patient",
+};
+const ROLE_BADGE: Record<string, string> = {
+  DOCTOR: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  ADMIN: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  SUPER_ADMIN: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  RECEPTION: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+  NURSE: "bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300",
+  PHARMACIST: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  LAB_TECH: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300",
+};
+function roleLabel(role: string): string {
+  return (
+    ROLE_LABEL[role] ??
+    role
+      .split("_")
+      .map((w) => w.charAt(0) + w.slice(1).toLowerCase())
+      .join(" ")
+  );
+}
+
 function formatRelative(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60_000);
@@ -102,9 +133,16 @@ export function AppointmentRemarksModal({ appointmentId, patientName, onClose }:
     }
   }, [appointmentId]);
 
+  // Fetch exactly once per appointment. The ref guard neutralises React
+  // StrictMode's deliberate double-invocation of effects in development (which
+  // otherwise fires the GET /remarks request twice for a single open) while
+  // still re-fetching if the modal is reused for a different appointmentId.
+  const loadedForRef = useRef<string | null>(null);
   useEffect(() => {
+    if (loadedForRef.current === appointmentId) return;
+    loadedForRef.current = appointmentId;
     void load();
-  }, [load]);
+  }, [appointmentId, load]);
 
   const handleSubmit = async () => {
     if (!body.trim() || submitting) return;
@@ -412,33 +450,45 @@ function RemarkRow({
     <div className="text-sm">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1">
-          <div className="mb-0.5 flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <span className="font-medium text-gray-700 dark:text-gray-200">
+          <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {remark.author?.name ?? "Unknown"}
             </span>
             {remark.author?.role && (
-              <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                {remark.author.role}
-              </span>
-            )}
-            <span title={new Date(remark.createdAt).toLocaleString()}>
-              · {formatRelative(remark.createdAt)}
-            </span>
-            {remark.editedAt && <span className="italic">· edited</span>}
-            {remark.isPinned && (
-              <span className="flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-                <Pin size={10} /> pinned
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  ROLE_BADGE[remark.author.role] ??
+                  "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                }`}
+              >
+                {roleLabel(remark.author.role)}
               </span>
             )}
             <span
-              className="flex items-center gap-0.5 text-[10px]"
+              className="text-xs text-gray-400 dark:text-gray-500"
+              title={new Date(remark.createdAt).toLocaleString()}
+            >
+              {formatRelative(remark.createdAt)}
+            </span>
+            {remark.editedAt && (
+              <span className="text-xs italic text-gray-400 dark:text-gray-500">
+                edited
+              </span>
+            )}
+            {remark.isPinned && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                <Pin size={10} /> Pinned
+              </span>
+            )}
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700/60 dark:text-gray-400"
               title={VISIBILITY_LABEL[remark.visibility]}
             >
               <VIcon size={10} />
               {VISIBILITY_LABEL[remark.visibility]}
             </span>
           </div>
-          <p className="whitespace-pre-wrap text-gray-900 dark:text-gray-100">
+          <p className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-100">
             {remark.body}
           </p>
         </div>

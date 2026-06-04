@@ -139,6 +139,23 @@ export function EntityPicker({
   const [results, setResults] = useState<Record<string, unknown>[]>([]);
   const [chosenLabel, setChosenLabel] = useState<string>(initialLabel ?? "");
   const lastReqId = useRef(0);
+  // Infinite-scroll pagination: the debounced search loads page 1; scrolling
+  // near the bottom of the dropdown appends the next page until the backend
+  // returns a short (or empty/duplicate) batch.
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Build the list URL for a given page (joins onto endpoints that already
+  // carry a query string with `&`).
+  const buildUrl = (pageNum: number) => {
+    const params = new URLSearchParams();
+    params.set(searchParam, query.trim());
+    params.set("limit", String(limit));
+    params.set("page", String(pageNum));
+    const sep = endpoint.includes("?") ? "&" : "?";
+    return `${endpoint}${sep}${params.toString()}`;
+  };
 
   // If the parent passes an `initialLabel` after-the-fact (e.g. async load),
   // mirror it.
@@ -175,32 +192,67 @@ export function EntityPicker({
     }
     const reqId = ++lastReqId.current;
     setLoading(true);
+    setPage(1);
+    setHasMore(false);
     const t = setTimeout(async () => {
       try {
-        const params = new URLSearchParams();
-        params.set(searchParam, q);
-        params.set("limit", String(limit));
         // Pre-filter endpoints (e.g. prescriptions' appointment picker scoped
-        // by patientId+date+status) already contain a `?`. A second `?` is
-        // illegal and causes Express to fold everything after the first `?`
-        // into a single query value — which produced the
-        // `status=IN_PROGRESS?search=e` enum-validation 500 surfaced from
-        // appointments.ts. Use `&` when joining onto an endpoint that
-        // already has a query string.
-        const sep = endpoint.includes("?") ? "&" : "?";
+        // by patientId+date+status) already contain a `?`; `buildUrl` joins
+        // with `&` in that case so we never produce a double-`?` (which folds
+        // everything after the first `?` into one value — the
+        // `status=IN_PROGRESS?search=e` 500 from appointments.ts).
         const res = await api.get<ApiEnvelope<Record<string, unknown>>>(
-          `${endpoint}${sep}${params.toString()}`
+          buildUrl(1)
         );
         if (reqId !== lastReqId.current) return; // raced
-        setResults(Array.isArray(res.data) ? res.data : []);
+        const batch = Array.isArray(res.data) ? res.data : [];
+        setResults(batch);
+        // A full page implies there may be more — scrolling will fetch it.
+        setHasMore(batch.length === limit);
       } catch {
-        if (reqId === lastReqId.current) setResults([]);
+        if (reqId === lastReqId.current) {
+          setResults([]);
+          setHasMore(false);
+        }
       } finally {
         if (reqId === lastReqId.current) setLoading(false);
       }
     }, 250);
     return () => clearTimeout(t);
   }, [query, value, chosenLabel, endpoint, searchParam, limit, minQueryLength, open]);
+
+  // Fetch + append the next page when the user scrolls to the bottom of the
+  // dropdown. Dedupes by id and stops when a short or no-new batch arrives
+  // (also guards endpoints that ignore `page` and re-return page 1).
+  async function loadMore() {
+    if (loadingMore || loading || !hasMore) return;
+    const next = page + 1;
+    setLoadingMore(true);
+    try {
+      const res = await api.get<ApiEnvelope<Record<string, unknown>>>(
+        buildUrl(next)
+      );
+      const batch = Array.isArray(res.data) ? res.data : [];
+      setResults((prev) => {
+        const seen = new Set(prev.map((r) => readPath(r, "id")));
+        const fresh = batch.filter((r) => {
+          const id = readPath(r, "id");
+          return id && !seen.has(id);
+        });
+        if (fresh.length === 0) {
+          setHasMore(false);
+          return prev;
+        }
+        return [...prev, ...fresh];
+      });
+      setPage(next);
+      if (batch.length < limit) setHasMore(false);
+    } catch {
+      // Keep what we have; allow a retry on the next scroll.
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const showDropdown = useMemo(
     // Issue #978: same gating as the search effect above — we want the
@@ -275,6 +327,14 @@ export function EntityPicker({
         <ul
           role="listbox"
           data-testid={`${testIdPrefix}-dropdown`}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (
+              el.scrollHeight - el.scrollTop - el.clientHeight < 48
+            ) {
+              void loadMore();
+            }
+          }}
           className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900"
         >
           {loading && (
@@ -335,6 +395,14 @@ export function EntityPicker({
                 </li>
               );
             })}
+          {loadingMore && (
+            <li
+              className="flex items-center gap-2 px-3 py-2 text-xs text-gray-500"
+              data-testid={`${testIdPrefix}-loading-more`}
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading more…
+            </li>
+          )}
         </ul>
       )}
     </div>

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -66,16 +67,6 @@ function RiskBadge({ level }: { level: "low" | "medium" | "high" }) {
     >
       {labels[level]}
     </span>
-  );
-}
-
-// ─── Spinner ──────────────────────────────────────────────────────────────────
-
-function Spinner() {
-  return (
-    <div className="flex items-center justify-center py-20">
-      <RefreshCw className="w-7 h-7 text-indigo-500 dark:text-indigo-400 animate-spin" />
-    </div>
   );
 }
 
@@ -325,7 +316,18 @@ export default function PredictionsPage() {
         </div>
 
         {/* Loading */}
-        {loading && <Spinner />}
+        {loading && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <SkeletonCard key={i} />
+              ))}
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden p-4 dark:bg-gray-800 dark:border-white/10 dark:shadow-none">
+              <SkeletonTable rows={6} columns={7} />
+            </div>
+          </div>
+        )}
 
         {/* Error */}
         {!loading && error && (

@@ -23,6 +23,7 @@ import Link from "next/link";
 import { MessageCircle, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { Skeleton } from "@/components/Skeleton";
 
 type ConversationStatus = "OPEN" | "SNOOZED" | "CLOSED";
 type FilterValue = ConversationStatus | "ALL";
@@ -252,18 +253,24 @@ export default function WhatsAppInboxPage() {
       ) : null}
 
       {loading ? (
-        <div
+        <ul
           data-testid="wa-inbox-loading"
           aria-busy="true"
-          className="space-y-2"
+          className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"
         >
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="h-20 animate-pulse rounded-md border border-slate-200 bg-slate-50"
-            />
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <li key={i} className="flex items-center justify-between gap-3 px-4 py-3">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton variant="text" width="40%" />
+                <Skeleton variant="text" width="60%" />
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <Skeleton variant="rect" width={64} height={20} className="rounded-full" />
+                <Skeleton variant="text" width={48} />
+              </div>
+            </li>
           ))}
-        </div>
+        </ul>
       ) : rows.length === 0 ? (
         <div
           data-testid="wa-inbox-empty"

@@ -22,6 +22,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { Package, ArrowRight, ArrowLeft, RefreshCw } from "lucide-react";
+import { Skeleton, SkeletonCard } from "@/components/Skeleton";
 
 type KanbanStatus =
   | "PENDING"
@@ -275,10 +276,20 @@ export default function PharmacyKanbanPage() {
           data-testid="pharmacy-kanban-skeleton"
         >
           {ACTIVE_COLUMNS.map((col) => (
-            <div
+            <section
               key={col.key}
-              className="h-64 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-700"
-            />
+              className={`rounded-xl border-t-4 bg-white p-3 shadow-sm dark:bg-gray-800 ${col.accent}`}
+            >
+              <header className="mb-3 flex items-center justify-between">
+                <Skeleton variant="text" width="40%" />
+                <Skeleton variant="rect" width={24} height={18} className="rounded-full" />
+              </header>
+              <div className="space-y-2">
+                <SkeletonCard />
+                <SkeletonCard />
+                <SkeletonCard />
+              </div>
+            </section>
           ))}
         </div>
       ) : !payload ? (

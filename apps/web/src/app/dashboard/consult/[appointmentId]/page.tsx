@@ -25,6 +25,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { ConsultRightRail } from "@/components/ConsultRightRail";
+import { Skeleton, SkeletonText } from "@/components/Skeleton";
 import { Pill, FlaskConical } from "lucide-react";
 
 interface AppointmentDetail {
@@ -588,8 +589,46 @@ export default function ConsultPage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center p-8">
-        <p className="text-gray-500 dark:text-gray-400">Loading consult…</p>
+      <div className="flex h-[calc(100vh-4rem)] flex-col bg-gray-50 dark:bg-gray-900">
+        {/* Header skeleton */}
+        <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-800 sm:px-6 sm:py-4">
+          <Skeleton variant="circle" width={36} height={36} />
+          <div className="flex-1 space-y-2">
+            <Skeleton variant="text" width="40%" />
+            <Skeleton variant="text" width="60%" />
+          </div>
+          <Skeleton variant="rect" width={120} height={40} className="rounded-lg" />
+        </header>
+
+        <div className="flex flex-1 min-h-0 flex-col md:flex-row">
+          {/* Left rail skeleton */}
+          <aside className="w-full shrink-0 border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 md:w-56 md:border-b-0 md:border-r xl:w-72 xl:p-5">
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-100 p-4 dark:border-gray-700">
+              <Skeleton variant="circle" width={56} height={56} />
+              <Skeleton variant="text" width="70%" />
+              <Skeleton variant="text" width="40%" />
+            </div>
+            <div className="mt-4 space-y-4">
+              <SkeletonText lines={2} />
+              <SkeletonText lines={3} />
+            </div>
+          </aside>
+
+          {/* Centre skeleton */}
+          <main className="flex w-full flex-1 min-w-0 flex-col">
+            <div className="flex gap-1 border-b border-gray-200 bg-white px-3 py-3 dark:border-gray-700 dark:bg-gray-800 sm:px-6">
+              {["S", "O", "A", "P"].map((t) => (
+                <Skeleton key={t} variant="rect" width={72} height={20} className="rounded" />
+              ))}
+            </div>
+            <div className="p-3 sm:p-5 lg:p-6">
+              <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+                <Skeleton variant="text" width="30%" className="mb-4" />
+                <SkeletonText lines={5} />
+              </div>
+            </div>
+          </main>
+        </div>
       </div>
     );
   }

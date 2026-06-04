@@ -25,6 +25,7 @@ import {
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { Skeleton, SkeletonText, SkeletonTable } from "@/components/Skeleton";
 
 // Server-driven feature catalog row. The shape mirrors the response from
 // GET /api/v1/super-admin/tenants/:id/feature-flags — that endpoint
@@ -171,7 +172,24 @@ export default function TenantConfigPage() {
 
   if (loading && !tenant) {
     return (
-      <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">Loading…</div>
+      <div data-testid="tenant-config-loading" className="space-y-6">
+        <Skeleton variant="text" width="8rem" />
+        <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex-1 space-y-2">
+            <Skeleton variant="text" width="50%" height={28} />
+            <SkeletonText lines={2} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Skeleton variant="rect" width={96} height={44} className="rounded-md" />
+            <Skeleton variant="rect" width={120} height={44} className="rounded-md" />
+            <Skeleton variant="rect" width={120} height={44} className="rounded-md" />
+          </div>
+        </header>
+        <Skeleton variant="rect" width="100%" height={40} className="rounded-lg" />
+        <div className="overflow-x-auto rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
+          <SkeletonTable rows={6} columns={5} />
+        </div>
+      </div>
     );
   }
 

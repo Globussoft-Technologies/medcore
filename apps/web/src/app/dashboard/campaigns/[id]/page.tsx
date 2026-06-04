@@ -35,6 +35,7 @@ import {
   Save,
   X,
 } from "lucide-react";
+import { SkeletonCard, SkeletonText } from "@/components/Skeleton";
 
 type CampaignKind = "BROADCAST" | "DRIP" | "TRIGGER" | "COHORT_REMINDER";
 type CampaignStatus =
@@ -310,8 +311,18 @@ export default function CampaignDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-4 h-4 w-32">
+          <SkeletonText lines={1} />
+        </div>
+        <div className="mb-6">
+          <SkeletonText lines={2} />
+        </div>
+        <div className="grid gap-6 md:grid-cols-2">
+          <SkeletonCard className="h-64" />
+          <SkeletonCard className="h-64" />
+        </div>
+        <SkeletonCard className="mt-6 h-40" />
       </div>
     );
   }

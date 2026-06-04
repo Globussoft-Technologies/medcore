@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Megaphone, Plus, Loader2 } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 type CampaignKind = "BROADCAST" | "DRIP" | "TRIGGER" | "COHORT_REMINDER";
 type CampaignStatus =
@@ -205,8 +206,8 @@ export default function CampaignsPage() {
       </div>
 
       {loading && (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+          <SkeletonTable rows={6} columns={6} />
         </div>
       )}
 

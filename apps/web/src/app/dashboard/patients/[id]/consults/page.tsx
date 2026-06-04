@@ -19,6 +19,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { ArrowLeft, FileText, User, Calendar } from "lucide-react";
+import { SkeletonCard, SkeletonText } from "@/components/Skeleton";
 
 interface DiagnosisCode {
   code: string;
@@ -168,9 +169,25 @@ export default function PatientConsultsPage() {
         {/* Content */}
         <div className="mt-6 space-y-5">
           {loading && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Loading consult history…
-            </p>
+            <div
+              data-testid="consults-skeleton"
+              className="space-y-5"
+              aria-busy="true"
+            >
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <div className="mb-4 grid gap-4 sm:grid-cols-3">
+                    <SkeletonCard />
+                    <SkeletonCard />
+                    <SkeletonCard />
+                  </div>
+                  <SkeletonText lines={3} />
+                </div>
+              ))}
+            </div>
           )}
           {!loading && rows && rows.length === 0 && (
             <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-800">

@@ -22,6 +22,7 @@ import { Eye, EyeOff, Save, MessageCircle, AlertCircle } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { Skeleton, SkeletonText } from "@/components/Skeleton";
 
 type Provider = "GUPSHUP" | "WATI" | "AISENSEI" | "INTERAKT" | "META";
 
@@ -266,8 +267,21 @@ export default function WhatsAppSettingsPage() {
         <div
           data-testid="wa-settings-loading"
           aria-busy="true"
-          className="h-44 animate-pulse rounded-md border border-slate-200 bg-slate-50"
-        />
+          className="space-y-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <div className="space-y-2">
+            <Skeleton variant="text" width="20%" />
+            <Skeleton variant="rect" height={44} className="rounded-md" />
+          </div>
+          <div className="space-y-2">
+            <Skeleton variant="text" width="20%" />
+            <Skeleton variant="rect" height={44} className="rounded-md" />
+          </div>
+          <SkeletonText lines={2} />
+          <div className="flex justify-end">
+            <Skeleton variant="rect" width={120} height={44} className="rounded-md" />
+          </div>
+        </div>
       ) : (
         <div className="space-y-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           {!configured ? (

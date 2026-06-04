@@ -9,6 +9,7 @@ import { useConfirm } from "@/lib/use-dialog";
 import { extractFieldErrors } from "@/lib/field-errors";
 import { sanitizeUserInput } from "@medcore/shared";
 import { PasswordInput } from "@/components/PasswordInput";
+import { Skeleton, SkeletonText } from "@/components/Skeleton";
 import {
   User as UserIcon,
   Shield,
@@ -1228,8 +1229,14 @@ function BrandingTab() {
 
   if (loading) {
     return (
-      <div className="rounded-xl bg-white p-6 text-sm text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-        Loading branding…
+      <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+        <Skeleton variant="text" width="30%" height={20} className="mb-2" />
+        <Skeleton variant="text" width="60%" className="mb-4" />
+        <div className="grid gap-6 md:grid-cols-2">
+          <SkeletonText lines={2} />
+          <SkeletonText lines={2} />
+          <SkeletonText lines={2} />
+        </div>
       </div>
     );
   }
@@ -1382,8 +1389,23 @@ function IntegrationsTab() {
 
   if (loading) {
     return (
-      <div className="rounded-xl bg-white p-6 text-sm text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-        Loading integrations…
+      <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+        <Skeleton variant="text" width="30%" height={20} className="mb-2" />
+        <Skeleton variant="text" width="60%" className="mb-4" />
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3 dark:border-gray-700"
+            >
+              <div className="flex-1 space-y-2">
+                <Skeleton variant="text" width="40%" />
+                <Skeleton variant="text" width="25%" />
+              </div>
+              <Skeleton variant="rect" width={44} height={24} className="rounded-full" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }

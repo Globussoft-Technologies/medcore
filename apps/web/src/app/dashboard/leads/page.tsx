@@ -22,6 +22,7 @@ import {
   type LeadSource,
 } from "@medcore/shared";
 import { Plus, Search, UserCheck } from "lucide-react";
+import { SkeletonRow } from "@/components/Skeleton";
 
 // Issue #1002 — mirror the server schema (packages/shared/src/validation/leads.ts
 // createLeadSchema) on the client so users get immediate feedback before the
@@ -325,11 +326,9 @@ export default function LeadsPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr>
-                <td colSpan={7} className="p-8 text-center text-gray-500">
-                  Loading…
-                </td>
-              </tr>
+              Array.from({ length: 6 }).map((_, i) => (
+                <SkeletonRow key={i} columns={7} />
+              ))
             ) : leads.length === 0 ? (
               <tr>
                 <td colSpan={7} className="p-8 text-center text-gray-500">

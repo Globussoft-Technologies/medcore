@@ -38,6 +38,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { Skeleton, SkeletonText, SkeletonCard } from "@/components/Skeleton";
 
 interface TenantStats {
   userCount: number;
@@ -289,8 +290,30 @@ export default function DashboardTenantDetailPage() {
 
   if (loading && !tenant) {
     return (
-      <div className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">
-        Loading tenant…
+      <div data-testid="tenant-detail-loading" className="space-y-6">
+        <Skeleton variant="text" width="8rem" />
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex-1 space-y-2">
+            <Skeleton variant="text" width="40%" height={28} />
+            <SkeletonText lines={1} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Skeleton variant="rect" width={96} height={44} className="rounded-md" />
+            <Skeleton variant="rect" width={120} height={44} className="rounded-md" />
+          </div>
+        </header>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Skeleton key={i} variant="rect" width="100%" height={64} className="rounded-lg" />
+          ))}
+        </div>
+        <SkeletonCard />
+        <SkeletonCard />
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       </div>
     );
   }

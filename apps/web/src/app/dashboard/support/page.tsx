@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { csrfFetch } from "@/lib/csrf-fetch";
 import { toast } from "@/lib/toast";
+import { SkeletonRow } from "@/components/Skeleton";
 
 type TicketStatus =
   | "OPEN"
@@ -347,6 +348,11 @@ export default function TenantSupportPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
+            {loading && tickets.length === 0
+              ? Array.from({ length: 6 }).map((_, i) => (
+                  <SkeletonRow key={`skeleton-${i}`} columns={6} />
+                ))
+              : null}
             {tickets.length === 0 && !loading ? (
               <tr>
                 <td

@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { Plus, Package, Search } from "lucide-react";
+import { SkeletonTable } from "@/components/Skeleton";
 
 interface InventoryItem {
   id: string;
@@ -365,15 +366,11 @@ export default function PharmacyPage() {
       <div className="overflow-x-auto rounded-xl bg-white text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
         {loading ? (
           // Issue #367 (Apr 30 2026): replaced the bare "Loading..." line
-          // with a row skeleton so the Returns / Transfers tabs no longer
-          // look frozen during their initial fetch.
+          // with a skeleton screen so the Returns / Transfers tabs no longer
+          // look frozen during their initial fetch. Now built from the shared
+          // Skeleton kit (SkeletonTable) for a consistent loading visual.
           <div className="p-4" data-testid={`pharmacy-${tab}-skeleton`}>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className="mb-2 h-8 animate-pulse rounded bg-gray-100 dark:bg-gray-700"
-              />
-            ))}
+            <SkeletonTable rows={6} columns={7} />
           </div>
         ) : tab === "movements" ? (
           movements.length === 0 ? (

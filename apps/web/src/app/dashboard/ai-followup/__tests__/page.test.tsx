@@ -70,15 +70,14 @@ describe("Smart Follow-up Suggestions dashboard page", () => {
     toastErrorMock.mockReset();
   });
 
-  it("shows the spinner while /ai/followup/consultations is pending", async () => {
+  it("shows a skeleton while /ai/followup/consultations is pending", async () => {
     apiGetMock.mockImplementation(() => new Promise(() => {}));
     render(<AIFollowupPage />);
 
-    // The Loader2 icon (lucide-react) is the only animate-spin element on the
-    // page during loading; scope to .animate-spin to assert presence without
-    // relying on text content.
+    // Loading now renders the shared Skeleton kit (.mc-skeleton) instead of a
+    // Loader2 spinner.
     await waitFor(() =>
-      expect(document.querySelector(".animate-spin")).toBeInTheDocument(),
+      expect(document.querySelector(".mc-skeleton")).toBeInTheDocument(),
     );
 
     // Header chrome is rendered regardless of fetch state.

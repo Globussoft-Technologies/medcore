@@ -120,8 +120,13 @@ describeIfDB("Pharmacy Kanban — gap row 104 (Pearl §4.3)", () => {
 
   it("READY → DISPENSED draws down inventory (FEFO) + records a DISPENSED movement", async () => {
     // Seed a medicine + stock that matches the default Rx line
-    // ("Paracetamol 500mg", duration "5 days" → qty 5).
-    const med = await createMedicineFixture({ name: "Paracetamol 500mg" });
+    // ("Paracetamol 500mg", duration "5 days" → qty 5). Medicine.name is
+    // unique and the DB is reset once-per-file, so reuse the row if a sibling
+    // test already created it.
+    const med =
+      (await prisma.medicine.findFirst({
+        where: { name: "Paracetamol 500mg" },
+      })) ?? (await createMedicineFixture({ name: "Paracetamol 500mg" }));
     const inv = await createInventoryFixture({
       medicineId: med.id,
       overrides: { quantity: 100 },
@@ -153,7 +158,11 @@ describeIfDB("Pharmacy Kanban — gap row 104 (Pearl §4.3)", () => {
   });
 
   it("dispensing is idempotent — no double-decrement if stock was already drawn down", async () => {
-    const med = await createMedicineFixture({ name: "Paracetamol 500mg" });
+    // Reuse the unique-named medicine if the sibling test already created it.
+    const med =
+      (await prisma.medicine.findFirst({
+        where: { name: "Paracetamol 500mg" },
+      })) ?? (await createMedicineFixture({ name: "Paracetamol 500mg" }));
     const inv = await createInventoryFixture({
       medicineId: med.id,
       overrides: { quantity: 100 },

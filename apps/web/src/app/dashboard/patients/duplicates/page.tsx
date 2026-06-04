@@ -31,6 +31,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { SkeletonTable } from "@/components/Skeleton";
 
 // Mirror the API allow-list (routes/patients-merge.ts authorize() call).
 const VIEW_ALLOWED = new Set(["ADMIN"]);
@@ -213,9 +214,12 @@ export default function PatientsDuplicatesPage() {
       </div>
 
       {loading ? (
-        <p data-testid="dup-loading" className="text-sm text-gray-500">
-          Loading duplicates…
-        </p>
+        <div
+          data-testid="dup-loading"
+          className="overflow-hidden rounded-xl border bg-white"
+        >
+          <SkeletonTable rows={6} columns={6} />
+        </div>
       ) : groups.length === 0 ? (
         <div
           data-testid="dup-empty"

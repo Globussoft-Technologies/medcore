@@ -28,6 +28,7 @@ import { ArrowLeft, Check, Pause, RotateCcw, XCircle, UserPlus, Send } from "luc
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { Skeleton } from "@/components/Skeleton";
 
 type ConversationStatus = "OPEN" | "SNOOZED" | "CLOSED";
 type MessageDirection = "INBOUND" | "OUTBOUND";
@@ -517,8 +518,21 @@ export default function WhatsAppThreadPage() {
         <div
           data-testid="wa-thread-loading"
           aria-busy="true"
-          className="h-44 animate-pulse rounded-md border border-slate-200 bg-slate-50"
-        />
+          className="space-y-3"
+        >
+          <div className="flex justify-start">
+            <Skeleton variant="rect" width="60%" height={48} className="rounded-lg" />
+          </div>
+          <div className="flex justify-end">
+            <Skeleton variant="rect" width="55%" height={40} className="rounded-lg" />
+          </div>
+          <div className="flex justify-start">
+            <Skeleton variant="rect" width="70%" height={56} className="rounded-lg" />
+          </div>
+          <div className="flex justify-end">
+            <Skeleton variant="rect" width="45%" height={40} className="rounded-lg" />
+          </div>
+        </div>
       ) : (
         <div data-testid="wa-thread-messages" className="space-y-3">
           {olderCursor ? (

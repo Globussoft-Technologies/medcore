@@ -223,15 +223,17 @@ describe("Leads dashboard page (CRM pipeline)", () => {
     expect(apiMock.get).not.toHaveBeenCalled();
   });
 
-  it('renders the "Loading…" placeholder while the initial fetch is pending', async () => {
+  it("renders a skeleton placeholder while the initial fetch is pending", async () => {
     apiMock.get.mockImplementation(() => new Promise(() => {}));
     render(<LeadsPage />);
 
     expect(
       screen.getByRole("heading", { name: /^Leads$/i }),
     ).toBeInTheDocument();
+    // Loading now renders skeleton rows (.mc-skeleton) instead of a "Loading…"
+    // text placeholder.
     await waitFor(() =>
-      expect(screen.getByText(/^Loading…$/)).toBeInTheDocument(),
+      expect(document.querySelector(".mc-skeleton")).toBeInTheDocument(),
     );
   });
 

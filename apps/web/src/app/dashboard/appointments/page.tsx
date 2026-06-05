@@ -13,6 +13,8 @@ import {
   appointmentRefLabel,
   displayStatusForAppointment,
   formatAppointmentTime,
+  isAppointmentPast,
+  isAppointmentToday,
 } from "@/lib/appointments";
 import { SkeletonTable, SkeletonCard } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
@@ -158,7 +160,19 @@ const STATUS_COLORS: Record<string, string> = {
   IN_CONSULTATION: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
   COMPLETED: "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200",
   CANCELLED: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
-  NO_SHOW: "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200",
+  NO_SHOW: "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
+};
+
+// SELECTED filter chip — a clean, medium-saturation fill in the status colour
+// with white text + a subtle ring & shadow. Vivid enough to read as "active"
+// without the harshness of the darkest shade, and consistent in light/dark.
+const STATUS_CHIP_ACTIVE: Record<string, string> = {
+  BOOKED: "bg-blue-500 text-white ring-1 ring-blue-600 shadow-sm",
+  CHECKED_IN: "bg-amber-500 text-white ring-1 ring-amber-600 shadow-sm",
+  IN_CONSULTATION: "bg-emerald-500 text-white ring-1 ring-emerald-600 shadow-sm",
+  COMPLETED: "bg-gray-500 text-white ring-1 ring-gray-600 shadow-sm",
+  CANCELLED: "bg-red-500 text-white ring-1 ring-red-600 shadow-sm",
+  NO_SHOW: "bg-orange-500 text-white ring-1 ring-orange-600 shadow-sm",
 };
 
 const STATUS_BLOCK_COLORS: Record<string, string> = {
@@ -167,7 +181,7 @@ const STATUS_BLOCK_COLORS: Record<string, string> = {
   IN_CONSULTATION: "bg-green-500 border-green-600",
   COMPLETED: "bg-gray-400 border-gray-500",
   CANCELLED: "bg-red-500 border-red-600",
-  NO_SHOW: "bg-slate-400 border-slate-500",
+  NO_SHOW: "bg-orange-500 border-orange-600",
 };
 
 const STATUS_HEX: Record<string, string> = {
@@ -176,7 +190,7 @@ const STATUS_HEX: Record<string, string> = {
   IN_CONSULTATION: "#22c55e",
   COMPLETED: "#6b7280",
   CANCELLED: "#ef4444",
-  NO_SHOW: "#64748b",
+  NO_SHOW: "#f97316",
 };
 
 const ALL_STATUSES = [
@@ -187,6 +201,31 @@ const ALL_STATUSES = [
   "CANCELLED",
   "NO_SHOW",
 ];
+
+// Status filter chips that don't make sense for a non-today date:
+//   - PAST date:   no pending states at all — once the day is over a waiting
+//     appointment reads as NO_SHOW (see displayStatusForAppointment), so hide
+//     BOOKED / CHECKED IN / IN CONSULTATION.
+//   - FUTURE date: a patient can be BOOKED ahead, but it can't be CHECKED IN,
+//     IN CONSULTATION or COMPLETED yet — hide those.
+const PAST_HIDDEN_STATUSES = new Set([
+  "BOOKED",
+  "CHECKED_IN",
+  "IN_CONSULTATION",
+]);
+const FUTURE_HIDDEN_STATUSES = new Set([
+  "CHECKED_IN",
+  "IN_CONSULTATION",
+  "COMPLETED",
+]);
+
+/** Status chips to hide for the selected date relative to today. */
+function hiddenStatusesFor(filterDate: string): Set<string> {
+  const today = toISODate(new Date());
+  if (filterDate < today) return PAST_HIDDEN_STATUSES;
+  if (filterDate > today) return FUTURE_HIDDEN_STATUSES;
+  return new Set();
+}
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -534,6 +573,15 @@ export default function AppointmentsPage() {
   const [restoreId, setRestoreId] = useState<string | null>(null);
   const [restoreReason, setRestoreReason] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  // Some status chips are hidden for non-today dates (no pending on a past day;
+  // no checked-in/in-consult on a future day). If the active filter becomes
+  // hidden after the user changes date, fall back to "ALL" so the list isn't
+  // left showing an empty, no-longer-selectable filter.
+  useEffect(() => {
+    if (hiddenStatusesFor(filterDate).has(statusFilter)) {
+      setStatusFilter("ALL");
+    }
+  }, [filterDate, statusFilter]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -597,6 +645,11 @@ export default function AppointmentsPage() {
     label: string | null;
     limitReached: boolean;
   } | null>(null);
+  // The target doctor's booking mode for the reschedule (SLOT / TOKEN /
+  // CALLING). Only SLOT shows the timed slot grid; TOKEN and CALLING reschedule
+  // without a time — the patient simply joins the target day's queue/token
+  // order. null until the next-token preview resolves.
+  const [reschedMode, setReschedMode] = useState<string | null>(null);
 
   // Pearl §2.1.7 — remarks modal target (single appointment).
   const [remarksTarget, setRemarksTarget] = useState<Appointment | null>(null);
@@ -1100,9 +1153,45 @@ export default function AppointmentsPage() {
   };
   function buildStatusActions(apt: Appointment): RowStatusAction[] {
     const actions: RowStatusAction[] = [];
+    // Gate on the EFFECTIVE (displayed) status, not the raw one — a row that
+    // renders as NO_SHOW must offer the no-show actions, not the
+    // BOOKED/CHECKED_IN ones.
+    const effStatus = displayStatusForAppointment({
+      status: apt.status,
+      slotStart: apt.slotStart,
+      date: apt.date,
+    });
+    // A past appointment is terminal — you can't un-miss it (rebook instead) —
+    // so it offers nothing ("No actions available").
+    if (isAppointmentPast({ slotStart: apt.slotStart, date: apt.date })) {
+      return actions;
+    }
+    // A FUTURE (upcoming) appointment hasn't happened yet, so the day-of
+    // reversal/undo actions don't apply. The only sensible status actions are
+    // to cancel the booking or flag it as a no-show ahead of time. (Doctors /
+    // nurses don't get the inline Cancel button, so it's exposed here.)
+    if (!isAppointmentToday({ date: apt.date })) {
+      if (!isPatient && effStatus === "BOOKED") {
+        actions.push({
+          key: "noshow",
+          label: "Mark No-show",
+          ariaLabel: `Mark no-show for ${apt.patient.user.name}`,
+          onClick: () => setNoShowId(apt.id),
+          tone: "warn",
+        });
+        actions.push({
+          key: "cancel",
+          label: "Cancel",
+          ariaLabel: `Cancel appointment for ${apt.patient.user.name}`,
+          onClick: () => handleCancelClick(apt.id),
+          tone: "warn",
+        });
+      }
+      return actions;
+    }
     // Mark no-show — patient hasn't checked in (still BOOKED); any staff can
     // flag them as a no-show. Opens a reason dialog (server requires a reason).
-    if (!isPatient && apt.status === "BOOKED") {
+    if (!isPatient && effStatus === "BOOKED") {
       actions.push({
         key: "noshow",
         label: "Mark No-show",
@@ -1110,10 +1199,18 @@ export default function AppointmentsPage() {
         onClick: () => setNoShowId(apt.id),
         tone: "warn",
       });
+      // Cancel lives in the ⋮ menu for staff (no separate inline button).
+      actions.push({
+        key: "cancel",
+        label: "Cancel",
+        ariaLabel: `Cancel appointment for ${apt.patient.user.name}`,
+        onClick: () => handleCancelClick(apt.id),
+        tone: "warn",
+      });
     }
     // Undo no-show — patient was marked NO_SHOW but actually arrived (or it was
     // a mistake); any staff can put the row back to BOOKED so it can proceed.
-    if (!isPatient && apt.status === "NO_SHOW") {
+    if (!isPatient && effStatus === "NO_SHOW") {
       actions.push({
         key: "undo-noshow",
         label: "Mark as Booked",
@@ -1124,7 +1221,7 @@ export default function AppointmentsPage() {
     }
     // Restore a CANCELLED appointment back to BOOKED, with a reason (mirrored
     // into Remarks). Opens a reason dialog like Cancel / No-show.
-    if (!isPatient && apt.status === "CANCELLED") {
+    if (!isPatient && effStatus === "CANCELLED") {
       actions.push({
         key: "restore",
         label: "Mark as Booked",
@@ -1134,7 +1231,7 @@ export default function AppointmentsPage() {
       });
     }
     // Undo check-in — any staff, CHECKED_IN.
-    if (!isPatient && apt.status === "CHECKED_IN") {
+    if (!isPatient && effStatus === "CHECKED_IN") {
       actions.push({
         key: "undo",
         label: "Undo Check-in",
@@ -1147,7 +1244,7 @@ export default function AppointmentsPage() {
     // back to CHECKED_IN. Only while the encounter is still unsigned.
     if (
       !isPatient &&
-      apt.status === "IN_CONSULTATION" &&
+      effStatus === "IN_CONSULTATION" &&
       apt.consultation?.status !== "SIGNED"
     ) {
       actions.push({
@@ -1290,22 +1387,32 @@ export default function AppointmentsPage() {
       } catch {
         preview = null;
       }
+      setReschedMode(preview?.mode ?? null);
       if (preview?.mode === "TOKEN") {
+        // TOKEN: preview the next sequential token; no slot grid.
         setReschedToken({
           label: preview.tokenLabel,
           limitReached: preview.limitReached,
         });
         setReschedSlots([]);
-      } else {
+      } else if (preview?.mode === "SLOT") {
+        // SLOT: timed slot grid is the only mode that needs a time pick.
         setReschedToken(null);
         const res = await api.get<{ data: { slots: Slot[] } }>(
           `/doctors/${doctorId}/slots?date=${date}`
         );
         setReschedSlots(res.data.slots);
+      } else {
+        // CALLING (arrival-order queue): no slot time, no token number — the
+        // appointment just moves to the target day's queue (FIFO: the first
+        // patient rescheduled lands at the front).
+        setReschedToken(null);
+        setReschedSlots([]);
       }
     } catch {
       setReschedSlots([]);
       setReschedToken(null);
+      setReschedMode(null);
     }
     setReschedLoading(false);
   }
@@ -1334,6 +1441,7 @@ export default function AppointmentsPage() {
       setReschedTarget(null);
       setReschedSlots([]);
       setReschedToken(null);
+      setReschedMode(null);
       setReschedReason("");
       loadAppointments();
       if (view === "calendar") loadCalendar();
@@ -1429,7 +1537,17 @@ export default function AppointmentsPage() {
       }
     }
     if (statusFilter !== "ALL") {
-      list = list.filter((a) => a.status === statusFilter);
+      // Filter on the EFFECTIVE (displayed) status so the chips agree with the
+      // STATUS pill: a past booked row that renders as NO_SHOW belongs under
+      // the NO SHOW chip, not BOOKED.
+      list = list.filter(
+        (a) =>
+          displayStatusForAppointment({
+            status: a.status,
+            slotStart: a.slotStart,
+            date: a.date,
+          }) === statusFilter
+      );
     }
     return list;
   }, [appointments, isPatient, patientTab, statusFilter]);
@@ -1978,42 +2096,43 @@ export default function AppointmentsPage() {
                     {nextAvailableLock?.date ?? selectedDate}
                   </dd>
                 </div>
-                <div className="flex justify-between gap-4">
-                  {doctor?.appointmentMode === "TOKEN" ? (
-                    <>
-                      {/* TOKEN mode has no slot time — a sequential token is
-                          minted server-side on confirm, so show "Token" here
-                          instead of an empty "Time". */}
-                      <dt className="font-medium text-gray-500 dark:text-gray-400">
-                        Token
-                      </dt>
-                      <dd
-                        className="text-right text-gray-900 dark:text-gray-100"
-                        data-testid="confirm-appointment-token"
-                      >
-                        {tokenPreview?.limitReached
-                          ? "Daily limit reached"
-                          : tokenPreview?.label
-                            ? tokenPreview.label
-                            : "Auto-assigned (sequential)"}
-                      </dd>
-                    </>
-                  ) : (
-                    <>
-                      <dt className="font-medium text-gray-500 dark:text-gray-400">
-                        Time
-                      </dt>
-                      <dd
-                        className="text-right text-gray-900 dark:text-gray-100"
-                        data-testid="confirm-appointment-time"
-                      >
-                        {confirmDialog.slotEndTime
-                          ? `${confirmDialog.slotStartTime} – ${confirmDialog.slotEndTime}`
-                          : confirmDialog.slotStartTime}
-                      </dd>
-                    </>
-                  )}
-                </div>
+                {doctor?.appointmentMode === "TOKEN" ? (
+                  <div className="flex justify-between gap-4">
+                    {/* TOKEN mode has no slot time — a sequential token is
+                        minted server-side on confirm, so show "Token" here
+                        instead of an empty "Time". */}
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">
+                      Token
+                    </dt>
+                    <dd
+                      className="text-right text-gray-900 dark:text-gray-100"
+                      data-testid="confirm-appointment-token"
+                    >
+                      {tokenPreview?.limitReached
+                        ? "Daily limit reached"
+                        : tokenPreview?.label
+                          ? tokenPreview.label
+                          : "Auto-assigned (sequential)"}
+                    </dd>
+                  </div>
+                ) : doctor?.appointmentMode === "CALLING" ? null : (
+                  /* CALLING mode is an arrival-order queue — no slot time and
+                     no token are assigned at booking, so neither row is shown.
+                     SLOT (and the no-doctor fallback) keep the Time row. */
+                  <div className="flex justify-between gap-4">
+                    <dt className="font-medium text-gray-500 dark:text-gray-400">
+                      Time
+                    </dt>
+                    <dd
+                      className="text-right text-gray-900 dark:text-gray-100"
+                      data-testid="confirm-appointment-time"
+                    >
+                      {confirmDialog.slotEndTime
+                        ? `${confirmDialog.slotStartTime} – ${confirmDialog.slotEndTime}`
+                        : confirmDialog.slotStartTime}
+                    </dd>
+                  </div>
+                )}
               </dl>
               <div className="mt-5 flex justify-end gap-2">
                 <button
@@ -2131,7 +2250,10 @@ export default function AppointmentsPage() {
               <div>
                 <h3 className="text-lg font-semibold text-gray-800">Reschedule</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {reschedTarget.patient.user.name} — Token #{reschedTarget.tokenNumber}
+                  {reschedTarget.patient.user.name}
+                  {reschedTarget.tokenNumber != null
+                    ? ` — Token #${reschedTarget.tokenNumber}`
+                    : ""}
                 </p>
               </div>
               <button
@@ -2139,6 +2261,7 @@ export default function AppointmentsPage() {
                   setReschedTarget(null);
                   setReschedSlots([]);
                   setReschedToken(null);
+                  setReschedMode(null);
                   setReschedReason("");
                 }}
                 className="text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100"
@@ -2183,9 +2306,45 @@ export default function AppointmentsPage() {
                 {reschedReason.trim().length} / 500 characters
               </p>
             </div>
-            {reschedToken ? (
-              // TOKEN-mode doctor: no slot grid. The patient simply joins the
-              // target date's queue at the next sequential token.
+            {reschedMode === "SLOT" ? (
+              // SLOT-mode doctor: pick a concrete timed slot on the new date.
+              <div className="mt-4">
+                <p className="mb-2 text-sm font-medium">Available Slots</p>
+                {reschedLoading ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+                ) : Object.keys(reschedSlotsByDate).length === 0 ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">No slots available.</p>
+                ) : (
+                  Object.entries(reschedSlotsByDate).map(([d, list]) => (
+                    <div key={d} className="mb-3">
+                      <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                        {formatShortDate(d)} ({dayOfWeekName(d)})
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {list.map((s) => (
+                          <button
+                            key={s.startTime}
+                            disabled={!s.isAvailable}
+                            onClick={() => confirmReschedule(s.startTime)}
+                            className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                              s.isAvailable
+                                ? "bg-green-50 text-green-700 hover:bg-green-100"
+                                : "cursor-not-allowed bg-gray-100 text-gray-400 line-through"
+                            }`}
+                          >
+                            {s.startTime} - {s.endTime}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            ) : (
+              // TOKEN / CALLING doctor: no slot grid and no time pick. The
+              // appointment simply moves to the target day's queue — TOKEN keeps
+              // its sequential token order; CALLING joins the arrival-order
+              // queue (FIFO: the first patient rescheduled lands at the front).
               <div className="mt-4">
                 {reschedLoading ? (
                   <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
@@ -2197,7 +2356,7 @@ export default function AppointmentsPage() {
                     This appointment is already on {formatShortDate(reschedDate)}.
                     Pick another date to reschedule.
                   </p>
-                ) : reschedToken.limitReached ? (
+                ) : reschedToken?.limitReached ? (
                   <p
                     data-testid="resched-token-limit"
                     className="rounded-lg bg-rose-100 px-3 py-2 text-sm font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-300"
@@ -2208,10 +2367,22 @@ export default function AppointmentsPage() {
                 ) : (
                   <>
                     <p className="mb-2 text-sm text-gray-600 dark:text-gray-300">
-                      This doctor uses <strong>sequential token</strong> booking.
-                      No slot time needed — the appointment moves to{" "}
-                      {formatShortDate(reschedDate)}{" "}
-                      keeping its place in that day&apos;s token order.
+                      {reschedMode === "CALLING" ? (
+                        <>
+                          This doctor uses an{" "}
+                          <strong>arrival-order queue</strong>. No slot time
+                          needed — the appointment moves to{" "}
+                          {formatShortDate(reschedDate)} and joins that
+                          day&apos;s queue in order.
+                        </>
+                      ) : (
+                        <>
+                          This doctor uses <strong>sequential token</strong>{" "}
+                          booking. No slot time needed — the appointment moves to{" "}
+                          {formatShortDate(reschedDate)} keeping its place in
+                          that day&apos;s token order.
+                        </>
+                      )}
                     </p>
                     <button
                       type="button"
@@ -2224,39 +2395,6 @@ export default function AppointmentsPage() {
                   </>
                 )}
               </div>
-            ) : (
-            <div className="mt-4">
-              <p className="mb-2 text-sm font-medium">Available Slots</p>
-              {reschedLoading ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
-              ) : Object.keys(reschedSlotsByDate).length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">No slots available.</p>
-              ) : (
-                Object.entries(reschedSlotsByDate).map(([d, list]) => (
-                  <div key={d} className="mb-3">
-                    <p className="mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
-                      {formatShortDate(d)} ({dayOfWeekName(d)})
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {list.map((s) => (
-                        <button
-                          key={s.startTime}
-                          disabled={!s.isAvailable}
-                          onClick={() => confirmReschedule(s.startTime)}
-                          className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
-                            s.isAvailable
-                              ? "bg-green-50 text-green-700 hover:bg-green-100"
-                              : "cursor-not-allowed bg-gray-100 text-gray-400 line-through"
-                          }`}
-                        >
-                          {s.startTime} - {s.endTime}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
             )}
           </div>
         </div>
@@ -2502,13 +2640,18 @@ export default function AppointmentsPage() {
               >
                 All
               </button>
-              {ALL_STATUSES.map((s) => (
+              {ALL_STATUSES.filter(
+                // Hide status chips that can't apply to the selected date
+                // (no pending on a past day; no checked-in/in-consult on a
+                // future day).
+                (s) => !hiddenStatusesFor(filterDate).has(s)
+              ).map((s) => (
                 <button
                   key={s}
                   onClick={() => setStatusFilter(s)}
                   className={`rounded-full px-3 py-1 text-xs font-medium ${
                     statusFilter === s
-                      ? "bg-primary text-white"
+                      ? STATUS_CHIP_ACTIVE[s] ?? "bg-primary text-white"
                       : STATUS_COLORS[s] + " hover:opacity-80"
                   }`}
                 >
@@ -3035,7 +3178,51 @@ export default function AppointmentsPage() {
                       : patientTab === "past"
                         ? "No past appointments"
                         : "No cancelled appointments"
-                    : "No appointments today"
+                    : (() => {
+                        const isToday = filterDate === toISODate(new Date());
+                        const when = isToday
+                          ? "today"
+                          : `on ${formatShortDate(filterDate)}`;
+                        // The date HAS appointments, but none match the active
+                        // status chip → name the filter in plain text. Only
+                        // when the whole-date list is genuinely empty do we
+                        // say "No appointments <when>".
+                        const dateHasData =
+                          appointments.length > 0 && statusFilter !== "ALL";
+                        // If a "pending" filter is active but nothing pending
+                        // remains (e.g. every booking has been completed),
+                        // there's nothing to redirect to — just say
+                        // "No appointments <when>".
+                        const PENDING = ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"];
+                        const noPendingLeft = !appointments.some((a) =>
+                          PENDING.includes(
+                            displayStatusForAppointment({
+                              status: a.status,
+                              slotStart: a.slotStart,
+                              date: a.date,
+                            })
+                          )
+                        );
+                        if (PENDING.includes(statusFilter) && noPendingLeft) {
+                          return `No appointments ${when}`;
+                        }
+                        // Word the empty message naturally per status (e.g.
+                        // "No patients checked in today", "No consultations in
+                        // progress today") rather than a stiff
+                        // "<status> appointments".
+                        const STATUS_PHRASE: Record<string, string> = {
+                          BOOKED: `No booked appointments ${when}`,
+                          CHECKED_IN: `No patients checked in ${when}`,
+                          IN_CONSULTATION: `No consultations in progress ${when}`,
+                          COMPLETED: `No completed appointments ${when}`,
+                          CANCELLED: `No cancelled appointments ${when}`,
+                          NO_SHOW: `No no-shows ${when}`,
+                        };
+                        return dateHasData
+                          ? STATUS_PHRASE[statusFilter] ??
+                              `No appointments ${when}`
+                          : `No appointments ${when}`;
+                      })()
                 }
                 description={
                   isPatient
@@ -3043,6 +3230,8 @@ export default function AppointmentsPage() {
                     : "Book a new appointment to get started."
                 }
                 action={
+                  // Always offer "Book appointment" on an empty list for staff —
+                  // whether the whole day is empty or just the active filter.
                   !isPatient
                     ? {
                         label: "Book appointment",
@@ -3230,8 +3419,10 @@ export default function AppointmentsPage() {
                                 </button>
                               );
                             })()}
-                          {/* Reschedule for BOOKED / CHECKED_IN */}
-                          {["BOOKED", "CHECKED_IN"].includes(apt.status) &&
+                          {/* Reschedule for BOOKED / CHECKED_IN. Gated on the
+                              effective status so a past row showing NO_SHOW
+                              doesn't offer it. */}
+                          {["BOOKED", "CHECKED_IN"].includes(displayStatus) &&
                             (isPatient ||
                               user?.role === "RECEPTION" ||
                               user?.role === "ADMIN" ||
@@ -3245,19 +3436,19 @@ export default function AppointmentsPage() {
                                 {t("dashboard.actions.reschedule")}
                               </button>
                             )}
-                          {apt.status === "BOOKED" &&
-                            (isPatient ||
-                              user?.role === "RECEPTION" ||
-                              user?.role === "ADMIN") && (
-                              <button
-                                onClick={() => handleCancelClick(apt.id)}
-                                aria-label={`Cancel appointment for ${apt.patient.user.name} (token ${apt.tokenNumber})`}
-                                className="rounded bg-red-600 px-1.5 py-1 text-[11px] text-white hover:bg-red-700"
-                              >
-                                {t("common.cancel")}
-                              </button>
-                            )}
-                          {["BOOKED", "CHECKED_IN"].includes(apt.status) && (
+                          {/* Patients cancel via this inline button; staff
+                              cancel from the ⋮ menu (no separate inline Cancel
+                              button for staff). */}
+                          {displayStatus === "BOOKED" && isPatient && (
+                            <button
+                              onClick={() => handleCancelClick(apt.id)}
+                              aria-label={`Cancel appointment for ${apt.patient.user.name} (token ${apt.tokenNumber})`}
+                              className="rounded bg-red-600 px-1.5 py-1 text-[11px] text-white hover:bg-red-700"
+                            >
+                              {t("common.cancel")}
+                            </button>
+                          )}
+                          {["BOOKED", "CHECKED_IN"].includes(displayStatus) && (
                             <button
                               onClick={() =>
                                 router.push(
@@ -3271,7 +3462,11 @@ export default function AppointmentsPage() {
                               {t("dashboard.actions.calendarInvite")}
                             </button>
                           )}
-                          {!isPatient && apt.status === "BOOKED" && (
+                          {/* Check In is a day-of action — only for TODAY's
+                              booked appointments (not future, not past). */}
+                          {!isPatient &&
+                            displayStatus === "BOOKED" &&
+                            isAppointmentToday(apt) && (
                             <button
                               onClick={() => updateStatus(apt.id, "CHECKED_IN")}
                               aria-label={`Check in ${apt.patient.user.name}`}
@@ -3282,7 +3477,7 @@ export default function AppointmentsPage() {
                           )}
                           {/* Only the DOCTOR conducts the encounter — front
                               desk / nurse / admin never see Start Consult. */}
-                          {isDoctor && apt.status === "CHECKED_IN" && (
+                          {isDoctor && displayStatus === "CHECKED_IN" && (
                             <button
                               onClick={async () => {
                                 // Pearl §2.1.3 — Start Consult now does
@@ -3308,7 +3503,7 @@ export default function AppointmentsPage() {
                           {/* Re-consult stays inline (doctor resumes the SOAP
                               page mid-encounter). Hidden once SIGNED. */}
                           {isDoctor &&
-                            apt.status === "IN_CONSULTATION" &&
+                            displayStatus === "IN_CONSULTATION" &&
                             apt.consultation?.status !== "SIGNED" && (
                               <button
                                 onClick={() =>
@@ -3324,7 +3519,7 @@ export default function AppointmentsPage() {
                             )}
                           {/* Complete — inline. IN_CONSULTATION, not signed. */}
                           {!isPatient &&
-                            apt.status === "IN_CONSULTATION" &&
+                            displayStatus === "IN_CONSULTATION" &&
                             apt.consultation?.status !== "SIGNED" && (
                               <button
                                 onClick={() => updateStatus(apt.id, "COMPLETED")}
@@ -3338,7 +3533,7 @@ export default function AppointmentsPage() {
                               appointment didn't advance — surface Mark Complete
                               so staff can resolve the row in one click. */}
                           {!isPatient &&
-                            apt.status === "IN_CONSULTATION" &&
+                            displayStatus === "IN_CONSULTATION" &&
                             apt.consultation?.status === "SIGNED" && (
                               <button
                                 onClick={() => updateStatus(apt.id, "COMPLETED")}

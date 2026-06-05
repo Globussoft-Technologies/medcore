@@ -5,12 +5,12 @@ import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { usePrompt } from "@/lib/use-dialog";
 import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { SkeletonCard } from "@/components/Skeleton";
+import { BellRing, BellOff } from "lucide-react";
 
 // Issue #383 (CRITICAL prod RBAC bypass, Apr 29 2026): Live Queue exposes
 // every patient currently waiting/in-consultation across the clinic — names,
@@ -36,8 +36,12 @@ interface QueueDoctor {
 }
 
 interface QueueEntry {
-  tokenNumber: number;
+  // null for CALLING-mode (arrival-order queue) bookings — no token is minted.
+  tokenNumber: number | null;
   patientName: string;
+  // Patient's profile photo (User.photoUrl). When present the queue row shows
+  // the image; otherwise it falls back to initials, mirroring Next Patient.
+  patientPhotoUrl?: string | null;
   // 2026-05-25 — surfaced so the Next Patient row can deep-link into
   // the full patient detail page. The API already returns this field
   // (queue.ts:166); the interface just hadn't claimed it yet.
@@ -49,6 +53,12 @@ interface QueueEntry {
   slotTime: string | null;
   hasVitals: boolean;
   estimatedWaitMinutes: number;
+  // ACTUAL minutes waited since check-in (from checkInAt); null until the
+  // patient checks in. Surfaced as the "X min wait" chip for CALLING/TOKEN.
+  waitedMinutes?: number | null;
+  // CALLING-mode: ISO timestamp set when the doctor is actively calling this
+  // patient (the state between check-in and consult). Null otherwise.
+  calledAt?: string | null;
   vulnerableFlags?: {
     isSenior: boolean;
     isChild: boolean;
@@ -77,8 +87,6 @@ export default function QueuePage() {
   // searchParams/display re-render.
   const drawerRestoredRef = useRef(false);
   const { t } = useTranslation();
-  const promptUser = usePrompt();
-  const canTransfer = user?.role === "ADMIN" || user?.role === "RECEPTION";
 
   // Issue #383: redirect PATIENT (and any other non-staff) away.
   useEffect(() => {
@@ -107,14 +115,6 @@ export default function QueuePage() {
     queue: DoctorQueue | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [transferTarget, setTransferTarget] = useState<{
-    appointmentId: string;
-    patientName: string;
-    currentDoctorId: string;
-  } | null>(null);
-  const [transferDoctorId, setTransferDoctorId] = useState("");
-  const [transferReason, setTransferReason] = useState("");
-  const [transferring, setTransferring] = useState(false);
 
   // Pearl §2.1.2 — doctors land on their own card first. Match the
   // logged-in user's display name against the queue's `doctorName` (the
@@ -129,10 +129,17 @@ export default function QueuePage() {
         : null,
     [isDoctor, user?.name, display],
   );
-  const otherDoctors = useMemo(
-    () => (myDoctor ? display.filter((d) => d.doctorId !== myDoctor.doctorId) : display),
-    [display, myDoctor],
-  );
+  const otherDoctors = useMemo(() => {
+    const list = myDoctor
+      ? display.filter((d) => d.doctorId !== myDoctor.doctorId)
+      : display;
+    // Surface doctors who actually have patients first: sort by waiting count
+    // (highest first); a doctor actively consulting (currentToken set) counts
+    // as busy too, so they rank above idle (0-waiting) doctors.
+    const activity = (d: QueueDoctor) =>
+      (Number(d.waitingCount) || 0) + (d.currentToken != null ? 1 : 0);
+    return [...list].sort((a, b) => activity(b) - activity(a));
+  }, [display, myDoctor]);
 
   // Refs mirror `myDoctor` / `otherDoctorPreview` so the live-refresh
   // socket+poll effect can read the LATEST values without listing them
@@ -182,6 +189,46 @@ export default function QueuePage() {
     }
   }
 
+  // CALLING-mode: mark a checked-in patient as "being called" (the state
+  // before the consult starts). The doctor can call any patient, in any order.
+  // On success refresh the clinic display + the previewed/own queues so the
+  // new "calling" highlight + Next Patient surface immediately.
+  async function callPatient(appointmentId: string, doctorId: string) {
+    try {
+      await api.post(`/appointments/${appointmentId}/call`, {});
+      loadDisplay();
+      const preview = otherDoctorPreviewRef.current;
+      if (preview && preview.doctor.doctorId === doctorId) {
+        void openOtherDoctorPreview(preview.doctor);
+      }
+      const mine = myDoctorRef.current;
+      if (mine && mine.doctorId === doctorId) void loadMyQueue(doctorId);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to call patient",
+      );
+    }
+  }
+
+  // CALLING-mode: cancel an in-progress call — the patient drops back to plain
+  // CHECKED_IN (still waiting). Reverse of callPatient.
+  async function uncallPatient(appointmentId: string, doctorId: string) {
+    try {
+      await api.post(`/appointments/${appointmentId}/uncall`, {});
+      loadDisplay();
+      const preview = otherDoctorPreviewRef.current;
+      if (preview && preview.doctor.doctorId === doctorId) {
+        void openOtherDoctorPreview(preview.doctor);
+      }
+      const mine = myDoctorRef.current;
+      if (mine && mine.doctorId === doctorId) void loadMyQueue(doctorId);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to cancel call",
+      );
+    }
+  }
+
   // Restore the right-side drawer when arriving from a patient detail
   // page that was opened from this queue (the "Back to Queue" link
   // preserves `?previewDoctor=<id>`). One-shot — guarded by
@@ -228,31 +275,6 @@ export default function QueuePage() {
 
   function closeOtherDoctorPreview() {
     setOtherDoctorPreview(null);
-  }
-
-  async function handleTransfer() {
-    if (!transferTarget || !transferDoctorId || !transferReason.trim()) {
-      toast.error("Please select a doctor and enter a reason.");
-      return;
-    }
-    setTransferring(true);
-    try {
-      await api.post(
-        `/appointments/${transferTarget.appointmentId}/transfer`,
-        { newDoctorId: transferDoctorId, reason: transferReason }
-      );
-      setTransferTarget(null);
-      setTransferDoctorId("");
-      setTransferReason("");
-      loadDisplay();
-      // Refresh the drawer if it's currently previewing the doctor whose
-      // queue this transfer mutated, so the patient row reflects the move.
-      const previewing = otherDoctorPreviewRef.current;
-      if (previewing) void openOtherDoctorPreview(previewing.doctor);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Transfer failed");
-    }
-    setTransferring(false);
   }
 
   useEffect(() => {
@@ -360,7 +382,7 @@ export default function QueuePage() {
 
   const statusColors: Record<string, string> = {
     BOOKED: "bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800",
-    CHECKED_IN: "bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800",
+    CHECKED_IN: "bg-yellow-50 border-yellow-200 dark:bg-yellow-400/10 dark:border-yellow-500/40",
     IN_CONSULTATION: "bg-green-50 border-green-300 dark:bg-green-900/20 dark:border-green-800",
     COMPLETED: "bg-gray-50 border-gray-200 dark:bg-gray-900/40 dark:border-gray-700",
   };
@@ -373,7 +395,7 @@ export default function QueuePage() {
     const mode = doc.appointmentMode ?? "TOKEN";
     const modeBadge =
       mode === "CALLING"
-        ? { label: "Calling", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200" }
+        ? { label: "Calling", cls: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-200" }
         : mode === "SLOT"
           ? { label: "Slot", cls: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-200" }
           : { label: "Token", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200" };
@@ -486,30 +508,25 @@ export default function QueuePage() {
                   knows the queue isn't just this one patient.
                 */}
                 {(() => {
-                  // "Next Patient" = the next token still waiting to
-                  // be called. Excludes:
-                  //   - COMPLETED / CANCELLED / NO_SHOW: terminal
-                  //   - IN_CONSULTATION: already with the doctor RIGHT
-                  //     NOW, not a "next up" candidate
-                  // After Start Consult flips token 2 to
-                  // IN_CONSULTATION, the panel should show "no patients
-                  // waiting" — not the in-room patient.
-                  const NOT_UPCOMING = new Set([
-                    "COMPLETED",
-                    "CANCELLED",
-                    "NO_SHOW",
-                    "IN_CONSULTATION",
-                  ]);
-                  // Sort by tokenNumber ascending so the panel shows
-                  // the IMMEDIATE next token (T-4 after T-3 is being
-                  // consulted), not whatever order the API returned.
-                  // The API ordering isn't guaranteed and was surfacing
-                  // T-7 before T-4 in production.
-                  const upcoming = myDoctorQueue
-                    ? myDoctorQueue.queue
-                        .filter((e) => !NOT_UPCOMING.has(e.status))
-                        .sort((a, b) => a.tokenNumber - b.tokenNumber)
+                  // "Next Patient" = the next patient who has ACTUALLY ARRIVED
+                  // (CHECKED_IN) and is waiting to be called. We only surface
+                  // checked-in patients here — a BOOKED patient hasn't shown up
+                  // yet, so they can't be "next" (and shouldn't pad the
+                  // "+N more waiting" count). IN_CONSULTATION (in the room now)
+                  // and terminal statuses are likewise not "next up".
+                  const checkedIn = myDoctorQueue
+                    ? myDoctorQueue.queue.filter((e) => e.status === "CHECKED_IN")
                     : [];
+                  // CALLING → trust the API's exact check-in (FIFO) order;
+                  // tokens are irrelevant. TOKEN/SLOT → next token first.
+                  const upcoming =
+                    myDoctor?.appointmentMode === "CALLING"
+                      ? checkedIn
+                      : [...checkedIn].sort(
+                          (a, b) =>
+                            (a.tokenNumber ?? Number.MAX_SAFE_INTEGER) -
+                            (b.tokenNumber ?? Number.MAX_SAFE_INTEGER)
+                        );
                   if (!myDoctorQueue || upcoming.length === 0) {
                     return (
                       <p className="text-gray-700 dark:text-gray-300">
@@ -553,7 +570,7 @@ export default function QueuePage() {
                             invoices, …). Hover state hints clickability. */}
                         <Link
                           href={`/dashboard/patients/${next.patientId}?from=queue`}
-                          className={`flex items-center justify-between rounded-lg border p-3 text-sm transition hover:shadow-md hover:border-primary/60 ${statusColors[next.status] || "bg-white dark:bg-gray-800 dark:border-gray-700"}`}
+                          className={`flex items-center justify-between rounded-lg border p-3 text-sm transition hover:shadow-md hover:border-primary/60 ${next.calledAt ? "border-teal-400 bg-teal-50 ring-2 ring-teal-300 dark:border-teal-500 dark:bg-teal-900/25 dark:ring-teal-600" : statusColors[next.status] || "bg-white dark:bg-gray-800 dark:border-gray-700"}`}
                           data-testid="queue-my-next-patient-link"
                           aria-label={`Open patient detail for ${next.patientName}`}
                         >
@@ -572,26 +589,35 @@ export default function QueuePage() {
                                 <p className="truncate font-medium text-gray-900 dark:text-gray-100">
                                   {next.patientName}
                                 </p>
-                                {/* Token chip — moved off the avatar so the
-                                    avatar can carry the identity (initials /
-                                    later: photo) and the token sits as a
-                                    secondary metadata pill next to the name. */}
-                                <span
-                                  className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary dark:bg-blue-900/40 dark:text-blue-200"
-                                  title={`Token #${next.tokenNumber}`}
-                                >
-                                  T-{next.tokenNumber}
-                                </span>
+                                {/* Token pill (T-N) when a token was issued —
+                                    that alone signals a TOKEN booking. The
+                                    redundant mode word-badge isn't shown. */}
+                                {next.tokenNumber != null && (
+                                  <span
+                                    className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+                                    title={`Token #${next.tokenNumber}`}
+                                  >
+                                    T-{next.tokenNumber}
+                                  </span>
+                                )}
                               </div>
                               <p className="text-xs text-gray-500 dark:text-gray-400">
                                 {next.type === "WALK_IN"
                                   ? "Walk-in"
-                                  : `Slot: ${next.slotTime}`}
+                                  : next.slotTime
+                                    ? `Slot: ${next.slotTime}`
+                                    : null}
                               </p>
                             </div>
                           </div>
-                          <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-700 dark:bg-gray-700 dark:text-gray-200">
-                            {next.status}
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
+                              next.calledAt
+                                ? "bg-teal-600 text-white dark:bg-teal-500"
+                                : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+                            }`}
+                          >
+                            {next.calledAt ? "CALLING" : next.status}
                           </span>
                         </Link>
                         {remaining > 0 && (
@@ -638,7 +664,7 @@ export default function QueuePage() {
               <SkeletonCard className="h-36" />
             </>
           ) : (
-            display.map((doc) => renderDoctorCard(doc))
+            otherDoctors.map((doc) => renderDoctorCard(doc))
           )}
         </div>
       )}
@@ -697,19 +723,28 @@ export default function QueuePage() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {t("dashboard.queue.loading", "Loading…")}
                 </p>
-              ) : otherDoctorPreview.queue.queue.length === 0 ? (
+              ) : otherDoctorPreview.queue.queue.filter(
+                  (e) =>
+                    e.status === "CHECKED_IN" ||
+                    e.status === "IN_CONSULTATION"
+                ).length === 0 ? (
                 <p className="text-sm text-gray-700 dark:text-gray-300">
                   {t("dashboard.queue.noPatients")}
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {/* Sort by queue position: active tokens
-                      (IN_CONSULTATION / CHECKED_IN / BOOKED) ascending
-                      by token number FIRST, then terminal entries
-                      (COMPLETED / CANCELLED / NO_SHOW) at the bottom
-                      so the doctor sees who's up next without
-                      scrolling past finished patients. */}
-                  {[...otherDoctorPreview.queue.queue]
+                  {/* The live queue lists only patients who are physically
+                      present: CHECKED_IN (waiting) + IN_CONSULTATION (being
+                      seen). BOOKED (not arrived) patients live on the
+                      Appointments page, not here. IN_CONSULTATION sorts first
+                      ("NOW"); within waiting, TOKEN mode sorts by token while
+                      CALLING preserves the API's check-in (FIFO) order. */}
+                  {otherDoctorPreview.queue.queue
+                    .filter(
+                      (e) =>
+                        e.status === "CHECKED_IN" ||
+                        e.status === "IN_CONSULTATION"
+                    )
                     .sort((a, b) => {
                       const terminal = new Set([
                         "COMPLETED",
@@ -719,18 +754,50 @@ export default function QueuePage() {
                       const aDone = terminal.has(a.status) ? 1 : 0;
                       const bDone = terminal.has(b.status) ? 1 : 0;
                       if (aDone !== bDone) return aDone - bDone;
-                      return a.tokenNumber - b.tokenNumber;
+                      // CALLING → trust the API's check-in (FIFO) + presence
+                      // order; tokens don't apply. (Terminal rows already
+                      // pushed to the bottom above.)
+                      if (
+                        otherDoctorPreview.doctor.appointmentMode === "CALLING"
+                      ) {
+                        return 0;
+                      }
+                      // Presence: IN_CONSULTATION > CHECKED_IN (arrived) >
+                      // BOOKED (not arrived). A checked-in patient is up next
+                      // ahead of one who only booked.
+                      const presRank = (s: string): number =>
+                        s === "IN_CONSULTATION"
+                          ? 0
+                          : s === "CHECKED_IN"
+                            ? 1
+                            : 2;
+                      const pres = presRank(a.status) - presRank(b.status);
+                      if (pres !== 0) return pres;
+                      return (
+                        (a.tokenNumber ?? Number.MAX_SAFE_INTEGER) -
+                        (b.tokenNumber ?? Number.MAX_SAFE_INTEGER)
+                      );
                     })
                     .map((entry) => (
                     <div
                       key={entry.appointmentId}
-                      className={`relative overflow-hidden rounded-lg border p-3 text-sm transition ${
+                      className={`relative overflow-hidden rounded-lg border px-3 py-2 text-sm transition ${
                         entry.status === "IN_CONSULTATION"
                           ? "border-emerald-400 bg-emerald-50 shadow-sm ring-1 ring-emerald-200 dark:border-emerald-600 dark:bg-emerald-900/20 dark:ring-emerald-800"
-                          : statusColors[entry.status] ||
-                            "bg-white dark:bg-gray-800 dark:border-gray-700"
+                          : entry.calledAt
+                            ? "border-teal-400 bg-teal-50 shadow-sm ring-2 ring-teal-300 dark:border-teal-500 dark:bg-teal-900/25 dark:ring-teal-600"
+                            : statusColors[entry.status] ||
+                              "bg-white dark:bg-gray-800 dark:border-gray-700"
                       }`}
                     >
+                      {/* Left marker bar: emerald for the in-room patient,
+                          teal (pulsing) for the patient being called now. */}
+                      {entry.calledAt && entry.status !== "IN_CONSULTATION" && (
+                        <span
+                          className="absolute inset-y-0 left-0 w-1 animate-pulse bg-teal-500"
+                          aria-hidden="true"
+                        />
+                      )}
                       {/* "Currently consulting" marker — a 4-px emerald
                           left bar + pulsing dot make the active row
                           jump out from the rest of the queue. */}
@@ -740,24 +807,64 @@ export default function QueuePage() {
                           aria-hidden="true"
                         />
                       )}
-                      <Link
-                        // Append `previewDoctor=<id>` so the patient detail
-                        // page can echo it back via its "Back to Queue"
-                        // link — clicking back restores this drawer.
-                        href={`/dashboard/patients/${entry.patientId}?from=queue&previewDoctor=${otherDoctorPreview.doctor.doctorId}`}
-                        className="flex items-center justify-between gap-2 hover:opacity-90"
-                        aria-label={`Open patient detail for ${entry.patientName}`}
-                      >
+                      <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-base font-bold text-white">
-                            {entry.tokenNumber}
-                          </div>
+                          {/* Patient avatar — photo if available, else
+                              name-hash-tinted initials (same treatment as the
+                              Next Patient panel). Replaces the bare token
+                              number circle. */}
+                          {(() => {
+                            const initials =
+                              entry.patientName
+                                ?.trim()
+                                .split(/\s+/)
+                                .slice(0, 2)
+                                .map((w) => w[0]?.toUpperCase() ?? "")
+                                .join("") || "?";
+                            const palette = [
+                              "bg-blue-500",
+                              "bg-emerald-500",
+                              "bg-amber-500",
+                              "bg-rose-500",
+                              "bg-violet-500",
+                              "bg-cyan-500",
+                            ];
+                            let hash = 0;
+                            for (let i = 0; i < entry.patientName.length; i++) {
+                              hash =
+                                (hash * 31 + entry.patientName.charCodeAt(i)) >>> 0;
+                            }
+                            const avatarBg = palette[hash % palette.length];
+                            return entry.patientPhotoUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={entry.patientPhotoUrl}
+                                alt={`Photo of ${entry.patientName}`}
+                                className="h-9 w-9 shrink-0 rounded-full object-cover"
+                              />
+                            ) : (
+                              <div
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${avatarBg}`}
+                                aria-label={`Avatar for ${entry.patientName}`}
+                              >
+                                {initials}
+                              </div>
+                            );
+                          })()}
                           <div className="min-w-0">
-                            <p className="flex items-center gap-1.5 truncate font-medium text-gray-900 dark:text-gray-100">
-                              <span className="truncate">{entry.patientName}</span>
+                            <p className="flex items-center gap-1.5 font-medium text-gray-900 dark:text-gray-100">
+                              {/* Only the NAME links to the patient profile —
+                                  the rest of the row is non-navigating. */}
+                              <Link
+                                href={`/dashboard/patients/${entry.patientId}?from=queue&previewDoctor=${otherDoctorPreview.doctor.doctorId}`}
+                                className="min-w-0 truncate hover:text-primary"
+                                aria-label={`Open patient detail for ${entry.patientName}`}
+                              >
+                                {entry.patientName}
+                              </Link>
                               {entry.status === "IN_CONSULTATION" && (
                                 <span
-                                  className="relative flex h-2 w-2 shrink-0"
+                                  className="relative inline-flex h-2 w-2 shrink-0"
                                   aria-label="Currently consulting"
                                   title="Currently consulting"
                                 >
@@ -767,16 +874,17 @@ export default function QueuePage() {
                               )}
                               {entry.vulnerableFlags?.isChild && (
                                 <span
-                                  title="Child under 5"
-                                  className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-semibold text-pink-700"
+                                  title="Child"
+                                  aria-label="Child"
+                                  className="cursor-default select-none rounded-full bg-pink-100 px-1 py-0.5 text-[10px] dark:bg-pink-900/40"
                                 >
-                                  👶 CHILD
+                                  👶
                                 </span>
                               )}
                               {entry.vulnerableFlags?.isPregnant && (
                                 <span
                                   title="Active antenatal case"
-                                  className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700"
+                                  className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700 dark:bg-purple-900/40 dark:text-purple-200"
                                 >
                                   🤰 ANC
                                 </span>
@@ -784,25 +892,50 @@ export default function QueuePage() {
                               {entry.vulnerableFlags?.isSenior && (
                                 <span
                                   title="Senior citizen (65+)"
-                                  className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                                  className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
                                 >
                                   🧓 SENIOR
                                 </span>
                               )}
                             </p>
+                            {/* Secondary line: patient age (+ walk-in / priority
+                                badges). The slot time is intentionally omitted
+                                here — the queue is arrival/age-driven, not
+                                slot-driven. */}
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {entry.type === "WALK_IN" ? "Walk-in" : `Slot: ${entry.slotTime}`}
+                              {entry.type === "WALK_IN" && <span>Walk-in</span>}
                               {entry.priority !== "NORMAL" && (
-                                <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700">
+                                <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300">
                                   {entry.priority}
                                 </span>
                               )}
                               {entry.vulnerableFlags?.ageYears !== null &&
                                 entry.vulnerableFlags?.ageYears !== undefined && (
-                                  <span className="ml-2 text-gray-400">
-                                    · Age {entry.vulnerableFlags.ageYears}
+                                  <span
+                                    className={
+                                      entry.type === "WALK_IN"
+                                        ? "ml-2 text-gray-400"
+                                        : "text-gray-400"
+                                    }
+                                  >
+                                    Age {entry.vulnerableFlags.ageYears}
                                   </span>
                                 )}
+                              {/* The token pill (T-N) shows whenever a token
+                                  was issued — that alone signals a TOKEN
+                                  booking; SLOT rows show their slot time. The
+                                  redundant mode word-badge is intentionally not
+                                  shown here. */}
+                              {entry.tokenNumber != null && (
+                                <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                                  T-{entry.tokenNumber}
+                                </span>
+                              )}
+                              {entry.slotTime && (
+                                <span className="ml-2 text-gray-400">
+                                  {entry.slotTime}
+                                </span>
+                              )}
                             </p>
                           </div>
                         </div>
@@ -811,71 +944,121 @@ export default function QueuePage() {
                             className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
                               entry.status === "IN_CONSULTATION"
                                 ? "bg-emerald-600 text-white dark:bg-emerald-500"
-                                : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
+                                : entry.calledAt
+                                  ? "bg-teal-600 text-white dark:bg-teal-500"
+                                  : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"
                             }`}
                           >
                             {entry.status === "IN_CONSULTATION"
-                              ? "NOW"
-                              : entry.status}
+                              ? "IN CONSULT"
+                              : entry.calledAt
+                                ? "CALLING"
+                                : entry.status}
                           </span>
-                          {entry.status !== "COMPLETED" &&
-                            entry.status !== "IN_CONSULTATION" && (
+                          {/* Actual time waited since check-in. Shown only for
+                              CALLING / TOKEN queues (SLOT has a fixed slot
+                              time, so an elapsed-wait chip is meaningless) and
+                              only once the patient has checked in (waitedMinutes
+                              is null for not-yet-arrived BOOKED rows). */}
+                          {otherDoctorPreview.doctor.appointmentMode !== "SLOT" &&
+                            entry.status === "CHECKED_IN" &&
+                            entry.waitedMinutes != null && (
                               <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                                ~{entry.estimatedWaitMinutes} min wait
+                                ~{entry.waitedMinutes} min wait
                               </p>
                             )}
-                          <p className="text-[10px] text-gray-400">
-                            {entry.hasVitals ? "Vitals recorded" : "No vitals"}
-                          </p>
                         </div>
-                      </Link>
-                      {canTransfer &&
-                        ["BOOKED", "CHECKED_IN"].includes(entry.status) && (
-                          <div className="mt-2 flex justify-end gap-1.5">
-                            <button
-                              onClick={() =>
-                                setTransferTarget({
-                                  appointmentId: entry.appointmentId,
-                                  patientName: entry.patientName,
-                                  currentDoctorId:
-                                    otherDoctorPreview.doctor.doctorId,
-                                })
-                              }
-                              aria-label={`Transfer ${entry.patientName} to another doctor`}
-                              className="touch-target rounded border border-indigo-400 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100"
-                            >
-                              {t("dashboard.actions.transfer")}
-                            </button>
-                            <button
-                              onClick={async () => {
-                                const reason = await promptUser({
-                                  title: "Left Without Being Seen",
-                                  label: "LWBS reason",
-                                  placeholder:
-                                    "e.g., Long wait, Emergency, Patient left",
-                                  required: true,
-                                });
-                                if (!reason) return;
-                                try {
-                                  await api.patch(
-                                    `/appointments/${entry.appointmentId}/lwbs`,
-                                    { reason }
-                                  );
-                                  loadDisplay();
-                                  void openOtherDoctorPreview(
-                                    otherDoctorPreview.doctor
-                                  );
-                                } catch (err) {
-                                  toast.error(
-                                    err instanceof Error ? err.message : "Failed"
-                                  );
-                                }
-                              }}
-                              className="touch-target rounded border border-red-400 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-100"
-                              aria-label={`Mark ${entry.patientName} as left without being seen`}
-                            >
-                              {t("dashboard.actions.lwbs")}
-                            </button>
+                      </div>
+                      {/* CALLING-mode: "Call" the patient (any order). The
+                          patient currently being called shows a live "Calling
+                          now" marker instead; calling another patient switches
+                          the active call to them. */}
+                      {/* The calling indicator is read-only for everyone, but
+                          only a DOCTOR can perform the Call action — other
+                          roles (reception/admin/nurse) see the queue read-only.
+                          Single active call: while ANY patient is being called,
+                          the other Call buttons stay VISIBLE but DISABLED until
+                          the current call is cancelled (bell-off) or the consult
+                          starts (which clears the call). */}
+                      {otherDoctorPreview.doctor.appointmentMode === "CALLING" &&
+                        entry.status === "CHECKED_IN" &&
+                        (entry.calledAt || isDoctor) && (
+                          <div className="mt-1 flex justify-end">
+                            {entry.calledAt ? (
+                              <div className="flex items-center gap-3">
+                                {/* Cancel the call (doctor only) — sits BEFORE
+                                    the calling bell — reverts this patient back
+                                    to plain CHECKED_IN. */}
+                                {isDoctor && (
+                                  <button
+                                    onClick={() =>
+                                      uncallPatient(
+                                        entry.appointmentId,
+                                        otherDoctorPreview.doctor.doctorId,
+                                      )
+                                    }
+                                    aria-label={`Cancel call for ${entry.patientName}`}
+                                    title="Cancel call"
+                                    className="text-gray-400 hover:text-rose-600 dark:text-gray-500 dark:hover:text-rose-400"
+                                  >
+                                    <BellOff size={14} aria-hidden="true" />
+                                  </button>
+                                )}
+                                <span
+                                  className="inline-flex items-center gap-1.5 text-teal-700 dark:text-teal-300"
+                                  aria-label={`Calling ${entry.patientName}`}
+                                  title="Calling now"
+                                >
+                                  <BellRing
+                                    size={13}
+                                    className="animate-pulse"
+                                    aria-hidden="true"
+                                  />
+                                  {/* Three dots waving left→right (staggered
+                                      bounce via negative animation delays). */}
+                                  <span className="inline-flex items-end gap-0.5 pb-0.5">
+                                    <span className="h-1 w-1 animate-bounce rounded-full bg-teal-500 [animation-delay:-0.3s]" />
+                                    <span className="h-1 w-1 animate-bounce rounded-full bg-teal-500 [animation-delay:-0.15s]" />
+                                    <span className="h-1 w-1 animate-bounce rounded-full bg-teal-500" />
+                                  </span>
+                                </span>
+                              </div>
+                            ) : (
+                              (() => {
+                                // Disabled while another patient is being called
+                                // (single active call) — re-enables once that
+                                // call is cancelled or the consult starts.
+                                const callBusy =
+                                  otherDoctorPreview.queue?.queue.some(
+                                    (e) => e.calledAt,
+                                  ) ?? false;
+                                return (
+                                  <button
+                                    onClick={() =>
+                                      callPatient(
+                                        entry.appointmentId,
+                                        otherDoctorPreview.doctor.doctorId,
+                                      )
+                                    }
+                                    disabled={callBusy}
+                                    aria-label={`Call ${entry.patientName}`}
+                                    title={
+                                      callBusy
+                                        ? "Cancel the current call first"
+                                        : "Call patient"
+                                    }
+                                    className={`inline-flex items-center gap-1 text-[11px] font-semibold ${
+                                      callBusy
+                                        ? "cursor-not-allowed text-gray-400 opacity-50 dark:text-gray-600"
+                                        : "text-teal-600 hover:text-teal-700 dark:text-teal-300 dark:hover:text-teal-200"
+                                    }`}
+                                  >
+                                    <BellRing size={11} aria-hidden="true" />
+                                    Call
+                                  </button>
+                                );
+                              })()
+                            )}
                           </div>
                         )}
                     </div>
@@ -885,75 +1068,6 @@ export default function QueuePage() {
             </div>
           </aside>
         </>
-      )}
-
-      {/* Transfer modal */}
-      {transferTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
-            <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-              {t("dashboard.queue.transfer")}
-            </h3>
-            <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
-              {t("dashboard.appointments.col.patient")}: <span className="font-medium">{transferTarget.patientName}</span>
-            </p>
-            <div className="mt-4 space-y-3">
-              <div>
-                <label htmlFor="queue-transfer-doctor" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {t("dashboard.queue.newDoctor")}
-                </label>
-                <select
-                  id="queue-transfer-doctor"
-                  value={transferDoctorId}
-                  onChange={(e) => setTransferDoctorId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                >
-                  <option value="">{t("dashboard.queue.selectDoctor")}</option>
-                  {display
-                    .filter((d) => d.doctorId !== transferTarget.currentDoctorId)
-                    .map((d) => (
-                      <option key={d.doctorId} value={d.doctorId}>
-                        {formatDoctorName(d.doctorName)}
-                        {d.specialization ? ` — ${d.specialization}` : ""}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              <div>
-                <label htmlFor="queue-transfer-reason" className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300">
-                  {t("common.reason")}
-                </label>
-                <textarea
-                  id="queue-transfer-reason"
-                  value={transferReason}
-                  onChange={(e) => setTransferReason(e.target.value)}
-                  rows={3}
-                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
-                  placeholder={t("dashboard.queue.transferReason")}
-                />
-              </div>
-            </div>
-            <div className="mt-5 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setTransferTarget(null);
-                  setTransferDoctorId("");
-                  setTransferReason("");
-                }}
-                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-700"
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                onClick={handleTransfer}
-                disabled={transferring}
-                className="rounded-lg bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-60"
-              >
-                {transferring ? t("dashboard.queue.transferring") : t("dashboard.queue.confirmTransfer")}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

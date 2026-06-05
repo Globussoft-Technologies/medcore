@@ -126,6 +126,56 @@ describeIfDB("Appointments API — deep edges", () => {
     expect(res.status).toBe(409);
   });
 
+  it("reschedule of a CALLING-mode appointment drops the slot/token and appends to the target day's arrival queue (FIFO)", async () => {
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+    // CALLING = arrival-order queue: no slot time, no token. Ordering on a
+    // given day is driven by arrivalSeq.
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "CALLING" },
+    });
+    const target = new Date(daysFromNow(3));
+    // Seed an existing CALLING booking on the target day so the queue already
+    // has arrivalSeq 1 — the rescheduled row must land BEHIND it (FIFO).
+    await prisma.appointment.create({
+      data: {
+        patientId: patient.id,
+        doctorId: doctor.id,
+        date: target,
+        arrivalSeq: 1,
+        status: "BOOKED",
+        type: "SCHEDULED",
+      },
+    });
+    // The row being moved sits on an earlier day with its own arrivalSeq.
+    const moving = await prisma.appointment.create({
+      data: {
+        patientId: patient.id,
+        doctorId: doctor.id,
+        date: new Date(daysFromNow(1)),
+        arrivalSeq: 1,
+        status: "BOOKED",
+        type: "SCHEDULED",
+      },
+    });
+    const res = await request(app)
+      .patch(`/api/v1/appointments/${moving.id}/reschedule`)
+      // CALLING reschedules carry no slotStart — the queue position is assigned
+      // by the server, not picked.
+      .set("Authorization", `Bearer ${reception}`)
+      .send({ date: daysFromNow(3), reason: "Moving to the arrival queue" });
+    expect(res.status).toBe(200);
+
+    const moved = await prisma.appointment.findUnique({ where: { id: moving.id } });
+    // No token minted, no slot stamped — and appended to the tail of the
+    // target day's arrival queue (existing max was 1 → this becomes 2).
+    expect(moved?.tokenNumber).toBeNull();
+    expect(moved?.slotStart).toBeNull();
+    expect(moved?.arrivalSeq).toBe(2);
+  });
+
   // ─── Recurring ─────────────────────────────────────────────
   it("recurring creates N WEEKLY appointments", async () => {
     const patient = await createPatientFixture();

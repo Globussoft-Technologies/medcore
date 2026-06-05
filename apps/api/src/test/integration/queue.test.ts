@@ -73,6 +73,133 @@ describeIfDB("Queue API (integration)", () => {
     expect(res.body.data.queue[1].tokenNumber).toBe(2);
   });
 
+  it("CALLING mode (no token): queue is ordered by CHECK-IN time (FIFO), not arbitrary", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "CALLING" },
+    });
+    // Identical age/gender so vulnerability rank doesn't reorder them.
+    const pLate = await createPatientFixture({ age: 30, gender: "MALE" });
+    const pEarly = await createPatientFixture({ age: 30, gender: "MALE" });
+    // Match the route's UTC day-window (date is a @db.Date stored at UTC
+    // midnight) so the seeded rows fall inside today's queue.
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    // CALLING bookings carry arrivalSeq + checkInAt, never a token. Seed the
+    // one who checked in EARLIER second so a token/insertion-order sort would
+    // get it wrong — only check-in ordering puts pEarly first.
+    await prisma.appointment.create({
+      data: {
+        patientId: pLate.id,
+        doctorId: doctor.id,
+        date: today,
+        arrivalSeq: 1,
+        status: "CHECKED_IN",
+        type: "SCHEDULED",
+        checkInAt: new Date("2026-06-05T10:30:00.000Z"),
+      },
+    });
+    await prisma.appointment.create({
+      data: {
+        patientId: pEarly.id,
+        doctorId: doctor.id,
+        date: today,
+        arrivalSeq: 2,
+        status: "CHECKED_IN",
+        type: "SCHEDULED",
+        checkInAt: new Date("2026-06-05T09:00:00.000Z"),
+      },
+    });
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    // No tokens minted for CALLING bookings.
+    expect(res.body.data.queue[0].tokenNumber).toBeNull();
+    // Earliest check-in (09:00) is first, despite a later arrivalSeq.
+    expect(res.body.data.queue[0].patientId).toBe(pEarly.id);
+    expect(res.body.data.queue[1].patientId).toBe(pLate.id);
+  });
+
+  it("queue shows ONLY today's appointments — yesterday and tomorrow are excluded", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+    const pToday = await createPatientFixture({ age: 30, gender: "MALE" });
+    const pYesterday = await createPatientFixture({ age: 30, gender: "MALE" });
+    const pTomorrow = await createPatientFixture({ age: 30, gender: "MALE" });
+    // @db.Date is stored at UTC midnight — build the surrounding days in UTC
+    // so the assertion is server-timezone independent.
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const tomorrow = new Date(today);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    await prisma.appointment.create({
+      data: { patientId: pToday.id, doctorId: doctor.id, date: today, tokenNumber: 1, status: "BOOKED", type: "SCHEDULED" },
+    });
+    await prisma.appointment.create({
+      data: { patientId: pYesterday.id, doctorId: doctor.id, date: yesterday, tokenNumber: 2, status: "BOOKED", type: "SCHEDULED" },
+    });
+    await prisma.appointment.create({
+      data: { patientId: pTomorrow.id, doctorId: doctor.id, date: tomorrow, tokenNumber: 3, status: "BOOKED", type: "SCHEDULED" },
+    });
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.queue).toHaveLength(1);
+    expect(res.body.data.queue[0].patientId).toBe(pToday.id);
+  });
+
+  it("waitedMinutes reflects time since check-in (CHECKED_IN), and is null for not-yet-checked-in BOOKED", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+    const pWaiting = await createPatientFixture({ age: 30, gender: "MALE" });
+    const pBooked = await createPatientFixture({ age: 30, gender: "MALE" });
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    // Checked in ~20 minutes ago.
+    await prisma.appointment.create({
+      data: {
+        patientId: pWaiting.id,
+        doctorId: doctor.id,
+        date: today,
+        tokenNumber: 1,
+        status: "CHECKED_IN",
+        type: "SCHEDULED",
+        checkInAt: new Date(Date.now() - 20 * 60_000),
+      },
+    });
+    await prisma.appointment.create({
+      data: {
+        patientId: pBooked.id,
+        doctorId: doctor.id,
+        date: today,
+        tokenNumber: 2,
+        status: "BOOKED",
+        type: "SCHEDULED",
+      },
+    });
+    const res = await request(app)
+      .get(`/api/v1/queue/${doctor.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const waiting = res.body.data.queue.find(
+      (q: { patientId: string }) => q.patientId === pWaiting.id
+    );
+    const booked = res.body.data.queue.find(
+      (q: { patientId: string }) => q.patientId === pBooked.id
+    );
+    // ~20 min (allow a minute of slack for clock/runtime drift).
+    expect(waiting.waitedMinutes).toBeGreaterThanOrEqual(19);
+    expect(waiting.waitedMinutes).toBeLessThanOrEqual(21);
+    // Not checked in yet → no wait time.
+    expect(booked.waitedMinutes).toBeNull();
+  });
+
   it("EMERGENCY priority bumps ahead of NORMAL", async () => {
     const doctor = await createDoctorFixture();
     const pNormal = await createPatientFixture();

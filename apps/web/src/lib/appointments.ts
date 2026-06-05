@@ -77,13 +77,17 @@ export function formatAppointmentTime(
 /**
  * What status should the user actually SEE for this appointment?
  *
- * `BOOKED` is the booking-time status. After the appointment's start time
- * has passed, the row should render as `COMPLETED` even if no one
- * explicitly transitioned it (issue #388). We never mutate the DB; the
- * transformation happens at render time only.
+ * A still-waiting appointment (`BOOKED` / `CHECKED_IN`) that was never seen
+ * reads as `NO_SHOW` once its window has elapsed — display only, the DB is
+ * never mutated:
+ *   - SLOT mode (the row carries a concrete start time): the slot has a clock
+ *     time, so it becomes NO_SHOW the moment that slot INSTANT passes.
+ *   - TOKEN / CALLING (no slot time): there's no clock time to expire against,
+ *     so it becomes NO_SHOW once the appointment's calendar DAY is before today
+ *     (a new day has begun without the patient being seen).
  *
- * If the row has already been moved to `CANCELLED` / `NO_SHOW` /
- * `COMPLETED` etc., we leave the status untouched.
+ * Terminal / in-progress statuses (`COMPLETED` / `CANCELLED` / `NO_SHOW` /
+ * `IN_CONSULTATION` …) are shown as-is.
  */
 export function displayStatusForAppointment(
   appt: {
@@ -94,26 +98,102 @@ export function displayStatusForAppointment(
   },
   nowMs: number = Date.now()
 ): string {
-  if (appt.status !== "BOOKED") return appt.status;
-  const start = parseAppointmentInstant(
-    appt.startTime ?? appt.slotStart ?? null,
-    appt.date ?? null
-  );
-  if (!start) return appt.status;
-  return start.getTime() < nowMs ? "COMPLETED" : appt.status;
+  // Only the "waiting to be seen" states get the time/date-elapsed treatment.
+  if (appt.status !== "BOOKED" && appt.status !== "CHECKED_IN") {
+    return appt.status;
+  }
+
+  const startRaw = appt.startTime ?? appt.slotStart ?? null;
+  if (startRaw) {
+    // SLOT-mode (or any row with a concrete start time): expire on the instant.
+    const start = parseAppointmentInstant(startRaw, appt.date ?? null);
+    if (!start) return appt.status;
+    return start.getTime() < nowMs ? "NO_SHOW" : appt.status;
+  }
+
+  // TOKEN / CALLING (no slot time): expire on the calendar day.
+  return isAppointmentDayPast(appt.date ?? null, nowMs)
+    ? "NO_SHOW"
+    : appt.status;
 }
 
 /**
- * Pearl ERP Stage 1 §2.1.2 — render the row's identifier based on the
- * doctor's configured `appointmentMode`:
+ * Has the appointment's window fully elapsed? SLOT rows (with a concrete start
+ * time) expire on that instant; TOKEN / CALLING rows (no slot time) expire when
+ * their calendar day is before today. Used to make past rows terminal — they
+ * stop offering reversal/undo actions, since you can't act on a missed past
+ * appointment (rebook a future one instead).
+ */
+export function isAppointmentPast(
+  appt: {
+    startTime?: string | Date | null;
+    slotStart?: string | null;
+    date?: string | null;
+  },
+  nowMs: number = Date.now()
+): boolean {
+  const startRaw = appt.startTime ?? appt.slotStart ?? null;
+  if (startRaw) {
+    const start = parseAppointmentInstant(startRaw, appt.date ?? null);
+    return !!start && start.getTime() < nowMs;
+  }
+  return isAppointmentDayPast(appt.date ?? null, nowMs);
+}
+
+/**
+ * Is the appointment scheduled for "today" (local)? Used to gate the
+ * day-of actions (Check In + the ⋮ no-show/undo menu): you can't check in
+ * or no-show a patient for a future appointment, and a past one is terminal.
+ * Compares YYYY-MM-DD strings so there's no instant/timezone drift.
+ */
+export function isAppointmentToday(
+  appt: { date?: string | null },
+  nowMs: number = Date.now()
+): boolean {
+  if (!appt.date) return false;
+  const ymd = String(appt.date).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false;
+  const n = new Date(nowMs);
+  const pad = (x: number) => String(x).padStart(2, "0");
+  return (
+    ymd === `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`
+  );
+}
+
+/**
+ * Is the appointment's calendar day strictly before "today" (local)? Used by
+ * the no-slot (TOKEN / CALLING) branch of {@link displayStatusForAppointment}.
+ * Compares YYYY-MM-DD strings so there's no instant/timezone drift.
+ */
+function isAppointmentDayPast(
+  date: string | null,
+  nowMs: number
+): boolean {
+  if (!date) return false;
+  const ymd = String(date).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return false;
+  const n = new Date(nowMs);
+  const pad = (x: number) => String(x).padStart(2, "0");
+  const todayYmd = `${n.getFullYear()}-${pad(n.getMonth() + 1)}-${pad(n.getDate())}`;
+  return ymd < todayYmd;
+}
+
+/**
+ * Pearl ERP Stage 1 §2.1.2 — render the row's "#" identifier from the
+ * appointment's OWN stored data, i.e. what the patient was actually assigned
+ * WHEN THEY BOOKED — NOT the doctor's CURRENT `appointmentMode`.
  *
- *   - `CALLING` → `A-<arrivalSeq>` (arrival-order queue, no token)
- *   - `TOKEN`   → `T-<tokenNumber>` (sequential per-session tokens)
- *   - `SLOT`    → `T-<tokenNumber>` if a token was minted, else `—`
- *                 (slot time is shown in the adjacent TIME column)
+ * A doctor can switch modes (e.g. TOKEN → CALLING) after appointments already
+ * exist. The label must stay stable across that switch: a patient who booked
+ * under TOKEN keeps their token; one who booked under CALLING (arrival-order
+ * queue — no token is ever minted) keeps showing no token. Keying off the live
+ * doctor mode would retroactively relabel existing rows, which is wrong.
  *
- * Falls back to whichever scalar is populated when the mode field is
- * missing on legacy rows so nothing renders blank.
+ * The stored `tokenNumber` is the source of truth for "was a token issued":
+ *   - token present (TOKEN booking, or a SLOT booking that minted one)
+ *     → `<tokenPrefix>-<tokenNumber>` (e.g. "R-5").
+ *   - no token (CALLING arrival-order queue, or a slot-only row)
+ *     → `—`. The CALLING queue order lives on the live-queue screen, not here.
  */
 export function appointmentRefLabel(appt: {
   tokenNumber: number | null;
@@ -123,20 +203,10 @@ export function appointmentRefLabel(appt: {
     tokenPrefix?: string | null;
   };
 }): string {
-  const mode = appt.doctor?.appointmentMode;
   // Use the doctor's configured token prefix (e.g. "R") rather than a
   // hardcoded letter; fall back to "T" only when none is set.
   const tokenPrefix = appt.doctor?.tokenPrefix || "T";
-  if (mode === "CALLING") {
-    return appt.arrivalSeq != null ? `A-${appt.arrivalSeq}` : "—";
-  }
-  if (mode === "SLOT") {
-    return appt.tokenNumber != null
-      ? `${tokenPrefix}-${appt.tokenNumber}`
-      : "—";
-  }
-  // TOKEN or unknown — prefer tokenNumber, fall back to arrivalSeq.
-  if (appt.tokenNumber != null) return `${tokenPrefix}-${appt.tokenNumber}`;
-  if (appt.arrivalSeq != null) return `A-${appt.arrivalSeq}`;
-  return "—";
+  return appt.tokenNumber != null
+    ? `${tokenPrefix}-${appt.tokenNumber}`
+    : "—";
 }

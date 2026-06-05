@@ -1817,6 +1817,7 @@ model Appointment {
   priority              Priority          @default(NORMAL)
   notes                 String?
   checkInAt             DateTime?
+  calledAt              DateTime?
   consultationStartedAt DateTime?
   consultationEndedAt   DateTime?
   createdAt             DateTime          @default(now())

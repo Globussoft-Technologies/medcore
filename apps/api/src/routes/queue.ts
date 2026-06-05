@@ -13,9 +13,29 @@ import {
 
 const router = Router();
 
-// Every queue endpoint requires auth. Issue #383 (Apr 2026 RBAC sweep) added
-// per-route authorize() decorators but missed `authenticate`, so calls were
-// 401-ing on req.user being undefined. Apply once at the router level.
+// GET /api/v1/queue/display — PUBLIC waiting-room token board (no auth).
+// Powers the unattended display TV at /display. Declared BEFORE the
+// router-level `authenticate` below so it stays public, and returns only
+// non-PHI data (doctor name, current/next token, arrival seq, waiting count;
+// any patient names are redacted to "First L." by buildDisplayBoard).
+// NOTE (multi-tenant): with no auth there's no tenant context, so the query
+// runs unscoped — correct for a single-hospital deployment. A multi-tenant
+// rollout should pass a tenant identifier (subdomain / param) and wrap the
+// call in runWithTenant().
+router.get(
+  "/display",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json({ success: true, data: await buildDisplayBoard(), error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// Every queue endpoint BELOW requires auth. Issue #383 (Apr 2026 RBAC sweep)
+// added per-route authorize() decorators but missed `authenticate`, so calls
+// were 401-ing on req.user being undefined. Apply once at the router level.
 router.use(authenticate);
 
 // Helper: compute vulnerable-group indicators for a patient
@@ -31,7 +51,8 @@ function computeVulnerableFlags(input: {
     ageYears = Math.floor(diffMs / (365.25 * 24 * 60 * 60 * 1000));
   }
   const isSenior = ageYears !== null && ageYears >= 65;
-  const isChild = ageYears !== null && ageYears < 5;
+  // Child = age 5 or under (≤ 5), so a 5-year-old is flagged too.
+  const isChild = ageYears !== null && ageYears <= 5;
   const isPregnant = input.gender === "FEMALE" && Boolean(input.activeAncCaseId);
   return { isSenior, isChild, isPregnant, ageYears };
 }
@@ -64,25 +85,36 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { date, dedupePatient } = req.query;
-      const dateObj = date ? new Date(date as string) : new Date();
-      dateObj.setHours(0, 0, 0, 0);
-      // Same timezone gotcha as appointments.ts (lines 33-49): `today =
-      // midnight local` can land on the prior calendar day in UTC, missing
-      // the @db.Date column on exact-equality. Range-filter across the day
-      // boundary instead so the result is timezone-independent.
-      const dayEnd = new Date(dateObj);
-      dayEnd.setHours(23, 59, 59, 999);
+      // `appointment.date` is a @db.Date column — Prisma stores/reads it at
+      // UTC midnight. Build the day window with setUTCHours (NOT setHours,
+      // which uses the server's LOCAL time and shifts the window on any
+      // non-UTC host, leaking adjacent-day rows into the queue) and use a
+      // next-midnight EXCLUSIVE upper bound. Matches appointments.ts.
+      const dayStart = date ? new Date(date as string) : new Date();
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+      // The doctor's booking mode decides how the queue is ordered within a
+      // presence tier: CALLING is a pure arrival/check-in queue (tokens are
+      // ignored — a stale token from a prior mode must not jump a patient
+      // ahead of someone who arrived earlier); TOKEN/SLOT order by token.
+      const queueDoctor = await prisma.doctor.findUnique({
+        where: { id: req.params.doctorId },
+        select: { appointmentMode: true },
+      });
+      const isCallingMode = queueDoctor?.appointmentMode === "CALLING";
 
       const appointments = await prisma.appointment.findMany({
         where: {
           doctorId: req.params.doctorId,
-          date: { gte: dateObj, lte: dayEnd },
+          date: { gte: dayStart, lt: dayEnd },
           status: { notIn: ["CANCELLED", "NO_SHOW"] },
         },
         include: {
           patient: {
             include: {
-              user: { select: { name: true } },
+              user: { select: { name: true, photoUrl: true } },
               ancCase: { select: { id: true, deliveredAt: true } },
             },
           },
@@ -98,6 +130,7 @@ router.get(
         (a) => a.status === "IN_CONSULTATION"
       );
       const avgConsultTime = 15; // minutes — can be made dynamic later
+      const nowMs = Date.now();
 
       // Compute vulnerable flags and re-sort (active consultation stays on top)
       const enriched = appointments.map((a) => {
@@ -116,22 +149,64 @@ router.get(
       // Keep IN_CONSULTATION + existing explicit priority, then vulnerable group rank
       const priorityWeight = (p: string): number =>
         p === "EMERGENCY" ? 3 : p === "HIGH" ? 2 : p === "NORMAL" ? 1 : 0;
+      // Presence rank — who can actually be seen, highest first:
+      //   IN_CONSULTATION (being seen) > CHECKED_IN (arrived, waiting) >
+      //   BOOKED (not arrived yet) > terminal (COMPLETED, …).
+      // A checked-in patient is always ahead of a booked one in the live
+      // queue: you call the patient who is physically present, not one who
+      // booked but hasn't shown up.
+      const presenceRank = (s: string): number =>
+        s === "IN_CONSULTATION" ? 3 : s === "CHECKED_IN" ? 2 : s === "BOOKED" ? 1 : 0;
+      // CHECK-IN order (FIFO) — by EXACT checkInAt timestamp (millisecond
+      // precision, so two patients who check in within the same minute still
+      // order by their actual seconds). The actively-called patient comes
+      // first; not-yet-checked-in rows fall back to arrivalSeq, then createdAt.
+      const cmpCheckIn = (
+        x: (typeof enriched)[number],
+        y: (typeof enriched)[number],
+      ): number => {
+        const xCall = x.a.calledAt ? new Date(x.a.calledAt).getTime() : null;
+        const yCall = y.a.calledAt ? new Date(y.a.calledAt).getTime() : null;
+        if (xCall != null && yCall != null && xCall !== yCall)
+          return xCall - yCall;
+        if (xCall != null && yCall == null) return -1;
+        if (xCall == null && yCall != null) return 1;
+        const xc = x.a.checkInAt ? new Date(x.a.checkInAt).getTime() : null;
+        const yc = y.a.checkInAt ? new Date(y.a.checkInAt).getTime() : null;
+        if (xc != null && yc != null && xc !== yc) return xc - yc;
+        if (xc != null && yc == null) return -1;
+        if (xc == null && yc != null) return 1;
+        const xa = x.a.arrivalSeq ?? Number.MAX_SAFE_INTEGER;
+        const ya = y.a.arrivalSeq ?? Number.MAX_SAFE_INTEGER;
+        if (xa !== ya) return xa - ya;
+        return (
+          new Date(x.a.createdAt).getTime() - new Date(y.a.createdAt).getTime()
+        );
+      };
       enriched.sort((x, y) => {
-        // Active consultation first
-        if (x.a.status === "IN_CONSULTATION" && y.a.status !== "IN_CONSULTATION") return -1;
-        if (y.a.status === "IN_CONSULTATION" && x.a.status !== "IN_CONSULTATION") return 1;
-        // Explicit priority
+        // Presence first (arrived/active ahead of not-arrived / terminal).
+        const presDiff = presenceRank(y.a.status) - presenceRank(x.a.status);
+        if (presDiff !== 0) return presDiff;
+
+        // CALLING is a pure arrival queue: order strictly by call → check-in
+        // order. NO priority or vulnerability (child/senior/ANC) re-ranking —
+        // the patient being called is next, then whoever checked in earliest.
+        if (isCallingMode) return cmpCheckIn(x, y);
+
+        // TOKEN / SLOT: explicit priority, then vulnerable-group bump.
         const pd = priorityWeight(y.a.priority) - priorityWeight(x.a.priority);
         if (pd !== 0) return pd;
-        // Vulnerability bump
         const rd = y.rank - x.rank;
         if (rd !== 0) return rd;
-        // Fall back to token order. Pearl §2.1.2 made tokenNumber
-        // nullable for CALLING / SLOT-mode bookings; treat null as
-        // last so token-mode rows still sort first by token while
-        // null-token rows fall to the end. CALLING-mode arrivalSeq
-        // ordering is the next-PR concern.
-        return (x.a.tokenNumber ?? Number.MAX_SAFE_INTEGER) - (y.a.tokenNumber ?? Number.MAX_SAFE_INTEGER);
+
+        // The token IS the queue position. A row with a token sorts ahead of a
+        // null-token one; ties (or both null) fall back to check-in order.
+        const xt = x.a.tokenNumber;
+        const yt = y.a.tokenNumber;
+        if (xt != null && yt != null && xt !== yt) return xt - yt;
+        if (xt != null && yt == null) return -1;
+        if (xt == null && yt != null) return 1;
+        return cmpCheckIn(x, y);
       });
 
       // Dedupe-per-patient mode: keep the highest-priority entry (already
@@ -159,10 +234,21 @@ router.get(
             ).length;
           estimatedWaitMinutes = ahead * avgConsultTime;
         }
+        // ACTUAL minutes the patient has waited since they physically checked
+        // in (checkInAt). This is the real wait time the UI surfaces for
+        // CALLING / TOKEN queues — null until the patient checks in (a BOOKED
+        // row hasn't started waiting in the clinic yet).
+        const waitedMinutes = a.checkInAt
+          ? Math.max(
+              0,
+              Math.floor((nowMs - new Date(a.checkInAt).getTime()) / 60000)
+            )
+          : null;
 
         return {
           tokenNumber: a.tokenNumber,
           patientName: a.patient.user.name,
+          patientPhotoUrl: a.patient.user.photoUrl ?? null,
           patientId: a.patientId,
           appointmentId: a.id,
           type: a.type,
@@ -171,6 +257,10 @@ router.get(
           slotTime: a.slotStart,
           hasVitals: !!a.vitals,
           estimatedWaitMinutes,
+          waitedMinutes,
+          // CALLING-mode: set when this patient is actively being called (the
+          // state between check-in and consult). Null otherwise.
+          calledAt: a.calledAt ? a.calledAt.toISOString() : null,
           vulnerableFlags: {
             isSenior: flags.isSenior,
             isChild: flags.isChild,
@@ -184,13 +274,13 @@ router.get(
         success: true,
         data: {
           doctorId: req.params.doctorId,
-          date: dateObj.toISOString().split("T")[0],
+          date: dayStart.toISOString().split("T")[0],
           currentToken: currentPatient?.tokenNumber ?? null,
+          // "In queue" = patients physically present: waiting (CHECKED_IN) or
+          // being seen (IN_CONSULTATION). BOOKED (not arrived) doesn't count.
           totalInQueue: queue.filter(
             (q) =>
-              q.status === "BOOKED" ||
-              q.status === "CHECKED_IN" ||
-              q.status === "IN_CONSULTATION"
+              q.status === "CHECKED_IN" || q.status === "IN_CONSULTATION"
           ).length,
           queue,
         },
@@ -202,32 +292,29 @@ router.get(
   }
 );
 
-// GET /api/v1/queue — all doctors' current tokens (for display board)
-router.get(
-  "/",
-  // Issue #383: see above. Same role set.
-  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
-  async (_req: Request, res: Response, next: NextFunction) => {
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      // Same timezone gotcha as appointments.ts (lines 33-49). Without the
-      // day-range filter, `today` constructed at IST midnight serializes to
-      // 2026-05-11T18:30Z, misses the @db.Date column for 2026-05-12, and
-      // every doctor's waitingCount/currentToken reports 0 even when real
-      // appointments exist for today.
-      const todayEnd = new Date(today);
-      todayEnd.setHours(23, 59, 59, 999);
-      const todayRange = { gte: today, lte: todayEnd };
+// Shared display-board builder: per-doctor name + current/next token + waiting
+// count, with any patient names redacted to "First L." (PRD §2.1.5). Safe for
+// BOTH the authed staff overview (GET /) and the PUBLIC waiting-room board
+// (GET /display) — no patient PII is returned.
+async function buildDisplayBoard() {
+  // `appointment.date` is a @db.Date column (UTC midnight). Build the day
+  // window with setUTCHours (NOT setHours — local time shifts the window on
+  // a non-UTC host and either misses today or leaks adjacent days into the
+  // counts) and a next-midnight EXCLUSIVE upper bound. Matches appointments.ts.
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const todayEnd = new Date(today);
+  todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
+  const todayRange = { gte: today, lt: todayEnd };
 
-      const doctors = await prisma.doctor.findMany({
-        include: {
-          user: { select: { name: true } },
-        },
-      });
+  const doctors = await prisma.doctor.findMany({
+    include: {
+      user: { select: { name: true } },
+    },
+  });
 
-      const display = await Promise.all(
-        doctors.map(async (doc) => {
+  return Promise.all(
+    doctors.map(async (doc) => {
           const current = await prisma.appointment.findFirst({
             where: {
               doctorId: doc.id,
@@ -236,11 +323,14 @@ router.get(
             },
           });
 
+          // "Waiting" = patients who have actually ARRIVED (CHECKED_IN) and
+          // are waiting to be called. A BOOKED patient hasn't shown up yet, so
+          // they're not in the live queue (they're still just an appointment).
           const waitingCount = await prisma.appointment.count({
             where: {
               doctorId: doc.id,
               date: todayRange,
-              status: { in: ["BOOKED", "CHECKED_IN"] },
+              status: "CHECKED_IN",
             },
           });
 
@@ -252,6 +342,9 @@ router.get(
           // public-facing display per PRD §2.1.5.
           let nextToken: number | null = null;
           let currentArrivalSeq: number | null = null;
+          // CALLING mode: redacted names of the patients actively being called
+          // right now (calledAt set), earliest call first.
+          let callingNow: string[] = [];
           let upcomingSlots: Array<{
             slotStart: string;
             patientLabel: string;
@@ -272,6 +365,24 @@ router.get(
             nextToken = next?.tokenNumber ?? null;
           } else if (doc.appointmentMode === "CALLING") {
             currentArrivalSeq = current?.arrivalSeq ?? null;
+            // Who's being called right now (the "Now Calling" line on the board).
+            const calledRows = await prisma.appointment.findMany({
+              where: {
+                doctorId: doc.id,
+                date: todayRange,
+                status: "CHECKED_IN",
+                calledAt: { not: null },
+              },
+              orderBy: { calledAt: "asc" },
+              include: {
+                patient: { select: { user: { select: { name: true } } } },
+              },
+            });
+            // CALLING mode announces the patient in, so show the FULL name
+            // (the board is the clinic's "name being called" display).
+            callingNow = calledRows.map(
+              (r) => r.patient?.user?.name?.trim() || "—",
+            );
           } else if (doc.appointmentMode === "SLOT") {
             const rows = await prisma.appointment.findMany({
               where: {
@@ -309,13 +420,22 @@ router.get(
             currentToken: current?.tokenNumber ?? null,
             nextToken,
             currentArrivalSeq,
+            callingNow,
             upcomingSlots,
             waitingCount,
           };
         })
       );
+}
 
-      res.json({ success: true, data: display, error: null });
+// GET /api/v1/queue — authed staff overview (same data as the public board).
+router.get(
+  "/",
+  // Issue #383: staff-only. The public, redacted variant is GET /queue/display.
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.json({ success: true, data: await buildDisplayBoard(), error: null });
     } catch (err) {
       next(err);
     }

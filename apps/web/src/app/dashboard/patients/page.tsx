@@ -684,7 +684,7 @@ export default function PatientsPage() {
                   ? "Uploading…"
                   : addPhotoPreview
                     ? "Change photo"
-                    : "Add photo (optional)"}
+                    : "Upload photo (optional)"}
               </button>
               <p className="text-xs text-gray-400 dark:text-gray-500">
                 JPEG, PNG, or WEBP · max 5 MB

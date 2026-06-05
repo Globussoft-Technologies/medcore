@@ -403,7 +403,7 @@ test.describe("File Operations — patient-document upload + imaging upload + av
     expect((sb.imageKeys as string[])[0]).toBe("ehr/stub-xray-key.png");
   });
 
-  test("ADMIN uploads a profile photo on /dashboard/settings: POST /uploads body shape pinned (filename + base64Content + type='profile_photo'); patientId is OMITTED — non-medical path skips the magic-byte allow-list (uploads.ts:172-196)", async ({
+  test("ADMIN uploads a profile photo on /dashboard/settings: POST /uploads body shape pinned (filename + base64Content; type AND patientId OMITTED — non-medical path returns a stable storage key, skips the magic-byte allow-list, uploads.ts:172-196)", async ({
     adminPage,
   }) => {
     const page = adminPage;
@@ -461,12 +461,16 @@ test.describe("File Operations — patient-document upload + imaging upload + av
 
     await expect.poll(() => uploadBody, { timeout: 10_000 }).not.toBeNull();
 
-    // Pin shape. settings/page.tsx:271-276 sends filename + base64Content +
-    // type="profile_photo" but DELIBERATELY omits patientId (non-medical
-    // path; uploads.ts treats it as avatar/free-form upload).
+    // Pin shape. settings/page.tsx sends filename + base64Content and
+    // DELIBERATELY omits BOTH `type` and `patientId` — the non-medical
+    // path. Omitting `type` makes uploads.ts return a stable storage KEY
+    // (not a medical PatientDocument), which the Settings page persists on
+    // User.photoUrl and re-signs on read. (Previously it sent
+    // type="profile_photo"; that was dropped when the avatar started
+    // storing the bare key instead of an expiring signed URL.)
     const ub = uploadBody as Record<string, unknown>;
     expect(ub.filename).toBe("avatar.png");
-    expect(ub.type).toBe("profile_photo");
+    expect(ub.type).toBeUndefined();
     expect(ub.patientId).toBeUndefined();
     expect(typeof ub.base64Content).toBe("string");
   });

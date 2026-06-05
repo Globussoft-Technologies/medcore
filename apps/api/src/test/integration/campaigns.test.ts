@@ -18,12 +18,24 @@
 //
 // Direct-prisma seeding pattern mirrors branches.test.ts so two tenants +
 // per-tenant ADMIN users can be exercised in one suite.
-import { it, expect, beforeAll } from "vitest";
+import { it, expect, beforeAll, vi } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { describeIfDB, resetDB, getPrisma } from "../setup";
 import { __resetTenantValidationCacheForTests } from "../../middleware/tenant";
+
+// Campaigns send WhatsApp + Email via messaging/* (the Meta + SendGrid
+// senders prescriptions use). Those return { ok:false } when their env
+// vars are unset (as in CI), so a dispatch would mark sends FAILED. Stub
+// them to a deterministic success so the fan-out assertions (sent counts)
+// are env-independent — exactly what the channels/* stub mode used to give.
+vi.mock("../../services/messaging/whatsapp", () => ({
+  sendWhatsApp: vi.fn(async () => ({ ok: true, messageId: "stub-wa" })),
+}));
+vi.mock("../../services/messaging/email", () => ({
+  sendEmail: vi.fn(async () => ({ ok: true, messageId: "stub-em" })),
+}));
 
 const JWT_SECRET = process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod";
 

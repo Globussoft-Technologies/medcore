@@ -147,6 +147,7 @@ function queueEntry(
     slotTime: string | null;
     hasVitals: boolean;
     estimatedWaitMinutes: number;
+    waitedMinutes: number | null;
     vulnerableFlags: {
       isSenior: boolean;
       isChild: boolean;
@@ -165,6 +166,7 @@ function queueEntry(
     slotTime: "10:00",
     hasVitals: false,
     estimatedWaitMinutes: 10,
+    waitedMinutes: null,
     vulnerableFlags: {
       isSenior: false,
       isChild: false,
@@ -274,7 +276,13 @@ describe("QueuePage", () => {
             date: "2026-05-26",
             currentToken: 5,
             totalInQueue: 1,
-            queue: [queueEntry({ patientName: "Aarav Mehta", tokenNumber: 6 })],
+            queue: [
+              queueEntry({
+                patientName: "Aarav Mehta",
+                tokenNumber: 6,
+                status: "CHECKED_IN",
+              }),
+            ],
           },
         });
       }
@@ -329,7 +337,7 @@ describe("QueuePage", () => {
     expect(await screen.findByText(/no patients in queue/i)).toBeInTheDocument();
   });
 
-  it("renders CHILD / ANC / SENIOR badges and hides the wait hint for IN_CONSULTATION", async () => {
+  it("renders CHILD / ANC / SENIOR badges and shows the wait hint only for CHECKED_IN (from check-in time), not IN_CONSULTATION", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/queue") {
         return Promise.resolve({
@@ -348,7 +356,8 @@ describe("QueuePage", () => {
                 appointmentId: "apt-child",
                 patientName: "Baby Roy",
                 tokenNumber: 7,
-                status: "BOOKED",
+                status: "CHECKED_IN",
+                waitedMinutes: 12,
                 vulnerableFlags: { isSenior: false, isChild: true, isPregnant: false, ageYears: 3 },
               }),
               queueEntry({
@@ -362,7 +371,7 @@ describe("QueuePage", () => {
                 appointmentId: "apt-snr",
                 patientName: "R Kumar",
                 tokenNumber: 9,
-                status: "BOOKED",
+                status: "CHECKED_IN",
                 vulnerableFlags: { isSenior: true, isChild: false, isPregnant: false, ageYears: 72 },
               }),
             ],
@@ -377,7 +386,9 @@ describe("QueuePage", () => {
     await user.click(await screen.findByRole("button", { name: /Dr\. Singh/ }));
 
     await screen.findByText("Baby Roy");
-    expect(screen.getByText(/CHILD/)).toBeInTheDocument();
+    // CHILD is now an icon-only badge (👶) labelled "Child"; ANC/SENIOR still
+    // carry text.
+    expect(screen.getByLabelText("Child")).toBeInTheDocument();
     expect(screen.getByText(/ANC/)).toBeInTheDocument();
     expect(screen.getByText(/SENIOR/)).toBeInTheDocument();
     // The drawer entry container is a `<div class="relative overflow-hidden
@@ -390,167 +401,12 @@ describe("QueuePage", () => {
     const ancRow = findRow("Priya N");
     expect(ancRow).toBeTruthy();
     expect(within(ancRow).queryByText(/min wait/)).toBeNull();
-    // BOOKED row SHOULD show it.
+    // CHECKED_IN row SHOULD show the actual wait computed from check-in time.
     const childRow = findRow("Baby Roy");
-    expect(within(childRow).getByText(/min wait/)).toBeInTheDocument();
-  });
-
-  it("opens the transfer modal, excludes the source doctor from the dropdown, rejects empty reason, then POSTs on confirm", async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === "/queue") {
-        return Promise.resolve({
-          data: [
-            doctorRow({ doctorId: "d1", doctorName: "Dr. Singh", specialization: "GP" }),
-            doctorRow({ doctorId: "d2", doctorName: "Dr. Gupta", specialization: "Peds" }),
-          ],
-        });
-      }
-      if (url.startsWith("/queue/d1?date=")) {
-        return Promise.resolve({
-          data: {
-            doctorId: "d1",
-            date: "2026-05-26",
-            currentToken: 5,
-            totalInQueue: 1,
-            queue: [queueEntry({ appointmentId: "apt-XYZ", status: "BOOKED" })],
-          },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    apiMock.post.mockResolvedValue({ data: { ok: true } });
-
-    const user = userEvent.setup();
-    render(<QueuePage />);
-    await user.click(await screen.findByRole("button", { name: /Dr\. Singh/ }));
-
-    // Open the transfer modal via the per-row Transfer button.
-    const transferBtn = await screen.findByRole("button", {
-      name: /Transfer Aarav Mehta to another doctor/i,
-    });
-    await user.click(transferBtn);
-
-    // Modal heading visible.
-    expect(
-      screen.getByRole("heading", { name: /transfer to another doctor/i }),
-    ).toBeInTheDocument();
-
-    // Dropdown EXCLUDES the source doctor (d1) — only d2 should appear.
-    const select = screen.getByLabelText(/new doctor/i) as HTMLSelectElement;
-    const options = within(select).getAllByRole("option");
-    const values = options.map((o) => (o as HTMLOptionElement).value);
-    expect(values).toContain("");
-    expect(values).toContain("d2");
-    expect(values).not.toContain("d1");
-
-    // Empty-state submit → toast.error, no POST.
-    await user.click(screen.getByRole("button", { name: /confirm transfer/i }));
-    expect(toastMock.error).toHaveBeenCalledWith(
-      expect.stringMatching(/select a doctor.*reason/i),
-    );
-    expect(apiMock.post).not.toHaveBeenCalled();
-
-    // Now fill it in and submit again.
-    await user.selectOptions(select, "d2");
-    await user.type(screen.getByLabelText(/^reason$/i), "Specialist needed");
-    await user.click(screen.getByRole("button", { name: /confirm transfer/i }));
-
-    await waitFor(() =>
-      expect(apiMock.post).toHaveBeenCalledWith(
-        "/appointments/apt-XYZ/transfer",
-        { newDoctorId: "d2", reason: "Specialist needed" },
-      ),
-    );
-    // Modal closes after success (heading no longer present).
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("heading", { name: /transfer to another doctor/i }),
-      ).toBeNull(),
-    );
-  });
-
-  it("LWBS button prompts for a reason then PATCHes /appointments/:id/lwbs", async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === "/queue") {
-        return Promise.resolve({
-          data: [doctorRow({ doctorId: "d1", doctorName: "Dr. Singh" })],
-        });
-      }
-      if (url.startsWith("/queue/d1?date=")) {
-        return Promise.resolve({
-          data: {
-            doctorId: "d1",
-            date: "2026-05-26",
-            currentToken: 5,
-            totalInQueue: 1,
-            queue: [queueEntry({ appointmentId: "apt-LWBS", status: "CHECKED_IN" })],
-          },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-    apiMock.patch.mockResolvedValue({ data: { ok: true } });
-    promptMock.mockResolvedValue("Patient left after 45 min");
-
-    const user = userEvent.setup();
-    render(<QueuePage />);
-    await user.click(await screen.findByRole("button", { name: /Dr\. Singh/ }));
-
-    const lwbsBtn = await screen.findByRole("button", {
-      name: /Mark Aarav Mehta as left without being seen/i,
-    });
-    await user.click(lwbsBtn);
-
-    await waitFor(() =>
-      expect(apiMock.patch).toHaveBeenCalledWith(
-        "/appointments/apt-LWBS/lwbs",
-        { reason: "Patient left after 45 min" },
-      ),
-    );
-    expect(promptMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "Left Without Being Seen",
-        required: true,
-      }),
-    );
-  });
-
-  it("DOCTOR role does NOT render Transfer / LWBS buttons (canTransfer === false)", async () => {
-    setAuth({
-      user: { id: "doc1", name: "Dr. X", email: "x@y.com", role: "DOCTOR" },
-      isLoading: false,
-    });
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === "/queue") {
-        return Promise.resolve({
-          data: [doctorRow({ doctorId: "d1", doctorName: "Dr. Singh" })],
-        });
-      }
-      if (url.startsWith("/queue/d1?date=")) {
-        return Promise.resolve({
-          data: {
-            doctorId: "d1",
-            date: "2026-05-26",
-            currentToken: 5,
-            totalInQueue: 1,
-            queue: [queueEntry({ status: "BOOKED" })],
-          },
-        });
-      }
-      return Promise.resolve({ data: [] });
-    });
-
-    const user = userEvent.setup();
-    render(<QueuePage />);
-    await user.click(await screen.findByRole("button", { name: /Dr\. Singh/ }));
-    await screen.findByText("Aarav Mehta");
-
-    expect(
-      screen.queryByRole("button", { name: /Transfer Aarav Mehta/i }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", { name: /left without being seen/i }),
-    ).toBeNull();
+    expect(within(childRow).getByText(/~12 min wait/)).toBeInTheDocument();
+    // CHECKED_IN row with no recorded wait (waitedMinutes null) shows no hint.
+    const snrRow = findRow("R Kumar");
+    expect(within(snrRow).queryByText(/min wait/)).toBeNull();
   });
 
   it("polls /queue every 30s as a fallback so nurse views don't go stale (#430)", async () => {

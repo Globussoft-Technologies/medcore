@@ -106,7 +106,11 @@ function appt(overrides: Record<string, unknown> = {}) {
     id: "a1",
     tokenNumber: 1,
     date: todayIso(),
-    slotStart: "10:00",
+    // Default to a no-slot (token/calling-style) row so the fixture is never
+    // "past" intraday: with a slot time, today+10:00 flips to NO_SHOW after
+    // 10am and hides the row's actions (which are gated on the effective
+    // display status). No slot + today's date is deterministically not-past.
+    slotStart: null,
     type: "REGULAR",
     status: "BOOKED",
     priority: "NORMAL",
@@ -559,6 +563,10 @@ describe("AppointmentsPage — colocated coverage", () => {
     });
     const user = userEvent.setup();
     render(<AppointmentsPage />);
+    // Staff cancel lives in the ⋮ menu now (no inline Cancel button for staff).
+    await user.click(
+      await screen.findByRole("button", { name: /more actions for asha roy/i }),
+    );
     const cancelBtn = await screen.findByRole("button", {
       name: /cancel appointment for asha roy/i,
     });
@@ -583,6 +591,10 @@ describe("AppointmentsPage — colocated coverage", () => {
     apiMock.patch.mockResolvedValue({ data: {} });
     const user = userEvent.setup();
     render(<AppointmentsPage />);
+    // Staff cancel lives in the ⋮ menu now (no inline Cancel button for staff).
+    await user.click(
+      await screen.findByRole("button", { name: /more actions for asha roy/i }),
+    );
     const cancelBtn = await screen.findByRole("button", {
       name: /cancel appointment for asha roy/i,
     });
@@ -616,6 +628,10 @@ describe("AppointmentsPage — colocated coverage", () => {
     apiMock.patch.mockRejectedValue(new Error("conflict"));
     const user = userEvent.setup();
     render(<AppointmentsPage />);
+    // Staff cancel lives in the ⋮ menu now (no inline Cancel button for staff).
+    await user.click(
+      await screen.findByRole("button", { name: /more actions for asha roy/i }),
+    );
     const cancelBtn = await screen.findByRole("button", {
       name: /cancel appointment for asha roy/i,
     });
@@ -636,6 +652,12 @@ describe("AppointmentsPage — colocated coverage", () => {
   it("Reschedule button opens the modal, fetches slots, and confirmReschedule PATCHes /reschedule", async () => {
     let rescheduleSlotsCalls = 0;
     apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/appointments/next-token")) {
+        // SLOT-mode doctor → the reschedule modal shows the timed slot grid.
+        return Promise.resolve({
+          data: { mode: "SLOT", tokenLabel: null, limitReached: false },
+        });
+      }
       if (url.startsWith("/appointments/a-booked")) {
         return Promise.resolve({ data: { doctorId: "d-1" } });
       }
@@ -690,6 +712,12 @@ describe("AppointmentsPage — colocated coverage", () => {
 
   it("Reschedule modal: changing the date input re-fires loadReschedSlots for the new date", async () => {
     apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/appointments/next-token")) {
+        // SLOT-mode doctor → the reschedule modal shows the timed slot grid.
+        return Promise.resolve({
+          data: { mode: "SLOT", tokenLabel: null, limitReached: false },
+        });
+      }
       if (url.startsWith("/appointments/a-booked")) {
         return Promise.resolve({ data: { doctorId: "d-1" } });
       }
@@ -1396,6 +1424,36 @@ describe("AppointmentsPage — colocated coverage", () => {
   it("⋮ menu: a terminal COMPLETED row shows 'No actions available'", async () => {
     const user = await renderWithRow("COMPLETED");
     expect(await screen.findByText(/no actions available/i)).toBeInTheDocument();
+    void user;
+  });
+
+  it("⋮ menu: a FUTURE booked row offers Mark No-show + Cancel (no Check In)", async () => {
+    // Day-of actions (Check In, undo/restore) don't apply before the
+    // appointment day, but an upcoming booking can still be cancelled or
+    // flagged as a no-show ahead of time — both live in the ⋮ menu.
+    const user = await renderWithRow("BOOKED", { date: plus2DaysIso() });
+    expect(
+      await screen.findByRole("button", { name: /mark no-show for asha roy/i }),
+    ).toBeInTheDocument();
+    // Exact label (no "(token …)" suffix) targets the menu's Cancel, not the
+    // RECEPTION inline Cancel button.
+    expect(
+      screen.getByRole("button", { name: "Cancel appointment for Asha Roy" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /^check in/i }),
+    ).not.toBeInTheDocument();
+    void user;
+  });
+
+  it("⋮ menu: a PAST cancelled row is terminal — 'No actions available' (no Restore)", async () => {
+    // A past-dated row can't be meaningfully restored/undone, so the menu is
+    // empty even though a same-day CANCELLED row would offer Mark-as-Booked.
+    const user = await renderWithRow("CANCELLED", { date: "2020-01-01" });
+    expect(await screen.findByText(/no actions available/i)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /restore to booked/i }),
+    ).not.toBeInTheDocument();
     void user;
   });
 

@@ -872,10 +872,15 @@ router.patch(
       // reason when restoring a CANCELLED appointment.
       if (req.body.status === "BOOKED") {
         extraData.checkInAt = null;
+        extraData.calledAt = null;
         extraData.noShowReason = null;
         extraData.cancellationReason = null;
       }
-      if (req.body.status === "IN_CONSULTATION") extraData.consultationStartedAt = now;
+      if (req.body.status === "IN_CONSULTATION") {
+        extraData.consultationStartedAt = now;
+        // The patient is now with the doctor — they're no longer "being called".
+        extraData.calledAt = null;
+      }
       if (req.body.status === "COMPLETED") extraData.consultationEndedAt = now;
       // Pearl §3.1 (gap closed 2026-05-29) — persist the cancel/no-show
       // reason. Zod already enforces presence when status is CANCELLED
@@ -1057,6 +1062,117 @@ router.patch(
   }
 );
 
+// POST /api/v1/appointments/:id/call — CALLING-mode only.
+// Marks a CHECKED_IN patient as "being called" (the transient state between
+// check-in and the consult starting). The doctor may call patients in ANY
+// order — not just FIFO. Only one patient per doctor+date is actively being
+// called at a time, so calling a new patient clears the prior one's call.
+router.post(
+  "/:id/call",
+  // Only a DOCTOR can call a patient in. Other staff (reception/admin/nurse)
+  // have read-only visibility of the live queue + calling state.
+  authorize(Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          doctorId: true,
+          date: true,
+          status: true,
+          calledAt: true,
+          doctor: { select: { appointmentMode: true } },
+        },
+      });
+      if (!existing) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Appointment not found" });
+        return;
+      }
+      if (existing.doctor?.appointmentMode !== "CALLING") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Calling a patient is only available for calling-mode doctors.",
+        });
+        return;
+      }
+      if (existing.status !== "CHECKED_IN") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Only a checked-in patient can be called.",
+        });
+        return;
+      }
+      // Single active call: a doctor calls ONE patient at a time. If another
+      // patient is already being called, block this until that call is
+      // cancelled (the bell-off / uncall action). Re-calling the same patient
+      // is a harmless no-op.
+      if (!existing.calledAt) {
+        const otherCalled = await prisma.appointment.findFirst({
+          where: {
+            doctorId: existing.doctorId,
+            date: existing.date,
+            status: "CHECKED_IN",
+            calledAt: { not: null },
+            id: { not: existing.id },
+          },
+          select: { id: true },
+        });
+        if (otherCalled) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error:
+              "Another patient is already being called. Cancel that call first.",
+          });
+          return;
+        }
+      }
+      const updated = await prisma.appointment.update({
+        where: { id: existing.id },
+        data: existing.calledAt ? {} : { calledAt: new Date() },
+      });
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/appointments/:id/uncall — DOCTOR only.
+// Cancel an in-progress call: clear calledAt so the patient drops out of the
+// "calling" state back to plain CHECKED_IN (still waiting). The reverse of
+// /call. No-op if the patient wasn't being called.
+router.post(
+  "/:id/uncall",
+  authorize(Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!existing) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Appointment not found" });
+        return;
+      }
+      const updated = await prisma.appointment.update({
+        where: { id: existing.id },
+        data: { calledAt: null },
+      });
+      res.json({ success: true, data: updated, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 // Reschedule notification trigger (fire-and-forget). Fires on EVERY
 // reschedule regardless of who did it — the patient via the PWA or a
 // MedCore staff member (reception/doctor/nurse/admin) — because both go
@@ -1144,9 +1260,11 @@ router.patch(
         select: { appointmentMode: true, tokenStartNumber: true },
       });
       const isTokenDoctor = doctor?.appointmentMode === "TOKEN";
+      const isCallingDoctor = doctor?.appointmentMode === "CALLING";
       const sameDate = existing.date.toISOString().split("T")[0] === date;
-      // TOKEN rows never store a slotStart; SLOT/CALLING keep the chosen one.
-      const effectiveSlot = isTokenDoctor ? null : slotStart;
+      // TOKEN and CALLING rows never store a slotStart (CALLING is an
+      // arrival-order queue, not a timed slot); only SLOT keeps the chosen one.
+      const effectiveSlot = isTokenDoctor || isCallingDoctor ? null : slotStart;
 
       // Verify the new slot is available — only meaningful when an actual
       // slot is being claimed (SLOT mode). TOKEN reschedules skip this.
@@ -1179,10 +1297,18 @@ router.patch(
       //     the smaller token on the old day stays ahead on the new day).
       //     Only if that exact number is already taken on the target date do
       //     we fall back to the next free token at/after the configured start.
-      //   • SLOT/CALLING, new date → next sequential token for that date.
+      //   • CALLING, new date → no token; append to the target day's arrival
+      //     queue so the FIRST patient rescheduled lands ahead of later ones
+      //     (FIFO by reschedule order). arrivalSeq drives the queue order.
+      //   • SLOT, new date → next sequential token for that date.
       let tokenNumber: number | null;
+      // undefined = leave arrivalSeq untouched (TOKEN/SLOT rows don't use it).
+      let arrivalSeq: number | undefined;
       if (sameDate) {
         tokenNumber = existing.tokenNumber;
+      } else if (isCallingDoctor) {
+        tokenNumber = null;
+        arrivalSeq = await getNextArrivalSeq(existing.doctorId, dateObj);
       } else if (isTokenDoctor && existing.tokenNumber != null) {
         const clash = await isTokenTakenOnDate(
           existing.doctorId,
@@ -1210,6 +1336,7 @@ router.patch(
           date: dateObj,
           slotStart: effectiveSlot,
           tokenNumber,
+          ...(arrivalSeq !== undefined ? { arrivalSeq } : {}),
           rescheduleReason: req.body.reason,
         },
         include: {

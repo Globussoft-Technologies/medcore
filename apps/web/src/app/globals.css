@@ -266,3 +266,34 @@ select {
 .dark .mc-skeleton {
   background-color: rgb(31 41 55);
 }
+
+/* Token Display Board — "Now Calling" transition. When the called patient
+   changes, the previous name lifts away and fades while the new one rises in
+   with a soft scale + glow — a smooth, attention-catching OPD call-board feel.
+   Both layers are keyed so the animation only fires on a real new call. */
+@keyframes mc-call-enter {
+  0% {
+    transform: translateY(42px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.mc-call-enter {
+  animation: mc-call-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes mc-call-leave {
+  0% {
+    transform: translateY(0);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-42px);
+    opacity: 0;
+  }
+}
+.mc-call-leave {
+  animation: mc-call-leave 0.45s ease-in forwards;
+}

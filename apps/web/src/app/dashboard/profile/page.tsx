@@ -223,7 +223,10 @@ export default function ProfilePage() {
           </div>
           <div className="flex-1">
             <p className="text-lg font-semibold" data-testid="profile-header-name">
-              {name || (loading ? "Loading…" : "—")}
+              {/* The loading state renders a skeleton early-return above, so
+                  the form only mounts once data has resolved — no "Loading…"
+                  fallback needed here. */}
+              {name || "—"}
             </p>
             <p className="text-sm text-gray-500" data-testid="profile-header-email">
               {email || "—"}

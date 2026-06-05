@@ -132,13 +132,40 @@ describe("displayStatusForAppointment (Issue #388)", () => {
     ).toBe("IN_PROGRESS");
   });
 
-  it("renders a past BOOKED appointment as COMPLETED (#388)", () => {
+  it("renders a past SLOT BOOKED appointment as NO_SHOW (slot instant elapsed)", () => {
     expect(
       displayStatusForAppointment(
         { status: "BOOKED", startTime: "2026-04-29T10:00:00Z" }, // 2h before NOW
         NOW
       )
-    ).toBe("COMPLETED");
+    ).toBe("NO_SHOW");
+  });
+
+  it("renders a past CHECKED_IN appointment as NO_SHOW too", () => {
+    expect(
+      displayStatusForAppointment(
+        { status: "CHECKED_IN", startTime: "2026-04-29T10:00:00Z" },
+        NOW
+      )
+    ).toBe("NO_SHOW");
+  });
+
+  it("TOKEN/CALLING (no slot time): a past calendar day reads as NO_SHOW", () => {
+    expect(
+      displayStatusForAppointment(
+        { status: "BOOKED", date: "2026-04-28" }, // day before NOW's day
+        NOW
+      )
+    ).toBe("NO_SHOW");
+  });
+
+  it("TOKEN/CALLING (no slot time): today's date stays BOOKED", () => {
+    expect(
+      displayStatusForAppointment(
+        { status: "BOOKED", date: "2026-04-29" }, // same day as NOW
+        NOW
+      )
+    ).toBe("BOOKED");
   });
 
   it("leaves a future BOOKED appointment as BOOKED", () => {
@@ -173,7 +200,7 @@ describe("displayStatusForAppointment (Issue #388)", () => {
 
   it("falls back to slotStart when startTime is missing", () => {
     // slotStart is the bare HH:mm shape; with the `date` arg it anchors
-    // to a real date. Past combined instant → COMPLETED.
+    // to a real date. Past combined instant → NO_SHOW.
     expect(
       displayStatusForAppointment(
         {
@@ -183,11 +210,11 @@ describe("displayStatusForAppointment (Issue #388)", () => {
         },
         NOW
       )
-    ).toBe("COMPLETED");
+    ).toBe("NO_SHOW");
   });
 
   it("uses startTime when both startTime and slotStart are set (startTime wins)", () => {
-    // startTime is past → COMPLETED, even though slotStart says future.
+    // startTime is past → NO_SHOW, even though slotStart says future.
     expect(
       displayStatusForAppointment(
         {
@@ -198,7 +225,7 @@ describe("displayStatusForAppointment (Issue #388)", () => {
         },
         NOW
       )
-    ).toBe("COMPLETED");
+    ).toBe("NO_SHOW");
   });
 
   it("accepts a Date instance as startTime", () => {
@@ -207,7 +234,7 @@ describe("displayStatusForAppointment (Issue #388)", () => {
         { status: "BOOKED", startTime: new Date(NOW - 60 * 60 * 1000) },
         NOW
       )
-    ).toBe("COMPLETED");
+    ).toBe("NO_SHOW");
     expect(
       displayStatusForAppointment(
         { status: "BOOKED", startTime: new Date(NOW + 48 * 60 * 60 * 1000) },
@@ -217,14 +244,14 @@ describe("displayStatusForAppointment (Issue #388)", () => {
   });
 
   it("defaults nowMs to Date.now() when the arg is omitted", () => {
-    // A clearly-historical timestamp must read as COMPLETED regardless
+    // A clearly-historical timestamp must read as NO_SHOW regardless
     // of what Date.now() reports today.
     expect(
       displayStatusForAppointment({
         status: "BOOKED",
         startTime: "2000-01-01T00:00:00Z",
       })
-    ).toBe("COMPLETED");
+    ).toBe("NO_SHOW");
     // A clearly-future timestamp must stay BOOKED.
     expect(
       displayStatusForAppointment({

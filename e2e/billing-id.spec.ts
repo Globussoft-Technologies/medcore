@@ -45,19 +45,21 @@ interface InvoiceCreateResponse {
   items: Array<{ id: string; description: string; amount: number }>;
 }
 
-// Two CONSULTATION line items so the trash-can column actually renders
-// (page.tsx:672 hides Remove on the LAST item). Subtotal 700 keeps the
-// math far from any other value asserted elsewhere in the suite.
+// Two TAXABLE line items so they render in the main GST line-item table with
+// the trash-can column (CONSULTATION lines render separately in the consult
+// summary section, not this table). The Remove button hides on the LAST item,
+// so two items are needed. Subtotal 700 keeps the math far from any other
+// value asserted elsewhere in the suite.
 const SEED_ITEMS = [
   {
-    description: "General consultation",
-    category: "CONSULTATION",
+    description: "Minor procedure A",
+    category: "PROCEDURE",
     quantity: 1,
     unitPrice: 300,
   },
   {
-    description: "Follow-up consultation",
-    category: "CONSULTATION",
+    description: "Minor procedure B",
+    category: "PROCEDURE",
     quantity: 1,
     unitPrice: 400,
   },

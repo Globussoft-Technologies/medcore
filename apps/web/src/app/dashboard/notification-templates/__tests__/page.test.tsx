@@ -258,6 +258,7 @@ describe("NotificationTemplatesPage", () => {
     });
 
     // Click the APPOINTMENT_BOOKED × WHATSAPP cell (channel index 0).
+    await screen.findByText("APPOINTMENT_BOOKED");
     fireEvent.click(getCellButton("APPOINTMENT_BOOKED", 0));
 
     // Modal heading reflects the type/channel pair.
@@ -374,6 +375,7 @@ describe("NotificationTemplatesPage", () => {
     });
 
     // CHANNELS = ["WHATSAPP", "SMS", "EMAIL", "PUSH"] → EMAIL is index 2.
+    await screen.findByText("APPOINTMENT_BOOKED");
     fireEvent.click(getCellButton("APPOINTMENT_BOOKED", 2));
 
     expect(
@@ -409,6 +411,7 @@ describe("NotificationTemplatesPage", () => {
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledWith("/notifications/templates");
     });
+    await screen.findByText("APPOINTMENT_BOOKED");
 
     fireEvent.click(getCellButton("APPOINTMENT_BOOKED", 0));
     expect(
@@ -436,6 +439,9 @@ describe("NotificationTemplatesPage", () => {
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledWith("/notifications/templates");
     });
+    // Wait for the matrix to render (loading skeleton gone) before the
+    // synchronous getCellButton lookup — otherwise it races the fetch.
+    await screen.findByText("APPOINTMENT_BOOKED");
 
     fireEvent.click(getCellButton("APPOINTMENT_BOOKED", 0));
     fireEvent.click(await screen.findByRole("button", { name: /save/i }));

@@ -424,18 +424,19 @@ test.describe("Negative paths — error surfaces, retries, and offline (E2E_COVE
   test("/display: when GET /queue fails, the kiosk surfaces the 'Offline — showing last update' banner instead of a blank screen", async ({
     browser,
   }) => {
-    // /display is a public, no-auth kiosk route. fetch failure flips
-    // setOffline(true) at page.tsx:73 and renders the role="status" yellow
-    // banner at page.tsx:150-158. This is the ONE shipped offline-detection
-    // surface in the web app — every other "offline" mention is in marketing
-    // copy or test fixtures (verified pre-scaffold).
+    // /display is a public, no-auth kiosk route. A fetch failure flips the
+    // board into offline mode (useDisplayData in display/_shared.tsx) and
+    // renders the role="status" yellow banner (DisplayHeader). This is the ONE
+    // shipped offline-detection surface in the web app — every other "offline"
+    // mention is in marketing copy or test fixtures (verified pre-scaffold).
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
 
-    // Force the queue endpoint to 503 BEFORE navigation so the very first
-    // poll fails. The page reads the cached doctor list (none on a fresh
-    // context) and shows the offline banner.
-    await page.route("**/api/v1/queue", (route) =>
+    // Force the PUBLIC display queue endpoint to 503 BEFORE navigation so the
+    // very first poll fails. The board now fetches /api/v1/queue/display (a
+    // no-auth, PII-redacted endpoint) rather than the staff /queue. On a fresh
+    // context there's no cache, so the offline banner shows.
+    await page.route("**/api/v1/queue/display", (route) =>
       route.fulfill({
         status: 503,
         contentType: "application/json",

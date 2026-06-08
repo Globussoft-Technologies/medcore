@@ -111,7 +111,7 @@ jobs:
         # stays green while the secret is being added in repo settings.
         # Closes §E of the 2026-05-02 coverage gap audit.
         if: always() && hashFiles('coverage/lcov.info') != ''
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage/lcov.info
@@ -154,7 +154,7 @@ jobs:
         # api-tests Codecov step. `flags: web` keeps the api/web buckets
         # separate on the Codecov UI so we can see per-surface trend lines.
         if: always() && hashFiles('apps/web/coverage/lcov.info') != ''
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: apps/web/coverage/lcov.info

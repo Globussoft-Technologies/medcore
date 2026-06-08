@@ -305,6 +305,44 @@ describe("generateInvoicePDF — content quality", () => {
     const html = await generateInvoicePDF("inv-1");
     expect(html).toContain(LONG_NAME);
   });
+
+  it("a CONSULTATION-only bill renders the fee as a compact line, no GST/HSN columns", async () => {
+    prismaMock.invoice.findUnique.mockResolvedValueOnce({
+      id: "inv-2",
+      invoiceNumber: "INV-CONSULT-9",
+      subtotal: 1000,
+      discountAmount: 0,
+      packageDiscount: 0,
+      cgstAmount: 0,
+      sgstAmount: 0,
+      lateFeeAmount: 0,
+      totalAmount: 1000,
+      advanceApplied: 0,
+      dueDate: new Date("2026-06-22"),
+      paymentStatus: "PENDING",
+      createdAt: new Date("2026-06-08"),
+      patient: aPatient({ user: { name: "Ishani Patel", phone: "+1", email: "i@x" } }),
+      items: [
+        {
+          description: "Consultation — Dr. Rajesh Sharma",
+          category: "CONSULTATION",
+          quantity: 1,
+          unitPrice: 1000,
+          amount: 1000,
+        },
+      ],
+      payments: [],
+    });
+    const html = await generateInvoicePDF("inv-2");
+    expectWellFormedHtml(html);
+    // Compact consult line present…
+    expect(html).toContain("Consultation — Dr. Rajesh Sharma");
+    expect(html).toContain("1000.00");
+    // …and the tax-invoice columns / tax totals are absent (GST-exempt).
+    expect(html).not.toContain(">HSN/SAC<");
+    expect(html).not.toContain(">CGST<");
+    expect(html).not.toContain(">SGST<");
+  });
 });
 
 // ── 5. PAY SLIP ──────────────────────────────────────────

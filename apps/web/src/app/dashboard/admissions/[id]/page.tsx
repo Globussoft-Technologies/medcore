@@ -526,14 +526,6 @@ function OverviewTab({
                   </div>
                 );
               })}
-              {bill.breakdown.map((b, i) => (
-                <div key={i} className="flex justify-between">
-                  <span className="text-gray-600 dark:text-gray-300">
-                    {b.label} × {b.days}d @ ₹{b.ratePerDay}
-                  </span>
-                  <span className="font-medium dark:text-gray-100">₹{b.amount.toLocaleString()}</span>
-                </div>
-              ))}
               <div className="mt-2 flex justify-between border-t dark:border-gray-700 pt-2 text-base">
                 <span className="font-semibold dark:text-gray-100">Total ({bill.days} days)</span>
                 <span className="font-bold text-primary dark:text-blue-300">

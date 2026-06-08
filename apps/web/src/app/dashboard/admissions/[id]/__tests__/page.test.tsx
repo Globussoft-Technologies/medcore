@@ -497,8 +497,8 @@ describe("AdmissionDetailPage (IPD admission detail — top-level wiring + tabs)
     renderPage();
     await screen.findByRole("heading", { name: /Running Bill/i });
     // breakdown labels
-    expect(screen.getByText(/Bed × 2d @ ₹1500/)).toBeInTheDocument();
-    expect(screen.getByText(/Nursing × 2d @ ₹1200/)).toBeInTheDocument();
+    expect(screen.getByText(/Bed × 2 days @ ₹1500/)).toBeInTheDocument();
+    expect(screen.getByText(/Nursing × 2 days @ ₹1200/)).toBeInTheDocument();
     expect(screen.getByText(/Total \(2 days\)/)).toBeInTheDocument();
     expect(screen.getByText("₹5,400")).toBeInTheDocument();
   });

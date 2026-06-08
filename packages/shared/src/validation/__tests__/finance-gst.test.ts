@@ -7,7 +7,43 @@ import {
   gstRateForCategory,
   hsnSacForCategory,
   GST_RATE_BY_CATEGORY,
+  formatQuantityWithUnit,
+  unitForCategory,
 } from "../finance";
+
+describe("formatQuantityWithUnit / unitForCategory", () => {
+  it("maps only bed charges to a natural unit (day)", () => {
+    expect(unitForCategory("ROOM_CHARGE")).toBe("day");
+    expect(unitForCategory("ROOM")).toBe("day");
+  });
+  it("returns null for every ambiguous / unit-less category", () => {
+    // Medicine quantity could be doses OR packs — not inferable from category.
+    expect(unitForCategory("PHARMACY")).toBeNull();
+    expect(unitForCategory("MEDICINE")).toBeNull();
+    // Lab quantity could be tests vs panels.
+    expect(unitForCategory("LAB")).toBeNull();
+    expect(unitForCategory("RADIOLOGY")).toBeNull();
+    expect(unitForCategory("PROCEDURE")).toBeNull();
+    expect(unitForCategory("OTHER")).toBeNull();
+    // CONSULTATION has no Qty-column unit (rendered as its own line).
+    expect(unitForCategory("CONSULTATION")).toBeNull();
+    expect(unitForCategory(null)).toBeNull();
+  });
+  it("is case-insensitive", () => {
+    expect(unitForCategory("room_charge")).toBe("day");
+    expect(unitForCategory("ROOM")).toBe("day");
+  });
+  it("formats bed quantity with a pluralised unit", () => {
+    expect(formatQuantityWithUnit("ROOM_CHARGE", 1)).toBe("1 day");
+    expect(formatQuantityWithUnit("ROOM_CHARGE", 3)).toBe("3 days");
+  });
+  it("falls back to a bare count for ambiguous / unknown categories", () => {
+    expect(formatQuantityWithUnit("LAB", 1)).toBe("1");
+    expect(formatQuantityWithUnit("PHARMACY", 2)).toBe("2");
+    expect(formatQuantityWithUnit("PROCEDURE", 2)).toBe("2");
+    expect(formatQuantityWithUnit("XYZ", 5)).toBe("5");
+  });
+});
 
 describe("gstRateForCategory", () => {
   it("returns 0 for CONSULTATION (exempt)", () => {

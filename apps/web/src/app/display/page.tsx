@@ -41,7 +41,7 @@ export default function TokenDisplayPage() {
                   key={doc.doctorId}
                   href={`/display/${doc.doctorId}`}
                   aria-label={`Open ${doc.doctorName}'s board`}
-                  className="rounded-2xl transition hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+                  className="block h-full rounded-2xl transition hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
                 >
                   <DoctorCard doc={doc} />
                 </Link>

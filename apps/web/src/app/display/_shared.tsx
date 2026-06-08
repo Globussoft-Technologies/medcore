@@ -237,6 +237,17 @@ function callingNameSize(name: string): string {
   return "text-xl";
 }
 
+// Doctor-card heading size, scaled to the name length so long names (e.g.
+// "Dr. Maria Fernandes") fit on a line instead of wrapping and pushing the
+// card taller than its row-mates.
+function doctorNameSize(name: string): string {
+  const len = name.trim().length;
+  if (len <= 14) return "text-2xl";
+  if (len <= 20) return "text-xl";
+  if (len <= 28) return "text-lg";
+  return "text-base";
+}
+
 // "Now Calling" names with a directional transition: when the called patient
 // changes, the previous name lifts up and fades while the new one rises in.
 function CallingNames({ names }: { names: string[] }) {
@@ -294,16 +305,18 @@ export function DoctorCard({ doc }: { doc: DoctorQueue }) {
   return (
     <div
       data-testid={`display-card-${mode.toLowerCase()}`}
-      className={`rounded-2xl border-2 p-6 transition-all ${
+      className={`flex h-full flex-col rounded-2xl border-2 p-6 transition-all ${
         isActive
           ? "border-emerald-400/70 bg-gradient-to-br from-emerald-900/50 via-emerald-950/40 to-slate-900 shadow-[0_0_34px_rgba(16,185,129,0.22)]"
           : "border-slate-700 bg-slate-900/60"
       }`}
     >
       <div className="mb-4 flex items-start justify-between gap-2">
-        <div>
+        <div className="min-w-0 flex-1">
           <h2
-            className={`text-2xl font-bold ${isActive ? "text-white" : "text-slate-400"}`}
+            className={`font-bold leading-tight ${doctorNameSize(
+              formatDoctorName(doc.doctorName),
+            )} ${isActive ? "text-white" : "text-slate-400"}`}
           >
             {formatDoctorName(doc.doctorName)}
           </h2>
@@ -311,7 +324,7 @@ export function DoctorCard({ doc }: { doc: DoctorQueue }) {
             <p className="mt-1 text-sm text-slate-500">{doc.specialization}</p>
           )}
         </div>
-        <span className="rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <span className="shrink-0 rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
           {mode}
         </span>
       </div>
@@ -345,7 +358,7 @@ export function DoctorCard({ doc }: { doc: DoctorQueue }) {
             </div>
           )}
           <div
-            className={`rounded-lg px-3 py-2 text-center text-sm font-medium ${
+            className={`mt-auto rounded-lg px-3 py-2 text-center text-sm font-medium ${
               isActive ? "bg-emerald-900/50 text-emerald-300" : "bg-slate-800 text-slate-500"
             }`}
           >
@@ -376,7 +389,7 @@ export function DoctorCard({ doc }: { doc: DoctorQueue }) {
             </div>
           )}
           <div
-            className={`rounded-lg px-3 py-2 text-center text-sm font-medium ${
+            className={`mt-auto rounded-lg px-3 py-2 text-center text-sm font-medium ${
               isActive ? "bg-emerald-900/50 text-emerald-300" : "bg-slate-800 text-slate-500"
             }`}
           >

@@ -417,7 +417,10 @@ describe("POST /api/v1/consultations/:id/sign", () => {
     });
     expect(prismaMock.appointment.update).toHaveBeenCalledWith({
       where: { id: APT_ID },
-      data: { status: "COMPLETED" },
+      data: expect.objectContaining({
+        status: "COMPLETED",
+        consultationEndedAt: expect.any(Date),
+      }),
     });
   });
 

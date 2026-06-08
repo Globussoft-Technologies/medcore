@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { formatDoctorName } from "@/lib/format-doctor-name";
@@ -15,6 +15,7 @@ import {
   computeInvoiceTotals,
   computeLineItemTax,
   derivePaymentStatus,
+  formatQuantityWithUnit,
 } from "@medcore/shared";
 import {
   Printer,
@@ -114,9 +115,11 @@ function fmtMoney(n: number) {
   })}`;
 }
 
+
 export default function InvoiceDetailPage() {
   const params = useParams();
   const id = params.id as string;
+  const router = useRouter();
   const confirm = useConfirm();
   const { t } = useTranslation();
   // Issue #861: cashier controls (Apply Discount, Record Payment, Record
@@ -131,6 +134,9 @@ export default function InvoiceDetailPage() {
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [hospital, setHospital] = useState<HospitalProfile>(DEFAULT_HOSPITAL);
+  // Expand the combined "Consultation Charge" line into its date-wise
+  // per-doctor breakdown so the patient can verify each consult.
+  const [consultOpen, setConsultOpen] = useState(false);
 
   // Add item form
   const [newDesc, setNewDesc] = useState("");
@@ -486,6 +492,20 @@ export default function InvoiceDetailPage() {
     tax: computeLineItemTax(it.amount, it.category),
   }));
 
+  // Split the lines into the GST-exempt consultation charge(s) and the
+  // taxable charges (lab / medicine / bed / surgery …). They render as two
+  // separate sections so a consult never sits under HSN/SAC + CGST/SGST
+  // columns (no GST, no tax, no qty — just the fee), while taxable lines keep
+  // the full GST tax-invoice grid. A pure-consult bill shows only the first
+  // section; a pure-taxable bill only the second; an admitted patient with a
+  // consult + bed/medicine/lab shows both, clearly separated.
+  const consultItems = itemsWithTax.filter(
+    (it) => it.category === "CONSULTATION",
+  );
+  const taxableItems = itemsWithTax.filter(
+    (it) => it.category !== "CONSULTATION",
+  );
+
   // Single source of truth for the totals block (#202, #236). When the
   // persisted `invoice.totalAmount` was stored without GST (legacy seed
   // path), `computeInvoiceTotals` returns the corrected total derived
@@ -524,6 +544,138 @@ export default function InvoiceDetailPage() {
   );
 
   const isPending = displayStatus === "PENDING";
+
+  // Taxable charges table (lab / medicine / bed / surgery …) — the full GST
+  // tax-invoice grid. The consultation fee is GST-exempt and shown as a
+  // compact one-line summary above, not as a table row.
+  const renderTaxableTable = (rows: typeof itemsWithTax) => (
+    <div className="mb-6 overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-t border-gray-200 text-left text-gray-500 dark:border-gray-700 dark:text-gray-400 print:border-gray-200 print:text-gray-500">
+            <th className="py-3">#</th>
+            <th className="py-3">
+              {t("dashboard.billing.description", "Description")}
+            </th>
+            <th className="py-3 text-center">
+              {t("dashboard.billing.hsnSac", "HSN/SAC")}
+            </th>
+            <th className="py-3 text-center">
+              {t("dashboard.billing.qty", "Qty")}
+            </th>
+            <th className="py-3 text-right">
+              {t("dashboard.billing.rate", "Rate")}
+            </th>
+            <th className="py-3 text-right">
+              {t("dashboard.billing.taxable", "Taxable")}
+            </th>
+            <th className="py-3 text-right">
+              {t("dashboard.billing.cgst", "CGST")}
+            </th>
+            <th className="py-3 text-right">
+              {t("dashboard.billing.sgst", "SGST")}
+            </th>
+            <th className="py-3 text-right">
+              {t("dashboard.billing.total", "Total")}
+            </th>
+            {isPending && <th className="no-print py-3" />}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((item, i) => (
+            <tr
+              key={item.id}
+              className="border-b border-gray-200 dark:border-gray-700 print:border-gray-200"
+            >
+              <td className="py-3">{i + 1}</td>
+              <td className="py-3">
+                {item.description}
+                <p className="text-[10px] text-gray-400 dark:text-gray-500 print:text-gray-400">
+                  {item.category} · GST {item.tax.gstRate}%
+                </p>
+              </td>
+              <td className="py-3 text-center font-mono text-[11px]">
+                {item.tax.hsnSac}
+              </td>
+              <td className="py-3 text-center">
+                {formatQuantityWithUnit(item.category, item.quantity)}
+              </td>
+              <td className="py-3 text-right">{fmtMoney(item.unitPrice)}</td>
+              <td className="py-3 text-right">{fmtMoney(item.tax.taxable)}</td>
+              <td className="py-3 text-right">{fmtMoney(item.tax.cgst)}</td>
+              <td className="py-3 text-right">{fmtMoney(item.tax.sgst)}</td>
+              <td className="py-3 text-right font-medium">
+                {fmtMoney(item.tax.total)}
+              </td>
+              {isPending && (
+                <td className="no-print py-3 text-right">
+                  {itemsWithTax.length > 1 && (
+                    <button
+                      onClick={() => removeItem(item.id)}
+                      className="rounded p-1 text-red-500 hover:bg-red-50"
+                      title="Remove item"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  // Consultation fee — one combined GST-exempt line (sum of any consult
+  // items). Shown compactly, not as a tax-invoice row.
+  const consultTotal = consultItems.reduce((s, it) => s + it.tax.total, 0);
+  const consultLabel =
+    consultItems.length === 1
+      ? consultItems[0].description
+      : t("dashboard.billing.consultationCharge", "Consultation Charge");
+
+  // Delete the consultation charge. If there are other (taxable) items, just
+  // drop the consult line(s). If the consult IS the whole invoice, the per-item
+  // endpoint can't remove the last line — so delete the entire invoice and go
+  // back to the billing list.
+  const consultIsWholeInvoice =
+    consultItems.length > 0 && taxableItems.length === 0;
+  const removeConsultCharge = async () => {
+    if (consultItems.length === 0) return;
+    if (consultIsWholeInvoice) {
+      if (
+        !(await confirm({
+          title: "Delete this consultation invoice?",
+          message: "This removes the entire bill. This cannot be undone.",
+          danger: true,
+        }))
+      )
+        return;
+      try {
+        await api.delete(`/billing/invoices/${id}`);
+        toast.success("Invoice deleted");
+        router.push("/dashboard/billing");
+      } catch (err) {
+        toast.error(
+          err instanceof Error ? err.message : "Failed to delete invoice",
+        );
+      }
+      return;
+    }
+    if (!(await confirm({ title: "Remove the consultation charge?", danger: true })))
+      return;
+    try {
+      for (const it of consultItems) {
+        await api.delete(`/billing/invoices/${id}/items/${it.id}`);
+      }
+      loadInvoice();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to remove consultation charge",
+      );
+    }
+  };
 
   return (
     <>
@@ -782,94 +934,98 @@ export default function InvoiceDetailPage() {
           )}
         </div>
 
-        {/* Line Items */}
-        <div className="mb-6 overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-t border-gray-200 text-left text-gray-500 dark:border-gray-700 dark:text-gray-400 print:border-gray-200 print:text-gray-500">
-                <th className="py-3">#</th>
-                <th className="py-3">
-                  {t("dashboard.billing.description", "Description")}
-                </th>
-                <th className="py-3 text-center">
-                  {t("dashboard.billing.hsnSac", "HSN/SAC")}
-                </th>
-                <th className="py-3 text-center">
-                  {t("dashboard.billing.qty", "Qty")}
-                </th>
-                <th className="py-3 text-right">
-                  {t("dashboard.billing.rate", "Rate")}
-                </th>
-                <th className="py-3 text-right">
-                  {t("dashboard.billing.taxable", "Taxable")}
-                </th>
-                <th className="py-3 text-right">
-                  {t("dashboard.billing.cgst", "CGST")}
-                </th>
-                <th className="py-3 text-right">
-                  {t("dashboard.billing.sgst", "SGST")}
-                </th>
-                <th className="py-3 text-right">
-                  {t("dashboard.billing.total", "Total")}
-                </th>
-                {isPending && <th className="no-print py-3" />}
-              </tr>
-            </thead>
-            <tbody>
-              {itemsWithTax.length > 0 ? (
-                itemsWithTax.map((item, i) => (
-                  <tr key={item.id} className="border-b border-gray-200 dark:border-gray-700 print:border-gray-200">
-                    <td className="py-3">{i + 1}</td>
-                    <td className="py-3">
-                      {item.description}
-                      <p className="text-[10px] text-gray-400 dark:text-gray-500 print:text-gray-400">
-                        {item.category} · GST {item.tax.gstRate}%
-                      </p>
-                    </td>
-                    <td className="py-3 text-center font-mono text-[11px]">
-                      {item.tax.hsnSac}
-                    </td>
-                    <td className="py-3 text-center">{item.quantity}</td>
-                    <td className="py-3 text-right">
-                      {fmtMoney(item.unitPrice)}
-                    </td>
-                    <td className="py-3 text-right">
-                      {fmtMoney(item.tax.taxable)}
-                    </td>
-                    <td className="py-3 text-right">
-                      {fmtMoney(item.tax.cgst)}
-                    </td>
-                    <td className="py-3 text-right">
-                      {fmtMoney(item.tax.sgst)}
-                    </td>
-                    <td className="py-3 text-right font-medium">
-                      {fmtMoney(item.tax.total)}
-                    </td>
-                    {isPending && (
-                      <td className="no-print py-3 text-right">
-                        {itemsWithTax.length > 1 && (
-                          <button
-                            onClick={() => removeItem(item.id)}
-                            className="rounded p-1 text-red-500 hover:bg-red-50"
-                            title="Remove item"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+        {/* Consultation fee — GST-exempt, one combined compact line (not a
+            full tax-invoice row). Keeps the bill short, especially for
+            patients with many taxable line items below. Deletable on a PENDING
+            invoice as long as ≥1 item would remain. */}
+        {consultItems.length > 0 && (
+          <div className="mb-4 border-b border-gray-200 pb-3 dark:border-gray-700 print:border-gray-200">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="font-medium text-gray-700 dark:text-gray-200 print:text-gray-700">
+                  {consultLabel}
+                </span>
+                {consultItems.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setConsultOpen((o) => !o)}
+                    data-testid="consult-view-toggle"
+                    className="no-print whitespace-nowrap text-[11px] font-medium text-primary hover:underline"
+                  >
+                    {consultOpen ? "Hide doctors ←" : "View doctors →"}
+                  </button>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="font-medium">{fmtMoney(consultTotal)}</span>
+                {/* Single consult has no expandable list, so its delete lives
+                    on this row. Multiple consults are deleted per-line in the
+                    breakdown below. */}
+                {isPending && consultItems.length === 1 && (
+                  <button
+                    onClick={removeConsultCharge}
+                    className="no-print rounded p-1 text-red-500 hover:bg-red-50"
+                    title={
+                      consultIsWholeInvoice
+                        ? "Delete invoice"
+                        : "Remove consultation charge"
+                    }
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+            {/* Date-wise breakdown — each consult per doctor, so the patient
+                can verify every charge. Each line is individually deletable
+                (PENDING). Printed copy itemises these too. */}
+            {consultOpen && consultItems.length > 1 && (
+              <ul
+                className="mt-2 space-y-1"
+                data-testid="consult-breakdown"
+              >
+                {consultItems.map((it) => (
+                  <li
+                    key={it.id}
+                    className="flex items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400"
+                  >
+                    <span>{it.description}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span>{fmtMoney(it.tax.total)}</span>
+                      {isPending && itemsWithTax.length > 1 && (
+                        <button
+                          onClick={() => removeItem(it.id)}
+                          className="no-print rounded p-1 text-red-500 hover:bg-red-50"
+                          title="Remove this consultation"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* Taxable charges table — only the GST-bearing lines. Hidden entirely
+            for a pure consultation bill. */}
+        {taxableItems.length > 0
+          ? renderTaxableTable(taxableItems)
+          : consultItems.length === 0 && (
+              <div className="mb-6 overflow-x-auto">
+                <table className="w-full text-xs">
+                  <tbody>
+                    <tr className="border-b border-t border-gray-200 dark:border-gray-700 print:border-gray-200">
+                      <td className="py-3 text-gray-500 dark:text-gray-400">
+                        {t("dashboard.billing.noItems", "No items")}
                       </td>
-                    )}
-                  </tr>
-                ))
-              ) : (
-                <tr className="border-b border-gray-200 dark:border-gray-700 print:border-gray-200">
-                  <td className="py-3" colSpan={9}>
-                    {t("dashboard.billing.noItems", "No items")}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
 
         {/* Add item form (only for PENDING invoices) */}
         {isPending && (

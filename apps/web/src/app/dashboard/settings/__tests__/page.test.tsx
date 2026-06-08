@@ -232,7 +232,7 @@ describe("SettingsPage — tab gating + RBAC (Issue #437 / #716)", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("ADMIN sees the full six tabs", async () => {
+  it("ADMIN sees the full admin tab set (Branding / Integrations)", async () => {
     asRole("ADMIN");
     apiMock.get.mockResolvedValue(meFixture);
 

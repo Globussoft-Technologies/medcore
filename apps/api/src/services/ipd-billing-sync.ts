@@ -40,6 +40,17 @@ import { INVOICE_NUMBER_PREFIX } from "@medcore/shared";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Short, patient-readable consult date (e.g. "08 Jun 2026"), formatted in UTC
+// so the @db.Date day doesn't drift by a timezone.
+function fmtConsultDay(d: Date): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(d);
+}
+
 export async function syncIpdInvoiceTotals(): Promise<number> {
   // ── Step 1: Lazy-create invoices for ADMITTED admissions that don't
   //    have one. Happens for admissions created BEFORE the auto-create-
@@ -115,16 +126,34 @@ export async function syncIpdInvoiceTotals(): Promise<number> {
     },
     select: {
       id: true,
+      patientId: true,
       totalAmount: true,
       paymentStatus: true,
       payments: { select: { amount: true } },
+      items: {
+        select: {
+          description: true,
+          category: true,
+          quantity: true,
+          unitPrice: true,
+          amount: true,
+        },
+      },
       admission: {
         select: {
           admittedAt: true,
           dischargedAt: true,
-          bed: { select: { dailyRate: true } },
+          bed: {
+            select: {
+              dailyRate: true,
+              bedNumber: true,
+              ward: { select: { name: true } },
+            },
+          },
           medicationOrders: {
             select: {
+              medicineName: true,
+              dosage: true,
               medicine: { select: { mrp: true } },
               administrations: {
                 where: { status: "ADMINISTERED" },
@@ -137,7 +166,7 @@ export async function syncIpdInvoiceTotals(): Promise<number> {
               items: {
                 where: { status: "COMPLETED" },
                 select: {
-                  test: { select: { price: true } },
+                  test: { select: { name: true, price: true } },
                 },
               },
             },
@@ -157,6 +186,26 @@ export async function syncIpdInvoiceTotals(): Promise<number> {
     const dailyRate = inv.admission.bed?.dailyRate ?? 0;
     const bedCharges = dailyRate * days;
 
+    // Build the itemised lines (mirrors routes/admissions.ts GET /:id/bill)
+    // so the IPD invoice shows the SAME breakdown the admission page does —
+    // bed charge + every administered dose + every completed lab — and stays
+    // in sync as the admission accrues more days / doses / results.
+    const desiredItems: Array<{
+      description: string;
+      category: string;
+      quantity: number;
+      unitPrice: number;
+      amount: number;
+    }> = [
+      {
+        description: `Bed Charges (${inv.admission.bed?.ward?.name ?? "Ward"} / ${inv.admission.bed?.bedNumber ?? "-"})`,
+        category: "ROOM_CHARGE",
+        quantity: days,
+        unitPrice: dailyRate,
+        amount: bedCharges,
+      },
+    ];
+
     // Pharmacy total: every administered dose × the linked Medicine's
     // MRP. Orders with no administered doses contribute 0. Medicines
     // without an MRP (catalog entry hasn't been priced yet) also
@@ -166,7 +215,15 @@ export async function syncIpdInvoiceTotals(): Promise<number> {
       const doseCount = o.administrations.length;
       if (doseCount === 0) continue;
       const mrp = o.medicine?.mrp ?? 0;
-      pharmacyTotal += doseCount * mrp;
+      const amount = doseCount * mrp;
+      pharmacyTotal += amount;
+      desiredItems.push({
+        description: `${o.medicineName}${o.dosage ? ` (${o.dosage})` : ""}`,
+        category: "PHARMACY",
+        quantity: doseCount,
+        unitPrice: mrp,
+        amount,
+      });
     }
 
     // Lab total: every COMPLETED lab-order item × LabTest.price. Orders
@@ -176,11 +233,71 @@ export async function syncIpdInvoiceTotals(): Promise<number> {
     let labTotal = 0;
     for (const order of inv.admission.labOrders) {
       for (const item of order.items) {
-        labTotal += item.test?.price ?? 0;
+        const price = item.test?.price ?? 0;
+        labTotal += price;
+        desiredItems.push({
+          description: `Lab: ${item.test?.name ?? "—"}`,
+          category: "LAB",
+          quantity: 1,
+          unitPrice: price,
+          amount: price,
+        });
       }
     }
 
-    const target = bedCharges + pharmacyTotal + labTotal;
+    // Consultation charges (2026-06-08): an admitted patient's consults are
+    // billed on the admission invoice — itemised per doctor — instead of as
+    // separate appointment invoices. Source = the patient's COMPLETED
+    // appointments dated within the admission window, each charged the
+    // doctor's consultationFee. The standalone consult-invoice path skips
+    // admitted patients (see services/consultation-invoice.ts), so this is
+    // the single place those charges land.
+    let consultTotal = 0;
+    // Match on the precise consult-completion TIME (`consultationEndedAt`),
+    // not the appointment date, and require it to fall strictly between THIS
+    // admission's admit time and its discharge time (or now). This prevents a
+    // prior admission's consult — or a same-day OPD consult after discharge —
+    // from leaking onto a re-admission's bill. A consult booked while the
+    // patient is NOT admitted is billed as its own invoice instead.
+    const admitTime = new Date(inv.admission.admittedAt);
+    const endTime = inv.admission.dischargedAt
+      ? new Date(inv.admission.dischargedAt)
+      : new Date(endMs);
+    const consultAppts = await rawPrisma.appointment.findMany({
+      where: {
+        patientId: inv.patientId,
+        status: "COMPLETED",
+        consultationEndedAt: { gte: admitTime, lte: endTime },
+      },
+      select: {
+        date: true,
+        consultationEndedAt: true,
+        doctor: {
+          select: {
+            consultationFee: true,
+            user: { select: { name: true } },
+          },
+        },
+      },
+    });
+    for (const a of consultAppts) {
+      const fee = a.doctor?.consultationFee ? Number(a.doctor.consultationFee) : 0;
+      if (fee <= 0) continue;
+      consultTotal += fee;
+      // Bake the consult date into the line so the patient can verify each
+      // charge date-wise on screen and on the printed invoice.
+      const when = a.consultationEndedAt ?? a.date;
+      const dayLabel = when ? ` · ${fmtConsultDay(new Date(when))}` : "";
+      desiredItems.push({
+        description: `Consultation — ${a.doctor?.user?.name ?? "Doctor"}${dayLabel}`,
+        category: "CONSULTATION",
+        quantity: 1,
+        unitPrice: fee,
+        amount: fee,
+      });
+    }
+
+    const target = bedCharges + pharmacyTotal + labTotal + consultTotal;
 
     // Net paid (refunds stored as negative amounts cancel out earlier
     // payments). Clamp at 0 — we never want negative paid in arithmetic
@@ -196,19 +313,53 @@ export async function syncIpdInvoiceTotals(): Promise<number> {
           ? "PAID"
           : "PARTIAL";
 
-    if (
-      Number(inv.totalAmount) === target &&
-      inv.paymentStatus === derivedStatus
-    ) {
+    const totalChanged = Number(inv.totalAmount) !== target;
+    const statusChanged = inv.paymentStatus !== derivedStatus;
+    // Detect a line-item drift even when the total is unchanged — e.g. a
+    // description tweak (consult date added, doctor renamed) or a swap of
+    // equal-value lines. This lets the itemised lines self-heal on the next
+    // view without waiting for the total to move. Guarded to target>0 so a
+    // ₹0 admission (no charges yet) doesn't churn.
+    const itemSig = (
+      arr: Array<{
+        description: string;
+        category: string;
+        quantity: number;
+        unitPrice: unknown;
+        amount: unknown;
+      }>,
+    ) =>
+      arr
+        .map(
+          (d) =>
+            `${d.description}|${d.category}|${d.quantity}|${Number(d.unitPrice)}|${Number(d.amount)}`,
+        )
+        .sort()
+        .join("§");
+    const itemsDiffer =
+      target > 0 && itemSig(inv.items ?? []) !== itemSig(desiredItems);
+    if (!totalChanged && !statusChanged && !itemsDiffer) {
       continue;
     }
-    await rawPrisma.invoice.update({
-      where: { id: inv.id },
-      data: {
-        subtotal: target,
-        totalAmount: target,
-        paymentStatus: derivedStatus,
-      },
+    // When the total moved OR the itemised lines drifted, rewrite the lines so
+    // the invoice mirrors the admission. A pure status flip (payment recorded,
+    // nothing else changed) just updates the header.
+    await rawPrisma.$transaction(async (tx) => {
+      await tx.invoice.update({
+        where: { id: inv.id },
+        data: {
+          subtotal: target,
+          taxableAmount: target,
+          totalAmount: target,
+          paymentStatus: derivedStatus,
+        },
+      });
+      if (totalChanged || itemsDiffer) {
+        await tx.invoiceItem.deleteMany({ where: { invoiceId: inv.id } });
+        await tx.invoiceItem.createMany({
+          data: desiredItems.map((d) => ({ invoiceId: inv.id, ...d })),
+        });
+      }
     });
     updated++;
   }

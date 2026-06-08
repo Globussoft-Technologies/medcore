@@ -465,7 +465,7 @@ router.post(
 // ADMIN (DOCTOR can edit their OWN row — looked up via doctor.userId).
 router.patch(
   "/:id/appointment-mode",
-  authorize(Role.ADMIN, Role.DOCTOR),
+  authorize(Role.ADMIN, Role.DOCTOR, Role.SUPER_ADMIN),
   validate(doctorAppointmentModeSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -480,6 +480,16 @@ router.patch(
             success: false,
             data: null,
             error: "Doctors may only update their own appointment mode",
+          });
+          return;
+        }
+        // The consultation fee is a billing knob, not a scheduling one — a
+        // doctor must not set their own fee. Only ADMIN / SUPER_ADMIN may.
+        if (req.body.consultationFee !== undefined) {
+          res.status(403).json({
+            success: false,
+            data: null,
+            error: "Only an admin can change the consultation fee",
           });
           return;
         }
@@ -499,6 +509,9 @@ router.patch(
       // this doctor referred. PATCH semantics: undefined leaves unchanged,
       // null explicitly clears (no commission rows auto-created).
       if (req.body.commissionPercent !== undefined) data.commissionPercent = req.body.commissionPercent;
+      // Per-doctor consultation fee (2026-06-08). Gated above so only
+      // ADMIN / SUPER_ADMIN reach here with this field set.
+      if (req.body.consultationFee !== undefined) data.consultationFee = req.body.consultationFee;
       // Pearl §3.2 final 2 knobs (gap row 77, 2026-05-22). PATCH
       // semantics preserved — undefined leaves the column untouched.
       // `enabledChannels` accepts an empty array to mean "all channels
@@ -521,6 +534,7 @@ router.patch(
           lastHourPolicy: true,
           nmcRegNumber: true,
           commissionPercent: true,
+          consultationFee: true,
           enabledChannels: true,
           bufferMinutes: true,
         },

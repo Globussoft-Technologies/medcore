@@ -221,11 +221,19 @@ describeIfDB("Queue API (integration)", () => {
     expect(res.body.data.queue[0].priority).toBe("EMERGENCY");
   });
 
-  it("totalInQueue counts only waiting/in-consult statuses", async () => {
+  it("totalInQueue counts only present (checked-in / in-consult) statuses", async () => {
     const doctor = await createDoctorFixture();
     const p1 = await createPatientFixture();
+    const p2 = await createPatientFixture();
+    // CHECKED_IN counts (patient is physically present and waiting)...
     await createAppointmentFixture({
       patientId: p1.id,
+      doctorId: doctor.id,
+      overrides: { status: "CHECKED_IN" },
+    });
+    // ...but a BOOKED (not-yet-arrived) appointment does NOT.
+    await createAppointmentFixture({
+      patientId: p2.id,
       doctorId: doctor.id,
       overrides: { status: "BOOKED" },
     });

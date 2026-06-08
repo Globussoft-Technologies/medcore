@@ -73,12 +73,14 @@ interface InvoiceCreateResponse {
   items: Array<{ id: string; description: string; amount: number; quantity: number }>;
 }
 
-// Two distinct line items so the UI Remove column actually renders
-// (page.tsx:672 hides the trash icon when only one item remains).
+// Two distinct TAXABLE line items so the UI Remove column actually renders in
+// the main GST line-item table (CONSULTATION lines render in the separate
+// consult summary section, not this table). The trash icon hides when only
+// one item remains, so two are needed.
 const SEED_ITEMS = [
   {
-    description: "Cardiology consultation",
-    category: "CONSULTATION",
+    description: "Cardiology assessment",
+    category: "PROCEDURE",
     quantity: 1,
     unitPrice: 800,
   },
@@ -230,7 +232,7 @@ test.describe("Invoice line-items + credit notes — /dashboard/billing/[id] rev
       .click();
     await deletePromise;
 
-    // Subtotal collapses to just the consultation (800).
+    // Subtotal collapses to just the remaining item (800).
     await expect(receptionPage.getByTestId("totals-subtotal")).toContainText(
       /800\.00/,
       { timeout: 10_000 }

@@ -282,6 +282,41 @@ export function hsnSacForCategory(category?: string | null): string {
   return HSN_SAC_BY_CATEGORY[key] ?? "9993";
 }
 
+// Canonical billing UNIT per line-item category — the single source of truth
+// used by the invoice table + PDF + admission running-bill so "Qty 1" reads
+// "1 day" etc. ONLY bed charges have a quantity whose meaning is unambiguous
+// regardless of how the line was created (always bed-days):
+//   ROOM_CHARGE / ROOM → day(s).
+// Every other category prints a bare count because the quantity's meaning
+// isn't inferable from the category alone:
+//   PHARMACY / MEDICINE — doses (IPD administrations) vs packs/strips (manual);
+//     the description carries the drug + strength.
+//   LAB — number of tests vs panels.
+//   RADIOLOGY — "scans" vs films/views/studies.
+//   CONSULTATION — rendered as its own line (per doctor + date), not a Qty.
+export const UNIT_BY_CATEGORY: Record<string, string> = {
+  ROOM_CHARGE: "day",
+  ROOM: "day",
+};
+
+// The unit word for a category ("day", "dose", …) or null when the category
+// has no natural unit (procedure, surgery, other → a bare count).
+export function unitForCategory(category?: string | null): string | null {
+  if (!category) return null;
+  return UNIT_BY_CATEGORY[category.toUpperCase()] ?? null;
+}
+
+// Format a quantity with its category unit, pluralised: (ROOM_CHARGE, 2) →
+// "2 days"; (LAB, 1) → "1 test"; (OTHER, 3) → "3".
+export function formatQuantityWithUnit(
+  category: string | null | undefined,
+  qty: number,
+): string {
+  const unit = unitForCategory(category);
+  if (!unit) return String(qty);
+  return `${qty} ${qty === 1 ? unit : `${unit}s`}`;
+}
+
 // Map a free-text service / line-item description to a canonical invoice
 // category. Used by the web Add-Line-Item form to pre-fill the Category
 // dropdown when a clerk picks a service. The user can still manually

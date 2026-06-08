@@ -845,7 +845,7 @@ router.get(
         days: number;
         ratePerDay: number;
         amount: number;
-        unit?: "day" | "dose" | "test";
+        unit?: "day" | "dose" | "test" | "consult";
       };
       const medicineLines: BreakdownLine[] = [];
       let pharmacyTotal = 0;
@@ -899,6 +899,59 @@ router.get(
         }
       }
 
+      // ── Consultation charges (2026-06-08) ─────────────────────────────
+      // Each in-stay consult is billed on the admission bill, itemised per
+      // doctor (no separate appointment invoice for admitted patients).
+      // Match on the precise consult-completion TIME between this admission's
+      // admit + discharge (or now) — NOT the appointment date — so a prior
+      // admission's consult or a post-discharge OPD visit never leaks onto a
+      // re-admission's bill.
+      const consultAppts = await prisma.appointment.findMany({
+        where: {
+          patientId: admission.patientId,
+          status: "COMPLETED",
+          consultationEndedAt: {
+            gte: new Date(startMs),
+            lte: new Date(endMs),
+          },
+        },
+        select: {
+          date: true,
+          consultationEndedAt: true,
+          doctor: {
+            select: {
+              consultationFee: true,
+              user: { select: { name: true } },
+            },
+          },
+        },
+      });
+      const fmtConsultDay = (d: Date) =>
+        new Intl.DateTimeFormat("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          timeZone: "UTC",
+        }).format(d);
+      const consultLines: BreakdownLine[] = [];
+      let consultTotal = 0;
+      for (const a of consultAppts) {
+        const fee = a.doctor?.consultationFee
+          ? Number(a.doctor.consultationFee)
+          : 0;
+        if (fee <= 0) continue;
+        consultTotal += fee;
+        const when = a.consultationEndedAt ?? a.date;
+        const dayLabel = when ? ` · ${fmtConsultDay(new Date(when))}` : "";
+        consultLines.push({
+          label: `Consultation — ${a.doctor?.user?.name ?? "Doctor"}${dayLabel}`,
+          days: 1,
+          ratePerDay: fee,
+          amount: fee,
+          unit: "consult",
+        });
+      }
+
       const breakdown: BreakdownLine[] = [
         {
           label: `Bed Charges (${admission.bed?.ward?.name ?? "Ward"} / ${admission.bed?.bedNumber ?? "-"})`,
@@ -909,8 +962,9 @@ router.get(
         },
         ...medicineLines,
         ...labLines,
+        ...consultLines,
       ];
-      const grandTotal = bedCharges + pharmacyTotal + labTotal;
+      const grandTotal = bedCharges + pharmacyTotal + labTotal + consultTotal;
 
       res.json({
         success: true,

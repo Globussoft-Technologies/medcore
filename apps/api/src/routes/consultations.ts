@@ -13,6 +13,8 @@ import { Router, Request, Response, NextFunction } from "express";
 import { prisma, Prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
+import { createConsultationInvoiceForAppointment } from "../services/consultation-invoice";
+import { onBillGenerated } from "../services/notification-triggers";
 
 const router = Router();
 router.use(authenticate);
@@ -359,11 +361,36 @@ router.post(
           ? [
               prisma.appointment.update({
                 where: { id: existing.appointmentId },
-                data: { status: "COMPLETED" },
+                // Stamp the completion time so IPD consult-billing can match
+                // this consult to the admission window by precise timestamp
+                // (mirrors PATCH /appointments/:id/status COMPLETED).
+                data: { status: "COMPLETED", consultationEndedAt: new Date() },
               }),
             ]
           : []),
       ]);
+
+      // Consult-fee billing: signing the consult is what completes the
+      // appointment on this surface (the manual SOAP screen), so the
+      // auto-invoice must fire here too — not only on PATCH /:id/status.
+      // Best-effort + idempotent (Invoice.appointmentId @unique): a billing
+      // hiccup must not fail the sign. Only when we actually advanced the
+      // appointment to COMPLETED just now.
+      if (shouldAdvanceAppointment && existing.appointmentId) {
+        try {
+          const consultInvoice = await createConsultationInvoiceForAppointment(
+            existing.appointmentId,
+          );
+          if (consultInvoice?.created) {
+            onBillGenerated(consultInvoice).catch(console.error);
+          }
+        } catch (e) {
+          console.error(
+            "Failed to auto-create consultation invoice on sign",
+            e,
+          );
+        }
+      }
 
       res.json({ success: true, data: signed, error: null });
     } catch (err) {

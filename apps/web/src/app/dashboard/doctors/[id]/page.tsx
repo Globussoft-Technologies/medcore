@@ -21,7 +21,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
-import { ArrowLeft, Stethoscope, Edit as EditIcon, Calendar, Settings } from "lucide-react";
+import { ArrowLeft, Stethoscope, Edit as EditIcon, Calendar, Settings, IndianRupee } from "lucide-react";
 import { SkeletonCard } from "@/components/Skeleton";
 
 type AppointmentMode = "CALLING" | "TOKEN" | "SLOT";
@@ -58,6 +58,10 @@ interface DoctorRecord {
   // Pearl ERP Stage 1 §2.1.4 — NMC registration number printed on every
   // signed Rx PDF.
   nmcRegNumber?: string | null;
+  // Per-doctor consultation fee (2026-06-08). Billed automatically as a
+  // consultation invoice when an appointment completes. ADMIN / SUPER_ADMIN
+  // only. Decimal on the wire arrives as a number (or string) — coerce on read.
+  consultationFee?: number | string | null;
   user: {
     id: string;
     name: string;
@@ -133,7 +137,8 @@ export default function DoctorDetailPage() {
     };
   }, [id]);
 
-  const isAdmin = user?.role === "ADMIN";
+  // Consultation fee + appointment-mode edits are ADMIN / SUPER_ADMIN only.
+  const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
 
   if (loading) {
     // Pearl §7.2 wave 11: skeleton card matches the eventual doctor profile
@@ -262,6 +267,8 @@ export default function DoctorDetailPage() {
           </div>
         </dl>
       </div>
+
+      <ConsultationFeeCard doctor={doctor} isAdmin={isAdmin} onUpdated={setDoctor} />
 
       <AppointmentModeCard doctor={doctor} isAdmin={isAdmin} onUpdated={setDoctor} />
 
@@ -700,6 +707,142 @@ function AppointmentModeCard({
                 setBufferMinutes(
                   doctor.bufferMinutes != null ? String(doctor.bufferMinutes) : "0",
                 );
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+// Per-doctor consultation fee (2026-06-08). A SEPARATE card with its own
+// edit, distinct from the Appointment Mode knobs — only ADMIN / SUPER_ADMIN
+// can change it (the PATCH /:id/appointment-mode route rejects a DOCTOR
+// sending consultationFee). Billed automatically as a consultation invoice
+// when the appointment is marked COMPLETED; blank = no charge.
+function ConsultationFeeCard({
+  doctor,
+  isAdmin,
+  onUpdated,
+}: {
+  doctor: DoctorRecord;
+  isAdmin: boolean;
+  onUpdated: (next: DoctorRecord) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const initial =
+    doctor.consultationFee != null && doctor.consultationFee !== ""
+      ? String(doctor.consultationFee)
+      : "";
+  const [fee, setFee] = useState<string>(initial);
+
+  const hasFee =
+    doctor.consultationFee != null &&
+    doctor.consultationFee !== "" &&
+    Number(doctor.consultationFee) > 0;
+
+  const onSave = async () => {
+    const trimmed = fee.trim();
+    // Blank → null (no charge). The input is min=0 and the server rejects a
+    // negative fee, so no extra client guard is needed here.
+    const value = trimmed === "" ? null : Number(trimmed);
+    setSaving(true);
+    try {
+      const res = await api.patch<{ data: DoctorRecord }>(
+        `/doctors/${doctor.id}/appointment-mode`,
+        { consultationFee: value },
+      );
+      onUpdated({ ...doctor, ...res.data });
+      toast.success("Consultation fee updated");
+      setEditing(false);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save consultation fee",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="mt-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800"
+      data-testid="doctor-detail-consultation-fee"
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-200">
+          <IndianRupee size={14} /> Consultation Fee
+        </h2>
+        {isAdmin && !editing && (
+          <button
+            type="button"
+            data-testid="consultation-fee-edit"
+            onClick={() => {
+              setFee(initial);
+              setEditing(true);
+            }}
+            className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <EditIcon size={12} /> Edit
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <div>
+          <p
+            className="text-sm text-gray-900 dark:text-gray-100"
+            data-testid="consultation-fee-value"
+          >
+            {hasFee
+              ? `₹${Number(doctor.consultationFee).toLocaleString("en-IN")}`
+              : "—"}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            Billed automatically when a consult is completed. Blank means no
+            consultation charge for this doctor.
+          </p>
+        </div>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSave();
+          }}
+        >
+          <label className="mb-1 block text-xs font-medium uppercase text-gray-500">
+            Consultation fee (₹)
+          </label>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={fee}
+            onChange={(e) => setFee(e.target.value)}
+            placeholder="e.g. 500"
+            data-testid="consultation-fee-input"
+            className="w-full max-w-xs rounded-md border border-gray-200 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+          />
+          <div className="mt-3 flex gap-2">
+            <button
+              type="submit"
+              disabled={saving}
+              data-testid="consultation-fee-save"
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setEditing(false);
+                setFee(initial);
               }}
               className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >

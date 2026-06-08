@@ -41,9 +41,11 @@ import {
   onTokenCalled,
   notifyQueuePosition,
   onPatientCheckedIn,
+  onBillGenerated,
 } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { notifyNextInWaitlist } from "../services/waitlist";
+import { createConsultationInvoiceForAppointment } from "../services/consultation-invoice";
 import { formatDoctorName } from "../lib/format-doctor-name";
 
 const router = Router();
@@ -955,6 +957,35 @@ router.patch(
       }
       if (req.body.status === "IN_CONSULTATION") {
         onTokenCalled(appointment as any).catch(console.error);
+      }
+      // Consult-fee billing: when a consult completes, auto-raise the
+      // consultation invoice so it surfaces in the Billing section. Fee comes
+      // from Doctor.consultationFee → `default_consultation_fee` admin config;
+      // if neither is set, nothing is billed (helper returns null). Idempotent
+      // via Invoice.appointmentId @unique, so a re-flip to COMPLETED won't
+      // double-bill. Best-effort: a billing hiccup must not fail the status
+      // update itself.
+      if (req.body.status === "COMPLETED" && prev?.status !== "COMPLETED") {
+        try {
+          const consultInvoice =
+            await createConsultationInvoiceForAppointment(appointment.id);
+          if (consultInvoice?.created) {
+            onBillGenerated(consultInvoice).catch(console.error);
+            auditLog(
+              req,
+              "CONSULTATION_INVOICE_AUTO_CREATED",
+              "invoice",
+              consultInvoice.id,
+              {
+                invoiceNumber: consultInvoice.invoiceNumber,
+                appointmentId: appointment.id,
+                totalAmount: consultInvoice.totalAmount,
+              },
+            ).catch(console.error);
+          }
+        } catch (e) {
+          console.error("Failed to auto-create consultation invoice", e);
+        }
       }
       if (req.body.status === "CHECKED_IN" && prev?.status !== "CHECKED_IN") {
         notifyQueuePosition(appointment.id).catch(console.error);

@@ -59,7 +59,7 @@ const STATIC_SPECIALIZATIONS = [
 // roster is an HR/clinical-admin concern). DOCTOR/NURSE/RECEPTION can see
 // the doctor list elsewhere (queue, calendar, AI booking) where the data
 // is scoped to the day's roster.
-const DOCTORS_ALLOWED = new Set(["ADMIN"]);
+const DOCTORS_ALLOWED = new Set(["ADMIN", "SUPER_ADMIN"]);
 
 interface DoctorRecord {
   id: string;

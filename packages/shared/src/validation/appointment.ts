@@ -320,6 +320,11 @@ export const doctorAppointmentModeSchema = z
     // for invoices this doctor referred); 0–100 sets the % used as the
     // fall-back when Referral.commissionPercent is null.
     commissionPercent: z.number().min(0).max(100).nullable().optional(),
+    // Per-doctor consultation fee (2026-06-08). Billed automatically as a
+    // consultation invoice when an appointment is marked COMPLETED. Null /
+    // 0 = no fee → no auto-invoice for this doctor. ADMIN / SUPER_ADMIN only
+    // (the route rejects a DOCTOR editing their own fee).
+    consultationFee: z.number().min(0).max(1_000_000).nullable().optional(),
     // Pearl ERP Stage 1 §3.2 (gap row 77 final 2 knobs, 2026-05-22) —
     // per-doctor enabled booking channels. Empty array means "all
     // channels permitted" (back-compat). `max(4)` matches the enum

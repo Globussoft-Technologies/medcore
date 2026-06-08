@@ -782,6 +782,11 @@ router.get(
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Refresh IPD running-bill items + totals before reading so an opened
+      // admission invoice always reflects the latest bed-days / doses / labs
+      // (auto-generated + auto-updated from the admission). No-op for
+      // non-IPD invoices and idempotent when nothing drifted.
+      await syncIpdInvoiceTotals().catch(() => undefined);
       const invoice = await prisma.invoice.findUnique({
         where: { id: req.params.id },
         include: {
@@ -1695,6 +1700,69 @@ router.delete(
 
       res.json({ success: true, data: updated, error: null });
     } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// DELETE /api/v1/billing/invoices/:id — delete a whole PENDING invoice.
+// Used when the only line can't be removed individually (the items endpoint
+// blocks removing the last item) — e.g. an auto-raised consultation bill the
+// staff wants to discard entirely. Guarded to PENDING invoices with no
+// payments so we never delete anything with money already recorded against it.
+router.delete(
+  "/invoices/:id",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const invoice = await prisma.invoice.findUnique({
+        where: { id },
+        include: { payments: true },
+      });
+      if (!invoice) {
+        res.status(404).json({ success: false, data: null, error: "Invoice not found" });
+        return;
+      }
+      if (invoice.paymentStatus !== "PENDING") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Only PENDING invoices can be deleted",
+        });
+        return;
+      }
+      if (invoice.payments.length > 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot delete an invoice that has payments recorded",
+        });
+        return;
+      }
+
+      // Delete the line items first, then the invoice (no FK cascade on
+      // InvoiceItem). Any other related record (credit note, claim, …) would
+      // make the final delete throw — caught below as a clean 400.
+      await prisma.$transaction(async (tx) => {
+        await tx.invoiceItem.deleteMany({ where: { invoiceId: id } });
+        await tx.invoice.delete({ where: { id } });
+      });
+
+      auditLog(req, "INVOICE_DELETE", "invoice", id, {
+        invoiceNumber: invoice.invoiceNumber,
+      }).catch(console.error);
+
+      res.json({ success: true, data: { id }, error: null });
+    } catch (err) {
+      if (err instanceof Error && /Foreign key|constraint/i.test(err.message)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Cannot delete an invoice with related records",
+        });
+        return;
+      }
       next(err);
     }
   }

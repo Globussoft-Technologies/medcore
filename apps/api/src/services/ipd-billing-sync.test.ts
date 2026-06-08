@@ -39,6 +39,13 @@ const { prismaMock } = vi.hoisted(() => {
       create: vi.fn().mockResolvedValue({}),
       update: vi.fn().mockResolvedValue({}),
     },
+    invoiceItem: {
+      deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+      createMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    appointment: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     systemConfig: {
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({}),
@@ -78,6 +85,14 @@ function makeInvoice(opts: {
   labOrders?: Array<{
     items: Array<{ test: { price: number } | null }>;
   }>;
+  // Existing persisted line items — used by the item-drift check. Default [].
+  items?: Array<{
+    description: string;
+    category: string;
+    quantity: number;
+    unitPrice: number;
+    amount: number;
+  }>;
   admission?: object | null;
 }) {
   if (opts.admission === null) {
@@ -86,6 +101,7 @@ function makeInvoice(opts: {
       totalAmount: opts.totalAmount ?? 0,
       paymentStatus: opts.paymentStatus ?? "PENDING",
       payments: opts.payments ?? [],
+      items: opts.items ?? [],
       admission: null,
     };
   }
@@ -94,6 +110,7 @@ function makeInvoice(opts: {
     totalAmount: opts.totalAmount ?? 0,
     paymentStatus: opts.paymentStatus ?? "PENDING",
     payments: opts.payments ?? [],
+    items: opts.items ?? [],
     admission: {
       admittedAt: opts.admittedAt ?? new Date(Date.now() - DAY_MS),
       dischargedAt: opts.dischargedAt ?? null,
@@ -121,6 +138,9 @@ beforeEach(() => {
   prismaMock.invoice.findMany.mockResolvedValue([]);
   prismaMock.invoice.create.mockResolvedValue({});
   prismaMock.invoice.update.mockResolvedValue({});
+  prismaMock.invoiceItem.deleteMany.mockResolvedValue({ count: 0 });
+  prismaMock.invoiceItem.createMany.mockResolvedValue({ count: 0 });
+  prismaMock.appointment.findMany.mockResolvedValue([]);
   prismaMock.systemConfig.findUnique.mockResolvedValue(null);
   prismaMock.systemConfig.create.mockResolvedValue({});
   prismaMock.systemConfig.update.mockResolvedValue({});
@@ -347,6 +367,127 @@ describe("syncIpdInvoiceTotals — pharmacy total", () => {
     expect(args.data.totalAmount).toBe(400);
   });
 
+  it("rewrites the invoice line items to mirror the admission breakdown", async () => {
+    const now = Date.now();
+    prismaMock.invoice.findMany.mockResolvedValueOnce([
+      makeInvoice({
+        id: "inv-items",
+        admittedAt: new Date(now - DAY_MS / 2), // 1 day
+        dailyRate: 800,
+        medicationOrders: [
+          { medicine: { mrp: 300 }, administrations: [{ id: "a1" }] },
+        ],
+        labOrders: [{ items: [{ test: { price: 250 } }] }],
+        totalAmount: 0, // forces a change → items rewritten
+      }),
+    ]);
+
+    await syncIpdInvoiceTotals();
+
+    // Old lines cleared, new ones written for the changed invoice.
+    expect(prismaMock.invoiceItem.deleteMany).toHaveBeenCalledWith({
+      where: { invoiceId: "inv-items" },
+    });
+    const rows = prismaMock.invoiceItem.createMany.mock.calls[0][0].data as Array<{
+      invoiceId: string;
+      category: string;
+      amount: number;
+    }>;
+    const cats = rows.map((r) => r.category);
+    expect(cats).toContain("ROOM_CHARGE"); // bed
+    expect(cats).toContain("PHARMACY"); // medicine dose
+    expect(cats).toContain("LAB"); // completed lab
+    expect(rows.find((r) => r.category === "ROOM_CHARGE")?.amount).toBe(800);
+    expect(rows.find((r) => r.category === "PHARMACY")?.amount).toBe(300);
+    expect(rows.find((r) => r.category === "LAB")?.amount).toBe(250);
+  });
+
+  it("does NOT rewrite items when only the payment status changed (total unchanged)", async () => {
+    const now = Date.now();
+    prismaMock.invoice.findMany.mockResolvedValueOnce([
+      makeInvoice({
+        id: "inv-status-only",
+        admittedAt: new Date(now - DAY_MS / 2), // 1 day → bed 800
+        dailyRate: 800,
+        totalAmount: 800, // matches target → no total change
+        paymentStatus: "PENDING",
+        payments: [{ amount: 800 }], // netPaid≥total → PAID (status change)
+        // Existing line already matches the desired bed line, so the
+        // item-drift check is clean and only the header (status) updates.
+        items: [
+          {
+            description: "Bed Charges (Ward / -)",
+            category: "ROOM_CHARGE",
+            quantity: 1,
+            unitPrice: 800,
+            amount: 800,
+          },
+        ],
+      }),
+    ]);
+
+    await syncIpdInvoiceTotals();
+
+    // Header updated (status), but items left untouched.
+    expect(prismaMock.invoice.update).toHaveBeenCalledTimes(1);
+    expect(prismaMock.invoiceItem.deleteMany).not.toHaveBeenCalled();
+    expect(prismaMock.invoiceItem.createMany).not.toHaveBeenCalled();
+  });
+
+  it("itemises in-stay consults per doctor on the admission invoice", async () => {
+    const now = Date.now();
+    prismaMock.invoice.findMany.mockResolvedValueOnce([
+      makeInvoice({
+        id: "inv-with-consults",
+        admittedAt: new Date(now - DAY_MS / 2), // 1 day → bed 800
+        dailyRate: 800,
+        totalAmount: 0,
+      }),
+    ]);
+    // Two completed consults during the stay (different doctors / fees /
+    // dates) — each carries a consultationEndedAt used for the date label.
+    prismaMock.appointment.findMany.mockResolvedValueOnce([
+      {
+        consultationEndedAt: new Date("2026-06-08T10:00:00Z"),
+        date: new Date("2026-06-08T00:00:00Z"),
+        doctor: { consultationFee: 500, user: { name: "Dr. A" } },
+      },
+      {
+        consultationEndedAt: new Date("2026-06-09T10:00:00Z"),
+        date: new Date("2026-06-09T00:00:00Z"),
+        doctor: { consultationFee: 300, user: { name: "Dr. B" } },
+      },
+    ]);
+
+    await syncIpdInvoiceTotals();
+
+    // Total = bed 800 + consults 500 + 300.
+    expect(prismaMock.invoice.update.mock.calls[0][0].data.totalAmount).toBe(
+      1600,
+    );
+    const rows = prismaMock.invoiceItem.createMany.mock.calls[0][0].data as Array<{
+      category: string;
+      amount: number;
+      description: string;
+    }>;
+    const consults = rows.filter((r) => r.category === "CONSULTATION");
+    expect(consults).toHaveLength(2);
+    expect(consults.map((c) => c.amount).sort((a, b) => a - b)).toEqual([
+      300, 500,
+    ]);
+    // Description carries doctor AND the consult date.
+    expect(
+      consults.some(
+        (c) =>
+          c.description.includes("Dr. A") &&
+          c.description.includes("08 Jun 2026"),
+      ),
+    ).toBe(true);
+    expect(
+      consults.some((c) => c.description.includes("09 Jun 2026")),
+    ).toBe(true);
+  });
+
   it("skips orders with zero administered doses (no contribution)", async () => {
     const now = Date.now();
     prismaMock.invoice.findMany.mockResolvedValueOnce([
@@ -548,6 +689,16 @@ describe("syncIpdInvoiceTotals — idempotency", () => {
         payments: [{ amount: 1000 }],
         totalAmount: 1000,
         paymentStatus: "PAID",
+        // Existing line already matches the desired bed line → no item drift.
+        items: [
+          {
+            description: "Bed Charges (Ward / -)",
+            category: "ROOM_CHARGE",
+            quantity: 1,
+            unitPrice: 1000,
+            amount: 1000,
+          },
+        ],
       }),
     ]);
 
@@ -592,13 +743,22 @@ describe("syncIpdInvoiceTotals — return count", () => {
   it("returns the number of rows actually updated (mixed stable + drifted)", async () => {
     const now = Date.now();
     prismaMock.invoice.findMany.mockResolvedValueOnce([
-      // Stable — no update.
+      // Stable — no update (total, status AND items all already match).
       makeInvoice({
         id: "inv-stable",
         admittedAt: new Date(now - DAY_MS / 2),
         dailyRate: 1000,
         totalAmount: 1000,
         paymentStatus: "PENDING",
+        items: [
+          {
+            description: "Bed Charges (Ward / -)",
+            category: "ROOM_CHARGE",
+            quantity: 1,
+            unitPrice: 1000,
+            amount: 1000,
+          },
+        ],
       }),
       // Drifted total.
       makeInvoice({

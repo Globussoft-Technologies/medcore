@@ -2,7 +2,7 @@
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
-import { createDoctorFixture } from "../factories";
+import { createDoctorFixture, createDoctorWithToken } from "../factories";
 import { waitForAuditFlush } from "../helpers/audit-wait";
 
 let app: any;
@@ -255,6 +255,63 @@ describeIfDB("Doctors API (integration)", () => {
     expect(res.body.data.lastHourPolicy).toBe("BLOCK_NEW");
   });
 
+  it("PATCH appointment-mode: ADMIN can set the consultation fee", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ consultationFee: 750 });
+    expect(res.status).toBe(200);
+    expect(Number(res.body.data.consultationFee)).toBe(750);
+
+    const after = await prisma.doctor.findUnique({
+      where: { id: doctor.id },
+      select: { consultationFee: true },
+    });
+    expect(Number(after?.consultationFee)).toBe(750);
+  });
+
+  it("PATCH appointment-mode: ADMIN can clear the consultation fee (null)", async () => {
+    const doctor = await createDoctorFixture();
+    const prisma = await getPrisma();
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ consultationFee: 500 })
+      .expect(200);
+    await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ consultationFee: null })
+      .expect(200);
+    const after = await prisma.doctor.findUnique({
+      where: { id: doctor.id },
+      select: { consultationFee: true },
+    });
+    expect(after?.consultationFee).toBeNull();
+  });
+
+  it("PATCH appointment-mode: a DOCTOR cannot set their OWN consultation fee (403)", async () => {
+    const { doctor, token: doctorToken } = await createDoctorWithToken();
+    // The doctor may edit their own mode, but the fee is admin-only.
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ appointmentMode: "TOKEN", consultationFee: 999 });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/consultation fee/i);
+  });
+
+  it("PATCH appointment-mode: rejects a negative consultation fee (400)", async () => {
+    const doctor = await createDoctorFixture();
+    const res = await request(app)
+      .patch(`/api/v1/doctors/${doctor.id}/appointment-mode`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ consultationFee: -10 });
+    expect(res.status).toBe(400);
+  });
+
   it("PATCH appointment-mode: PATCH semantics — undefined fields are untouched", async () => {
     const doctor = await createDoctorFixture();
     const prisma = await getPrisma();
@@ -446,4 +503,5 @@ describeIfDB("Doctors API (integration)", () => {
     });
     expect(row).toBeTruthy();
   });
+
 });

@@ -131,6 +131,7 @@ type Doctor = {
   enabledChannels?: Array<"CALLING" | "SLOT" | "TOKEN" | "WALKIN">;
   bufferMinutes?: number;
   nmcRegNumber?: string | null;
+  consultationFee?: number | string | null;
   user: {
     id: string;
     name: string;
@@ -162,6 +163,7 @@ function doctorFx(overrides: Partial<Doctor> = {}): Doctor {
     enabledChannels: ["CALLING", "SLOT"],
     bufferMinutes: 5,
     nmcRegNumber: "NMC/2024/12345",
+    consultationFee: 500,
     user: {
       id: "u1",
       name: "Rajesh Verma",
@@ -772,5 +774,102 @@ describe("DoctorDetailPage — AppointmentModeCard edit form", () => {
     expect(
       screen.getByTestId("appointment-mode-channel-token"),
     ).toHaveAttribute("data-active", "false");
+  });
+});
+
+describe("DoctorDetailPage — ConsultationFeeCard (separate per-doctor fee)", () => {
+  it("shows the consultation fee (₹ formatted) in its own card", async () => {
+    apiMock.get.mockResolvedValue({ data: [doctorFx({ consultationFee: 750 })] });
+    render(<DoctorDetailPage />);
+    await screen.findByText("Rajesh Verma");
+    expect(screen.getByTestId("consultation-fee-value")).toHaveTextContent(
+      "₹750",
+    );
+  });
+
+  it("shows a dash when the doctor has no consultation fee", async () => {
+    apiMock.get.mockResolvedValue({
+      data: [doctorFx({ consultationFee: null })],
+    });
+    render(<DoctorDetailPage />);
+    await screen.findByText("Rajesh Verma");
+    expect(screen.getByTestId("consultation-fee-value")).toHaveTextContent("—");
+  });
+
+  it("ADMIN sees the fee Edit button; the editor prefills the current fee", async () => {
+    apiMock.get.mockResolvedValue({ data: [doctorFx({ consultationFee: 500 })] });
+    render(<DoctorDetailPage />);
+    await screen.findByText("Rajesh Verma");
+    fireEvent.click(screen.getByTestId("consultation-fee-edit"));
+    expect(screen.getByTestId("consultation-fee-input")).toHaveValue(500);
+  });
+
+  it("non-ADMIN does not see the fee Edit button", async () => {
+    setUser("DOCTOR");
+    apiMock.get.mockResolvedValue({ data: [doctorFx({ consultationFee: 500 })] });
+    render(<DoctorDetailPage />);
+    await screen.findByText("Rajesh Verma");
+    expect(
+      screen.queryByTestId("consultation-fee-edit"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Save — PATCHes the fee as a number to /appointment-mode", async () => {
+    apiMock.get.mockResolvedValue({ data: [doctorFx({ consultationFee: null })] });
+    apiMock.patch.mockResolvedValue({ data: {} });
+    render(<DoctorDetailPage />);
+    await screen.findByText("Rajesh Verma");
+    fireEvent.click(screen.getByTestId("consultation-fee-edit"));
+    fireEvent.change(screen.getByTestId("consultation-fee-input"), {
+      target: { value: "650" },
+    });
+    fireEvent.click(screen.getByTestId("consultation-fee-save"));
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith(
+        "/doctors/d1/appointment-mode",
+        { consultationFee: 650 },
+      ),
+    );
+    expect(toastMock.success).toHaveBeenCalledWith("Consultation fee updated");
+  });
+
+  it("Save — blank fee submits null (no charge)", async () => {
+    apiMock.get.mockResolvedValue({ data: [doctorFx({ consultationFee: 500 })] });
+    apiMock.patch.mockResolvedValue({ data: {} });
+    render(<DoctorDetailPage />);
+    await screen.findByText("Rajesh Verma");
+    fireEvent.click(screen.getByTestId("consultation-fee-edit"));
+    fireEvent.change(screen.getByTestId("consultation-fee-input"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByTestId("consultation-fee-save"));
+    await waitFor(() => expect(apiMock.patch).toHaveBeenCalledTimes(1));
+    expect(apiMock.patch.mock.calls[0][1].consultationFee).toBeNull();
+  });
+
+  it("Save — error surfaces toast.error and keeps the editor open", async () => {
+    apiMock.get.mockResolvedValue({ data: [doctorFx({ consultationFee: 500 })] });
+    apiMock.patch.mockRejectedValue(new Error("server boom"));
+    render(<DoctorDetailPage />);
+    await screen.findByText("Rajesh Verma");
+    fireEvent.click(screen.getByTestId("consultation-fee-edit"));
+    fireEvent.click(screen.getByTestId("consultation-fee-save"));
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("server boom"),
+    );
+    expect(screen.getByTestId("consultation-fee-save")).toBeInTheDocument();
+  });
+
+  it("Cancel — closes the fee editor without firing PATCH", async () => {
+    apiMock.get.mockResolvedValue({ data: [doctorFx({ consultationFee: 500 })] });
+    render(<DoctorDetailPage />);
+    await screen.findByText("Rajesh Verma");
+    fireEvent.click(screen.getByTestId("consultation-fee-edit"));
+    fireEvent.change(screen.getByTestId("consultation-fee-input"), {
+      target: { value: "900" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/i }));
+    expect(screen.getByTestId("consultation-fee-value")).toBeInTheDocument();
+    expect(apiMock.patch).not.toHaveBeenCalled();
   });
 });

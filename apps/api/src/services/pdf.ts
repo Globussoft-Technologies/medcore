@@ -7,6 +7,7 @@ import {
   computeInvoiceTotals,
   computeLineItemTax,
   derivePaymentStatus,
+  formatQuantityWithUnit,
 } from "@medcore/shared";
 import { computePayroll, daysInMonth as daysInMonthFor } from "./payroll";
 import { formatDoctorName } from "../lib/format-doctor-name";
@@ -631,14 +632,26 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
     tax: computeLineItemTax(numOf(it.amount), it.category),
   }));
 
-  const itemRows = itemsWithTax
+  // The consultation fee is GST-exempt and rendered as a compact one-line
+  // summary above the table — never as a tax-invoice row with HSN/SAC +
+  // CGST/SGST. Taxable charges (lab / pharmacy / bed / surgery …) keep the
+  // full GST grid. A pure consult bill therefore shows just the summary line
+  // and no item table at all.
+  const consultRows = itemsWithTax.filter(
+    ({ it }) => it.category === "CONSULTATION",
+  );
+  const taxableRows = itemsWithTax.filter(
+    ({ it }) => it.category !== "CONSULTATION",
+  );
+
+  const itemRows = taxableRows
     .map(
       ({ it, tax }, idx) => `
     <tr>
       <td style="text-align:center;">${idx + 1}</td>
       <td>${escapeHtml(it.description)}<br/><span style="font-size:10px;color:#94a3b8;">${escapeHtml(it.category)} · GST ${tax.gstRate}%</span></td>
       <td style="text-align:center;font-family:monospace;">${escapeHtml(tax.hsnSac)}</td>
-      <td style="text-align:center;">${it.quantity}</td>
+      <td style="text-align:center;">${escapeHtml(formatQuantityWithUnit(it.category, it.quantity))}</td>
       <td style="text-align:right;">${numOf(it.unitPrice).toFixed(2)}</td>
       <td style="text-align:right;">${tax.taxable.toFixed(2)}</td>
       <td style="text-align:right;">${tax.cgst.toFixed(2)}</td>
@@ -647,6 +660,48 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
     </tr>`
     )
     .join("");
+
+  // GST-exempt consultation charges, itemised per doctor (with the consult
+  // date baked into each description) so the patient can verify every charge
+  // on the printed invoice. A 2-cell full-width table keeps the amount in the
+  // same right-padded column as the items table + totals block. A multi-line
+  // bill gets a bold "Consultation Charges" header row.
+  const consultSummary =
+    consultRows.length > 0
+      ? `<table style="margin-bottom:14px;">
+      ${
+        consultRows.length > 1
+          ? `<tr><td colspan="2" style="font-weight:700;color:#334155;padding-bottom:2px;">Consultation Charges</td></tr>`
+          : ""
+      }
+      ${consultRows
+        .map(
+          ({ it, tax }) => `
+      <tr>
+        <td style="color:#334155;${consultRows.length === 1 ? "font-weight:600;" : ""}">${escapeHtml(it.description)}</td>
+        <td style="text-align:right;font-weight:600;white-space:nowrap;">₹${tax.total.toFixed(2)}</td>
+      </tr>`,
+        )
+        .join("")}
+    </table>`
+      : "";
+  const itemsTable =
+    taxableRows.length > 0
+      ? `<table style="margin-bottom:14px;font-size:11px;">
+    <thead><tr>
+      <th style="text-align:center;">#</th>
+      <th>Description</th>
+      <th style="text-align:center;">HSN/SAC</th>
+      <th style="text-align:center;">Qty</th>
+      <th style="text-align:right;">Rate</th>
+      <th style="text-align:right;">Taxable</th>
+      <th style="text-align:right;">CGST</th>
+      <th style="text-align:right;">SGST</th>
+      <th style="text-align:right;">Total</th>
+    </tr></thead>
+    <tbody>${itemRows}</tbody>
+  </table>`
+      : "";
 
   // Issue #202 / #236: route every total through the shared
   // `computeInvoiceTotals` helper. This guarantees Subtotal + GST = Total
@@ -704,29 +759,21 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
     </div>
   </div>
 
-  <table style="margin-bottom:14px;font-size:11px;">
-    <thead><tr>
-      <th style="text-align:center;">#</th>
-      <th>Description</th>
-      <th style="text-align:center;">HSN/SAC</th>
-      <th style="text-align:center;">Qty</th>
-      <th style="text-align:right;">Rate</th>
-      <th style="text-align:right;">Taxable</th>
-      <th style="text-align:right;">CGST</th>
-      <th style="text-align:right;">SGST</th>
-      <th style="text-align:right;">Total</th>
-    </tr></thead>
-    <tbody>${itemRows}</tbody>
-  </table>
+  ${consultSummary}
+  ${itemsTable}
 
   <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
     <table style="width:340px;font-size:13px;">
       <tr><td>Subtotal</td><td style="text-align:right;">₹${totals.subtotal.toFixed(2)}</td></tr>
       ${invPackageDiscount > 0 ? `<tr><td>Package Discount</td><td style="text-align:right;">-₹${invPackageDiscount.toFixed(2)}</td></tr>` : ""}
       ${invDiscountAmount > 0 ? `<tr><td>Discount</td><td style="text-align:right;">-₹${invDiscountAmount.toFixed(2)}</td></tr>` : ""}
-      <tr><td>Taxable Amount</td><td style="text-align:right;">₹${taxable.toFixed(2)}</td></tr>
+      ${
+        displayCgst > 0 || displaySgst > 0
+          ? `<tr><td>Taxable Amount</td><td style="text-align:right;">₹${taxable.toFixed(2)}</td></tr>
       <tr><td>CGST</td><td style="text-align:right;">₹${displayCgst.toFixed(2)}</td></tr>
-      <tr><td>SGST</td><td style="text-align:right;">₹${displaySgst.toFixed(2)}</td></tr>
+      <tr><td>SGST</td><td style="text-align:right;">₹${displaySgst.toFixed(2)}</td></tr>`
+          : ""
+      }
       ${invLateFeeAmount > 0 ? `<tr><td>Late Fee</td><td style="text-align:right;">₹${invLateFeeAmount.toFixed(2)}</td></tr>` : ""}
       <tr style="background:#f1f5f9;font-weight:700;font-size:14px;">
         <td>Total</td><td style="text-align:right;">₹${displayTotal.toFixed(2)}</td>

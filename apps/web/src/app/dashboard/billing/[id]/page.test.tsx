@@ -191,6 +191,203 @@ describe("InvoiceDetailPage — Issue #43 (GST line breakdown)", () => {
   });
 });
 
+describe("InvoiceDetailPage — consultation-only bill format", () => {
+  const consultInvoice = {
+    ...invoiceFixture,
+    id: "inv-2",
+    invoiceNumber: "INV-CONSULT-001",
+    subtotal: 1000,
+    taxAmount: 0,
+    totalAmount: 1000,
+    notes: "Auto-generated consultation fee on consult completion",
+    items: [
+      {
+        id: "c-1",
+        description: "Consultation — Dr. Rajesh Sharma",
+        category: "CONSULTATION",
+        quantity: 1,
+        unitPrice: 1000,
+        amount: 1000,
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    apiMock.get.mockReset();
+    apiMock.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/billing/invoices/")) return { data: consultInvoice };
+      if (url.startsWith("/billing/discount-approvals")) return { data: [] };
+      if (url.startsWith("/billing/hospital-profile"))
+        return { data: hospitalProfileFixture };
+      return { data: null };
+    });
+  });
+
+  it("renders the consult fee as a compact line, no GST/HSN/Qty table columns", async () => {
+    render(<InvoiceDetailPage />);
+    await waitFor(() =>
+      expect(screen.getByText("INV-CONSULT-001")).toBeInTheDocument()
+    );
+    // Compact one-line summary shows the consult description + amount.
+    expect(
+      screen.getByText("Consultation — Dr. Rajesh Sharma")
+    ).toBeInTheDocument();
+    // No tax-invoice table columns for a pure consult bill.
+    expect(screen.queryByText("HSN/SAC")).not.toBeInTheDocument();
+    expect(screen.queryByText("CGST")).not.toBeInTheDocument();
+    expect(screen.queryByText("SGST")).not.toBeInTheDocument();
+    expect(screen.queryByText("9993")).not.toBeInTheDocument();
+  });
+
+  it("deletes the whole invoice when the consult is the only charge", async () => {
+    const user = userEvent.setup();
+    confirmMock.mockResolvedValue(true);
+    apiMock.delete.mockResolvedValueOnce({ data: { id: "inv-2" } });
+    render(<InvoiceDetailPage />);
+    await waitFor(() =>
+      expect(screen.getByText("INV-CONSULT-001")).toBeInTheDocument()
+    );
+    // On a consult-only PENDING bill the action deletes the entire invoice
+    // (the per-item endpoint can't remove the last line).
+    const del = screen.getByTitle("Delete invoice");
+    await user.click(del);
+    // The route param id is mocked to "inv-1" (useParams), so the delete hits
+    // that id regardless of the fixture's own id field.
+    await waitFor(() =>
+      expect(apiMock.delete).toHaveBeenCalledWith("/billing/invoices/inv-1")
+    );
+  });
+});
+
+describe("InvoiceDetailPage — mixed bill separates consult from taxable", () => {
+  const mixedInvoice = {
+    ...invoiceFixture,
+    id: "inv-3",
+    invoiceNumber: "INV-MIX-001",
+    subtotal: 1500,
+    taxAmount: 0,
+    totalAmount: 1560,
+    items: [
+      {
+        id: "m-1",
+        description: "Consultation — Dr. Rajesh Sharma",
+        category: "CONSULTATION",
+        quantity: 1,
+        unitPrice: 1000,
+        amount: 1000,
+      },
+      {
+        id: "m-2",
+        description: "CBC Panel",
+        category: "LAB",
+        quantity: 1,
+        unitPrice: 500,
+        amount: 500,
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    apiMock.get.mockReset();
+    apiMock.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/billing/invoices/")) return { data: mixedInvoice };
+      if (url.startsWith("/billing/discount-approvals")) return { data: [] };
+      if (url.startsWith("/billing/hospital-profile"))
+        return { data: hospitalProfileFixture };
+      return { data: null };
+    });
+  });
+
+  it("shows the consult fee as a compact line and the taxable items in the GST table", async () => {
+    render(<InvoiceDetailPage />);
+    await waitFor(() =>
+      expect(screen.getByText("INV-MIX-001")).toBeInTheDocument()
+    );
+    // Consult fee — compact line (its description), no consult table row.
+    expect(
+      screen.getByText("Consultation — Dr. Rajesh Sharma")
+    ).toBeInTheDocument();
+    // Taxable table keeps HSN/SAC + GST columns…
+    expect(screen.getByText("HSN/SAC")).toBeInTheDocument();
+    expect(screen.getAllByText("CGST").length).toBeGreaterThan(0);
+    // …and only the LAB line carries an SAC code (consult isn't in the table).
+    expect(screen.getAllByText("9993").length).toBe(1);
+    // The LAB line's GST sublabel shows; the consult line has none.
+    expect(screen.getByText(/PHARMACY · GST|LAB · GST/)).toBeInTheDocument();
+    expect(screen.queryByText(/CONSULTATION · GST/)).not.toBeInTheDocument();
+    // The consult charge is deletable on a PENDING invoice.
+    expect(
+      screen.getByTitle("Remove consultation charge")
+    ).toBeInTheDocument();
+  });
+});
+
+describe("InvoiceDetailPage — multiple consults (doctors + View breakdown)", () => {
+  const multiConsult = {
+    ...invoiceFixture,
+    id: "inv-4",
+    invoiceNumber: "INV-MULTI-001",
+    subtotal: 2000,
+    taxAmount: 0,
+    totalAmount: 2560,
+    items: [
+      {
+        id: "c1",
+        description: "Consultation — Dr. Rajesh Sharma · 08 Jun 2026",
+        category: "CONSULTATION",
+        quantity: 1,
+        unitPrice: 1000,
+        amount: 1000,
+      },
+      {
+        id: "c2",
+        description: "Consultation — Dr. Maria Fernandes · 09 Jun 2026",
+        category: "CONSULTATION",
+        quantity: 1,
+        unitPrice: 500,
+        amount: 500,
+      },
+      {
+        id: "m2",
+        description: "CBC Panel",
+        category: "LAB",
+        quantity: 1,
+        unitPrice: 500,
+        amount: 500,
+      },
+    ],
+  };
+
+  beforeEach(() => {
+    apiMock.get.mockReset();
+    apiMock.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/billing/invoices/")) return { data: multiConsult };
+      if (url.startsWith("/billing/discount-approvals")) return { data: [] };
+      if (url.startsWith("/billing/hospital-profile"))
+        return { data: hospitalProfileFixture };
+      return { data: null };
+    });
+  });
+
+  it("expands a date-wise per-doctor breakdown via View", async () => {
+    const user = userEvent.setup();
+    render(<InvoiceDetailPage />);
+    await waitFor(() =>
+      expect(screen.getByText("INV-MULTI-001")).toBeInTheDocument()
+    );
+    // Collapsed: just the combined line — no always-on doctor/date sub-list.
+    expect(screen.queryByTestId("consult-doctors")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("consult-breakdown")).not.toBeInTheDocument();
+    // View reveals each consult with its doctor + date.
+    await user.click(screen.getByTestId("consult-view-toggle"));
+    const bd = screen.getByTestId("consult-breakdown");
+    expect(bd).toHaveTextContent("Dr. Rajesh Sharma");
+    expect(bd).toHaveTextContent("Dr. Maria Fernandes");
+    expect(bd).toHaveTextContent("08 Jun 2026");
+    expect(bd).toHaveTextContent("09 Jun 2026");
+  });
+});
+
 describe("InvoiceDetailPage — Issue #44 (auto category)", () => {
   beforeEach(() => {
     apiMock.get.mockReset();

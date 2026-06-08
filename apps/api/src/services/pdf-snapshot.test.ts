@@ -78,6 +78,20 @@ import {
 } from "./pdf";
 import { generateReferralLetter } from "./ai/letter-generator";
 
+// Normalise cosmetic whitespace before snapshotting: strip trailing spaces on
+// each line and collapse runs of blank lines to one. The invoice body is
+// assembled from optional sections (consultation summary, taxable table) whose
+// presence/absence used to leave stray blank lines — irrelevant to the
+// rendered HTML but a constant source of snapshot churn. Freezing the
+// meaningful structure (not whitespace) keeps these tests stable.
+function normalizeHtml(html: string): string {
+  return html
+    .split("\n")
+    .map((line) => line.replace(/\s+$/, ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
 // ─── Shared hospital config ───────────────────────────────────────────────────
 
 const HOSPITAL_CFG = [
@@ -241,7 +255,7 @@ describe("generateInvoicePDF — HTML snapshot", () => {
   it("snapshot: minimal single-item invoice", async () => {
     prismaMock.invoice.findUnique.mockResolvedValueOnce(baseInvoice());
     const html = await generateInvoicePDF("inv-snap-001");
-    expect(html).toMatchSnapshot();
+    expect(normalizeHtml(html)).toMatchSnapshot();
   });
 
   /**
@@ -287,7 +301,7 @@ describe("generateInvoicePDF — HTML snapshot", () => {
       })
     );
     const html = await generateInvoicePDF("inv-snap-002");
-    expect(html).toMatchSnapshot();
+    expect(normalizeHtml(html)).toMatchSnapshot();
   });
 });
 

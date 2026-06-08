@@ -759,8 +759,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
     </div>
   </div>
 
-  ${consultSummary}
-  ${itemsTable}
+  ${[consultSummary, itemsTable].filter(Boolean).join("\n  ")}
 
   <div style="display:flex;justify-content:flex-end;margin-bottom:14px;">
     <table style="width:340px;font-size:13px;">

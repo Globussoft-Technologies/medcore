@@ -623,8 +623,10 @@ describe("PayrollPage (admin-only payroll + overtime tabbed surface)", () => {
 
     // Overtime heading + summary line.
     await screen.findByRole("heading", { name: /^Overtime$/ });
-    // Two pills — one Pending, one Approved.
-    expect(screen.getByText(/^Pending$/)).toBeInTheDocument();
+    // Switching tabs re-fetches /hr-ops/overtime and re-shows the loading
+    // skeleton, so wait for the row data (the pills) to land before asserting
+    // synchronously — otherwise getByText races the pending fetch.
+    expect(await screen.findByText(/^Pending$/)).toBeInTheDocument();
     expect(screen.getByText(/^Approved$/)).toBeInTheDocument();
     // Date cells render the YYYY-MM-DD slice.
     expect(screen.getByText("2026-05-10")).toBeInTheDocument();

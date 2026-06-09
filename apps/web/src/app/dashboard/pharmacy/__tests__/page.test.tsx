@@ -628,7 +628,9 @@ describe("PharmacyPage (inventory dashboard — full surface)", () => {
 
     fireEvent.click(screen.getByTestId("pharmacy-open-kanban"));
 
-    expect(routerMock.push).toHaveBeenCalledWith("/dashboard/pharmacy-kanban");
+    expect(routerMock.push).toHaveBeenCalledWith(
+      "/dashboard/pharmacy-kanban?from=pharmacy",
+    );
   });
 
   it("Return / Transfer action buttons render per-row when canManage is true (ADMIN)", async () => {

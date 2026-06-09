@@ -1152,7 +1152,10 @@ describe("VitalsPage — sundry coverage", () => {
       bpSystolic: { baseline: 118, sampleSize: 5 },
       bpDiastolic: { baseline: 76, sampleSize: 5 },
     });
-    expect(screen.getByText(/Patient Baseline/)).toBeInTheDocument();
+    // The baseline panel renders only after the async /vitals-baseline GET
+    // resolves (pickDoctorAndPatient awaits the form, not the baseline fetch),
+    // so await it rather than reading synchronously — avoids a render race.
+    expect(await screen.findByText(/Patient Baseline/)).toBeInTheDocument();
     // Smoke-only: the cleanup branch (selectedPatient null → setBaseline(null))
     // is exercised by the conditional render. Re-selecting another patient
     // re-runs the effect; this guards against regressions in the dependency

@@ -275,7 +275,7 @@ function detectDateFromText(text: string): string | null {
   // month — and if that day has already passed (or "next month" was said),
   // roll to the following month. Clamp the day to the month's length.
   const candidate = new Date(today);
-  let targetMonth =
+  const targetMonth =
     explicitMonth !== null ? explicitMonth : today.getMonth();
   let targetYear = today.getFullYear();
   if (explicitMonth !== null && explicitMonth < today.getMonth()) {

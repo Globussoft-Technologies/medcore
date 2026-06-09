@@ -315,7 +315,7 @@ export default function PharmacyPage() {
               DOCTOR/NURSE; we mirror that here only to avoid showing
               the link to viewers who'd be bounced on click). */}
           <button
-            onClick={() => router.push("/dashboard/pharmacy-kanban")}
+            onClick={() => router.push("/dashboard/pharmacy-kanban?from=pharmacy")}
             className="flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
             data-testid="pharmacy-open-kanban"
           >

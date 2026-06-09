@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { apiMock, authMock } = vi.hoisted(() => ({
@@ -90,6 +90,68 @@ describe("DashboardPage", () => {
     });
     render(<DashboardPage />);
     await waitFor(() => expect(screen.getByText("42")).toBeInTheDocument());
+  });
+
+  it("renders the pharmacist KPI strip (not the OPD strip) for PHARMACIST", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.includes("/pharmacy/kanban"))
+        return Promise.resolve({
+          data: {
+            columns: {
+              PENDING: [{ id: "p1" }, { id: "p2" }],
+              DISPENSING: [{ id: "d1" }],
+              READY: [],
+            },
+          },
+        });
+      if (url.includes("/pharmacy/inventory/expiring"))
+        return Promise.resolve({ data: [{ id: "e1" }, { id: "e2" }] });
+      if (url.includes("lowStock"))
+        return Promise.resolve({ meta: { total: 5 } });
+      if (url.includes("dashboard-preferences"))
+        return Promise.resolve({ data: { layout: { widgets: [] } } });
+      return Promise.resolve(emptyResponse(url));
+    });
+    authMock.mockReturnValue({
+      user: { id: "u2", name: "Vikram", email: "v@x.com", role: "PHARMACIST" },
+      isLoading: false,
+    });
+
+    render(<DashboardPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("kpi-strip-pharmacist")).toBeInTheDocument()
+    );
+    // Pharmacy tiles render; the generic OPD / lab-tech strips do not.
+    // "Ready for Pickup" also appears as a detail-section heading below, so
+    // scope these to the KPI strip itself.
+    const strip = within(screen.getByTestId("kpi-strip-pharmacist"));
+    expect(strip.getByText("New Prescriptions")).toBeInTheDocument();
+    expect(strip.getByText("Ready for Pickup")).toBeInTheDocument();
+    expect(strip.getByText("Expiring (30d)")).toBeInTheDocument();
+    expect(screen.queryByTestId("kpi-strip-lab-tech")).not.toBeInTheDocument();
+  });
+
+  it("Customize modal shows only KPI + Quick Actions for PHARMACIST (no clinical/nurse/reception toggles)", async () => {
+    const user = userEvent.setup();
+    authMock.mockReturnValue({
+      user: { id: "u2", name: "Vikram", email: "v@x.com", role: "PHARMACIST" },
+      isLoading: false,
+    });
+    render(<DashboardPage />);
+    await waitFor(() =>
+      screen.getByRole("button", { name: /customize dashboard/i })
+    );
+    await user.click(
+      screen.getByRole("button", { name: /customize dashboard/i })
+    );
+    // "Top KPI Cards" is unique to the modal; the irrelevant section toggles
+    // must not appear for a pharmacist.
+    expect(screen.getByText("Top KPI Cards")).toBeInTheDocument();
+    expect(screen.queryByText("Clinical Today")).not.toBeInTheDocument();
+    expect(screen.queryByText("Diagnostics & Labs")).not.toBeInTheDocument();
+    expect(screen.queryByText("Nurse Medications")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reception Highlights")).not.toBeInTheDocument();
   });
 
   it("continues rendering when API rejects (safeGet fallback)", async () => {

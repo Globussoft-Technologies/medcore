@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -100,6 +100,7 @@ export default function PharmacyPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const confirm = useConfirm();
 
   // Issue #509 (was #98): redirect any non-allowed role to the chrome-wrapped
@@ -113,7 +114,22 @@ export default function PharmacyPage() {
       );
     }
   }, [user, isLoading, router, pathname]);
-  const [tab, setTab] = useState<Tab>("inventory");
+  // Deep-link support (e.g. dashboard "View all" → ?tab=low / ?tab=expiring)
+  // so the page opens directly on the requested tab.
+  const initialTab = ((): Tab => {
+    const t = searchParams.get("tab");
+    const allowed: Tab[] = [
+      "inventory",
+      "low",
+      "expiring",
+      "movements",
+      "returns",
+      "transfers",
+      "valuation",
+    ];
+    return allowed.includes(t as Tab) ? (t as Tab) : "inventory";
+  })();
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [returns, setReturns] = useState<ReturnRow[]>([]);

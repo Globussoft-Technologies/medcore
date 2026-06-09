@@ -60,6 +60,54 @@ interface DashboardData {
   erCritical?: number;
   // Pharmacy
   lowStockCount?: number;
+  // Issue: PHARMACIST-specific KPIs (replace the OPD strip for pharmacists)
+  rxPending?: number;
+  rxDispensing?: number;
+  rxReady?: number;
+  expiringSoonCount?: number;
+  pendingPurchaseOrders?: number;
+  // Short lists for the pharmacist detail sections (top few each).
+  rxQueueItems?: Array<{
+    id: string;
+    patientLabel?: string;
+    topItem?: string;
+    extraItems?: number;
+    status?: string;
+  }>;
+  readyItems?: Array<{
+    id: string;
+    patientLabel?: string;
+    topItem?: string;
+    extraItems?: number;
+    status?: string;
+  }>;
+  lowStockItems?: Array<{
+    id?: string;
+    name?: string;
+    batchNumber?: string;
+    quantity?: number;
+    reorderLevel?: number;
+  }>;
+  expiringItems?: Array<{
+    id?: string;
+    name?: string;
+    batchNumber?: string;
+    expiryDate?: string;
+    quantity?: number;
+  }>;
+  supplierItems?: Array<{
+    id?: string;
+    name?: string;
+    openOrders?: number;
+    outstandingAmount?: number;
+  }>;
+  purchaseOrderItems?: Array<{
+    id?: string;
+    poNumber?: string;
+    supplierName?: string;
+    status?: string;
+    totalAmount?: number;
+  }>;
   // Lab
   pendingLabOrders?: number;
   // Issue #629 — LAB_TECH-specific KPIs
@@ -222,11 +270,15 @@ function CustomizeDashboardModal({
   initial,
   onClose,
   onSave,
+  keys,
 }: {
   open: boolean;
   initial: DashboardWidget[];
   onClose: () => void;
   onSave: (widgets: DashboardWidget[]) => void;
+  // Only show toggles for sections relevant to the current role. When
+  // omitted, all sections are shown.
+  keys?: WidgetKey[];
 }) {
   const [widgets, setWidgets] = useState<DashboardWidget[]>(initial);
 
@@ -256,7 +308,7 @@ function CustomizeDashboardModal({
           Toggle sections on or off. Your preferences are saved.
         </p>
         <div className="mb-6 space-y-2">
-          {(Object.keys(WIDGET_LABELS) as WidgetKey[]).map((k) => {
+          {(keys ?? (Object.keys(WIDGET_LABELS) as WidgetKey[])).map((k) => {
             const w = widgets.find((x) => x.type === k);
             const visible = !w || w.visible !== false;
             return (
@@ -464,6 +516,84 @@ export default function DashboardPage() {
             { meta: { total: 0 } },
           ];
 
+      // PHARMACIST-specific KPIs — prescription Kanban counts (today),
+      // expiring stock, and pending purchase orders. Others skip these
+      // round-trips. Kanban returns { data: { columns: { PENDING: [...], … } } }.
+      const [
+        rxKanban,
+        expiringSoon,
+        pendingPOs,
+        lowStockList,
+        supplierList,
+        recentPOs,
+      ] = isPharmacist
+        ? await Promise.all([
+            safeGet<any>(`/pharmacy/kanban?todayOnly=true`, {
+              data: { columns: {} },
+            }),
+            safeGet<any>(`/pharmacy/inventory/expiring?days=30`, { data: [] }),
+            safeGet<any>(`/purchase-orders?status=PENDING&limit=1`, {
+              meta: { total: 0 },
+            }),
+            safeGet<any>(`/pharmacy/inventory?lowStock=true&limit=6`, {
+              data: [],
+            }),
+            safeGet<any>(`/suppliers?active=true`, { data: [] }),
+            safeGet<any>(`/purchase-orders?limit=6`, { data: [] }),
+          ])
+        : [
+            { data: { columns: {} } },
+            { data: [] },
+            { meta: { total: 0 } },
+            { data: [] },
+            { data: [] },
+            { data: [] },
+          ];
+      const rxColumns = rxKanban.data?.columns ?? {};
+      // Short lists for the pharmacist detail sections. Inventory rows carry
+      // the medicine name on the joined `medicine` relation, not on the
+      // InventoryItem itself — flatten it here so the UI reads cleanly.
+      const rxQueueItems = [
+        ...(rxColumns.PENDING ?? []),
+        ...(rxColumns.DISPENSING ?? []),
+      ].slice(0, 6);
+      const readyItems = (rxColumns.READY ?? []).slice(0, 6);
+      const lowStockItems = (lowStockList.data ?? [])
+        .slice(0, 6)
+        .map((it: any) => ({
+          id: it.id,
+          name: it.medicine?.name ?? it.name,
+          batchNumber: it.batchNumber,
+          quantity: it.quantity,
+          reorderLevel: it.reorderLevel,
+        }));
+      const expiringItems = (expiringSoon.data ?? [])
+        .slice(0, 6)
+        .map((it: any) => ({
+          id: it.id,
+          name: it.medicine?.name ?? it.name,
+          batchNumber: it.batchNumber,
+          expiryDate: it.expiryDate,
+          quantity: it.quantity,
+        }));
+      const supplierItems = (supplierList.data ?? [])
+        .slice(0, 6)
+        .map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          openOrders: s._count?.purchaseOrders ?? 0,
+          outstandingAmount: s.outstandingAmount ?? 0,
+        }));
+      const purchaseOrderItems = (recentPOs.data ?? [])
+        .slice(0, 6)
+        .map((po: any) => ({
+          id: po.id,
+          poNumber: po.poNumber,
+          supplierName: po.supplier?.name,
+          status: po.status,
+          totalAmount: po.totalAmount,
+        }));
+
       // Compute totals
       const totalInQueue = (queue.data ?? []).reduce(
         (sum: number, doc: any) => sum + (doc.waitingCount || 0),
@@ -498,6 +628,18 @@ export default function DashboardPage() {
         erWaiting: erCases.length,
         erCritical,
         lowStockCount: lowStock.meta?.total ?? 0,
+        // PHARMACIST KPI counts
+        rxPending: (rxColumns.PENDING ?? []).length,
+        rxDispensing: (rxColumns.DISPENSING ?? []).length,
+        rxReady: (rxColumns.READY ?? []).length,
+        expiringSoonCount: (expiringSoon.data ?? []).length,
+        pendingPurchaseOrders: pendingPOs.meta?.total ?? 0,
+        rxQueueItems,
+        readyItems,
+        lowStockItems,
+        expiringItems,
+        supplierItems,
+        purchaseOrderItems,
         pendingLabOrders: labOrders.meta?.total ?? 0,
         // Issue #629 — LAB_TECH-specific KPI counts
         labOrdersInProgress: labInProgress.meta?.total ?? 0,
@@ -550,6 +692,10 @@ export default function DashboardPage() {
   // either link to Access-Denied pages or surface counts irrelevant to lab
   // operations.
   const isLabTechRole = role === "LAB_TECH";
+  // PHARMACIST gets a dedicated KPI strip too — the generic OPD tiles
+  // (appointments / patients / beds / ER / bills) are 403-gated and
+  // irrelevant to pharmacy work.
+  const isPharmacistRole = role === "PHARMACIST";
 
   const fmt = (n?: number) => (n ?? 0).toLocaleString("en-IN");
   // Issue #298: canonical INR formatting (₹1,23,456.00) via shared helper.
@@ -598,6 +744,14 @@ export default function DashboardPage() {
         initial={widgets}
         onClose={() => setShowCustomize(false)}
         onSave={saveWidgets}
+        // Roles with the trimmed KPI+Quick-Actions dashboard (pharmacist /
+        // lab-tech) only have those two sections — don't offer toggles for
+        // clinical / nurse / reception sections they never render.
+        keys={
+          isPharmacistRole || isLabTechRole
+            ? ["kpi_top", "quick_actions"]
+            : undefined
+        }
       />
 
       {loading && (
@@ -681,6 +835,62 @@ export default function DashboardPage() {
                 icon={FileText}
                 color="bg-secondary"
                 href="/dashboard/lab/qc"
+              />
+            </div>
+          ) : isPharmacistRole ? (
+            // PHARMACIST dashboard: pharmacy-operations KPIs instead of the
+            // generic OPD strip (which is gated/irrelevant for pharmacists).
+            <div
+              className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6"
+              data-testid="kpi-strip-pharmacist"
+            >
+              <StatCard
+                title="New Prescriptions"
+                value={fmt(data.rxPending)}
+                subtitle="awaiting dispense"
+                icon={Pill}
+                color="bg-primary"
+                href="/dashboard/pharmacy-kanban"
+              />
+              <StatCard
+                title="Dispensing"
+                value={fmt(data.rxDispensing)}
+                subtitle="in progress"
+                icon={Activity}
+                color="bg-indigo-600"
+                href="/dashboard/pharmacy-kanban"
+              />
+              <StatCard
+                title="Ready for Pickup"
+                value={fmt(data.rxReady)}
+                subtitle="bagged"
+                icon={CheckCircle2}
+                color="bg-emerald-600"
+                href="/dashboard/pharmacy-kanban"
+              />
+              <StatCard
+                title="Low Stock"
+                value={fmt(data.lowStockCount)}
+                subtitle="reorder"
+                icon={AlertTriangle}
+                color={data.lowStockCount ? "bg-red-600" : "bg-orange-600"}
+                href="/dashboard/pharmacy?tab=low"
+              />
+              <StatCard
+                title="Expiring (30d)"
+                value={fmt(data.expiringSoonCount)}
+                subtitle="check batches"
+                icon={Package}
+                color="bg-secondary"
+                href="/dashboard/pharmacy?tab=expiring"
+              />
+              <StatCard
+                title="Pending POs"
+                value={fmt(data.pendingPurchaseOrders)}
+                subtitle="purchase orders"
+                icon={FileText}
+                color="bg-accent"
+                href="/dashboard/purchase-orders"
               />
             </div>
           ) : (
@@ -977,6 +1187,202 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Pharmacist dashboard detail — the actionable work lists that
+              fill the space below the KPI strip + quick actions: scripts to
+              dispense, items to reorder, and stock about to expire. */}
+          {!loading && isPharmacistRole && (
+            <div
+              className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3"
+              data-testid="pharmacist-sections"
+            >
+              <ModuleSection
+                title="Dispense Queue"
+                icon={Pill}
+                iconColor="bg-primary"
+                viewAllHref="/dashboard/pharmacy-kanban"
+              >
+                {(data.rxQueueItems?.length ?? 0) > 0 ? (
+                  <ul className="space-y-2">
+                    {data.rxQueueItems!.map((rx) => (
+                      <li
+                        key={rx.id}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="truncate text-gray-700 dark:text-gray-200">
+                          {rx.patientLabel || "Patient"}
+                          {rx.topItem ? ` · ${rx.topItem}` : ""}
+                          {rx.extraItems ? ` +${rx.extraItems}` : ""}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                          {rx.status}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    No prescriptions in the queue.
+                  </p>
+                )}
+              </ModuleSection>
+
+              <ModuleSection
+                title="Ready for Pickup"
+                icon={CheckCircle2}
+                iconColor="bg-green-600"
+                viewAllHref="/dashboard/pharmacy-kanban"
+              >
+                {(data.readyItems?.length ?? 0) > 0 ? (
+                  <ul className="space-y-2">
+                    {data.readyItems!.map((rx) => (
+                      <li
+                        key={rx.id}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="truncate text-gray-700 dark:text-gray-200">
+                          {rx.patientLabel || "Patient"}
+                          {rx.topItem ? ` · ${rx.topItem}` : ""}
+                          {rx.extraItems ? ` +${rx.extraItems}` : ""}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
+                          Bagged
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Nothing waiting for pickup.
+                  </p>
+                )}
+              </ModuleSection>
+
+              <ModuleSection
+                title="Low Stock"
+                icon={AlertTriangle}
+                iconColor="bg-red-600"
+                viewAllHref="/dashboard/pharmacy?tab=low"
+              >
+                {(data.lowStockItems?.length ?? 0) > 0 ? (
+                  <ul className="space-y-2">
+                    {data.lowStockItems!.map((it, i) => (
+                      <li
+                        key={it.id ?? i}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="truncate text-gray-700 dark:text-gray-200">
+                          {it.name || "Medicine"}
+                        </span>
+                        <span className="shrink-0 text-xs font-medium text-red-600 dark:text-red-400">
+                          {fmt(it.quantity)} / {fmt(it.reorderLevel)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    All items are above their reorder level.
+                  </p>
+                )}
+              </ModuleSection>
+
+              <ModuleSection
+                title="Expiring Soon (30d)"
+                icon={Package}
+                iconColor="bg-secondary"
+                viewAllHref="/dashboard/pharmacy?tab=expiring"
+              >
+                {(data.expiringItems?.length ?? 0) > 0 ? (
+                  <ul className="space-y-2">
+                    {data.expiringItems!.map((it, i) => (
+                      <li
+                        key={it.id ?? i}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="truncate text-gray-700 dark:text-gray-200">
+                          {it.name || "Medicine"}
+                        </span>
+                        <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
+                          {it.expiryDate
+                            ? new Date(it.expiryDate).toLocaleDateString("en-IN")
+                            : "—"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Nothing expiring in the next 30 days.
+                  </p>
+                )}
+              </ModuleSection>
+
+              <ModuleSection
+                title="Suppliers"
+                icon={Users}
+                iconColor="bg-blue-600"
+                viewAllHref="/dashboard/suppliers"
+              >
+                {(data.supplierItems?.length ?? 0) > 0 ? (
+                  <ul className="space-y-2">
+                    {data.supplierItems!.map((s, i) => (
+                      <li
+                        key={s.id ?? i}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="truncate text-gray-700 dark:text-gray-200">
+                          {s.name || "Supplier"}
+                          {s.openOrders
+                            ? ` · ${s.openOrders} order${s.openOrders === 1 ? "" : "s"}`
+                            : ""}
+                        </span>
+                        {s.outstandingAmount ? (
+                          <span className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400">
+                            ₹{fmt(s.outstandingAmount)}
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    No active suppliers yet.
+                  </p>
+                )}
+              </ModuleSection>
+
+              <ModuleSection
+                title="Purchase Orders"
+                icon={CreditCard}
+                iconColor="bg-amber-600"
+                viewAllHref="/dashboard/purchase-orders"
+              >
+                {(data.purchaseOrderItems?.length ?? 0) > 0 ? (
+                  <ul className="space-y-2">
+                    {data.purchaseOrderItems!.map((po, i) => (
+                      <li
+                        key={po.id ?? i}
+                        className="flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="truncate text-gray-700 dark:text-gray-200">
+                          {po.poNumber || "PO"}
+                          {po.supplierName ? ` · ${po.supplierName}` : ""}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                          {po.status}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    No purchase orders yet.
+                  </p>
+                )}
+              </ModuleSection>
+            </div>
+          )}
+
           {/* Admin summary — deeper financial & operational section. Issue
               #529 same gate as the rest of the dashboard. */}
           {!loading && isAdmin && (
@@ -1025,11 +1431,12 @@ export default function DashboardPage() {
               the "Quick Actions" heading — read by users as a broken
               panel. We now render a placeholder line instead so the
               section explains itself for unmatched roles. */}
+          {isWidgetVisible(widgets, "quick_actions") && (
           <div className="mt-8" data-testid="quick-actions-panel">
             <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
               Quick Actions
             </h2>
-            {!(isReception || isAdmin || isDoctor || isNurse || isLabTechRole) ? (
+            {!(isReception || isAdmin || isDoctor || isNurse || isLabTechRole || isPharmacistRole) ? (
               <p
                 className="rounded-xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400"
                 data-testid="quick-actions-empty"
@@ -1049,6 +1456,16 @@ export default function DashboardPage() {
                   <QuickAction href="/dashboard/lab?status=IN_PROGRESS" icon={Clock} label="In Progress" />
                   <QuickAction href="/dashboard/lab?status=COMPLETED" icon={CheckCircle2} label="Completed" />
                   <QuickAction href="/dashboard/lab/qc" icon={FileText} label="QC Queue" />
+                </>
+              )}
+              {isPharmacistRole && (
+                <>
+                  <QuickAction href="/dashboard/pharmacy-kanban" icon={Pill} label="Dispense Queue" />
+                  <QuickAction href="/dashboard/prescriptions" icon={FileText} label="Prescriptions" />
+                  <QuickAction href="/dashboard/pharmacy" icon={Package} label="Inventory" />
+                  <QuickAction href="/dashboard/pharmacy" icon={AlertTriangle} label="Low Stock" />
+                  <QuickAction href="/dashboard/purchase-orders" icon={CreditCard} label="Purchase Orders" />
+                  <QuickAction href="/dashboard/suppliers" icon={Users} label="Suppliers" />
                 </>
               )}
               {(isReception || isAdmin) && (
@@ -1094,6 +1511,7 @@ export default function DashboardPage() {
             </div>
             )}
           </div>
+          )}
         </>
       )}
     </div>

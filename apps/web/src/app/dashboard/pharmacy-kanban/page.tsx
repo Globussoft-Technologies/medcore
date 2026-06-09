@@ -17,7 +17,7 @@
 // /pharmacy/kanban: ADMIN / PHARMACIST / DOCTOR / NURSE.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
@@ -95,6 +95,11 @@ export default function PharmacyKanbanPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // Only surface "Back to Pharmacy" when the user arrived from the Pharmacy
+  // page (its "Kanban Board" button appends ?from=pharmacy). Navigating here
+  // directly from the sidebar shows no back link.
+  const fromPharmacy = searchParams.get("from") === "pharmacy";
   const [payload, setPayload] = useState<KanbanPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [todayOnly, setTodayOnly] = useState(true);
@@ -212,15 +217,17 @@ export default function PharmacyKanbanPage() {
 
   return (
     <div data-testid="pharmacy-kanban-page">
-      <button
-        type="button"
-        onClick={() => router.push("/dashboard/pharmacy")}
-        className="mb-4 inline-flex items-center gap-2 text-sm text-gray-600 hover:text-primary dark:text-gray-400"
-        data-testid="pharmacy-kanban-back"
-        aria-label="Back to Pharmacy"
-      >
-        <ArrowLeft size={16} aria-hidden="true" /> Back to Pharmacy
-      </button>
+      {fromPharmacy && (
+        <button
+          type="button"
+          onClick={() => router.push("/dashboard/pharmacy")}
+          className="mb-4 inline-flex items-center gap-2 text-sm text-gray-600 hover:text-primary dark:text-gray-400"
+          data-testid="pharmacy-kanban-back"
+          aria-label="Back to Pharmacy"
+        >
+          <ArrowLeft size={16} aria-hidden="true" /> Back to Pharmacy
+        </button>
+      )}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900 sm:text-2xl dark:text-gray-100">

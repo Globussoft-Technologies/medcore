@@ -192,13 +192,18 @@ function drawTable(
   const startX = 40;
   let y = doc.y;
   const rowHeight = 18;
+  // Vertical padding inside a cell (text is drawn 5pt below the row top, with
+  // matching breathing room beneath). Issue #1111: rows must grow to fit
+  // wrapped cell text (e.g. long "Instructions") instead of using a fixed
+  // height — otherwise multi-line text overflows and overlaps the next row.
+  const cellPadY = 5;
 
   // Header
   doc.rect(startX, y, 515, rowHeight).fill("#f1f5f9");
   doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9);
   let cx = startX;
   columns.forEach((col) => {
-    doc.text(col.label.toUpperCase(), cx + 4, y + 5, {
+    doc.text(col.label.toUpperCase(), cx + 4, y + cellPadY, {
       width: col.width - 8,
       align: col.align || "left",
     });
@@ -209,27 +214,193 @@ function drawTable(
   // Body
   doc.font("Helvetica").fontSize(9).fillColor("#1e293b");
   rows.forEach((row, idx) => {
-    if (y > 760) {
+    // Measure the tallest cell so the row is exactly as tall as its content.
+    const contentHeight = columns.reduce((max, col, ci) => {
+      const h = doc.heightOfString(row[ci] ?? "", {
+        width: col.width - 8,
+        align: col.align || "left",
+      });
+      return Math.max(max, h);
+    }, 0);
+    const rowH = Math.max(rowHeight, contentHeight + cellPadY * 2);
+
+    // Spill to a new page ONLY when this row genuinely won't fit within the
+    // page's printable area (page height minus the bottom margin). Using the
+    // real geometry — rather than a conservative constant — means a single
+    // row that still fits never triggers a premature page break.
+    const pageBottom = doc.page.height - doc.page.margins.bottom;
+    if (y + rowH > pageBottom) {
       doc.addPage();
       y = doc.y;
     }
     if (idx % 2 === 0) {
-      doc.rect(startX, y, 515, rowHeight).fill("#fafafa");
+      doc.rect(startX, y, 515, rowH).fill("#fafafa");
       doc.fillColor("#1e293b");
     }
     cx = startX;
     columns.forEach((col, ci) => {
-      doc.text(row[ci] ?? "", cx + 4, y + 5, {
+      doc.text(row[ci] ?? "", cx + 4, y + cellPadY, {
         width: col.width - 8,
         align: col.align || "left",
-        ellipsis: true,
       });
       cx += col.width;
     });
     // Border
     doc.strokeColor("#e5e7eb").lineWidth(0.3)
-      .moveTo(startX, y + rowHeight).lineTo(startX + 515, y + rowHeight).stroke();
-    y += rowHeight;
+      .moveTo(startX, y + rowH).lineTo(startX + 515, y + rowH).stroke();
+    y += rowH;
+  });
+  doc.y = y + 4;
+}
+
+/**
+ * Split a stored Rx `instructions` string ("Route: XX | Qty: NN | <notes>")
+ * back into its structured pieces. Mirrors the web composer in
+ * apps/web/src/lib/rx-form.ts. Legacy free-text (no Route:/Qty: prefix) all
+ * lands in `notes`.
+ */
+function parseRxInstructions(raw: string | null | undefined): {
+  route: string;
+  quantity: string;
+  notes: string;
+} {
+  const out = { route: "", quantity: "", notes: "" };
+  if (!raw) return out;
+  const notes: string[] = [];
+  for (const seg of raw.split("|").map((s) => s.trim()).filter(Boolean)) {
+    const r = seg.match(/^Route:\s*(.+)$/i);
+    if (r) { out.route = r[1].trim(); continue; }
+    const q = seg.match(/^Qty:\s*(.+)$/i);
+    if (q) { out.quantity = q[1].trim(); continue; }
+    notes.push(seg);
+  }
+  out.notes = notes.join(" | ");
+  return out;
+}
+
+/**
+ * Issue #1111: render the medications as a proper prescription block instead
+ * of cramming "Route | Qty | notes" into a narrow 100pt column (which wrapped
+ * into an unreadable vertical strip). Each medicine is one row with its own
+ * Qty column; the route + instruction notes wrap full-width on a line BELOW
+ * the medicine name. Rows grow to fit and paginate when they don't fit.
+ */
+function drawMedications(
+  doc: PDFKit.PDFDocument,
+  items: {
+    medicineName: string;
+    dosage: string;
+    frequency: string;
+    duration: string;
+    instructions: string | null;
+  }[]
+): void {
+  const startX = 40;
+  const totalW = 515;
+  const headerH = 18;
+  const padY = 5;
+  let y = doc.y;
+
+  // x offsets are relative to startX; widths sum to totalW.
+  const cols: {
+    label: string;
+    x: number;
+    w: number;
+    align?: "left" | "center" | "right";
+  }[] = [
+    { label: "#", x: 0, w: 25, align: "center" },
+    { label: "Medicine", x: 25, w: 150 },
+    { label: "Dosage", x: 175, w: 70 },
+    { label: "Frequency", x: 245, w: 110 },
+    { label: "Duration", x: 355, w: 70 },
+    { label: "Qty", x: 425, w: 90, align: "center" },
+  ];
+  const detailX = startX + cols[1].x; // align the instruction line under "Medicine"
+  const detailW = totalW - cols[1].x - 8;
+
+  // Header
+  doc.rect(startX, y, totalW, headerH).fill("#f1f5f9");
+  doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9);
+  cols.forEach((c) =>
+    doc.text(c.label.toUpperCase(), startX + c.x + 4, y + padY, {
+      width: c.w - 8,
+      align: c.align || "left",
+    })
+  );
+  y += headerH;
+
+  items.forEach((it, idx) => {
+    const parsed = parseRxInstructions(it.instructions);
+    const detailParts: string[] = [];
+    if (parsed.route) detailParts.push(`Route: ${parsed.route}`);
+    if (parsed.notes) detailParts.push(parsed.notes);
+    const detail = detailParts.join("  •  ");
+
+    const mainCells = [
+      String(idx + 1),
+      it.medicineName,
+      it.dosage,
+      it.frequency,
+      it.duration,
+      parsed.quantity || "-",
+    ];
+
+    // Height of the main (single-line-ish) row, then the wrapped detail line.
+    doc.font("Helvetica").fontSize(9);
+    const mainH = cols.reduce(
+      (m, c, i) =>
+        Math.max(
+          m,
+          doc.heightOfString(mainCells[i] ?? "", {
+            width: c.w - 8,
+            align: c.align || "left",
+          })
+        ),
+      0
+    );
+    let detailH = 0;
+    if (detail) {
+      doc.font("Helvetica-Oblique").fontSize(8);
+      detailH = doc.heightOfString(`Instructions: ${detail}`, { width: detailW });
+    }
+    const rowH = Math.max(
+      headerH,
+      mainH + (detail ? detailH + 3 : 0) + padY * 2
+    );
+
+    // Paginate only when this row genuinely won't fit.
+    const pageBottom = doc.page.height - doc.page.margins.bottom;
+    if (y + rowH > pageBottom) {
+      doc.addPage();
+      y = doc.y;
+    }
+
+    if (idx % 2 === 0) {
+      doc.rect(startX, y, totalW, rowH).fill("#fafafa");
+    }
+
+    // Main columns
+    doc.font("Helvetica").fontSize(9).fillColor("#1e293b");
+    cols.forEach((c, i) =>
+      doc.text(mainCells[i] ?? "", startX + c.x + 4, y + padY, {
+        width: c.w - 8,
+        align: c.align || "left",
+      })
+    );
+
+    // Instruction line under the medicine name
+    if (detail) {
+      doc.font("Helvetica-Oblique").fontSize(8).fillColor("#64748b").text(
+        `Instructions: ${detail}`,
+        detailX + 4,
+        y + padY + mainH + 2,
+        { width: detailW }
+      );
+    }
+
+    doc.strokeColor("#e5e7eb").lineWidth(0.3)
+      .moveTo(startX, y + rowH).lineTo(startX + totalW, y + rowH).stroke();
+    y += rowH;
   });
   doc.y = y + 4;
 }
@@ -281,43 +452,38 @@ export async function generatePrescriptionPDFBuffer(
   drawKeyVal(doc, "Age / Gender",
     `${patient.age ?? "-"} / ${patient.gender}`, 40, topY + 56);
 
-  drawKeyVal(doc, "Doctor", formatDoctorName(doctor.user.name), 310, topY);
-  drawKeyVal(doc, "Qualification", doctor.qualification || "-", 310, topY + 28);
+  // Doctor block aligned to the right edge of the content area (x=400..555).
+  const docX = 400;
+  const docW = 155;
+  drawKeyVal(doc, "Doctor", formatDoctorName(doctor.user.name), docX, topY, docW);
+  drawKeyVal(doc, "Qualification", doctor.qualification || "-", docX, topY + 28, docW);
   // Pearl ERP Stage 1 §2.1.4 — every signed Rx must carry the NMC
   // registration number. Renders "-" when blank so admins can spot
   // missing entries during pilot rollout.
-  drawKeyVal(doc, "NMC Reg #", doctor.nmcRegNumber || "-", 310, topY + 56);
-  drawKeyVal(doc, "Date", formatDate(prescription.createdAt), 310, topY + 84);
+  drawKeyVal(doc, "NMC Reg #", doctor.nmcRegNumber || "-", docX, topY + 56, docW);
+  drawKeyVal(doc, "Date", formatDate(prescription.createdAt), docX, topY + 84, docW);
   doc.y = topY + 118;
 
-  // Diagnosis box
-  doc.rect(40, doc.y, 515, 28).fill("#f1f5f9");
-  doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(9)
-    .text("DIAGNOSIS", 48, doc.y - 24);
-  doc.fillColor("#1e293b").font("Helvetica").fontSize(11)
-    .text(prescription.diagnosis, 48, doc.y - 12, { width: 500 });
-  doc.y = doc.y + 12;
+  // Diagnosis box. Draw the box first, then the label + value INSIDE it
+  // (top-down), sizing the box to the wrapped diagnosis text. The previous
+  // version drew both strings at negative offsets above the box, which made
+  // the "DIAGNOSIS" label and the value overlap ("diaGNOSIS").
+  {
+    const dy = doc.y;
+    const diagnosis = prescription.diagnosis || "-";
+    doc.font("Helvetica").fontSize(11);
+    const valH = doc.heightOfString(diagnosis, { width: 499 });
+    const boxH = 20 + valH + 8; // label row + value + bottom padding
+    doc.rect(40, dy, 515, boxH).fill("#f1f5f9");
+    doc.fillColor("#64748b").font("Helvetica-Bold").fontSize(9)
+      .text("DIAGNOSIS", 48, dy + 6, { width: 499 });
+    doc.fillColor("#1e293b").font("Helvetica").fontSize(11)
+      .text(diagnosis, 48, dy + 20, { width: 499 });
+    doc.y = dy + boxH + 10;
+  }
 
   drawSectionTitle(doc, "Medications");
-  drawTable(
-    doc,
-    [
-      { label: "#", width: 25, align: "center" },
-      { label: "Medicine", width: 150 },
-      { label: "Dosage", width: 80 },
-      { label: "Frequency", width: 80 },
-      { label: "Duration", width: 80 },
-      { label: "Instructions", width: 100 },
-    ],
-    items.map((it, idx) => [
-      String(idx + 1),
-      it.medicineName,
-      it.dosage,
-      it.frequency,
-      it.duration,
-      it.instructions || "-",
-    ])
-  );
+  drawMedications(doc, items);
 
   if (prescription.advice) {
     drawSectionTitle(doc, "Advice");
@@ -327,10 +493,16 @@ export async function generatePrescriptionPDFBuffer(
 
   if (prescription.followUpDate) {
     doc.moveDown(0.5);
-    doc.rect(40, doc.y, 515, 24).fill("#ecfdf5");
+    // Draw the label INSIDE the box (was drawn 18pt above it, which overlapped
+    // the Advice text sitting above).
+    const fy = doc.y;
+    const boxH = 24;
+    doc.rect(40, fy, 515, boxH).fill("#ecfdf5");
     doc.fillColor("#065f46").font("Helvetica-Bold").fontSize(10)
-      .text(`Follow-up: ${formatDate(prescription.followUpDate)}`, 48, doc.y - 18);
-    doc.y = doc.y + 8;
+      .text(`Follow-up: ${formatDate(prescription.followUpDate)}`, 48, fy + 7, {
+        width: 499,
+      });
+    doc.y = fy + boxH + 8;
   }
 
   // Signature + QR side-by-side at bottom of content
@@ -400,9 +572,13 @@ export async function generatePrescriptionPDFBuffer(
   doc.font("Helvetica").fontSize(7).fillColor("#94a3b8")
     .text(`Rx ID: ${prescription.id}`, 150, qrY + 50, { width: 220 });
 
-  // Footer
+  // Footer. Issue #1111: anchor it just inside the printable area (page
+  // height minus bottom margin minus the line height) rather than a hardcoded
+  // y=800. At y=800 a 7pt line spilled past the A4 bottom margin, which made
+  // PDFKit auto-append a blank second page even for a one-line prescription.
+  const footerY = doc.page.height - doc.page.margins.bottom - 12;
   doc.font("Helvetica").fontSize(7).fillColor("#94a3b8")
-    .text(`Digitally generated prescription - ${h.name}`, 40, 800, {
+    .text(`Digitally generated prescription - ${h.name}`, 40, footerY, {
       align: "center",
       width: 515,
     });

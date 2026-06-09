@@ -118,14 +118,19 @@ function baseStyles(): string {
   `;
 }
 
-function htmlDoc(title: string, bodyContent: string, autoPrint = true): string {
+function htmlDoc(
+  title: string,
+  bodyContent: string,
+  autoPrint = true,
+  printLabel = "Print / Save as PDF",
+): string {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${escapeHtml(title)}</title>
 <style>${baseStyles()}</style>
 </head><body><div class="page">${bodyContent}
 <div class="no-print" style="text-align:center;margin-top:24px;">
-  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;">Print / Save as PDF</button>
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;">${escapeHtml(printLabel)}</button>
 </div>
 </div>${autoPrint ? `<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>` : ""}
 </body></html>`;
@@ -199,6 +204,30 @@ function numberToWordsIndian(num: number): string {
 
 // ─── 1. PRESCRIPTION (existing, enhanced with QR section) ────
 
+/**
+ * Split a stored Rx `instructions` string ("Route: XX | Qty: NN | <notes>")
+ * into its structured pieces. Mirrors the web composer in
+ * apps/web/src/lib/rx-form.ts. Legacy free-text lands wholly in `notes`.
+ */
+function parseRxInstructions(raw: string | null | undefined): {
+  route: string;
+  quantity: string;
+  notes: string;
+} {
+  const out = { route: "", quantity: "", notes: "" };
+  if (!raw) return out;
+  const notes: string[] = [];
+  for (const seg of raw.split("|").map((s) => s.trim()).filter(Boolean)) {
+    const r = seg.match(/^Route:\s*(.+)$/i);
+    if (r) { out.route = r[1].trim(); continue; }
+    const q = seg.match(/^Qty:\s*(.+)$/i);
+    if (q) { out.quantity = q[1].trim(); continue; }
+    notes.push(seg);
+  }
+  out.notes = notes.join(" | ");
+  return out;
+}
+
 export async function generatePrescriptionPDF(
   prescriptionId: string
 ): Promise<string> {
@@ -228,21 +257,30 @@ export async function generatePrescriptionPDF(
     : null;
 
   const medicineRows = items
-    .map(
-      (item, idx) => `
+    .map((item, idx) => {
+      const p = parseRxInstructions(item.instructions);
+      const detailParts: string[] = [];
+      if (p.route) detailParts.push(`Route: ${escapeHtml(p.route)}`);
+      if (p.notes) detailParts.push(escapeHtml(p.notes));
+      const detail = detailParts.join(" &bull; ");
+      return `
       <tr>
         <td style="text-align:center;">${idx + 1}</td>
-        <td style="font-weight:500;">${escapeHtml(item.medicineName)}</td>
+        <td style="font-weight:500;">${escapeHtml(item.medicineName)}${
+          detail
+            ? `<div style="font-weight:400;font-size:11.5px;color:#64748b;font-style:italic;margin-top:3px;">Instructions: ${detail}</div>`
+            : ""
+        }</td>
         <td>${escapeHtml(item.dosage)}</td>
         <td>${escapeHtml(item.frequency)}</td>
         <td>${escapeHtml(item.duration)}</td>
-        <td>${escapeHtml(item.instructions || "-")}</td>
-      </tr>`
-    )
+        <td style="text-align:center;">${escapeHtml(p.quantity || "-")}</td>
+      </tr>`;
+    })
     .join("\n");
 
   const sigBlock = prescription.signatureUrl
-    ? `<img src="${escapeHtml(prescription.signatureUrl)}" alt="Signature" style="max-height:60px;margin-bottom:4px;" />`
+    ? `<img src="${escapeHtml(prescription.signatureUrl)}" alt="Signature" style="max-width:200px;max-height:60px;object-fit:contain;margin-bottom:4px;" />`
     : `<div class="signline"></div>`;
 
   const verifyUrl = `https://medcore.globusdemos.com/verify/rx/${prescription.id}`;
@@ -299,7 +337,7 @@ export async function generatePrescriptionPDF(
 
   <table style="margin-bottom:18px;">
     <thead><tr>
-      <th style="text-align:center;">#</th><th>Medicine</th><th>Dosage</th><th>Frequency</th><th>Duration</th><th>Instructions</th>
+      <th style="text-align:center;">#</th><th>Medicine</th><th>Dosage</th><th>Frequency</th><th>Duration</th><th style="text-align:center;">Qty</th>
     </tr></thead>
     <tbody>${medicineRows}</tbody>
   </table>
@@ -321,7 +359,10 @@ export async function generatePrescriptionPDF(
   <div class="footer">Digitally generated prescription — ${escapeHtml(h.name)}</div>
   `;
 
-  return htmlDoc(`Prescription - ${patient.user.name}`, body, false);
+  // autoPrint=true so the Re-Print flow (openPrintEndpoint) pops the browser
+  // print dialog automatically, matching the invoice/billing print UX. The
+  // prescription button shows only "Print" (no "Save as PDF") per product ask.
+  return htmlDoc(`Prescription - ${patient.user.name}`, body, true, "Print");
 }
 
 // ─── 2. DISCHARGE SUMMARY ────────────────────────────────

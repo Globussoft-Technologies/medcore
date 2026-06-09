@@ -558,7 +558,7 @@ exports[`generatePrescriptionPDF — HTML snapshot > snapshot: empty / default p
 
   <table style="margin-bottom:18px;">
     <thead><tr>
-      <th style="text-align:center;">#</th><th>Medicine</th><th>Dosage</th><th>Frequency</th><th>Duration</th><th>Instructions</th>
+      <th style="text-align:center;">#</th><th>Medicine</th><th>Dosage</th><th>Frequency</th><th>Duration</th><th style="text-align:center;">Qty</th>
     </tr></thead>
     <tbody></tbody>
   </table>
@@ -589,9 +589,9 @@ exports[`generatePrescriptionPDF — HTML snapshot > snapshot: empty / default p
   <div class="footer">Digitally generated prescription — MedCore Hospital</div>
   
 <div class="no-print" style="text-align:center;margin-top:24px;">
-  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;">Print / Save as PDF</button>
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;">Print</button>
 </div>
-</div>
+</div><script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
 </body></html>"
 `;
 
@@ -661,16 +661,16 @@ exports[`generatePrescriptionPDF — HTML snapshot > snapshot: populated prescri
 
   <table style="margin-bottom:18px;">
     <thead><tr>
-      <th style="text-align:center;">#</th><th>Medicine</th><th>Dosage</th><th>Frequency</th><th>Duration</th><th>Instructions</th>
+      <th style="text-align:center;">#</th><th>Medicine</th><th>Dosage</th><th>Frequency</th><th>Duration</th><th style="text-align:center;">Qty</th>
     </tr></thead>
     <tbody>
       <tr>
         <td style="text-align:center;">1</td>
-        <td style="font-weight:500;">Amoxicillin</td>
+        <td style="font-weight:500;">Amoxicillin<div style="font-weight:400;font-size:11.5px;color:#64748b;font-style:italic;margin-top:3px;">Instructions: After meals</div></td>
         <td>500 mg</td>
         <td>TDS</td>
         <td>7 days</td>
-        <td>After meals</td>
+        <td style="text-align:center;">-</td>
       </tr>
 
       <tr>
@@ -679,7 +679,7 @@ exports[`generatePrescriptionPDF — HTML snapshot > snapshot: populated prescri
         <td>10 mg</td>
         <td>OD at night</td>
         <td>5 days</td>
-        <td>-</td>
+        <td style="text-align:center;">-</td>
       </tr></tbody>
   </table>
 
@@ -709,9 +709,9 @@ exports[`generatePrescriptionPDF — HTML snapshot > snapshot: populated prescri
   <div class="footer">Digitally generated prescription — MedCore Hospital</div>
   
 <div class="no-print" style="text-align:center;margin-top:24px;">
-  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;">Print / Save as PDF</button>
+  <button onclick="window.print()" style="background:#2563eb;color:#fff;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;">Print</button>
 </div>
-</div>
+</div><script>window.addEventListener('load',function(){setTimeout(function(){window.print();},400);});</script>
 </body></html>"
 `;
 

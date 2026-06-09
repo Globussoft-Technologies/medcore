@@ -287,3 +287,71 @@ export async function openPrintEndpoint(endpoint: string): Promise<void> {
     toast.error(err instanceof Error ? err.message : "Failed to open document");
   }
 }
+
+/**
+ * Fetch a PDF from an authenticated endpoint and open the browser's print
+ * dialog IN-PLACE via a hidden iframe — no new tab/window is opened. The
+ * bytes become a same-origin blob URL so the parent can call print() on the
+ * iframe even though the API served it cross-origin. Falls back to a tab only
+ * if the in-iframe print is blocked.
+ */
+export async function printPdfEndpoint(endpoint: string): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to load document");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    iframe.src = url;
+    iframe.onload = () => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } catch {
+        window.open(url, "_blank");
+      }
+    };
+    document.body.appendChild(iframe);
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+      iframe.remove();
+    }, 60_000);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : "Failed to print document");
+  }
+}
+
+/**
+ * Download a file (PDF, etc.) from an authenticated endpoint directly via a
+ * synthetic anchor click — no viewer tab is opened.
+ */
+export async function downloadFileEndpoint(
+  endpoint: string,
+  filename: string,
+): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to download file");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  } catch (err) {
+    toast.error(err instanceof Error ? err.message : "Failed to download file");
+  }
+}

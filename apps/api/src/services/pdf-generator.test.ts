@@ -51,6 +51,12 @@ async function pdfParse(buf: Buffer): Promise<{ text: string }> {
   return { text };
 }
 
+/** Number of pages in a PDF buffer (counts `/Type /Page` objects). */
+function pdfPageCount(buf: Buffer): number {
+  const matches = buf.toString("latin1").match(/\/Type\s*\/Page[^s]/g);
+  return matches ? matches.length : 0;
+}
+
 /**
  * pdfkit's `characterSpacing` option causes the underlying PDF text stream
  * to insert per-character TJ spacing operators, which pdf-parse renders as
@@ -195,6 +201,110 @@ describe("generatePrescriptionPDFBuffer", () => {
     await expect(generatePrescriptionPDFBuffer("nope")).rejects.toThrow(
       "Prescription not found"
     );
+  });
+
+  // Issue #1111: long "Instructions" text used to be truncated with an
+  // ellipsis (single-line cell) AND overflowed onto the next row because the
+  // row height was fixed. Rows now grow to fit wrapped text, so the FULL
+  // instruction survives for every row and nothing is dropped.
+  it("renders full multi-line Instructions for each row without truncating (issue #1111)", async () => {
+    const fx = rxFixture();
+    fx.items = [
+      {
+        medicineName: "Ceftriaxone",
+        dosage: "1g",
+        frequency: "BD",
+        duration: "5 days",
+        instructions:
+          "Route: IM | Qty: 5 | After breakfast and dinner, avoid dairy and citrus",
+      },
+      {
+        medicineName: "Pantoprazole",
+        dosage: "40mg",
+        frequency: "OD",
+        duration: "5 days",
+        instructions:
+          "Route: PO | Qty: 5 | Thirty minutes before food on an empty stomach",
+      },
+    ];
+    prismaMock.prescription.findUnique.mockResolvedValueOnce(fx);
+    const buf = await generatePrescriptionPDFBuffer("rx-1");
+    const text = normalize(await pdfParse(buf).then((p) => p.text));
+
+    // Both medicines still render (rows did not collapse into each other).
+    expect(text).toContain("Ceftriaxone");
+    expect(text).toContain("Pantoprazole");
+    // The TAIL of each long instruction survives — previously dropped by the
+    // single-line ellipsis. No ellipsis character should appear.
+    expect(text).toContain("citrus");
+    expect(text).toContain("empty stomach");
+    expect(text).not.toContain("…");
+  });
+
+  // Issue #1111: medications now render with a dedicated Qty column and the
+  // route/notes on a full-width "Instructions:" line below the medicine name
+  // (parsed from the stored "Route: XX | Qty: NN | notes" string).
+  it("renders a Qty column and the instruction line below the medicine", async () => {
+    const fx = rxFixture();
+    fx.items = [
+      {
+        medicineName: "Amoxicillin",
+        dosage: "500mg",
+        frequency: "TDS",
+        duration: "7 days",
+        instructions: "Route: PO | Qty: 21 | take after food with water",
+      },
+    ];
+    prismaMock.prescription.findUnique.mockResolvedValueOnce(fx);
+    const buf = await generatePrescriptionPDFBuffer("rx-1");
+    const text = normalize(await pdfParse(buf).then((p) => p.text));
+
+    expect(text).toContain("QTY"); // column header
+    expect(text).toContain("21"); // parsed quantity in its own column
+    expect(text).toContain("Instructions:"); // detail line label
+    expect(text).toContain("Route: PO"); // route surfaced
+    expect(text).toContain("take after food with water"); // notes
+    // The raw "Qty: 21" token is no longer dumped into the notes line.
+    expect(text).not.toContain("Qty: 21");
+  });
+
+  // Issue #1111 follow-up: a short prescription must NOT spill onto a second
+  // page — page breaks only happen when a row genuinely won't fit.
+  it("keeps a short prescription on a single page", async () => {
+    const fx = rxFixture();
+    fx.items = [
+      {
+        medicineName: "Paracetamol",
+        dosage: "500mg",
+        frequency: "TDS",
+        duration: "5 days",
+        instructions: "after meals",
+      },
+    ];
+    prismaMock.prescription.findUnique.mockResolvedValueOnce(fx);
+    const buf = await generatePrescriptionPDFBuffer("rx-1");
+    expect(pdfPageCount(buf)).toBe(1);
+  });
+
+  // ...but a long medication list DOES paginate instead of overflowing the
+  // bottom margin / overlapping the footer.
+  it("spills a long medication list onto additional pages", async () => {
+    const fx = rxFixture();
+    fx.items = Array.from({ length: 60 }, (_, i) => ({
+      medicineName: `Medicine ${i + 1}`,
+      dosage: "500mg",
+      frequency: "TDS",
+      duration: "5 days",
+      instructions: "after meals",
+    }));
+    prismaMock.prescription.findUnique.mockResolvedValueOnce(fx);
+    const buf = await generatePrescriptionPDFBuffer("rx-1");
+    expect(pdfPageCount(buf)).toBeGreaterThan(1);
+
+    // Every medicine still renders across the page boundary (nothing dropped).
+    const text = normalize(await pdfParse(buf).then((p) => p.text));
+    expect(text).toContain("Medicine 1");
+    expect(text).toContain("Medicine 60");
   });
 });
 

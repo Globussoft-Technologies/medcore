@@ -81,11 +81,57 @@ describeIfDB("PDF routes (integration)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/application\/pdf/);
+    // Default ?format=pdf now previews inline (the Re-Print flow) rather than
+    // forcing a download.
     expect(res.headers["content-disposition"]).toMatch(
-      /attachment; filename=prescription-/
+      /inline; filename="prescription-/
     );
     expect(isPdfBuffer(res.body)).toBe(true);
     expect(res.body.length).toBeGreaterThan(2000);
+  });
+
+  it("GET /prescriptions/:id/pdf?format=pdf&download=1 forces an attachment", async () => {
+    const { doctor, token } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const created = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Acute pharyngitis",
+        items: [
+          {
+            medicineName: "Paracetamol 500mg",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "5 days",
+            instructions: "After food",
+            refills: 0,
+          },
+        ],
+      });
+    const rxId = created.body.data.id;
+
+    const res = await request(app)
+      .get(`/api/v1/prescriptions/${rxId}/pdf?format=pdf&download=1`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .buffer(true)
+      .parse((response, callback) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (c) => chunks.push(c));
+        response.on("end", () => callback(null, Buffer.concat(chunks)));
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-disposition"]).toMatch(
+      /attachment; filename="prescription-/
+    );
+    expect(isPdfBuffer(res.body)).toBe(true);
   });
 
   it("GET /prescriptions/:id/pdf (default) keeps returning text/html", async () => {

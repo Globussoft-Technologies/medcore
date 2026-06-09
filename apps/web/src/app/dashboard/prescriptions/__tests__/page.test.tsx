@@ -64,7 +64,7 @@ import {
   act,
 } from "@testing-library/react";
 
-const { apiMock, toastMock, authMock, routerMock } = vi.hoisted(() => ({
+const { apiMock, printPdfMock, downloadFileMock, toastMock, authMock, routerMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -72,6 +72,8 @@ const { apiMock, toastMock, authMock, routerMock } = vi.hoisted(() => ({
     patch: vi.fn(),
     delete: vi.fn(),
   },
+  printPdfMock: vi.fn(),
+  downloadFileMock: vi.fn(),
   toastMock: {
     success: vi.fn(),
     error: vi.fn(),
@@ -89,7 +91,11 @@ const { apiMock, toastMock, authMock, routerMock } = vi.hoisted(() => ({
   },
 }));
 
-vi.mock("@/lib/api", () => ({ api: apiMock }));
+vi.mock("@/lib/api", () => ({
+  api: apiMock,
+  printPdfEndpoint: printPdfMock,
+  downloadFileEndpoint: downloadFileMock,
+}));
 vi.mock("@/lib/toast", () => ({ toast: toastMock }));
 vi.mock("@/lib/store", () => ({ useAuthStore: authMock }));
 vi.mock("@/lib/i18n", () => ({
@@ -265,6 +271,9 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
     apiMock.put.mockReset();
     apiMock.patch.mockReset();
     apiMock.delete.mockReset();
+    printPdfMock.mockReset();
+    printPdfMock.mockResolvedValue(undefined);
+    downloadFileMock.mockReset();
     Object.values(toastMock).forEach((fn: any) => fn.mockReset());
     Object.values(routerMock).forEach((fn: any) => fn.mockReset());
     authMock.mockReset();
@@ -771,7 +780,7 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
 
   // ── Card actions: print / share / dispense / reject / edit ──────────
 
-  it("Print action POSTs /:id/print and opens the PDF in a new tab", async () => {
+  it("Print action POSTs /:id/print and prints the PDF in-place (no new tab)", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/prescriptions?")) {
         return Promise.resolve({
@@ -782,9 +791,6 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
       return defaultGetResponder()(url);
     });
     apiMock.post.mockResolvedValue({ data: {} });
-    const openSpy = vi
-      .spyOn(window, "open")
-      .mockImplementation(() => null as any);
 
     render(<PrescriptionsPage />);
     await screen.findByText("Rakesh Patel");
@@ -802,12 +808,35 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
         {},
       ),
     );
-    expect(openSpy).toHaveBeenCalledWith(
-      expect.stringContaining("/prescriptions/rx-1/pdf?format=pdf"),
-      "_blank",
+    // Print now prints the PDF in-place via a hidden iframe — no new tab.
+    expect(printPdfMock).toHaveBeenCalledWith(
+      "/prescriptions/rx-1/pdf?format=pdf",
+    );
+  });
+
+  it("Download PDF action downloads the file directly (no viewer tab)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/prescriptions?")) {
+        return Promise.resolve({
+          data: [rxFixture({ id: "rx-1" })],
+          meta: { total: 1 },
+        });
+      }
+      return defaultGetResponder()(url);
+    });
+
+    render(<PrescriptionsPage />);
+    await screen.findByText("Rakesh Patel");
+    fireEvent.click(
+      within(screen.getByTestId("rx-row-rx-1")).getAllByRole("button")[0],
     );
 
-    openSpy.mockRestore();
+    fireEvent.click(screen.getByTestId("rx-download-rx-1"));
+
+    expect(downloadFileMock).toHaveBeenCalledWith(
+      "/prescriptions/rx-1/pdf?format=pdf&download=1",
+      "prescription-rx-1.pdf",
+    );
   });
 
   it("Share success POSTs /:id/share with the WhatsApp channel and toasts success", async () => {

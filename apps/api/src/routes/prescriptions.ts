@@ -868,9 +868,14 @@ router.get(
       if (req.query.format === "pdf") {
         const buffer = await generatePrescriptionPDFBuffer(req.params.id);
         res.setHeader("Content-Type", "application/pdf");
+        // `inline` (default) lets the browser preview the PDF in its native
+        // viewer so the user can review and print it. `?download=1` forces a
+        // file download instead (the explicit "Download PDF" action).
+        const disposition =
+          req.query.download === "1" ? "attachment" : "inline";
         res.setHeader(
           "Content-Disposition",
-          `attachment; filename=prescription-${req.params.id}.pdf`
+          `${disposition}; filename="prescription-${req.params.id}.pdf"`
         );
         res.setHeader("Content-Length", String(buffer.length));
         res.end(buffer);

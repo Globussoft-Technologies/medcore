@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, printPdfEndpoint, downloadFileEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -503,19 +503,22 @@ export default function PrescriptionsPage() {
   async function markPrinted(id: string) {
     try {
       await api.post(`/prescriptions/${id}/print`, {});
-      const apiBase =
-        process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
-      // Issue #523 (2026-05-05): Re-Print previously opened the HTML render
-      // path which surfaced as "raw, unstyled" output in some browsers when
-      // the inline <style>/CSP combo failed to apply. Prefer the real PDF
-      // buffer endpoint (`?format=pdf`) which returns `application/pdf`
-      // content the browser renders in its native PDF viewer with print
-      // layout consistent across Chrome/Firefox/Safari.
-      window.open(`${apiBase}/prescriptions/${id}/pdf?format=pdf`, "_blank");
+      // Re-Print opens the browser print dialog IN-PLACE (PDF rendered into a
+      // hidden iframe) — no new tab is opened.
+      await printPdfEndpoint(`/prescriptions/${id}/pdf?format=pdf`);
       loadPrescriptions();
     } catch {
       /* noop */
     }
+  }
+
+  // Explicit "Download PDF" — `download=1` flips the server to an attachment
+  // Content-Disposition; the file saves directly with no extra tab.
+  function downloadPdf(id: string) {
+    void downloadFileEndpoint(
+      `/prescriptions/${id}/pdf?format=pdf&download=1`,
+      `prescription-${id}.pdf`,
+    );
   }
 
   async function shareVia(rx: PrescriptionRecord, channel: "WHATSAPP" | "EMAIL" | "SMS") {
@@ -2306,7 +2309,7 @@ export default function PrescriptionsPage() {
                         type="button"
                         data-testid={`rx-edit-${rx.id}`}
                         onClick={() => openEditMode(rx)}
-                        className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                        className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-200 dark:hover:bg-indigo-900/50"
                       >
                         Edit
                       </button>
@@ -2314,21 +2317,29 @@ export default function PrescriptionsPage() {
                     <button
                       type="button"
                       onClick={() => markPrinted(rx.id)}
-                      className="rounded-lg border px-3 py-1.5 text-xs hover:bg-gray-50"
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                     >
                       {rx.printed ? "Re-Print" : "Print"}
                     </button>
                     <button
                       type="button"
+                      data-testid={`rx-download-${rx.id}`}
+                      onClick={() => downloadPdf(rx.id)}
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+                    >
+                      Download PDF
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => shareVia(rx, "WHATSAPP")}
-                      className="rounded-lg border px-3 py-1.5 text-xs text-green-700 hover:bg-green-50"
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-green-700 hover:bg-green-50 dark:border-gray-600 dark:text-green-300 dark:hover:bg-green-900/30"
                     >
                       Share via WhatsApp
                     </button>
                     <button
                       type="button"
                       onClick={() => shareVia(rx, "EMAIL")}
-                      className="rounded-lg border px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50"
+                      className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-blue-700 hover:bg-blue-50 dark:border-gray-600 dark:text-blue-300 dark:hover:bg-blue-900/30"
                     >
                       Share via Email
                     </button>
@@ -2341,7 +2352,7 @@ export default function PrescriptionsPage() {
                           type="button"
                           onClick={() => dispenseFromCard(rx.id)}
                           data-testid={`rx-dispense-${rx.id}`}
-                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
                         >
                           Dispense
                         </button>
@@ -2349,7 +2360,7 @@ export default function PrescriptionsPage() {
                           type="button"
                           onClick={() => rejectFromCard(rx.id)}
                           data-testid={`rx-reject-${rx.id}`}
-                          className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
+                          className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
                         >
                           Reject
                         </button>

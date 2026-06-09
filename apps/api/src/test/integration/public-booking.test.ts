@@ -27,6 +27,12 @@ vi.mock("../../services/ai/sarvam", () => ({
     ],
     confidence: 0.8,
   }),
+  // The /chat endpoint calls runTriageTurn — mock it so the test doesn't need
+  // a live Sarvam (CI has no SARVAM_API_KEY → real call would 502).
+  runTriageTurn: vi.fn().mockResolvedValue({
+    reply: "Could you tell me how long you've had these symptoms?",
+    isEmergency: false,
+  }),
 }));
 
 // Public booking now sends confirmations via the Meta Cloud sender

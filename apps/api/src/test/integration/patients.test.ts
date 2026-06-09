@@ -118,6 +118,37 @@ describeIfDB("Patients API (integration)", () => {
     expect(b.status).toBeLessThan(400);
   });
 
+  it("allows the SAME phone with a DIFFERENT name (duplicate phones permitted)", async () => {
+    const phone = "9100000061";
+    const a = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Family Parent", gender: "MALE", phone });
+    expect(a.status).toBeLessThan(400);
+    // Same phone, different name → a different person on a shared number →
+    // allowed (identity is keyed on phone + name).
+    const b = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Family Child", gender: "FEMALE", phone });
+    expect(b.status).toBeLessThan(400);
+  });
+
+  it("blocks the SAME phone with the SAME name (true duplicate, 409)", async () => {
+    const phone = "9100000062";
+    const a = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Exact Duplicate Roy", gender: "MALE", phone });
+    expect(a.status).toBeLessThan(400);
+    const dup = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Exact Duplicate Roy", gender: "MALE", phone });
+    expect(dup.status).toBe(409);
+    expect(dup.body.existingPatient?.mrNumber).toBeTruthy();
+  });
+
   // ─────────────────────────────────────────────────────────
   // PATCH /api/v1/patients/:id  (Issue #39)
   // ─────────────────────────────────────────────────────────

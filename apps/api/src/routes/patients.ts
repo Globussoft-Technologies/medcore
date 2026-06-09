@@ -258,18 +258,28 @@ router.post(
       // tenant the caller is in. The eventual systemic fix is the
       // \$transaction extension propagation question tracked at #895.
 
-      // Issue #103 (Apr 2026): pre-check for an existing patient with the
-      // same phone before creating a duplicate MR record. We surface the
-      // matching MR number so reception can pull up the existing chart
-      // instead of creating a "Sharma 2" / "Sharma 3" sprawl. We DO NOT
-      // rely solely on a unique constraint at the DB layer because (a) it
-      // would 500 the request with a Prisma error and (b) the user would
-      // get no actionable hint about which record already exists.
-      if (typeof data.phone === "string" && data.phone.trim().length > 0) {
+      // Identity is keyed on (phone + name). Duplicate phone numbers are
+      // ALLOWED (a family shares one number; a parent + child each get their
+      // own chart on the same phone). So we only block when BOTH the phone
+      // AND the name match an existing chart — that's a genuine duplicate of
+      // the SAME person. Same phone + a different name is a different person
+      // and is permitted. (Previously this blocked on phone alone — #103.)
+      // We DO NOT rely on a DB unique constraint: phone is intentionally
+      // non-unique, and we want an actionable 409 (with the MR number) rather
+      // than a generic Prisma 500.
+      if (
+        typeof data.phone === "string" &&
+        data.phone.trim().length > 0 &&
+        typeof data.name === "string" &&
+        data.name.trim().length > 0
+      ) {
         const existing = await prisma.patient.findFirst({
           where: {
             mergedIntoId: null,
-            user: { phone: data.phone.trim() },
+            user: {
+              phone: data.phone.trim(),
+              name: { equals: data.name.trim(), mode: "insensitive" },
+            },
           },
           select: { id: true, mrNumber: true, user: { select: { name: true } } },
         });
@@ -277,11 +287,11 @@ router.post(
           res.status(409).json({
             success: false,
             data: null,
-            error: `A patient with this phone is already registered (MR: ${existing.mrNumber}).`,
+            error: `A patient with this name and phone is already registered (MR: ${existing.mrNumber}).`,
             details: [
               {
                 field: "phone",
-                message: `Already registered as ${existing.user?.name ?? "patient"} (MR: ${existing.mrNumber}).`,
+                message: `Already registered as ${existing.user?.name ?? "patient"} (MR: ${existing.mrNumber}). Same phone with a different name is allowed.`,
               },
             ],
             existingPatient: {

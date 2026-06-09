@@ -17,7 +17,7 @@
 //     6-digit code, persist a `PatientOtpChallenge` row (bcrypt-hashed,
 //     5-min TTL). Always returns 200 — does NOT leak whether the phone
 //     is registered (defence against enumeration). Rate-limited at
-//     3/phone/10min via the inline `__resetPatientOtpLimiterForTests`-
+//     10/phone/10min via the inline `__resetPatientOtpLimiterForTests`-
 //     resettable Map below. The codebase's central `rateLimit` middleware
 //     is IP-keyed only, which would mis-fire for shared-NAT mobile
 //     networks; per-phone bucketing is the right shape for OTP.
@@ -58,9 +58,10 @@ import { verifyPhoneIdToken } from "../services/firebase-admin";
 const router = Router();
 
 // ─── Per-phone rate limiter ──────────────────────────────────────────
-// Pearl §5.3 specifies "OTP" without prescribing a throttle, but the
-// industry floor is 3 requests / 10 min / phone (matches MSG91 + Twilio
-// defaults). We implement it inline here because the codebase's central
+// Pearl §5.3 specifies "OTP" without prescribing a throttle. We allow
+// 10 requests / 10 min / phone (above the 3/10min industry floor, to be
+// lenient on resends while still blocking SMS-bombing / runaway cost).
+// We implement it inline here because the codebase's central
 // `rateLimit` middleware is IP-keyed only; per-phone bucketing prevents
 // a single user's misbehaviour from punishing every other patient
 // behind the same NAT.
@@ -68,7 +69,7 @@ const router = Router();
 // TODO(future): consolidate into a per-key extension of
 // middleware/rate-limit.ts once a second per-key bucket is needed.
 
-const OTP_REQUESTS_PER_WINDOW = 3;
+const OTP_REQUESTS_PER_WINDOW = 10;
 const OTP_WINDOW_MS = 10 * 60 * 1000;
 
 interface PhoneBucket {
@@ -451,7 +452,10 @@ router.post(
   firebaseVerifyLimiter,
   validate(firebaseVerifyPatientSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const { idToken } = req.body as { idToken: string };
+    const { idToken, name: bodyName } = req.body as {
+      idToken: string;
+      name?: string;
+    };
     try {
       // 1. Verify the token with Firebase Admin. Throws on any failure.
       let verified;
@@ -487,8 +491,27 @@ router.post(
       const phoneCandidates = Array.from(
         new Set([canonical, rawE164, rawE164.replace(/^\+/, "")]),
       );
-      const user = await prisma.user.findFirst({
-        where: { phone: { in: phoneCandidates }, role: Role.PATIENT },
+      // Identity is keyed on (phone + name) — duplicate phones are allowed,
+      // so a single phone may map to several patient accounts (a family
+      // sharing one number). Firebase proved possession of the PHONE, but
+      // not WHICH account, so we use the name the login form supplied to
+      // pick the right chart. Name match is case-insensitive.
+      //   - name provided  → match (phone IN candidates) AND name = bodyName
+      //   - name omitted   → match phone only (back-compat / single-account)
+      // If the phone has multiple accounts and the name doesn't single one
+      // out, the lookup returns null and we respond with the same generic
+      // "couldn't sign you in" (no enumeration leak, and no silently logging
+      // the user into the wrong chart).
+      const trimmedName = (bodyName ?? "").trim();
+      const baseWhere = {
+        phone: { in: phoneCandidates },
+        role: Role.PATIENT,
+        ...(trimmedName
+          ? { name: { equals: trimmedName, mode: "insensitive" as const } }
+          : {}),
+      };
+      const matches = await prisma.user.findMany({
+        where: baseWhere,
         select: {
           id: true,
           email: true,
@@ -496,20 +519,96 @@ router.post(
           role: true,
           tenantId: true,
         },
+        take: 2, // we only need to know "exactly one" vs "ambiguous".
       });
+      // Exactly one match → that account. Zero or >1 (ambiguous, e.g. a phone
+      // with multiple accounts and no name supplied) → treat as no-match.
+      let user = matches.length === 1 ? matches[0] : null;
       // Keep `phone` defined for the downstream audit-log payload (suffix
       // is what gets logged, so canonical vs. raw doesn't matter beyond
       // pinning to a single value).
       const phone = canonical;
+
+      // Identity rule: (phone + name) match → log into THAT account; no match →
+      // CREATE a new PATIENT account (the phone is already Firebase-verified)
+      // and log into it. Login doubles as self-registration. We only auto-
+      // create when a NAME was supplied (so the new chart has one) AND the
+      // lookup was unambiguous-zero (matchCount === 0). An ambiguous case
+      // (multiple same-phone accounts, no name to disambiguate) is NOT a
+      // create — we can't pick a name — so it stays a generic failure.
       if (!user) {
-        // No registered patient with this phone. Generic 401 — parity
-        // with the otp-verify defence against phone-enumeration.
-        res.status(401).json({
-          success: false,
-          data: null,
-          error: "Couldn't sign you in. Please try again.",
-        });
-        return;
+        if (trimmedName && matches.length === 0) {
+          // Resolve the tenant the same way the public booking flow does so
+          // the new patient lands in the right org (defaults to "default").
+          const headerTenant = req.header("X-Tenant-Id")?.trim();
+          let tenantId: string | null = null;
+          if (headerTenant) {
+            const t = await prisma.tenant.findUnique({
+              where: { id: headerTenant },
+              select: { id: true, active: true },
+            });
+            if (t?.active) tenantId = t.id;
+          }
+          if (!tenantId) {
+            const fallback = await prisma.tenant.findUnique({
+              where: { subdomain: "default" },
+              select: { id: true, active: true },
+            });
+            tenantId = fallback?.active ? fallback.id : null;
+          }
+
+          // Create User + Patient (random password — login is OTP-only).
+          const passwordHash = await bcrypt.hash(crypto.randomUUID(), 10);
+          const created = await prisma.user.create({
+            data: {
+              name: trimmedName,
+              phone,
+              email: null,
+              passwordHash,
+              role: Role.PATIENT,
+              isActive: true,
+              ...(tenantId ? { tenantId } : {}),
+            },
+            select: {
+              id: true,
+              email: true,
+              name: true,
+              role: true,
+              tenantId: true,
+            },
+          });
+          // MR number — mirrors the booking / registration write site.
+          const cfg = await prisma.systemConfig.findUnique({
+            where: { key: "next_mr_number" },
+          });
+          const mrSeq = cfg ? parseInt(cfg.value, 10) : 1;
+          const mrNumber = `MR${String(mrSeq).padStart(6, "0")}`;
+          await prisma.patient.create({
+            data: {
+              userId: created.id,
+              mrNumber,
+              gender: "OTHER", // not collected at login; staff can edit
+              source: "WEB",
+              ...(tenantId ? { tenantId } : {}),
+            },
+            select: { id: true },
+          });
+          await prisma.systemConfig.upsert({
+            where: { key: "next_mr_number" },
+            update: { value: String(mrSeq + 1) },
+            create: { key: "next_mr_number", value: String(mrSeq + 1) },
+          });
+          user = created;
+        } else {
+          // No name to create with, or an ambiguous multi-account phone.
+          // Generic failure — parity with the enumeration defence.
+          res.status(401).json({
+            success: false,
+            data: null,
+            error: "Couldn't sign you in. Please try again.",
+          });
+          return;
+        }
       }
 
       // 3. Honour the deactivated-tenant gate the otp-verify route uses.

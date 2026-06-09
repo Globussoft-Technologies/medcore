@@ -431,6 +431,10 @@ export async function generateStructured<T>(opts: {
 export async function runTriageTurn(
   messages: { role: "user" | "assistant"; content: string }[],
   language: string,
+  // Optional caller-specific instruction appended to the system prompt. The
+  // public marketing-booking flow uses this to forbid asking for location /
+  // naming external hospitals (it has its own in-house doctor roster).
+  systemSuffix?: string,
 ): Promise<{ reply: string; isEmergency: boolean; emergencyReason?: string }> {
   // security(2026-04-23-low): F-INJ-1 — sanitize every user-role message so
   // injection markers (e.g. "ignore previous instructions") are neutralised
@@ -486,6 +490,7 @@ export async function runTriageTurn(
   const systemPrompt =
     baseSystemPrompt +
     emergencyMarkerInstruction +
+    (systemSuffix ? "\n\n" + systemSuffix : "") +
     (ragContext ? "\n\n" + ragContext : "");
 
   const t0 = Date.now();
@@ -539,11 +544,13 @@ export async function runTriageTurn(
   const rawContent = response.choices[0]?.message?.content ?? "";
   const textContent = stripSarvamThinking(rawContent);
 
-  // Parse the [EMERGENCY:<reason>] prefix that the system prompt
-  // instructs Sarvam to emit on red-flag turns. Tolerant of leading
-  // whitespace and case variations the model might produce.
+  // Parse the [EMERGENCY:<reason>] marker the system prompt instructs Sarvam to
+  // emit on red-flag turns. The prompt asks for it at the START, but the model
+  // (especially in non-English replies) sometimes places it MID-reply — so we
+  // match it ANYWHERE, not just at the start, otherwise the raw token leaks
+  // into the chat bubble. Tolerant of whitespace + case.
   const emergencyMatch = textContent.match(
-    /^\s*\[EMERGENCY:\s*([^\]]+)\]\s*([\s\S]*)$/i,
+    /\[EMERGENCY:\s*([^\]]+)\]/i,
   );
 
   logAICall({
@@ -557,7 +564,14 @@ export async function runTriageTurn(
 
   if (emergencyMatch) {
     const reason = emergencyMatch[1].trim();
-    return { reply: "", isEmergency: true, emergencyReason: reason };
+    // Strip the raw [EMERGENCY:...] token out of the visible text so it never
+    // leaks into the chat bubble (the model sometimes emits it mid-reply or in
+    // non-English text). The route's deterministic checkRedFlags() is the real
+    // emergency gate; we surface isEmergency + the cleaned reply.
+    const cleaned = textContent
+      .replace(/\[EMERGENCY:[^\]]*\]/gi, "")
+      .trim();
+    return { reply: cleaned, isEmergency: true, emergencyReason: reason };
   }
 
   // Safety net: if stripping the <think> block (or a truncated response) left

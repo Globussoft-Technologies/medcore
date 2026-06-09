@@ -62,5 +62,19 @@ export const publicBookSchema = z.object({
   // Carry the symptom through so it lands on the appointment notes + the
   // patient's first triage context. Optional — the booking still works without.
   symptom: symptomField.optional(),
+  // Demographics collected on the final booking step. gender + dateOfBirth
+  // are required (useful clinically); email is optional. All persist onto
+  // the Patient/User row created for a brand-new booking.
+  gender: z.enum(["MALE", "FEMALE", "OTHER"], {
+    message: "Please select a gender",
+  }),
+  dateOfBirth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date of birth must be YYYY-MM-DD"),
+  email: z
+    .string()
+    .email("Enter a valid email address")
+    .optional()
+    .or(z.literal("")),
 });
 export type PublicBookInput = z.infer<typeof publicBookSchema>;

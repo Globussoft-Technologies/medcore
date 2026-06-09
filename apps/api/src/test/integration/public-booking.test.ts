@@ -94,6 +94,8 @@ describeIfDB("Public quick-booking API (integration)", () => {
         doctorId,
         date: FUTURE_ISO,
         slotId: "09:00",
+        gender: "MALE",
+        dateOfBirth: "1990-01-01",
         symptom: "fever",
       });
     expect(res.status).toBe(201);
@@ -120,6 +122,8 @@ describeIfDB("Public quick-booking API (integration)", () => {
       doctorId,
       date: FUTURE_ISO,
       slotId: "09:15",
+      gender: "MALE",
+      dateOfBirth: "1990-01-01",
       symptom: "cough",
     });
     // Second booking on a different slot.
@@ -129,6 +133,8 @@ describeIfDB("Public quick-booking API (integration)", () => {
       doctorId,
       date: FUTURE_ISO,
       slotId: "09:30",
+      gender: "MALE",
+      dateOfBirth: "1990-01-01",
     });
     expect(res2.status).toBe(201);
 
@@ -139,6 +145,73 @@ describeIfDB("Public quick-booking API (integration)", () => {
     expect(users).toHaveLength(1); // exactly one patient account for the phone
   });
 
+  it("creates a SEPARATE patient when the same phone books under a DIFFERENT name", async () => {
+    // Identity is keyed on (phone + name). A different name on the same phone
+    // is a different person — e.g. a parent booking for themselves and then
+    // for their child on the family number. Duplicate phones are allowed.
+    const phone = "9123450095";
+    await request(app).post("/api/v1/public/booking/book").send({
+      name: "Parent Booker",
+      phone,
+      doctorId,
+      date: FUTURE_ISO,
+      slotId: "11:00",
+      gender: "FEMALE",
+      dateOfBirth: "1985-03-10",
+    });
+    const res2 = await request(app).post("/api/v1/public/booking/book").send({
+      name: "Child Booker",
+      phone,
+      doctorId,
+      date: FUTURE_ISO,
+      slotId: "11:15",
+      gender: "MALE",
+      dateOfBirth: "2015-07-22",
+    });
+    expect(res2.status).toBe(201);
+
+    const prisma = await getPrisma();
+    const users = await prisma.user.findMany({
+      where: { phone, role: "PATIENT" },
+    });
+    // Two distinct accounts share the phone — one per name.
+    expect(users).toHaveLength(2);
+    expect(users.map((u: { name: string }) => u.name).sort()).toEqual([
+      "Child Booker",
+      "Parent Booker",
+    ]);
+  });
+
+  it("reuses the existing account on a case-insensitive name match (same phone)", async () => {
+    const phone = "9123450094";
+    await request(app).post("/api/v1/public/booking/book").send({
+      name: "Asha Kumari",
+      phone,
+      doctorId,
+      date: FUTURE_ISO,
+      slotId: "12:00",
+      gender: "FEMALE",
+      dateOfBirth: "1991-01-01",
+    });
+    // Same name in a different case → still the SAME person → no duplicate.
+    const res2 = await request(app).post("/api/v1/public/booking/book").send({
+      name: "asha kumari",
+      phone,
+      doctorId,
+      date: FUTURE_ISO,
+      slotId: "12:15",
+      gender: "FEMALE",
+      dateOfBirth: "1991-01-01",
+    });
+    expect(res2.status).toBe(201);
+
+    const prisma = await getPrisma();
+    const users = await prisma.user.findMany({
+      where: { phone, role: "PATIENT" },
+    });
+    expect(users).toHaveLength(1);
+  });
+
   it("rejects a double-booking of the same doctor+date+slot (409)", async () => {
     await request(app).post("/api/v1/public/booking/book").send({
       name: "First Patient",
@@ -146,6 +219,8 @@ describeIfDB("Public quick-booking API (integration)", () => {
       doctorId,
       date: FUTURE_ISO,
       slotId: "10:00",
+      gender: "MALE",
+      dateOfBirth: "1990-01-01",
     });
     const res = await request(app).post("/api/v1/public/booking/book").send({
       name: "Second Patient",
@@ -153,6 +228,8 @@ describeIfDB("Public quick-booking API (integration)", () => {
       doctorId,
       date: FUTURE_ISO,
       slotId: "10:00",
+      gender: "MALE",
+      dateOfBirth: "1990-01-01",
     });
     expect(res.status).toBe(409);
     expect(res.body.success).toBe(false);
@@ -167,5 +244,51 @@ describeIfDB("Public quick-booking API (integration)", () => {
       slotId: "09:00",
     });
     expect(res.status).toBe(400);
+  });
+
+  // POST /transcribe — voice symptom input (Sarvam STT-translate).
+  it("transcribe rejects a missing audioBase64 (400)", async () => {
+    const res = await request(app)
+      .post("/api/v1/public/booking/transcribe")
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it("transcribe rejects oversized audio (413)", async () => {
+    // > 1 MB of base64 → over the voice cap.
+    const big = "A".repeat(1_500_000);
+    const res = await request(app)
+      .post("/api/v1/public/booking/transcribe")
+      .send({ audioBase64: big });
+    expect(res.status).toBe(413);
+  });
+
+  // POST /chat — multi-turn AI triage for the public booking flow.
+  it("chat rejects an empty messages array (400)", async () => {
+    const res = await request(app)
+      .post("/api/v1/public/booking/chat")
+      .send({ messages: [] });
+    expect(res.status).toBe(400);
+  });
+
+  it("chat rejects a conversation with no user turn (400)", async () => {
+    const res = await request(app)
+      .post("/api/v1/public/booking/chat")
+      .send({ messages: [{ role: "assistant", content: "Hi there" }] });
+    expect(res.status).toBe(400);
+  });
+
+  it("chat returns an assistant reply for a valid user message (200)", async () => {
+    const res = await request(app)
+      .post("/api/v1/public/booking/chat")
+      .send({
+        messages: [{ role: "user", content: "I have fever and cough" }],
+        name: "Asha",
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    // LLM output varies — assert shape, not content.
+    expect(typeof res.body.data.reply).toBe("string");
+    expect(typeof res.body.data.isEmergency).toBe("boolean");
   });
 });

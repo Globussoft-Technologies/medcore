@@ -372,6 +372,7 @@ const navByRole: Record<
   PHARMACIST: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/pharmacy", label: "Pharmacy", icon: Package },
+    { href: "/dashboard/pharmacy-kanban", label: "Kanban Board", icon: LayoutGrid },
     { href: "/dashboard/medicines", label: "Medicines", icon: Pill },
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
     { href: "/dashboard/controlled-substances", label: "Controlled Register", icon: ShieldAlert },
@@ -829,6 +830,7 @@ export default function DashboardLayout({
     Admissions: "dashboard.nav.admissions",
     Medicines: "dashboard.nav.medicines",
     Pharmacy: "dashboard.nav.pharmacy",
+    "Kanban Board": "dashboard.nav.kanbanBoard",
     Lab: "dashboard.nav.lab",
     "Lab QC": "dashboard.nav.labQc",
     "Controlled Register": "dashboard.nav.controlledSubstances",

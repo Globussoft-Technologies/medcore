@@ -48,6 +48,9 @@ describe("publicBookSchema", () => {
     doctorId: "11111111-1111-4111-8111-111111111111",
     date: "2026-06-15",
     slotId: "10:15",
+    // gender + dateOfBirth are now required on the booking step.
+    gender: "FEMALE",
+    dateOfBirth: "1992-04-17",
   };
   it("accepts a complete booking body", () => {
     expect(publicBookSchema.safeParse(valid).success).toBe(true);
@@ -75,6 +78,35 @@ describe("publicBookSchema", () => {
   it("rejects a non-HH:MM slot", () => {
     expect(
       publicBookSchema.safeParse({ ...valid, slotId: "10am" }).success,
+    ).toBe(false);
+  });
+  it("rejects a missing gender", () => {
+    const { gender, ...noGender } = valid;
+    void gender;
+    expect(publicBookSchema.safeParse(noGender).success).toBe(false);
+  });
+  it("rejects a missing dateOfBirth", () => {
+    const { dateOfBirth, ...noDob } = valid;
+    void dateOfBirth;
+    expect(publicBookSchema.safeParse(noDob).success).toBe(false);
+  });
+  it("rejects a malformed dateOfBirth", () => {
+    expect(
+      publicBookSchema.safeParse({ ...valid, dateOfBirth: "17-04-1992" })
+        .success,
+    ).toBe(false);
+  });
+  it("accepts an optional email (and an empty string)", () => {
+    expect(
+      publicBookSchema.safeParse({ ...valid, email: "a@b.com" }).success,
+    ).toBe(true);
+    expect(
+      publicBookSchema.safeParse({ ...valid, email: "" }).success,
+    ).toBe(true);
+  });
+  it("rejects a malformed email when provided", () => {
+    expect(
+      publicBookSchema.safeParse({ ...valid, email: "not-an-email" }).success,
     ).toBe(false);
   });
 });

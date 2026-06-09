@@ -76,6 +76,12 @@ vi.mock("next/navigation", () => ({
 
 import PatientLoginPage from "../page";
 
+function typeName(value: string): void {
+  fireEvent.change(screen.getByTestId("patient-login-name-input"), {
+    target: { value },
+  });
+}
+
 function typePhone(value: string): void {
   fireEvent.change(screen.getByTestId("patient-login-phone-input"), {
     target: { value },
@@ -90,6 +96,8 @@ function typeOtp(value: string): void {
 
 async function advanceToOtpStep(phone = "+919876543210"): Promise<void> {
   sendOtpMock.mockResolvedValueOnce(undefined);
+  // Identity is keyed on (phone + name) — the form now requires a name too.
+  typeName("Asha Kumari");
   typePhone(phone);
   await act(async () => {
     fireEvent.click(screen.getByTestId("patient-login-send-code"));
@@ -152,6 +160,7 @@ describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
 
   it("rejects an invalid phone number client-side without calling sendOtp", () => {
     render(<PatientLoginPage />);
+    typeName("Asha Kumari"); // name present so phone validation is reached
     typePhone("123"); // Too short — fails normaliseToE164.
     fireEvent.click(screen.getByTestId("patient-login-send-code"));
     expect(sendOtpMock).not.toHaveBeenCalled();
@@ -163,6 +172,7 @@ describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
   it("normalises a 10-digit Indian number to +91 E.164 before calling sendOtp", async () => {
     sendOtpMock.mockResolvedValueOnce(undefined);
     render(<PatientLoginPage />);
+    typeName("Asha Kumari");
     typePhone("9876543210"); // bare 10-digit, no +91
     await act(async () => {
       fireEvent.click(screen.getByTestId("patient-login-send-code"));
@@ -178,6 +188,7 @@ describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
   it("calls sendOtp with the trimmed E.164 and advances to step 2", async () => {
     sendOtpMock.mockResolvedValueOnce(undefined);
     render(<PatientLoginPage />);
+    typeName("Asha Kumari");
     typePhone("  +919876543210  ");
     await act(async () => {
       fireEvent.click(screen.getByTestId("patient-login-send-code"));
@@ -196,6 +207,7 @@ describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
   it("surfaces a thrown sendOtp error inline and does NOT advance to step 2", async () => {
     sendOtpMock.mockRejectedValueOnce(new Error("Invalid phone number format."));
     render(<PatientLoginPage />);
+    typeName("Asha Kumari");
     typePhone("+919876543210");
     await act(async () => {
       fireEvent.click(screen.getByTestId("patient-login-send-code"));
@@ -249,7 +261,9 @@ describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
     await waitFor(() => {
       expect(apiPostMock).toHaveBeenCalledWith(
         "/patient-auth/firebase-verify",
-        { idToken: "firebase-id-token-abc" },
+        // Identity is keyed on (phone + name): the verify body now carries the
+        // name typed on the phone step (advanceToOtpStep types "Asha Kumari").
+        { idToken: "firebase-id-token-abc", name: "Asha Kumari" },
         // June 2026: the verify call opts out of the api lib's global 401
         // handler so a failed sign-in shows the real inline error instead of
         // the misleading "session expired" toast + bounce.
@@ -361,6 +375,7 @@ describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {
     );
 
     render(<PatientLoginPage />);
+    typeName("Asha Kumari");
     typePhone("+919876543210");
     const button = screen.getByTestId(
       "patient-login-send-code",

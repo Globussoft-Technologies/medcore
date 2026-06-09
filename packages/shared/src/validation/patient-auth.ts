@@ -111,6 +111,11 @@ export const firebaseVerifyPatientSchema = z.object({
     .trim()
     .min(1, "ID token is required")
     .max(4096, "ID token is too long"),
+  // Optional account name. Identity is keyed on (phone + name), so when the
+  // same phone has multiple patient accounts (e.g. a family on one number),
+  // the login form sends the chosen name to disambiguate which chart to open.
+  // Omitted for back-compat / single-account phones.
+  name: z.string().trim().min(1).max(100).optional(),
 });
 
 export type FirebaseVerifyPatientInput = z.infer<

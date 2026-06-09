@@ -41,7 +41,8 @@ import { istTodayDateStr, istNowMinutes } from "../utils/ist-time";
 import { isDoctorOnConfirmedLeave } from "../utils/doctor-leave";
 import { rateLimit } from "../middleware/rate-limit";
 import { auditLog } from "../middleware/audit";
-import { extractSymptomSummary } from "../services/ai/sarvam";
+import { extractSymptomSummary, runTriageTurn } from "../services/ai/sarvam";
+import { callWithASRFallback } from "../services/ai/asr-providers";
 import { onAppointmentBooked } from "../services/notification-triggers";
 // Use the Meta Cloud sender (same one prescriptions use) so booking
 // confirmations actually go out with the configured WHATSAPP_ACCESS_TOKEN
@@ -269,6 +270,208 @@ async function symptomToSpecialties(symptom: string): Promise<string[]> {
 }
 
 // ════════════════════════════════════════════════════════
+// POST /api/v1/public/booking/chat
+// Body: { messages: {role:"user"|"assistant", content:string}[], language?, name? }
+// → Multi-turn AI triage chat for the public booking flow. The caller describes
+//   their symptoms conversationally; the assistant asks follow-ups and (when the
+//   caller taps "Find a doctor") the whole conversation is sent to
+//   /suggest-doctors as the symptom text. STATELESS — the full history is passed
+//   in the body each turn; runTriageTurn writes nothing to the DB.
+//
+// Security: unauthenticated + spends LLM quota, so it is rate-limited per IP and
+// the message array is length/turn-capped. Emergency detection (isEmergency)
+// lets the client block booking and show a "call 112" banner.
+// ════════════════════════════════════════════════════════
+const MAX_CHAT_TURNS = 20;
+const MAX_CHAT_MSG_CHARS = 1000;
+publicBookingRouter.post(
+  "/chat",
+  rateLimit(15, 60_000), // 15/min/IP — bounds LLM cost on an unauth surface
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { messages, language, name } = req.body as {
+        messages?: Array<{ role?: string; content?: string }>;
+        language?: string;
+        name?: string;
+      };
+      void name; // accepted for parity with the client; greeting is client-seeded
+
+      if (!Array.isArray(messages) || messages.length === 0) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "messages must be a non-empty array",
+        });
+        return;
+      }
+      if (messages.length > MAX_CHAT_TURNS) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Conversation is too long (max ${MAX_CHAT_TURNS} turns).`,
+        });
+        return;
+      }
+      // Normalise + validate each turn. Reject unknown roles / oversized text.
+      const clean: { role: "user" | "assistant"; content: string }[] = [];
+      for (const m of messages) {
+        const role = m?.role === "assistant" ? "assistant" : m?.role === "user" ? "user" : null;
+        const content = typeof m?.content === "string" ? m.content.trim() : "";
+        if (!role || !content) continue;
+        if (content.length > MAX_CHAT_MSG_CHARS) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `Each message must be at most ${MAX_CHAT_MSG_CHARS} characters.`,
+          });
+          return;
+        }
+        clean.push({ role, content });
+      }
+      if (clean.length === 0 || !clean.some((m) => m.role === "user")) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "At least one user message is required.",
+        });
+        return;
+      }
+
+      try {
+        // Public-booking guardrails: MedCore has its OWN in-house doctor
+        // roster, so the assistant must NEVER ask for the patient's city /
+        // location and must NEVER name external hospitals or clinics. It only
+        // asks about the symptoms themselves, then we match a doctor from the
+        // database by specialty.
+        // Map a Sarvam/BCP-47 language code (e.g. "bn-IN") to a name so we can
+        // instruct the model to reply in the patient's OWN language.
+        const LANG_NAMES: Record<string, string> = {
+          en: "English", hi: "Hindi", bn: "Bengali", ta: "Tamil",
+          te: "Telugu", mr: "Marathi", kn: "Kannada", ml: "Malayalam",
+          gu: "Gujarati", pa: "Punjabi", or: "Odia", ur: "Urdu",
+        };
+        const langCode = (language ?? "").split("-")[0].toLowerCase();
+        const langName = LANG_NAMES[langCode];
+        const LANGUAGE_SUFFIX =
+          langName && langName !== "English"
+            ? ` IMPORTANT: The patient is communicating in ${langName}. Reply ONLY in ${langName} (use ${langName} script), matching their language exactly. Do not switch to English.`
+            : "";
+        const PUBLIC_BOOKING_SUFFIX =
+          "IMPORTANT BOOKING CONTEXT: You are booking inside ONE specific MedCore hospital that has its own panel of doctors. Do NOT ask for the patient's city, area, or location — it is already known. Do NOT name, list, or recommend any external hospitals, clinics, or other organisations. Only ask follow-up questions about the SYMPTOMS (duration, severity, related symptoms, history). Once you understand the problem, simply tell the patient you'll suggest a suitable doctor from our panel — the system will pick the matching in-house doctor automatically. Never output a list of hospitals." +
+          LANGUAGE_SUFFIX;
+        const turn = await runTriageTurn(
+          clean,
+          language ?? "en-IN",
+          PUBLIC_BOOKING_SUFFIX,
+        );
+        // "Ready for a doctor" mirrors ai-triage.ts: only after the patient has
+        // had a proper back-and-forth (≥4 user turns) do we surface doctors —
+        // before that the assistant keeps asking normal follow-up questions
+        // (duration, severity, related symptoms, etc).
+        const userTurns = clean.filter((m) => m.role === "user").length;
+        res.json({
+          success: true,
+          data: {
+            reply: turn.reply,
+            isEmergency: turn.isEmergency,
+            emergencyReason: turn.emergencyReason ?? null,
+            readyForDoctors: userTurns >= 4,
+          },
+          error: null,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const status = /is not configured/i.test(message) ? 500 : 502;
+        res.status(status).json({
+          success: false,
+          data: null,
+          error:
+            status === 500
+              ? "The assistant is not available right now."
+              : "The assistant is busy. Please try again or tap 'Find a doctor'.",
+        });
+      }
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ════════════════════════════════════════════════════════
+// POST /api/v1/public/booking/transcribe
+// Body: { audioBase64: string }
+// → Sarvam saaras speech-to-text-translate: the caller speaks their symptom
+//   in ANY supported language and we return ENGLISH text to drop into the
+//   symptom field, which then drives the normal suggest-doctors flow.
+//
+// Security: this is an UNAUTHENTICATED surface that spends paid Sarvam ASR
+// quota, so it is locked down hard — tight per-IP rate limit + a small audio
+// cap (≈30s of speech). NEVER log audio bytes or transcript content.
+// ════════════════════════════════════════════════════════
+const MAX_VOICE_AUDIO_BYTES = 1 * 1024 * 1024; // ~30s webm @ 96 kbps
+publicBookingRouter.post(
+  "/transcribe",
+  rateLimit(5, 60_000), // 5/min/IP — a symptom sentence, not a transcription service
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { audioBase64 } = req.body as { audioBase64?: string };
+      if (!audioBase64 || typeof audioBase64 !== "string") {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "audioBase64 field is required",
+        });
+        return;
+      }
+      const audioBuffer = Buffer.from(audioBase64, "base64");
+      if (
+        audioBuffer.length === 0 ||
+        audioBuffer.length > MAX_VOICE_AUDIO_BYTES
+      ) {
+        res.status(413).json({
+          success: false,
+          data: null,
+          error: `audio must be between 1 byte and ${MAX_VOICE_AUDIO_BYTES} bytes (~30 seconds)`,
+        });
+        return;
+      }
+
+      try {
+        // translate:false keeps the SPOKEN language (Bengali stays Bengali,
+        // etc.) and Sarvam auto-detects which language it was — we return that
+        // so the chat can reply in the same language.
+        const result = await callWithASRFallback(
+          audioBuffer,
+          { diarize: false, translate: false },
+          { providers: ["sarvam"], feature: "asr-sarvam" },
+        );
+        res.json({
+          success: true,
+          data: {
+            transcript: (result.transcript ?? "").trim(),
+            language: result.language ?? null,
+          },
+          error: null,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const status = /is not configured/i.test(message) ? 500 : 502;
+        res.status(status).json({
+          success: false,
+          data: null,
+          error:
+            status === 500
+              ? "Voice input is not available right now."
+              : "Couldn't understand the audio. Please try again or type instead.",
+        });
+      }
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ════════════════════════════════════════════════════════
 // POST /api/v1/public/booking/suggest-doctors
 // Body: { symptom, date } → up to 3 available doctors with open slots.
 // ════════════════════════════════════════════════════════
@@ -382,13 +585,16 @@ publicBookingRouter.post(
   validate(publicBookSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, doctorId, date, slotId, symptom } = req.body as {
+      const { name, doctorId, date, slotId, symptom, gender, dateOfBirth, email } = req.body as {
         name: string;
         phone: string;
         doctorId: string;
         date: string;
         slotId: string;
         symptom?: string;
+        gender: "MALE" | "FEMALE" | "OTHER";
+        dateOfBirth: string;
+        email?: string;
       };
       const phone = canonicalisePhone(req.body.phone);
       const dateObj = new Date(date);
@@ -457,13 +663,20 @@ publicBookingRouter.post(
         }
       }
 
-      // ── Auto-register the patient by phone (idempotent) ──
-      // An existing User with this phone is reused — we never create a second
-      // account for the same number. If the existing user has no Patient row
-      // (e.g. a staff phone collision is impossible here since we only match
-      // role PATIENT), we create one.
+      // ── Auto-register the patient by (phone + name) ──
+      // Identity is now keyed on phone AND name (case-insensitive). A
+      // returning patient who books with the SAME phone + SAME name reuses
+      // their existing chart (the appointment is booked against it). A
+      // DIFFERENT name on the same phone is treated as a DIFFERENT person —
+      // a new account is created (duplicate phones are allowed). The
+      // matching mirrors patient-auth.ts firebase-verify so login resolves
+      // to the same account.
       let user = await prisma.user.findFirst({
-        where: { phone, role: Role.PATIENT },
+        where: {
+          phone,
+          role: Role.PATIENT,
+          name: { equals: name.trim(), mode: "insensitive" },
+        },
         select: { id: true, tenantId: true, patient: { select: { id: true } } },
       });
 
@@ -474,12 +687,24 @@ publicBookingRouter.post(
         // Create User (if missing) + Patient in one go. Random password — the
         // patient logs in via phone OTP, never with a password.
         const passwordHash = await bcrypt.hash(crypto.randomUUID(), 10);
+        // Only attach the email if it's provided AND not already taken
+        // (User.email is unique — a collision would throw). When omitted or
+        // taken, store null; staff can reconcile later.
+        let emailToStore: string | null = null;
+        const trimmedEmail = (email ?? "").trim();
+        if (trimmedEmail) {
+          const emailTaken = await prisma.user.findUnique({
+            where: { email: trimmedEmail },
+            select: { id: true },
+          });
+          if (!emailTaken) emailToStore = trimmedEmail;
+        }
         if (!user) {
           user = await prisma.user.create({
             data: {
               name,
               phone,
-              email: null,
+              email: emailToStore,
               passwordHash,
               role: Role.PATIENT,
               isActive: true,
@@ -498,7 +723,9 @@ publicBookingRouter.post(
           data: {
             userId: user.id,
             mrNumber,
-            gender: "OTHER", // not collected in the quick flow; staff can edit
+            // Demographics from the booking form (gender + DOB required).
+            gender,
+            dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
             tenantId,
             source: "WEB",
           },

@@ -14,7 +14,7 @@
 //   - We seed Patients via direct prisma writes (NOT getAuthToken('PATIENT'))
 //     because the whole point is to test OTP login, not to short-circuit it.
 //   - The per-phone rate-limit test sets ENABLE_PATIENT_OTP_RATELIMIT_IN_TESTS
-//     to assert that the throttle fires after the 4th request. Cleanup hook
+//     to assert that the throttle fires past the per-window cap. Cleanup hook
 //     `__resetPatientOtpLimiterForTests` keeps the bucket from poisoning
 //     sibling test files (singleFork: true contract — CLAUDE.md gotcha #2).
 
@@ -213,10 +213,10 @@ describeIfDB("Patient phone-OTP login (Pearl gap #5 piece 2)", () => {
     expect(res.body.success).toBe(false);
   });
 
-  it("POST /otp-request honours the per-phone rate limit when opted in (4th request in window returns 429)", async () => {
+  it("POST /otp-request honours the per-phone rate limit when opted in (the request past the per-window cap returns 429)", async () => {
     // Opt-in: by default NODE_ENV=test bypasses the limiter so the rest of
-    // the suite doesn't flake. We flip the flag, reset the bucket, fire 4
-    // requests, then unflag in afterAll.
+    // the suite doesn't flake. We flip the flag, reset the bucket, fire the
+    // full allowance, then one more, then unflag in afterAll.
     process.env.ENABLE_PATIENT_OTP_RATELIMIT_IN_TESTS = "true";
     resetPatientOtpLimiter();
 
@@ -224,18 +224,20 @@ describeIfDB("Patient phone-OTP login (Pearl gap #5 piece 2)", () => {
     const prisma = await getPrisma();
     await seedPatient(prisma, phone);
 
-    for (let i = 0; i < 3; i++) {
+    // OTP_REQUESTS_PER_WINDOW (patient-auth.ts:71). Keep in sync if changed.
+    const LIMIT = 10;
+    for (let i = 0; i < LIMIT; i++) {
       const res = await request(app)
         .post("/api/v1/patient-auth/otp-request")
         .send({ phone });
       expect(res.status).toBe(200);
     }
 
-    const fourth = await request(app)
+    const overLimit = await request(app)
       .post("/api/v1/patient-auth/otp-request")
       .send({ phone });
-    expect(fourth.status).toBe(429);
-    expect(fourth.body.success).toBe(false);
-    expect(fourth.body.retryAfterSeconds).toEqual(expect.any(Number));
+    expect(overLimit.status).toBe(429);
+    expect(overLimit.body.success).toBe(false);
+    expect(overLimit.body.retryAfterSeconds).toEqual(expect.any(Number));
   });
 });

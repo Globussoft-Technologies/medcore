@@ -115,7 +115,11 @@ describe("runTriageTurn", () => {
     );
     expect(res.isEmergency).toBe(true);
     expect(res.emergencyReason).toMatch(/chest pain/i);
-    expect(res.reply).toBe("");
+    // The raw [EMERGENCY:...] marker is stripped out of the visible reply (it
+    // used to leak into the chat, esp. mid-reply / in non-English text). The
+    // remaining helpful text is preserved.
+    expect(res.reply).not.toMatch(/\[EMERGENCY/i);
+    expect(res.reply).toMatch(/call emergency services/i);
   });
 
   it("uses Hindi system prompt for language='hi'", async () => {

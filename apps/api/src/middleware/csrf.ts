@@ -85,6 +85,13 @@ const CSRF_BYPASS_PATHS = [
   // (no privilege to escalate). See routes/public-booking.ts.
   "/api/v1/public/booking/suggest-doctors",
   "/api/v1/public/booking/book",
+  // Voice symptom input — unauthenticated, no session/CSRF cookie. Locked
+  // down by a tight per-IP rate limit (5/min) + a small audio cap. See
+  // routes/public-booking.ts POST /transcribe.
+  "/api/v1/public/booking/transcribe",
+  // AI triage chat — unauthenticated, no session/CSRF cookie. Rate-limited
+  // (15/min) + turn/length-capped. See routes/public-booking.ts POST /chat.
+  "/api/v1/public/booking/chat",
   // Razorpay webhook is authenticated by signature, not CSRF — and is
   // mounted before express.json so it doesn't even pass through here,
   // but list it for documentation.

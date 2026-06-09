@@ -68,6 +68,9 @@ export default function PatientLoginPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
+  // Identity is keyed on (phone + name) — duplicate phones are allowed, so we
+  // collect the name to disambiguate which account to open after OTP.
+  const [name, setName] = useState("");
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +106,10 @@ export default function PatientLoginPage() {
     if (busy) return;
     setError(null);
     setInfo(null);
+    if (name.trim().length < 2) {
+      setError("Enter the name on your account.");
+      return;
+    }
     const e164 = normaliseToE164(phone);
     if (!e164) {
       setError(
@@ -143,7 +150,7 @@ export default function PatientLoginPage() {
       // bearer to the exchange endpoint.
       const res = await api.post<FirebaseVerifyResponse>(
         "/patient-auth/firebase-verify",
-        { idToken },
+        { idToken, name: name.trim() },
         // Opt out of the api lib's global 401 handler: a 401 here means
         // "this phone isn't registered / token rejected", NOT an expired
         // session. Without this, the generic "Your session has expired"
@@ -262,6 +269,29 @@ export default function PatientLoginPage() {
                   }}
                   className="space-y-5"
                 >
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="patient-login-name"
+                      className="block text-sm font-medium text-gray-800 dark:text-gray-200"
+                    >
+                      Full name
+                    </label>
+                    <input
+                      id="patient-login-name"
+                      data-testid="patient-login-name-input"
+                      type="text"
+                      autoComplete="name"
+                      className="block h-12 w-full rounded-xl border border-gray-300 bg-white px-3 text-base text-gray-900 placeholder:text-gray-400 transition focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                      placeholder="Name on your account"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      disabled={busy}
+                      required
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-500">
+                      Must match the name on your account.
+                    </p>
+                  </div>
                   <div className="space-y-1.5">
                     <label
                       htmlFor="patient-login-phone"

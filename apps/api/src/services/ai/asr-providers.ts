@@ -66,6 +66,14 @@ export interface ASRTranscribeOptions {
    * shape; re-wire when Sarvam ships a vocabulary hook.
    */
   medicalVocabulary?: boolean;
+  /**
+   * When `true` (DEFAULT — preserves the scribe behaviour) the transcript is
+   * TRANSLATED to English via Sarvam's `saaras` STT-translate model. When
+   * `false`, the plain `saarika` STT model is used so the transcript stays in
+   * the spoken language — and the auto-detected `language` is returned so the
+   * caller can reply in that language.
+   */
+  translate?: boolean;
 }
 
 export interface ASRClient {
@@ -118,12 +126,18 @@ class SarvamASRClient implements ASRClient {
     }
 
     const t0 = Date.now();
-    const language = opts.language ?? "en-IN";
+    // `translate` defaults to true → English (scribe behaviour). When false we
+    // keep the spoken language and let Sarvam auto-detect it.
+    const translate = opts.translate !== false;
+    const model = translate ? "saaras:v3" : "saarika:v2.5";
+    // saaras translates to English regardless of language_code; saarika keeps
+    // the spoken language — pass "unknown" so Sarvam auto-detects it.
+    const language = translate ? (opts.language ?? "en-IN") : "unknown";
     const audioBlob = new Blob([new Uint8Array(audio)], { type: "audio/webm" });
 
     const formData = new FormData();
     formData.append("file", audioBlob, "audio.webm");
-    formData.append("model", "saaras:v3");
+    formData.append("model", model);
     formData.append("language_code", language);
 
     let res: Response;
@@ -136,7 +150,7 @@ class SarvamASRClient implements ASRClient {
     } catch (err) {
       logAICall({
         feature: "asr-sarvam",
-        model: "saaras:v3",
+        model,
         promptTokens: 0,
         completionTokens: 0,
         latencyMs: Date.now() - t0,
@@ -156,7 +170,7 @@ class SarvamASRClient implements ASRClient {
       }
       logAICall({
         feature: "asr-sarvam",
-        model: "saaras:v3",
+        model,
         promptTokens: 0,
         completionTokens: 0,
         latencyMs: Date.now() - t0,
@@ -170,7 +184,7 @@ class SarvamASRClient implements ASRClient {
 
     logAICall({
       feature: "asr-sarvam",
-      model: "saaras:v3",
+      model,
       promptTokens: 0,
       completionTokens: 0,
       latencyMs: Date.now() - t0,

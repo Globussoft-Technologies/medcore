@@ -251,10 +251,12 @@ describeIfDB("Pharmacy Kanban — gap row 104 (Pearl §4.3)", () => {
     expect(res.status).toBe(200);
     expect(res.body.data?.columns).toBeTruthy();
     expect(Array.isArray(res.body.data.columns.PENDING)).toBe(true);
-    // Our just-created Rx should be visible in PENDING.
-    const allIds = (Object.values(res.body.data.columns) as any[][])
+    // The board is now PER-MEDICINE: each card is a prescription line item
+    // (card.id === item id), keyed back to its Rx via card.prescriptionId. Our
+    // just-created Rx's line should be visible in PENDING.
+    const allRxIds = (Object.values(res.body.data.columns) as any[][])
       .flat()
-      .map((r: any) => r.id);
-    expect(allIds).toContain(rx.id);
+      .map((r: any) => r.prescriptionId);
+    expect(allRxIds).toContain(rx.id);
   });
 });

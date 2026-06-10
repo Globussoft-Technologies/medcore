@@ -57,15 +57,17 @@ export const RBAC_MATRIX: RbacCase[] = [
   { role: "LAB_TECH", route: "/dashboard/queue", outcome: { kind: "denied", redirect: "not-authorized" } },
   { role: "PHARMACIST", route: "/dashboard/queue", outcome: { kind: "denied", redirect: "not-authorized" } },
 
-  // /dashboard/billing — BILLING_ALLOWED = {ADMIN, RECEPTION, PATIENT}
+  // /dashboard/billing — BILLING_ALLOWED = {ADMIN, RECEPTION, PATIENT, PHARMACIST}
   // (legacy gate: redirects to /dashboard, NOT /not-authorized)
   // Issue #501: /dashboard/billing now redirects non-allowed roles to
   // /dashboard/not-authorized (chrome-wrapped 403 page) instead of bare
   // /dashboard. See apps/web/src/app/dashboard/billing/page.tsx:94-101.
+  // 2026-06: PHARMACIST added to BILLING_ALLOWED — they view the pharmacy bills
+  // they generate (the list API is scoped to prescriptionId-linked invoices),
+  // so PHARMACIST is no longer denied here.
   { role: "DOCTOR", route: "/dashboard/billing", outcome: { kind: "denied", redirect: "not-authorized" } },
   { role: "NURSE", route: "/dashboard/billing", outcome: { kind: "denied", redirect: "not-authorized" } },
   { role: "LAB_TECH", route: "/dashboard/billing", outcome: { kind: "denied", redirect: "not-authorized" } },
-  { role: "PHARMACIST", route: "/dashboard/billing", outcome: { kind: "denied", redirect: "not-authorized" } },
 
   // /dashboard/billing/patient/[id] — BILLING_PATIENT_ALLOWED = {ADMIN, RECEPTION}
   // (legacy gate: also redirects to /dashboard)

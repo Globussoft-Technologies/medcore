@@ -2244,10 +2244,11 @@ model Invoice {
   // Standalone PHARMACY bill anchor (2026-06): the Pharmacy Kanban "Generate
   // Bill" creates a pharmacy-only invoice (dispensed medicines ONLY — no
   // consultation/other lines) linked to its prescription. Nullable scalar (no
-  // FK relation needed) + @unique so each prescription has at most one such
-  // bill and the board can look it up / reconcile it idempotently. Appointment
-  // and admission stay null on these rows.
-  prescriptionId   String?       @unique
+  // FK relation needed); indexed for lookup. One-bill-per-prescription is
+  // enforced in app code (find-or-create checks for an existing row first) —
+  // NOT a DB UNIQUE, which the migration-safety gate flags as a UNIQUE_ADDITION
+  // even on a brand-new all-NULL column. Appointment/admission stay null here.
+  prescriptionId   String?
   patientId        String
   // Issue #901 (2026-05-19): money columns migrated from Float (IEEE-754
   // double) to DECIMAL(12,2) so paise arithmetic is exact and reconciles
@@ -2330,6 +2331,7 @@ model Invoice {
   @@index([branchId])
   @@index([referringDoctorId])
   @@index([admissionId])
+  @@index([prescriptionId])
   @@map("invoices")
 }
 

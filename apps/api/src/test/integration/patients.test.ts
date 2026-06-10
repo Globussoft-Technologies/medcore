@@ -323,4 +323,24 @@ describeIfDB("Patients API (integration)", () => {
     });
     expect(row?.source).toBe("WALK_IN");
   });
+
+  // 2026-06 profile update: gender became patient-self-editable (was
+  // staff-only). The PWA profile form PATCHes it through /patients/me.
+  it("PATIENT can update their own gender via PATCH /patients/me", async () => {
+    const res = await request(app)
+      .patch("/api/v1/patients/me")
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ gender: "FEMALE" });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.gender).toBe("FEMALE");
+  });
+
+  it("rejects an invalid gender on PATCH /patients/me (schema enum guard)", async () => {
+    const res = await request(app)
+      .patch("/api/v1/patients/me")
+      .set("Authorization", `Bearer ${patientToken}`)
+      .send({ gender: "NOPE" });
+    expect(res.status).toBe(400);
+  });
 });

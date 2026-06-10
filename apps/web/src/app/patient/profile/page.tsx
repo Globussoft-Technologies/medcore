@@ -53,8 +53,10 @@
 //   • testids prefixed `patient-profile-*` so the smoke tests (and any
 //     future Playwright spec) can lock on without name-collision risk
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
+import { ChevronDown, Check } from "lucide-react";
 import { api } from "@/lib/api";
 import { PatientAvatar } from "@/components/PatientAvatar";
 
@@ -123,7 +125,8 @@ const LANGUAGE_OPTIONS = [
 
 interface FormState {
   name: string;
-  dateOfBirth: string; // YYYY-MM-DD for <input type="date">
+  dateOfBirth: string; // YYYY-MM-DD, composed from the day/month/year pickers
+  gender: string; // "" | MALE | FEMALE | OTHER
   address: string;
   preferredLanguage: string;
   abhaId: string;
@@ -144,6 +147,184 @@ function toDateInput(value: string | null | undefined): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// ── DOB dropdown options (mirrors the public booking page) ────────────────
+const DOB_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const DOB_THIS_YEAR = new Date().getFullYear();
+const DOB_YEARS = Array.from({ length: 120 }, (_, i) => DOB_THIS_YEAR - i);
+
+const GENDER_OPTIONS = [
+  { value: "MALE", label: "Male" },
+  { value: "FEMALE", label: "Female" },
+  { value: "OTHER", label: "Other" },
+];
+
+// ── FancySelect ──────────────────────────────────────────────────────────
+// Styled, animated dropdown (a native <select> can't be skinned internally).
+// The popover is PORTALED to <body> so it escapes any blur/stacking context.
+// Lifted verbatim from apps/web/src/app/(marketing)/book/page.tsx.
+interface FancyOption {
+  value: string;
+  label: string;
+}
+function FancySelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  testId,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: FancyOption[];
+  placeholder: string;
+  testId?: string;
+  ariaLabel?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLUListElement | null>(null);
+  const selected = options.find((o) => o.value === value);
+
+  useEffect(() => setMounted(true), []);
+
+  function openMenu() {
+    setIsDark(document.documentElement.classList.contains("dark"));
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setRect({ left: r.left, top: r.bottom + 6, width: r.width });
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    function reposition() {
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r) setRect({ left: r.left, top: r.bottom + 6, width: r.width });
+    }
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        data-testid={testId}
+        aria-label={ariaLabel}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        className={`flex w-full items-center justify-between gap-1 rounded-xl border bg-white px-3 py-3 text-sm shadow-sm transition-all duration-200 hover:border-gray-400 focus:outline-none focus:ring-4 focus:ring-blue-500/15 dark:bg-gray-900 ${
+          open
+            ? "border-blue-500 ring-4 ring-blue-500/15"
+            : "border-gray-300 dark:border-gray-700"
+        }`}
+      >
+        <span
+          className={
+            selected
+              ? "text-gray-900 dark:text-gray-100"
+              : "text-gray-400 dark:text-gray-500"
+          }
+        >
+          {selected ? selected.label : placeholder}
+        </span>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 ${
+            open ? "rotate-180 text-blue-500" : ""
+          }`}
+        />
+      </button>
+      {mounted &&
+        open &&
+        rect &&
+        createPortal(
+          <ul
+            ref={menuRef}
+            role="listbox"
+            className="fixed z-[1000] max-h-56 origin-top overflow-y-auto rounded-xl border border-gray-200 p-1 shadow-2xl ring-1 ring-black/10 dark:border-gray-600 dark:ring-white/10"
+            style={{
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              backgroundColor: isDark ? "#0f172a" : "#ffffff",
+            }}
+          >
+            {options.map((o) => {
+              const isSel = o.value === value;
+              return (
+                <li key={o.value}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(o.value);
+                      setOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                      isSel
+                        ? "bg-gradient-to-r from-blue-600 to-indigo-600 font-medium text-white shadow-sm"
+                        : "text-gray-700 hover:bg-blue-50 hover:text-blue-700 dark:text-gray-200 dark:hover:bg-gray-800 dark:hover:text-white"
+                    }`}
+                  >
+                    {o.label}
+                    {isSel && <Check className="h-4 w-4" />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+// Labelled field wrapper. MUST be module-scope (not nested in the page
+// component) — a component defined inside the render function is a NEW
+// function reference every render, so React remounts it and its inputs each
+// keystroke, stealing focus after one character.
+function Field({
+  label,
+  htmlFor,
+  children,
+}: {
+  label: string;
+  htmlFor?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label htmlFor={htmlFor} className="block">
+      <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
 function buildInitialForm(
   me: MeResponse["data"],
   prefs: NotificationPrefRow[],
@@ -162,6 +343,7 @@ function buildInitialForm(
   return {
     name: me?.name ?? "",
     dateOfBirth: toDateInput(me?.patient?.dateOfBirth),
+    gender: me?.patient?.gender ?? "",
     address: me?.patient?.address ?? "",
     // Prefer the User row's preferredLanguage — that's the column the
     // dashboard LanguageDropdown writes to. The Patient row mirrors it.
@@ -179,6 +361,14 @@ export default function PatientProfilePage() {
   const [me, setMe] = useState<MeResponse["data"] | null>(null);
   const [initialForm, setInitialForm] = useState<FormState | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
+
+  // Phone is read-only (sign-in handle — changes routed through reception).
+  const [displayPhone, setDisplayPhone] = useState<string>("");
+
+  // DOB dropdown parts (day "1-31", month "1-12", year "YYYY" as strings).
+  const [dobDay, setDobDay] = useState("");
+  const [dobMonth, setDobMonth] = useState("");
+  const [dobYear, setDobYear] = useState("");
 
   const fetchInitial = useCallback(async (): Promise<void> => {
     setState("loading");
@@ -216,6 +406,18 @@ export default function PatientProfilePage() {
       setMe(meData);
       setInitialForm(initial);
       setForm(initial);
+      setDisplayPhone(meData?.phone ?? "");
+      // Seed the DOB dropdowns from the loaded YYYY-MM-DD.
+      const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(initial.dateOfBirth);
+      if (dm) {
+        setDobYear(dm[1]);
+        setDobMonth(String(Number(dm[2])));
+        setDobDay(String(Number(dm[3])));
+      } else {
+        setDobYear("");
+        setDobMonth("");
+        setDobDay("");
+      }
       setState("ready");
     } catch (err) {
       const status = (err as { status?: number })?.status;
@@ -235,6 +437,7 @@ export default function PatientProfilePage() {
     if (!form || !initialForm) return false;
     if (form.name !== initialForm.name) return true;
     if (form.dateOfBirth !== initialForm.dateOfBirth) return true;
+    if (form.gender !== initialForm.gender) return true;
     if (form.address !== initialForm.address) return true;
     if (form.preferredLanguage !== initialForm.preferredLanguage) return true;
     if (form.abhaId !== initialForm.abhaId) return true;
@@ -265,6 +468,30 @@ export default function PatientProfilePage() {
     );
   }
 
+  // DOB is composed from three dropdowns. We hold day/month/year in their own
+  // state (so a partial pick survives) and recompose `form.dateOfBirth` to
+  // YYYY-MM-DD whenever all three are set (clamping the day to the chosen
+  // month/year so e.g. 31 Feb can't be submitted). Seeded from the loaded DOB.
+  function setDobPart(part: "day" | "month" | "year", value: string) {
+    const day = part === "day" ? value : dobDay;
+    const month = part === "month" ? value : dobMonth; // 1-12 as string
+    const year = part === "year" ? value : dobYear;
+    if (part === "day") setDobDay(value);
+    if (part === "month") setDobMonth(value);
+    if (part === "year") setDobYear(value);
+    if (day && month && year) {
+      const maxDay = new Date(Number(year), Number(month), 0).getDate();
+      const clampedDay = Math.min(Number(day), maxDay);
+      if (clampedDay !== Number(day)) setDobDay(String(clampedDay));
+      patchField(
+        "dateOfBirth",
+        `${year}-${String(month).padStart(2, "0")}-${String(clampedDay).padStart(2, "0")}`,
+      );
+    } else {
+      patchField("dateOfBirth", "");
+    }
+  }
+
   const handleCancel = useCallback(() => {
     if (initialForm) setForm(initialForm);
     setSubmitState("idle");
@@ -292,6 +519,9 @@ export default function PatientProfilePage() {
       const patientPatch: Record<string, unknown> = {};
       if (form.dateOfBirth !== initialForm.dateOfBirth) {
         patientPatch.dateOfBirth = form.dateOfBirth || null;
+      }
+      if (form.gender !== initialForm.gender && form.gender) {
+        patientPatch.gender = form.gender;
       }
       if (form.address !== initialForm.address) {
         patientPatch.address = form.address;
@@ -354,24 +584,6 @@ export default function PatientProfilePage() {
   // small label-stacked-above-input convention shared across the staff
   // settings UI. Keeping the patient form on the same primitive lets it
   // visually match the settings cards exactly.
-  function Field({
-    label,
-    htmlFor,
-    children,
-  }: {
-    label: string;
-    htmlFor?: string;
-    children: React.ReactNode;
-  }) {
-    return (
-      <label htmlFor={htmlFor} className="block">
-        <span className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-          {label}
-        </span>
-        {children}
-      </label>
-    );
-  }
   const inputClass =
     "w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900";
   const inputErrorClass =
@@ -491,16 +703,44 @@ export default function PatientProfilePage() {
             </Field>
 
             <Field label="Date of birth">
-              <input
-                type="date"
-                data-testid="patient-profile-dob-input"
-                value={form.dateOfBirth}
-                onChange={(e) => patchField("dateOfBirth", e.target.value)}
-                aria-invalid={fieldErrors.dateOfBirth ? "true" : undefined}
-                className={
-                  fieldErrors.dateOfBirth ? inputErrorClass : inputClass
-                }
-              />
+              <div
+                data-testid="patient-profile-dob"
+                className="grid grid-cols-3 gap-2"
+              >
+                <FancySelect
+                  testId="patient-profile-dob-day"
+                  ariaLabel="Day of birth"
+                  placeholder="Day"
+                  value={dobDay}
+                  onChange={(v) => setDobPart("day", v)}
+                  options={Array.from({ length: 31 }, (_, i) => ({
+                    value: String(i + 1),
+                    label: String(i + 1),
+                  }))}
+                />
+                <FancySelect
+                  testId="patient-profile-dob-month"
+                  ariaLabel="Month of birth"
+                  placeholder="Month"
+                  value={dobMonth}
+                  onChange={(v) => setDobPart("month", v)}
+                  options={DOB_MONTHS.map((m, i) => ({
+                    value: String(i + 1),
+                    label: m,
+                  }))}
+                />
+                <FancySelect
+                  testId="patient-profile-dob-year"
+                  ariaLabel="Year of birth"
+                  placeholder="Year"
+                  value={dobYear}
+                  onChange={(v) => setDobPart("year", v)}
+                  options={DOB_YEARS.map((y) => ({
+                    value: String(y),
+                    label: String(y),
+                  }))}
+                />
+              </div>
               {fieldErrors.dateOfBirth ? (
                 <span
                   data-testid="patient-profile-dob-error"
@@ -516,7 +756,7 @@ export default function PatientProfilePage() {
                 type="tel"
                 readOnly
                 data-testid="patient-profile-phone-input"
-                value={me.phone ?? ""}
+                value={displayPhone}
                 className={readOnlyInputClass}
               />
               <span
@@ -528,17 +768,16 @@ export default function PatientProfilePage() {
               </span>
             </Field>
 
-            {me.patient?.gender ? (
-              <Field label="Gender (read-only)">
-                <input
-                  type="text"
-                  readOnly
-                  data-testid="patient-profile-gender-input"
-                  value={me.patient.gender}
-                  className={readOnlyInputClass}
-                />
-              </Field>
-            ) : null}
+            <Field label="Gender">
+              <FancySelect
+                testId="patient-profile-gender-input"
+                ariaLabel="Gender"
+                placeholder="Select gender"
+                value={form.gender}
+                onChange={(v) => patchField("gender", v)}
+                options={GENDER_OPTIONS}
+              />
+            </Field>
           </div>
         </div>
 

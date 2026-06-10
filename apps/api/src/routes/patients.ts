@@ -507,12 +507,16 @@ router.post(
 //                        per user gesture without forcing the caller to
 //                        decide which surface owns the field)
 //
+//   • gender            (MALE/FEMALE/OTHER — patient-self-editable as of the
+//                        2026-06 profile update; previously staff-only. Zod
+//                        enum-validated via updatePatientSchema.)
+//
 // NOT writeable here:
-//   • name / phone / email — those live on `User` and edits to phone or
-//     email need OTP re-verification flows the Pearl spec defers. The web
-//     form surfaces them read-only with a "Contact reception to change"
-//     hint per the SOW.
-//   • gender / bloodGroup — clinical fields, staff-corrected only.
+//   • name / email — live on `User`; edited via PATCH /auth/me.
+//   • phone — lives on `User` and secures sign-in; the web form surfaces it
+//     read-only with a "contact reception to change" hint (a self-service
+//     change would need an OTP re-verification flow the spec defers).
+//   • bloodGroup — clinical field, staff-corrected only.
 //   • mrNumber / userId / tenantId / branchId — administrative columns
 //     the patient must never be able to mutate.
 //
@@ -530,6 +534,7 @@ router.patch(
         dateOfBirth?: string | null;
         abhaId?: string | null;
         preferredLanguage?: string | null;
+        gender?: string | null;
       };
 
       // Reuse the existing partial patient schema for the DOB-in-the-past
@@ -544,6 +549,7 @@ router.patch(
         ...(body.preferredLanguage !== undefined
           ? { preferredLanguage: body.preferredLanguage ?? undefined }
           : {}),
+        ...(body.gender !== undefined ? { gender: body.gender ?? undefined } : {}),
       });
       if (!parsed.success) {
         res.status(400).json({
@@ -582,6 +588,10 @@ router.patch(
       }
       if (body.abhaId !== undefined) data.abhaId = body.abhaId;
       if (body.preferredLanguage !== undefined) data.preferredLanguage = body.preferredLanguage;
+      // Gender is now patient-self-editable (was staff-only). The Zod enum on
+      // updatePatientSchema already constrained it to MALE/FEMALE/OTHER above,
+      // so `parsed.success` guarantees a valid value here.
+      if (body.gender !== undefined) data.gender = parsed.data.gender;
 
       if (Object.keys(data).length === 0) {
         res.status(400).json({ success: false, data: null, error: "Nothing to update" });
@@ -597,6 +607,7 @@ router.patch(
           dateOfBirth: true,
           abhaId: true,
           preferredLanguage: true,
+          gender: true,
         },
       });
 

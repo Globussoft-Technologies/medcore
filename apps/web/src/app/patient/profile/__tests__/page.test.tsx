@@ -132,9 +132,10 @@ describe("Patient profile page — gap #5 piece 3e", () => {
     expect(
       (screen.getByTestId("patient-profile-name-input") as HTMLInputElement).value,
     ).toBe("Anand Kumar");
-    expect(
-      (screen.getByTestId("patient-profile-dob-input") as HTMLInputElement).value,
-    ).toBe("1990-05-15");
+    // DOB is now three dropdowns (day / month / year) seeded from 1990-05-15.
+    expect(screen.getByTestId("patient-profile-dob-day")).toHaveTextContent("15");
+    expect(screen.getByTestId("patient-profile-dob-month")).toHaveTextContent("May");
+    expect(screen.getByTestId("patient-profile-dob-year")).toHaveTextContent("1990");
     expect(
       (screen.getByTestId("patient-profile-address-input") as HTMLTextAreaElement).value,
     ).toContain("Andheri");
@@ -142,7 +143,7 @@ describe("Patient profile page — gap #5 piece 3e", () => {
       (screen.getByTestId("patient-profile-language-select") as HTMLSelectElement)
         .value,
     ).toBe("en");
-    // Gender renders read-only when present
+    // Gender is now an editable dropdown (always rendered).
     expect(screen.getByTestId("patient-profile-gender-input")).toBeInTheDocument();
   });
 
@@ -155,14 +156,13 @@ describe("Patient profile page — gap #5 piece 3e", () => {
     await waitFor(() => {
       expect(screen.getByTestId("patient-profile")).toBeInTheDocument();
     });
-    // DOB / address default to empty; no gender block rendered
-    expect(
-      (screen.getByTestId("patient-profile-dob-input") as HTMLInputElement).value,
-    ).toBe("");
+    // DOB dropdowns show their placeholders; address empty. Gender dropdown
+    // is always rendered now (with its "Select gender" placeholder).
+    expect(screen.getByTestId("patient-profile-dob-day")).toHaveTextContent("Day");
     expect(
       (screen.getByTestId("patient-profile-address-input") as HTMLTextAreaElement).value,
     ).toBe("");
-    expect(screen.queryByTestId("patient-profile-gender-input")).not.toBeInTheDocument();
+    expect(screen.getByTestId("patient-profile-gender-input")).toBeInTheDocument();
   });
 
   it("phone field is read-only with a reception-handoff hint", async () => {
@@ -260,8 +260,11 @@ describe("Patient profile page — gap #5 piece 3e", () => {
     render(<PatientProfilePage />);
     await waitFor(() => screen.getByTestId("patient-profile"));
 
-    fireEvent.change(screen.getByTestId("patient-profile-dob-input"), {
-      target: { value: "2099-01-01" },
+    // Dirty the form (via address) so Save fires the /patients/me PATCH; the
+    // mocked response returns a server-side dateOfBirth field error, which the
+    // page must surface inline on the DOB field.
+    fireEvent.change(screen.getByTestId("patient-profile-address-input"), {
+      target: { value: "Some New Address 99" },
     });
     fireEvent.click(screen.getByTestId("patient-profile-save-btn"));
 

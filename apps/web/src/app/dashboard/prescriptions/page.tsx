@@ -60,10 +60,115 @@ function isFollowUpPast(value: string): boolean {
   return d.getTime() < today.getTime();
 }
 
+// Today's date as YYYY-MM-DD in the user's local timezone. Used to default the
+// date filter to "today" and cap the date pickers so a future date can't be
+// chosen. Computed on call so it stays correct across day boundaries.
+function todayISO(): string {
+  return new Date().toLocaleDateString("en-CA"); // en-CA → YYYY-MM-DD
+}
+
 // Issue #90: RECEPTION must NOT see prescriptions / clinical diagnoses.
 // PHARMACIST + NURSE keep read access (dispensing + admin); PATIENT keeps
 // own-data view.
 const RX_ALLOWED = new Set(["ADMIN", "DOCTOR", "NURSE", "PHARMACIST", "PATIENT"]);
+// Roles the stock-availability endpoint authorizes (PATIENT excluded — they
+// can read their Rx but not pharmacy stock levels).
+const STOCK_VIEW_ROLES = new Set(["ADMIN", "DOCTOR", "NURSE", "PHARMACIST"]);
+
+// Status badge shown next to the patient name on each Rx card. Mirrors the
+// pharmacy Kanban flow: New → Dispensing → Ready → Dispensed.
+const RX_STATUS_BADGE: Record<string, { label: string; className: string }> = {
+  PENDING: {
+    label: "New",
+    className:
+      "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  },
+  DISPENSING: {
+    label: "Dispensing",
+    className:
+      "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  },
+  READY: {
+    label: "Ready",
+    className:
+      "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+  },
+  DISPENSED: {
+    label: "Dispensed",
+    className:
+      "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300",
+  },
+  REJECTED: {
+    label: "Rejected",
+    className: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+  },
+  CANCELLED: {
+    label: "Cancelled",
+    className:
+      "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
+  },
+};
+
+// Derive the badge shown next to the patient name from the PER-LINE Kanban
+// state (item.kanbanStatus), not prescription.status. Two reasons:
+//   • prescription.status only flips to DISPENSED when EVERY line is dispensed,
+//     so a script with an out-of-stock line would otherwise stay "New".
+//   • A doctor edit recreates the items (kanbanStatus → PENDING), so the script
+//     correctly falls back to "New" even if it was previously dispensed (the
+//     old dispense stock-movements persist, so an availability-based check
+//     would wrongly keep showing "Dispensed").
+// Any line dispensed but not all → "Dispensing"; all dispensed → "Dispensed";
+// any line moved past New → "Dispensing"; all New → "New". Terminal states win.
+function deriveRxStatusKey(
+  status: string | undefined,
+  items: Array<{ kanbanStatus?: string }> | undefined,
+  // When true, a pharmacy bill has been generated for this script → it's
+  // considered fully "Dispensed" regardless of any remaining out-of-stock line
+  // (the pharmacist finished and billed what could be dispensed). Omit it (e.g.
+  // the action button) to keep the strict per-line view.
+  billed?: boolean,
+): string | undefined {
+  if (status === "REJECTED" || status === "CANCELLED") return status;
+  if (billed) return "DISPENSED";
+  const list = items ?? [];
+  if (!list.some((i) => i.kanbanStatus)) return status;
+  const total = list.length;
+  const dispensed = list.filter((i) => i.kanbanStatus === "DISPENSED").length;
+  if (dispensed >= total) return "DISPENSED";
+  const moved = list.filter(
+    (i) => i.kanbanStatus && i.kanbanStatus !== "PENDING",
+  ).length;
+  if (dispensed > 0 || moved > 0) return "DISPENSING";
+  return "PENDING";
+}
+
+// The pharmacist action button advances a script one stage per click, exactly
+// like the Kanban board: PENDING → DISPENSING → READY → DISPENSED. The first
+// two steps are plain status transitions (PATCH); the final READY → DISPENSED
+// step performs the real dispense (POST /pharmacy/dispense, which deducts
+// stock). Terminal states disable the button.
+function rxStageAction(status: string | undefined): {
+  label: string;
+  disabled: boolean;
+  openKanban?: boolean;
+} {
+  // Dispensing is now driven entirely by the PER-MEDICINE Kanban board: each
+  // line item moves New → Dispensing → Ready → Dispensed independently. So the
+  // prescriptions-list action button no longer performs a per-prescription
+  // transition here — it just opens the Kanban scoped to this prescription.
+  switch (status) {
+    case "REJECTED":
+      return { label: "Rejected", disabled: true };
+    case "CANCELLED":
+      return { label: "Cancelled", disabled: true };
+    case "DISPENSED":
+      // Terminal label is decided at render time (pending lines → "Finish in
+      // Kanban →", none → "Fully dispensed"); openKanban drives the click.
+      return { label: "Dispensed", disabled: false, openKanban: true };
+    default: // PENDING / DISPENSING / READY → manage medicines in the Kanban.
+      return { label: "Dispense in Kanban →", disabled: false, openKanban: true };
+  }
+}
 
 interface PrescriptionRecord {
   id: string;
@@ -73,6 +178,10 @@ interface PrescriptionRecord {
   createdAt: string;
   printed?: boolean;
   sharedVia?: string | null;
+  status?: string;
+  // True when a pharmacy bill has been generated for this prescription — the
+  // list badge then shows "Dispensed" (the pharmacist finished + billed).
+  billed?: boolean;
   items: Array<{
     id?: string;
     medicineName: string;
@@ -82,9 +191,27 @@ interface PrescriptionRecord {
     instructions: string | null;
     refills?: number;
     refillsUsed?: number;
+    // Per-line Kanban state (PENDING/DISPENSING/READY/DISPENSED). A doctor edit
+    // recreates the items, so this resets to PENDING → the script shows "New".
+    kanbanStatus?: string;
   }>;
   doctor: { user: { name: string } };
   patient: { user: { name: string; phone: string } };
+}
+
+// Live stock-availability for a prescription (GET /pharmacy/prescriptions/
+// :id/availability). `items` are in the same order as PrescriptionRecord.items.
+interface RxAvailabilityItem {
+  medicineName: string;
+  requiredQty: number;
+  availableQty: number;
+  matched: boolean;
+  dispensed?: boolean;
+  available: boolean;
+}
+interface RxAvailability {
+  items: RxAvailabilityItem[];
+  allAvailable: boolean;
 }
 
 interface Template {
@@ -118,6 +245,12 @@ export default function PrescriptionsPage() {
     }
   }, [user, isLoading, router, pathname]);
   const [prescriptions, setPrescriptions] = useState<PrescriptionRecord[]>([]);
+  // Live per-prescription stock availability (keyed by Rx id). Populated
+  // lazily after the list loads so each medicine row can show in-stock /
+  // out-of-stock dynamically.
+  const [availabilityById, setAvailabilityById] = useState<
+    Record<string, RxAvailability>
+  >({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -136,8 +269,12 @@ export default function PrescriptionsPage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"" | "ISSUED" | "PRINTED">("");
+  // Date filter. `todayOnly` (default) scopes the list to today WITHOUT
+  // populating the From/To pickers — those stay empty until the user picks a
+  // date, at which point todayOnly flips off and the manual range applies.
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [todayOnly, setTodayOnly] = useState(true);
   const [sortKey, setSortKey] = useState<"issuedAt" | "patient" | "doctor">(
     "issuedAt",
   );
@@ -156,7 +293,7 @@ export default function PrescriptionsPage() {
   // empty trailing page.
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, statusFilter, dateFrom, dateTo, pageLimit]);
+  }, [debouncedSearch, statusFilter, todayOnly, dateFrom, dateTo, pageLimit]);
 
   // Form state
   // Pearl §2.1.3 — when the consult page deep-links here with
@@ -282,6 +419,10 @@ export default function PrescriptionsPage() {
   } | null>(null);
   const [shareSignature, setShareSignature] = useState("");
   const [shareSubmitting, setShareSubmitting] = useState(false);
+  // Reject-with-reason modal (replaces the native window.prompt).
+  const [rejectTargetId, setRejectTargetId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
   // Generic substitution
   interface GenericAlt {
@@ -375,6 +516,40 @@ export default function PrescriptionsPage() {
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, pageLimit, isLoading, user?.id, user?.role]);
+
+  // Fetch live stock availability for the prescriptions on the current page
+  // so each medicine row can show in-stock / out-of-stock dynamically. One
+  // request per Rx (current page only); failures are swallowed per-card.
+  useEffect(() => {
+    if (!user || !STOCK_VIEW_ROLES.has(user.role)) return;
+    if (prescriptions.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        prescriptions.map(async (rx) => {
+          try {
+            const res = await api.get<{ data: RxAvailability }>(
+              `/pharmacy/prescriptions/${rx.id}/availability`,
+            );
+            return [rx.id, res.data] as const;
+          } catch {
+            return [rx.id, null] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setAvailabilityById((prev) => {
+        const next = { ...prev };
+        for (const [id, data] of entries) {
+          if (data && Array.isArray(data.items)) next[id] = data;
+        }
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [prescriptions, user?.role]);
 
   // Auto-open the Rx form when the doctor workspace quick-action links here
   // with ?new=1 (issue #11). Issue #439: also accept ?patientId=… so the
@@ -501,15 +676,17 @@ export default function PrescriptionsPage() {
   }
 
   async function markPrinted(id: string) {
-    try {
-      await api.post(`/prescriptions/${id}/print`, {});
-      // Re-Print opens the browser print dialog IN-PLACE (PDF rendered into a
-      // hidden iframe) — no new tab is opened.
-      await printPdfEndpoint(`/prescriptions/${id}/pdf?format=pdf`);
-      loadPrescriptions();
-    } catch {
-      /* noop */
-    }
+    // Marking the Rx as printed is a best-effort audit flag — it must NOT
+    // gate the actual print. (A pharmacist's mark-printed call used to 403 and
+    // abort the whole flow.) Fire it separately and always open the print
+    // dialog IN-PLACE (PDF rendered into a hidden iframe) — no new tab.
+    api
+      .post(`/prescriptions/${id}/print`, {})
+      .then(() => loadPrescriptions())
+      .catch(() => {
+        /* non-critical: printing still proceeds below */
+      });
+    await printPdfEndpoint(`/prescriptions/${id}/pdf?format=pdf`);
   }
 
   // Explicit "Download PDF" — `download=1` flips the server to an attachment
@@ -626,41 +803,41 @@ export default function PrescriptionsPage() {
     }
   }
 
-  // Issue #608 (May 2026): the prescription card had no pharmacist
-  // workflow actions — only Print / Share. The pharmacy "Dispense Now"
-  // tab handles the inventory deduction, but pharmacists asked for the
-  // ability to mark a prescription as dispensed straight from the list,
-  // and the existing /pharmacy/dispense + /pharmacy/prescriptions/:id/reject
-  // endpoints already implement the underlying state changes. We expose
-  // them here as buttons so the workflow no longer requires a tab swap.
-  async function dispenseFromCard(id: string) {
-    try {
-      await api.post("/pharmacy/dispense", { prescriptionId: id });
-      toast.success("Prescription dispensed");
-      loadPrescriptions();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to dispense");
-    }
+  // Single handler for the staged action button (see rxStageAction). Every
+  // actionable status now opens the per-medicine Kanban scoped to THIS
+  // prescription — the pharmacist moves each line (and dispenses) there.
+  function handleStageClick(rx: PrescriptionRecord) {
+    const action = rxStageAction(rx.status);
+    if (action.disabled || !action.openKanban) return;
+    router.push(`/dashboard/pharmacy-kanban?prescription=${rx.id}`);
   }
 
-  async function rejectFromCard(id: string) {
-    const reason = window.prompt(
-      "Rejection reason (min 10 chars — out of stock, expired, requires verification, etc.)",
-      "",
-    );
-    if (reason === null) return;
-    if (reason.trim().length < 10) {
+  // Open the in-app reject modal (replaces the native browser prompt).
+  function rejectFromCard(id: string) {
+    setRejectReason("");
+    setRejectTargetId(id);
+  }
+
+  async function confirmReject() {
+    if (!rejectTargetId) return;
+    const reason = rejectReason.trim();
+    if (reason.length < 10) {
       toast.error("Rejection reason must be at least 10 characters");
       return;
     }
+    setRejectSubmitting(true);
     try {
-      await api.post(`/pharmacy/prescriptions/${id}/reject`, {
-        reason: reason.trim(),
+      await api.post(`/pharmacy/prescriptions/${rejectTargetId}/reject`, {
+        reason,
       });
       toast.success("Prescription rejected");
+      setRejectTargetId(null);
+      setRejectReason("");
       loadPrescriptions();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to reject");
+    } finally {
+      setRejectSubmitting(false);
     }
   }
 
@@ -913,8 +1090,11 @@ export default function PrescriptionsPage() {
     return {
       medicineName: m.medicineName,
       dosage: m.dosage,
+      // Blank duration → "—" (the documented placeholder the schema accepts).
+      // MUST match the client-side validation mapping below, otherwise a row
+      // left blank passes local validation but the server rejects it.
+      duration: m.duration || "—",
       frequency: m.frequency,
-      duration: m.duration,
       instructions: composeInstructions({
         route: m.route,
         quantity: m.quantity,
@@ -998,6 +1178,7 @@ export default function PrescriptionsPage() {
           warnings?: InteractionWarning[];
           allergyConflicts?: AllergyConflict[];
           error?: string;
+          details?: Array<{ field?: string; message?: string }>;
           data?: { existingPrescriptionId?: string };
         };
       };
@@ -1050,6 +1231,26 @@ export default function PrescriptionsPage() {
         } catch {
           // Fall through to the generic toast below.
         }
+      }
+      // Surface field-level validation errors specifically (e.g. which
+      // medicine row / which field), instead of the generic "Validation
+      // failed". Dedupe to one message per field and label medicine rows.
+      const details = anyErr.payload?.details;
+      if (Array.isArray(details) && details.length > 0) {
+        const seen = new Set<string>();
+        const lines: string[] = [];
+        for (const d of details) {
+          const field = d.field ?? "";
+          if (seen.has(field)) continue;
+          seen.add(field);
+          const m = field.match(/^items\.(\d+)\.(\w+)/);
+          const label = m
+            ? `Medicine ${Number(m[1]) + 1} — ${m[2]}`
+            : field || "Field";
+          lines.push(`${label}: ${d.message ?? "invalid"}`);
+        }
+        toast.error(lines.slice(0, 4).join(" · "));
+        return;
       }
       toast.error(
         anyErr.payload?.error ??
@@ -1235,8 +1436,13 @@ export default function PrescriptionsPage() {
   // (always on the current 25 rows).
   const visiblePrescriptions = useMemo(() => {
     const q = debouncedSearch.toLowerCase();
-    const fromTs = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
-    const toTs = dateTo ? new Date(`${dateTo}T23:59:59`).getTime() : null;
+    // `todayOnly` scopes to today's bounds; otherwise use the manual range
+    // (either bound optional). Today picker values stay empty in todayOnly mode.
+    const today = todayISO();
+    const fromStr = todayOnly ? today : dateFrom;
+    const toStr = todayOnly ? today : dateTo;
+    const fromTs = fromStr ? new Date(`${fromStr}T00:00:00`).getTime() : null;
+    const toTs = toStr ? new Date(`${toStr}T23:59:59`).getTime() : null;
 
     let rows = prescriptions.filter((rx) => {
       // Search across patient name + doctor name + medication names.
@@ -1284,7 +1490,7 @@ export default function PrescriptionsPage() {
       return String(av).localeCompare(String(bv)) * dir;
     });
     return rows;
-  }, [prescriptions, debouncedSearch, statusFilter, dateFrom, dateTo, sortKey, sortDir]);
+  }, [prescriptions, debouncedSearch, statusFilter, todayOnly, dateFrom, dateTo, sortKey, sortDir]);
 
   function toggleSort(next: typeof sortKey) {
     if (sortKey === next) {
@@ -1296,7 +1502,7 @@ export default function PrescriptionsPage() {
   }
 
   const hasActiveFilters =
-    !!debouncedSearch || !!statusFilter || !!dateFrom || !!dateTo;
+    !!debouncedSearch || !!statusFilter || todayOnly || !!dateFrom || !!dateTo;
   const totalPages = Math.max(1, Math.ceil(total / pageLimit));
 
   return (
@@ -2118,7 +2324,11 @@ export default function PrescriptionsPage() {
             id="rx-date-from-input"
             type="date"
             value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
+            max={dateTo || todayISO()}
+            onChange={(e) => {
+              setTodayOnly(false);
+              setDateFrom(e.target.value);
+            }}
             data-testid="rx-date-from"
             aria-label="Issued on or after"
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
@@ -2132,7 +2342,12 @@ export default function PrescriptionsPage() {
             id="rx-date-to-input"
             type="date"
             value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
+            min={dateFrom || undefined}
+            max={todayISO()}
+            onChange={(e) => {
+              setTodayOnly(false);
+              setDateTo(e.target.value);
+            }}
             data-testid="rx-date-to"
             aria-label="Issued on or before"
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
@@ -2140,9 +2355,55 @@ export default function PrescriptionsPage() {
         </div>
       </div>
 
-      {/* Sort buttons (live above the list — DataTable-style headers don't
-          fit our card layout, so we expose them as a small toolbar). */}
+      {/* Quick date presets. "Today" is the default; "All time" clears the
+          range. Dates are computed dynamically so they stay correct daily. */}
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-gray-500 dark:text-gray-400">Show:</span>
+        {(() => {
+          const todayActive = todayOnly;
+          const allActive = !todayOnly && !dateFrom && !dateTo;
+          const base =
+            "rounded-full border px-3 py-1 transition";
+          const on =
+            "border-primary bg-primary/10 text-primary";
+          const off =
+            "border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700";
+          return (
+            <>
+              <button
+                type="button"
+                data-testid="rx-filter-today"
+                onClick={() => {
+                  setTodayOnly(true);
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+                className={`${base} ${todayActive ? on : off}`}
+                aria-pressed={todayActive}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                data-testid="rx-filter-all"
+                onClick={() => {
+                  setTodayOnly(false);
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+                className={`${base} ${allActive ? on : off}`}
+                aria-pressed={allActive}
+              >
+                All time
+              </button>
+            </>
+          );
+        })()}
+        {/* Divider, then Sort controls — kept on the SAME line as Show. */}
+        <span
+          className="mx-1 hidden h-4 w-px bg-gray-200 dark:bg-gray-700 sm:inline-block"
+          aria-hidden="true"
+        />
         <span className="text-gray-500 dark:text-gray-400">Sort:</span>
         {(
           [
@@ -2223,6 +2484,7 @@ export default function PrescriptionsPage() {
               onClick: () => {
                 setSearch("");
                 setStatusFilter("");
+                setTodayOnly(false);
                 setDateFrom("");
                 setDateTo("");
               },
@@ -2243,7 +2505,25 @@ export default function PrescriptionsPage() {
               >
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium">{rx.patient.user.name}</p>
+                    <p className="flex items-center gap-2 font-medium">
+                      {rx.patient.user.name}
+                      {(() => {
+                        const key = deriveRxStatusKey(
+                          rx.status,
+                          rx.items,
+                          rx.billed,
+                        );
+                        const badge = key ? RX_STATUS_BADGE[key] : undefined;
+                        return badge ? (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badge.className}`}
+                            data-testid={`rx-status-badge-${rx.id}`}
+                          >
+                            {badge.label}
+                          </span>
+                        ) : null;
+                      })()}
+                    </p>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
                       Diagnosis: {rx.diagnosis}
                     </p>
@@ -2265,30 +2545,72 @@ export default function PrescriptionsPage() {
               {expanded === rx.id && (
                 <div className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
                   <div className="overflow-x-auto">
-                  <table className="w-full text-sm min-w-[720px]">
+                  <table className="w-full table-fixed text-sm min-w-[720px]">
                     <thead>
                       <tr className="text-left text-gray-500 dark:text-gray-400">
-                        <th className="pb-2">Medicine</th>
-                        <th className="pb-2">Dosage</th>
-                        <th className="pb-2">Frequency</th>
-                        <th className="pb-2">Duration</th>
-                        <th className="pb-2">Instructions</th>
+                        <th className="w-[34%] pb-2">Medicine</th>
+                        <th className="w-[10%] pb-2">Dosage</th>
+                        <th className="w-[20%] pb-2">Frequency</th>
+                        <th className="w-[12%] pb-2">Duration</th>
+                        <th className="w-[8%] pb-2">Qty</th>
+                        <th className="w-[16%] pb-2 text-center">Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {rx.items.map((item, i) => (
-                        <tr key={i} className="border-t border-gray-100 dark:border-gray-700">
-                          <td className="py-2 font-medium">
-                            {item.medicineName}
-                          </td>
-                          <td className="py-2">{item.dosage}</td>
-                          <td className="py-2">{item.frequency}</td>
-                          <td className="py-2">{item.duration}</td>
-                          <td className="py-2 text-gray-500 dark:text-gray-400">
-                            {item.instructions || "—"}
-                          </td>
-                        </tr>
-                      ))}
+                      {rx.items.map((item, i) => {
+                        const avail = availabilityById[rx.id]?.items?.[i];
+                        const qty = parseInstructions(item.instructions).quantity;
+                        return (
+                          <tr
+                            key={i}
+                            className="border-t border-gray-100 dark:border-gray-700"
+                          >
+                            <td className="py-2 pr-3 align-top font-medium">
+                              {item.medicineName}
+                              {item.instructions ? (
+                                <div className="mt-0.5 whitespace-normal break-words text-xs font-normal italic text-gray-500 dark:text-gray-400">
+                                  Instructions: {item.instructions}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="py-2 align-top">{item.dosage}</td>
+                            <td className="py-2 align-top">{item.frequency}</td>
+                            <td className="py-2 align-top">{item.duration}</td>
+                            <td className="py-2 align-top">{qty || "—"}</td>
+                            <td
+                              className="py-2 align-top text-center"
+                              data-testid={`rx-stock-${rx.id}-${i}`}
+                            >
+                              {item.kanbanStatus === "DISPENSED" ? (
+                                // Per-line dispensed state. A doctor edit resets
+                                // this to PENDING, so an amended line drops back
+                                // to its live stock badge below.
+                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                  Dispensed
+                                </span>
+                              ) : !avail ? (
+                                <span className="text-xs text-gray-400 dark:text-gray-500">
+                                  …
+                                </span>
+                              ) : !avail.matched ? (
+                                <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-300">
+                                  Not in catalog
+                                </span>
+                              ) : avail.available ? (
+                                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                  {avail.availableQty} in stock
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-600 dark:bg-red-900/30 dark:text-red-300">
+                                  {avail.availableQty > 0
+                                    ? `Short (${avail.availableQty}/${avail.requiredQty})`
+                                    : "Out of stock"}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                   </div>
@@ -2319,7 +2641,7 @@ export default function PrescriptionsPage() {
                       onClick={() => markPrinted(rx.id)}
                       className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
                     >
-                      {rx.printed ? "Re-Print" : "Print"}
+                      Print
                     </button>
                     <button
                       type="button"
@@ -2346,26 +2668,58 @@ export default function PrescriptionsPage() {
                     {/* Issue #608: pharmacist + admin get Dispense / Reject
                         actions on the card. Doctors/nurses keep the slimmer
                         Print + Share footer. */}
-                    {(user?.role === "PHARMACIST" || user?.role === "ADMIN") && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => dispenseFromCard(rx.id)}
-                          data-testid={`rx-dispense-${rx.id}`}
-                          className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
-                        >
-                          Dispense
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => rejectFromCard(rx.id)}
-                          data-testid={`rx-reject-${rx.id}`}
-                          className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
-                        >
-                          Reject
-                        </button>
-                      </>
-                    )}
+                    {(user?.role === "PHARMACIST" || user?.role === "ADMIN") && (() => {
+                      // Drive the button off the PER-LINE state (same source as
+                      // the badge), NOT the stale prescription.status — so an
+                      // edited script (items reset to PENDING) shows "Dispense in
+                      // Kanban" again even if it was dispensed before.
+                      const derivedKey = deriveRxStatusKey(rx.status, rx.items);
+                      const terminal =
+                        derivedKey === "REJECTED" || derivedKey === "CANCELLED";
+                      const allDispensed = derivedKey === "DISPENSED";
+                      const items = rx.items ?? [];
+                      const dispensedLines = items.filter(
+                        (i) => i.kanbanStatus === "DISPENSED",
+                      ).length;
+                      // Some (but not all) lines dispensed — the rest may be out
+                      // of stock; route to the Kanban to finish them.
+                      const partiallyDispensed =
+                        dispensedLines > 0 && dispensedLines < items.length;
+                      const label = terminal
+                        ? RX_STATUS_BADGE[derivedKey!]?.label ?? "—"
+                        : allDispensed
+                          ? "Fully dispensed"
+                          : partiallyDispensed
+                            ? "Finish in Kanban →"
+                            : "Dispense in Kanban →";
+                      const disabled = terminal || allDispensed;
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleStageClick(rx)}
+                            disabled={disabled}
+                            data-testid={`rx-dispense-${rx.id}`}
+                            title={
+                              partiallyDispensed
+                                ? "Some medicines aren't dispensed yet — open the Kanban board to finish them"
+                                : undefined
+                            }
+                            className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50 dark:disabled:hover:bg-emerald-900/30"
+                          >
+                            {label}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => rejectFromCard(rx.id)}
+                            data-testid={`rx-reject-${rx.id}`}
+                            className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100 dark:border-red-700 dark:bg-red-900/30 dark:text-red-200 dark:hover:bg-red-900/50"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      );
+                    })()}
                     {rx.sharedVia && (
                       <span className="ml-auto self-center text-xs text-gray-500 dark:text-gray-400">
                         Shared: {rx.sharedVia}
@@ -2770,6 +3124,69 @@ export default function PrescriptionsPage() {
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {shareSubmitting ? "Sharing…" : `Sign & Share via ${signShareTarget.channel}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejectTargetId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div
+            className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl dark:bg-gray-800"
+            data-testid="rx-reject-modal"
+          >
+            <div className="border-b border-gray-200 px-6 py-4 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Reject prescription
+              </h2>
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                Give a reason (min 10 characters) — e.g. out of stock, expired,
+                requires verification.
+              </p>
+            </div>
+            <div className="p-6">
+              <label
+                htmlFor="rx-reject-reason"
+                className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-200"
+              >
+                Rejection reason
+                <span className="ml-1 text-red-500" aria-hidden="true">*</span>
+              </label>
+              <textarea
+                id="rx-reject-reason"
+                data-testid="rx-reject-reason"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                autoFocus
+                placeholder="Out of stock — please re-order from supplier"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-primary focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {rejectReason.trim().length}/10 characters minimum
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-gray-900/40">
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectTargetId(null);
+                  setRejectReason("");
+                }}
+                disabled={rejectSubmitting}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmReject}
+                disabled={rejectReason.trim().length < 10 || rejectSubmitting}
+                data-testid="rx-reject-confirm"
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {rejectSubmitting ? "Rejecting…" : "Reject prescription"}
               </button>
             </div>
           </div>

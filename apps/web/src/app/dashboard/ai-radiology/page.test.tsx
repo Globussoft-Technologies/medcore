@@ -60,7 +60,15 @@ const pendingReport = {
     patientId: "p1",
     modality: "XRAY",
     bodyPart: "Chest",
-    images: [{ key: "uploads/ehr/chest-1.jpg", filename: "chest-1.jpg" }],
+    // `signedUrl` is what the detail view's <img> binds to (primaryImageUrl);
+    // without it the image-container block hides itself.
+    images: [
+      {
+        key: "uploads/ehr/chest-1.jpg",
+        filename: "chest-1.jpg",
+        signedUrl: "https://signed.example/chest-1.jpg",
+      },
+    ],
     studyDate: "2026-04-24",
     patient: { user: { name: "Alice Test" } },
   },

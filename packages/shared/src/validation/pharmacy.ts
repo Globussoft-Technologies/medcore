@@ -156,6 +156,19 @@ export const dispensePrescriptionSchema = z.object({
     .min(3, "Witness signature must be at least 3 characters")
     .optional(),
   witnessUserId: z.string().uuid().optional(),
+  // When true, the dispense completes (flips the Rx to DISPENSED) even if some
+  // lines are out of stock — the pharmacist explicitly chose to skip the
+  // unavailable items. The available lines are still dispensed + billed.
+  allowPartial: z.boolean().optional(),
+  // Optional per-medicine dispense: when provided, ONLY the matched medicines
+  // in this list are dispensed (the rest of the Rx is left untouched). Used by
+  // the Kanban "View" modal's per-medicine Dispense action.
+  medicineIds: z.array(z.string().uuid()).optional(),
+  // Optional per-LINE-ITEM dispense (preferred by the per-medicine Kanban):
+  // dispense ONLY these PrescriptionItem ids. Unlike medicineIds this targets
+  // a single prescribed line, so two lines of the SAME medicine (e.g. ORS
+  // Sachet 5-day + 10-day) dispense independently.
+  itemIds: z.array(z.string().uuid()).optional(),
 });
 
 export const controlledSubstanceSchema = z.object({

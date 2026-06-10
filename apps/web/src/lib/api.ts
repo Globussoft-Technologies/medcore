@@ -304,21 +304,31 @@ export async function printPdfEndpoint(endpoint: string): Promise<void> {
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const iframe = document.createElement("iframe");
+    // Park it off-screen at a real (non-zero) size — a 0×0 iframe often fails
+    // to initialise the PDF viewer, so print() silently no-ops in Chrome.
     iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
+    iframe.style.left = "-10000px";
+    iframe.style.top = "0";
+    iframe.style.width = "794px"; // ~A4 @ 96dpi
+    iframe.style.height = "1123px";
     iframe.style.border = "0";
     iframe.src = url;
-    iframe.onload = () => {
+    let printed = false;
+    const doPrint = () => {
+      if (printed) return;
+      printed = true;
       try {
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
       } catch {
+        // Last resort: open the PDF in a tab so the user can still print.
         window.open(url, "_blank");
       }
     };
+    // Wait for load, then a short beat so the embedded PDF viewer is ready
+    // before print() — calling immediately on load is the usual "nothing
+    // happens" cause.
+    iframe.onload = () => window.setTimeout(doPrint, 400);
     document.body.appendChild(iframe);
     window.setTimeout(() => {
       URL.revokeObjectURL(url);

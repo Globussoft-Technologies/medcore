@@ -180,6 +180,7 @@ type RxItem = {
   frequency: string;
   duration: string;
   instructions: string | null;
+  kanbanStatus?: string;
 };
 
 type RxRecord = {
@@ -190,6 +191,8 @@ type RxRecord = {
   createdAt: string;
   printed?: boolean;
   sharedVia?: string | null;
+  status?: string;
+  billed?: boolean;
   items: RxItem[];
   doctor: { user: { name: string } };
   patient: { user: { name: string; phone: string } };
@@ -201,7 +204,8 @@ function rxFixture(overrides: Partial<RxRecord> = {}): RxRecord {
     diagnosis: "E11.9 — Type 2 diabetes",
     advice: "Reduce sugar",
     followUpDate: null,
-    createdAt: "2026-05-20T10:00:00.000Z",
+    // Dynamic "today" so the page's default Today date-filter includes it.
+    createdAt: new Date().toISOString(),
     printed: false,
     sharedVia: null,
     items: [
@@ -381,8 +385,10 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
     expect(screen.getAllByText(/E11.9 — Type 2 diabetes/i).length).toBe(2);
     expect(screen.getByTestId("rx-row-rx-1")).toBeInTheDocument();
     expect(screen.getByTestId("rx-row-rx-2")).toBeInTheDocument();
+    // Default Today date-filter is active, so the count uses the filtered
+    // "X of Y shown" format; both rows are dated today (dynamic fixture).
     expect(screen.getByTestId("rx-total-count").textContent).toMatch(
-      /2 prescriptions/,
+      /2 of 2 shown/,
     );
   });
 
@@ -407,7 +413,8 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
     fireEvent.click(within(row).getAllByRole("button")[0]);
 
     expect(await screen.findByText("Metformin")).toBeInTheDocument();
-    expect(screen.getByText("After meals")).toBeInTheDocument();
+    // Instructions now render below the medicine name, prefixed "Instructions:".
+    expect(screen.getByText(/Instructions: After meals/)).toBeInTheDocument();
   });
 
   it("debounces the search input and filters by patient / diagnosis / medicine name client-side", async () => {
@@ -941,18 +948,62 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
     );
   });
 
-  it("PHARMACIST sees Dispense + Reject; clicking Dispense POSTs /pharmacy/dispense and toasts success", async () => {
+  it("shows live stock availability per medicine in the expanded row (in-stock vs out-of-stock)", async () => {
     asPharmacist();
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/prescriptions?")) {
         return Promise.resolve({
-          data: [rxFixture({ id: "rx-1" })],
+          data: [
+            rxFixture({
+              id: "rx-1",
+              items: [
+                {
+                  id: "ix-1",
+                  medicineName: "Metformin",
+                  dosage: "500mg",
+                  frequency: "1-0-1",
+                  duration: "30 days",
+                  instructions: "Route: PO | Qty: 5 | after meals",
+                },
+                {
+                  id: "ix-2",
+                  medicineName: "Warfarin",
+                  dosage: "5mg",
+                  frequency: "0-0-1",
+                  duration: "10 days",
+                  instructions: "Route: PO | Qty: 10 | night",
+                },
+              ],
+            }),
+          ],
           meta: { total: 1 },
+        });
+      }
+      if (url.includes("/availability")) {
+        return Promise.resolve({
+          data: {
+            items: [
+              {
+                medicineName: "Metformin",
+                requiredQty: 5,
+                availableQty: 40,
+                matched: true,
+                available: true,
+              },
+              {
+                medicineName: "Warfarin",
+                requiredQty: 10,
+                availableQty: 2,
+                matched: true,
+                available: false,
+              },
+            ],
+            allAvailable: false,
+          },
         });
       }
       return defaultGetResponder()(url);
     });
-    apiMock.post.mockResolvedValue({ data: {} });
 
     render(<PrescriptionsPage />);
     await screen.findByText("Rakesh Patel");
@@ -960,17 +1011,176 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
       within(screen.getByTestId("rx-row-rx-1")).getAllByRole("button")[0],
     );
 
-    fireEvent.click(screen.getByTestId("rx-dispense-rx-1"));
-
+    // First medicine is in stock; second is short / out of stock.
     await waitFor(() =>
-      expect(apiMock.post).toHaveBeenCalledWith("/pharmacy/dispense", {
-        prescriptionId: "rx-1",
-      }),
+      expect(screen.getByTestId("rx-stock-rx-1-0")).toHaveTextContent(
+        /in stock/i,
+      ),
     );
-    expect(toastMock.success).toHaveBeenCalledWith("Prescription dispensed");
+    expect(screen.getByTestId("rx-stock-rx-1-1")).toHaveTextContent(
+      /short|out of stock/i,
+    );
   });
 
-  it("PHARMACIST Reject — short reason (< 10 chars) toasts error and never POSTs", async () => {
+  it("PHARMACIST staged action — PENDING 'Dispense in Kanban' button routes to the scoped board (no per-Rx transition)", async () => {
+    asPharmacist();
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/prescriptions?")) {
+        return Promise.resolve({
+          data: [rxFixture({ id: "rx-1", status: "PENDING" })],
+          meta: { total: 1 },
+        });
+      }
+      return defaultGetResponder()(url);
+    });
+
+    render(<PrescriptionsPage />);
+    await screen.findByText("Rakesh Patel");
+    fireEvent.click(
+      within(screen.getByTestId("rx-row-rx-1")).getAllByRole("button")[0],
+    );
+
+    const btn = screen.getByTestId("rx-dispense-rx-1");
+    expect(btn).toHaveTextContent("Dispense in Kanban");
+    fireEvent.click(btn);
+
+    // Dispensing is per-medicine on the Kanban now: the list just opens the
+    // board scoped to this prescription — it never PATCHes/dispenses here.
+    expect(routerMock.push).toHaveBeenCalledWith(
+      "/dashboard/pharmacy-kanban?prescription=rx-1",
+    );
+    expect(apiMock.patch).not.toHaveBeenCalled();
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
+  it("PHARMACIST staged action — a DISPENSING Rx also opens the Kanban (not a 'Ready' transition)", async () => {
+    asPharmacist();
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/prescriptions?")) {
+        return Promise.resolve({
+          data: [rxFixture({ id: "rx-1", status: "DISPENSING" })],
+          meta: { total: 1 },
+        });
+      }
+      return defaultGetResponder()(url);
+    });
+
+    render(<PrescriptionsPage />);
+    await screen.findByText("Rakesh Patel");
+    fireEvent.click(
+      within(screen.getByTestId("rx-row-rx-1")).getAllByRole("button")[0],
+    );
+
+    const btn = screen.getByTestId("rx-dispense-rx-1");
+    expect(btn).toHaveTextContent("Dispense in Kanban");
+    fireEvent.click(btn);
+
+    expect(routerMock.push).toHaveBeenCalledWith(
+      "/dashboard/pharmacy-kanban?prescription=rx-1",
+    );
+    expect(apiMock.patch).not.toHaveBeenCalled();
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
+  it("PHARMACIST staged action — DISPENSED Rx with a pending line shows 'Finish … in Kanban' and routes to the board", async () => {
+    asPharmacist();
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/prescriptions?")) {
+        return Promise.resolve({
+          // Per-line state: one dispensed, one still pending (out of stock) →
+          // partially dispensed → "Finish in Kanban".
+          data: [
+            rxFixture({
+              id: "rx-1",
+              status: "DISPENSED",
+              items: [
+                {
+                  id: "ix-1",
+                  medicineName: "Aspirin",
+                  dosage: "75mg",
+                  frequency: "1-0-0",
+                  duration: "5 days",
+                  instructions: null,
+                  kanbanStatus: "DISPENSED",
+                },
+                {
+                  id: "ix-2",
+                  medicineName: "Metformin",
+                  dosage: "500mg",
+                  frequency: "1-0-1",
+                  duration: "30 days",
+                  instructions: null,
+                  kanbanStatus: "PENDING",
+                },
+              ],
+            }),
+          ],
+          meta: { total: 1 },
+        });
+      }
+      return defaultGetResponder()(url);
+    });
+
+    render(<PrescriptionsPage />);
+    await screen.findByText("Rakesh Patel");
+    fireEvent.click(
+      within(screen.getByTestId("rx-row-rx-1")).getAllByRole("button")[0],
+    );
+
+    const btn = await screen.findByTestId("rx-dispense-rx-1");
+    await waitFor(() => expect(btn).toHaveTextContent(/Finish in Kanban/));
+    expect(btn).not.toBeDisabled();
+    fireEvent.click(btn);
+    expect(routerMock.push).toHaveBeenCalledWith(
+      "/dashboard/pharmacy-kanban?prescription=rx-1",
+    );
+  });
+
+  it("badges a billed script as 'Dispensed' even with an out-of-stock line", async () => {
+    asPharmacist();
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/prescriptions?")) {
+        return Promise.resolve({
+          data: [
+            rxFixture({
+              id: "rx-1",
+              status: "DISPENSING",
+              billed: true, // bill generated → "Dispensed" regardless of ORS
+              items: [
+                {
+                  id: "ix-1",
+                  medicineName: "Aspirin",
+                  dosage: "75mg",
+                  frequency: "1-0-0",
+                  duration: "5 days",
+                  instructions: null,
+                  kanbanStatus: "DISPENSED",
+                },
+                {
+                  id: "ix-2",
+                  medicineName: "ORS Sachet",
+                  dosage: "5ml",
+                  frequency: "0-0-1",
+                  duration: "5 days",
+                  instructions: null,
+                  kanbanStatus: "PENDING",
+                },
+              ],
+            }),
+          ],
+          meta: { total: 1 },
+        });
+      }
+      return defaultGetResponder()(url);
+    });
+
+    render(<PrescriptionsPage />);
+    await screen.findByText("Rakesh Patel");
+    const badge = await screen.findByTestId("rx-status-badge-rx-1");
+    expect(badge).toHaveTextContent(/Dispensed/i);
+  });
+
+  it("PHARMACIST Reject — confirm stays disabled for a < 10 char reason and never POSTs", async () => {
     asPharmacist();
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/prescriptions?")) {
@@ -981,9 +1191,6 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
       }
       return defaultGetResponder()(url);
     });
-    const promptSpy = vi
-      .spyOn(window, "prompt")
-      .mockReturnValueOnce("too short");
 
     render(<PrescriptionsPage />);
     await screen.findByText("Rakesh Patel");
@@ -993,18 +1200,17 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
 
     fireEvent.click(screen.getByTestId("rx-reject-rx-1"));
 
-    await waitFor(() =>
-      expect(toastMock.error).toHaveBeenCalledWith(
-        expect.stringMatching(/at least 10 characters/i),
-      ),
-    );
+    // Modal opens; a too-short reason keeps the confirm button disabled.
+    const reason = await screen.findByTestId("rx-reject-reason");
+    fireEvent.change(reason, { target: { value: "too short" } }); // 9 chars
+    expect(screen.getByTestId("rx-reject-confirm")).toBeDisabled();
+
     // No /reject POST fired.
     expect(
       apiMock.post.mock.calls.find((c) =>
         String(c[0]).includes("/reject"),
       ),
     ).toBeUndefined();
-    promptSpy.mockRestore();
   });
 
   it("PHARMACIST Reject — happy path POSTs /pharmacy/prescriptions/:id/reject with the reason", async () => {
@@ -1019,9 +1225,6 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
       return defaultGetResponder()(url);
     });
     apiMock.post.mockResolvedValue({ data: {} });
-    const promptSpy = vi
-      .spyOn(window, "prompt")
-      .mockReturnValueOnce("out of stock currently in the warehouse");
 
     render(<PrescriptionsPage />);
     await screen.findByText("Rakesh Patel");
@@ -1030,6 +1233,12 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
     );
 
     fireEvent.click(screen.getByTestId("rx-reject-rx-1"));
+
+    const reason = await screen.findByTestId("rx-reject-reason");
+    fireEvent.change(reason, {
+      target: { value: "out of stock currently in the warehouse" },
+    });
+    fireEvent.click(screen.getByTestId("rx-reject-confirm"));
 
     await waitFor(() =>
       expect(apiMock.post).toHaveBeenCalledWith(
@@ -1040,10 +1249,9 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
       ),
     );
     expect(toastMock.success).toHaveBeenCalledWith("Prescription rejected");
-    promptSpy.mockRestore();
   });
 
-  it("PHARMACIST Reject — prompt cancelled (null) is a no-op", async () => {
+  it("PHARMACIST Reject — cancelling the modal is a no-op", async () => {
     asPharmacist();
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/prescriptions?")) {
@@ -1054,7 +1262,6 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
       }
       return defaultGetResponder()(url);
     });
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValueOnce(null);
 
     render(<PrescriptionsPage />);
     await screen.findByText("Rakesh Patel");
@@ -1064,11 +1271,19 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
 
     fireEvent.click(screen.getByTestId("rx-reject-rx-1"));
 
-    // Give the handler a tick to bail.
-    await new Promise((r) => setTimeout(r, 20));
+    const modal = await screen.findByTestId("rx-reject-modal");
+    fireEvent.click(within(modal).getByRole("button", { name: /^Cancel$/i }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("rx-reject-modal")).not.toBeInTheDocument(),
+    );
     expect(toastMock.error).not.toHaveBeenCalled();
     expect(toastMock.success).not.toHaveBeenCalled();
-    promptSpy.mockRestore();
+    expect(
+      apiMock.post.mock.calls.find((c) =>
+        String(c[0]).includes("/reject"),
+      ),
+    ).toBeUndefined();
   });
 
   it("Edit button opens the writer in Edit mode, pre-fills diagnosis, and shows 'Update Prescription' submit label", async () => {
@@ -1125,7 +1340,7 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
 
   // ── Pre-printed status surface ───────────────────────────────────────
 
-  it("renders the 'Re-Print' label (not 'Print') on a previously-printed Rx", async () => {
+  it("always labels the print button 'Print' (never 'Re-Print'), even for a previously-printed Rx", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/prescriptions?")) {
         return Promise.resolve({
@@ -1143,8 +1358,11 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: /Re-Print/i }),
+      screen.getByRole("button", { name: /^Print$/i }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Re-Print/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("admin sees Dispense + Reject buttons (parity with pharmacist) and the row footer renders the sharedVia chip when set", async () => {
@@ -1687,18 +1905,17 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
     );
   });
 
-  it("Dispense error — POST /pharmacy/dispense rejection surfaces toast.error with the message", async () => {
+  it("READY staged action — 'Dispense in Kanban' routes to the board (dispensing moved off the list)", async () => {
     asPharmacist();
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/prescriptions?")) {
         return Promise.resolve({
-          data: [rxFixture({ id: "rx-1" })],
+          data: [rxFixture({ id: "rx-1", status: "READY" })],
           meta: { total: 1 },
         });
       }
       return defaultGetResponder()(url);
     });
-    apiMock.post.mockRejectedValue(new Error("out of stock"));
 
     render(<PrescriptionsPage />);
     await screen.findByText("Rakesh Patel");
@@ -1708,9 +1925,10 @@ describe("PrescriptionsPage (Rx queue + writer — full surface)", () => {
 
     fireEvent.click(screen.getByTestId("rx-dispense-rx-1"));
 
-    await waitFor(() =>
-      expect(toastMock.error).toHaveBeenCalledWith("out of stock"),
+    expect(routerMock.push).toHaveBeenCalledWith(
+      "/dashboard/pharmacy-kanban?prescription=rx-1",
     );
+    expect(apiMock.post).not.toHaveBeenCalled();
   });
 
   it("interaction modal — CONTRAINDICATED severity badge styling renders the red variant", async () => {

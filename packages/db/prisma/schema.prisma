@@ -2131,10 +2131,17 @@ model PrescriptionItem {
   refills        Int     @default(0)
   refillsUsed    Int     @default(0)
 
+  // Per-medicine pharmacy Kanban status. The board models EACH line item as
+  // its own card moving PENDING (New) → DISPENSING → READY → DISPENSED
+  // independently — a script with mixed stock can have some lines dispensed
+  // while out-of-stock lines stay in New. Reuses the prescription-level enum.
+  kanbanStatus   PrescriptionStatus @default(PENDING)
+
   prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
   medicine     Medicine?    @relation(fields: [medicineId], references: [id], onDelete: SetNull)
 
   @@index([medicineId])
+  @@index([kanbanStatus])
   @@map("prescription_items")
 }
 
@@ -2234,6 +2241,13 @@ model Invoice {
   // its parent without false-positive uniqueness violations.
   appointmentId    String?       @unique
   admissionId      String?       @unique
+  // Standalone PHARMACY bill anchor (2026-06): the Pharmacy Kanban "Generate
+  // Bill" creates a pharmacy-only invoice (dispensed medicines ONLY — no
+  // consultation/other lines) linked to its prescription. Nullable scalar (no
+  // FK relation needed) + @unique so each prescription has at most one such
+  // bill and the board can look it up / reconcile it idempotently. Appointment
+  // and admission stay null on these rows.
+  prescriptionId   String?       @unique
   patientId        String
   // Issue #901 (2026-05-19): money columns migrated from Float (IEEE-754
   // double) to DECIMAL(12,2) so paise arithmetic is exact and reconciles

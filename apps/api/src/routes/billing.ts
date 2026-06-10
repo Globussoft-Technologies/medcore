@@ -545,7 +545,7 @@ router.post(
 // caller's own Patient row before findMany.
 router.get(
   "/invoices",
-  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Refresh IPD running-bill totals on the DB before listing so the
@@ -649,6 +649,12 @@ router.get(
           where: { userId: req.user!.userId },
         });
         if (patient) where.patientId = patient.id;
+      }
+
+      // Pharmacists see ONLY the pharmacy bills (standalone invoices linked to a
+      // prescription) — not consultation / IPD / other invoices.
+      if (req.user!.role === "PHARMACIST") {
+        where.prescriptionId = { not: null };
       }
 
       const [invoices, total] = await Promise.all([
@@ -772,14 +778,16 @@ router.get(
 
 // GET /api/v1/billing/invoices/:id
 // RBAC (issue #89): DOCTOR must NOT see invoice detail. PATIENT allowed for
-// own-record access only.
+// own-record access only. PHARMACIST may view the bill they generate from the
+// pharmacy dispense / Kanban "Generate Bill" flow (read-only — invoice
+// mutations stay ADMIN/RECEPTION).
 // Issue #511 (BOLA): PATIENT must only fetch own invoices. The earlier
 // "further checked at object level by upstream consumers" comment did
 // not actually translate into any per-row check; assertPatientOwnsResource
 // closes the gap here so every consumer is uniformly gated.
 router.get(
   "/invoices/:id",
-  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Refresh IPD running-bill items + totals before reading so an opened

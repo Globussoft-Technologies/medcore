@@ -642,7 +642,15 @@ router.patch(
             // edit that doesn't re-capture the signature must NOT clear the
             // existing one. The Sign-before-share flow PATCHes with the new
             // signature to flip an unsigned prescription to signed.
-            ...(signatureDataUrl ? { signatureUrl: signatureDataUrl } : {}),
+            //
+            // A content edit (no new signature) resets the pharmacy status to
+            // PENDING so the amended script re-enters the dispensing queue as
+            // "New" — the pharmacist must re-review the changed medicines.
+            // The sign-to-share PATCH (signatureDataUrl present) leaves the
+            // status untouched.
+            ...(signatureDataUrl
+              ? { signatureUrl: signatureDataUrl }
+              : { status: "PENDING" }),
             items: { create: normalizedItems },
           },
           include: {
@@ -781,9 +789,22 @@ router.get("/", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.PHARMACIST, 
       prisma.prescription.count({ where }),
     ]);
 
+    // Flag which scripts already have a pharmacy bill generated (standalone
+    // invoice linked by prescriptionId) so the list can badge them "Dispensed".
+    const billedIds = new Set<string>();
+    if (prescriptions.length > 0) {
+      const invs = await prisma.invoice.findMany({
+        where: { prescriptionId: { in: prescriptions.map((p) => p.id) } },
+        select: { prescriptionId: true },
+      });
+      for (const inv of invs) {
+        if (inv.prescriptionId) billedIds.add(inv.prescriptionId);
+      }
+    }
+
     res.json({
       success: true,
-      data: prescriptions,
+      data: prescriptions.map((p) => ({ ...p, billed: billedIds.has(p.id) })),
       error: null,
       meta: { page: parseInt(page as string), limit: take, total },
     });
@@ -909,9 +930,12 @@ router.get(
 
 // POST /api/v1/prescriptions/:id/print — mark as printed
 // RBAC (issue #90): RECEPTION removed (was DOCTOR/ADMIN/RECEPTION).
+// PHARMACIST + NURSE added — both print scripts from the prescriptions list
+// (a pharmacist clicking Print was 403ing here, which silently aborted the
+// whole print flow).
 router.post(
   "/:id/print",
-  authorize(Role.DOCTOR, Role.ADMIN),
+  authorize(Role.DOCTOR, Role.ADMIN, Role.PHARMACIST, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const updated = await prisma.prescription.update({

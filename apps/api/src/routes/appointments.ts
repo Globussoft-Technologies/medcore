@@ -435,7 +435,7 @@ router.post(
       }
 
       // Fire-and-forget notification
-      onAppointmentBooked(appointment as any).catch(console.error);
+      onAppointmentBooked(appointment as any, patientPortalLink(req)).catch(console.error);
       auditLog(req, "APPOINTMENT_CREATE", "appointment", appointment.id, { patientId, doctorId, date }).catch(console.error);
 
       // Pearl §5.1 piece 3c — campaign conversion attribution.
@@ -581,7 +581,7 @@ router.post(
       }
 
       // Fire-and-forget notification
-      onAppointmentBooked(appointment as any).catch(console.error);
+      onAppointmentBooked(appointment as any, patientPortalLink(req)).catch(console.error);
       auditLog(req, "WALK_IN_REGISTER", "appointment", appointment.id, { patientId, doctorId }).catch(console.error);
 
       res.status(201).json({ success: true, data: appointment, error: null });
@@ -1209,14 +1209,20 @@ router.post(
 // reschedule regardless of who did it — the patient via the PWA or a
 // MedCore staff member (reception/doctor/nurse/admin) — because both go
 // through the single PATCH /:id/reschedule handler that calls this.
-async function onAppointmentRescheduled(appointment: {
-  id: string;
-  tokenNumber: number | null;
-  date: Date;
-  slotStart?: string | null;
-  patient: { user: { name: string; phone?: string | null } };
-  doctor: { user: { name: string } };
-}): Promise<void> {
+async function onAppointmentRescheduled(
+  appointment: {
+    id: string;
+    tokenNumber: number | null;
+    date: Date;
+    slotStart?: string | null;
+    patient: { user: { name: string; phone?: string | null } };
+    doctor: { user: { name: string } };
+  },
+  // Pre-computed from the request at the call site (where `req` exists) so the
+  // WhatsApp link uses the host the user is actually on — works on both the
+  // software + demos environments without env config.
+  portalLink: string,
+): Promise<void> {
   const dateStr = new Date(appointment.date).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
@@ -1239,7 +1245,7 @@ async function onAppointmentRescheduled(appointment: {
     const body =
       `Hi ${appointment.patient.user.name}, your appointment with ${doctorName} ` +
       `has been rescheduled to ${dateStr}${timeStr}.${tokenLine}\n\n` +
-      `View or manage it here: ${patientPortalLink()} — MedCore`;
+      `View or manage it here: ${portalLink} — MedCore`;
     try {
       await sendWhatsApp({ to: phone, body });
     } catch (e) {
@@ -1410,7 +1416,7 @@ router.patch(
         });
       }
 
-      onAppointmentRescheduled(appointment as any).catch(console.error);
+      onAppointmentRescheduled(appointment as any, patientPortalLink(req)).catch(console.error);
       auditLog(req, "APPOINTMENT_RESCHEDULE", "appointment", appointment.id, {
         oldDate: existing.date.toISOString().split("T")[0],
         oldSlotStart: existing.slotStart,
@@ -1524,7 +1530,7 @@ router.post(
 
       // Fire-and-forget notifications for each
       for (const apt of created) {
-        onAppointmentBooked(apt as any).catch(console.error);
+        onAppointmentBooked(apt as any, patientPortalLink(req)).catch(console.error);
       }
 
       auditLog(req, "RECURRING_APPOINTMENT_CREATE", "appointment", undefined, {
@@ -2565,7 +2571,7 @@ router.post(
         // reminder function, call it here instead.
         for (const apt of found) {
           try {
-            onAppointmentBooked(apt as any).catch(console.error);
+            onAppointmentBooked(apt as any, patientPortalLink(req)).catch(console.error);
             results.push({ id: apt.id, status: "ok" });
           } catch (e) {
             results.push({

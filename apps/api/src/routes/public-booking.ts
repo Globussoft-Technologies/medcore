@@ -876,6 +876,10 @@ publicBookingRouter.post(
           doctorName: doctor.user.name,
           date,
           slotStart: slotStartToUse,
+          // Raw mode outputs so the confirmation UI can show the right thing
+          // per mode (SLOT → time, TOKEN → token #, CALLING → arrival #).
+          tokenNumber,
+          arrivalSeq,
           displayToken,
           // So the client can nudge "sign in with this number to track it".
           patientPhone: phone,

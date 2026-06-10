@@ -64,6 +64,12 @@ describeIfDB("Public quick-booking API (integration)", () => {
       specialization: "General Medicine",
     });
     doctorId = doctor.id;
+    // These tests assert SLOT-mode behaviour (a time grid + slot-collision
+    // 409). The fixture defaults to TOKEN, so pin SLOT mode explicitly.
+    await prisma.doctor.update({
+      where: { id: doctorId },
+      data: { appointmentMode: "SLOT" },
+    });
     // 09:00–12:00, 15-min slots on the future date's weekday.
     await prisma.doctorSchedule.create({
       data: {
@@ -248,6 +254,116 @@ describeIfDB("Public quick-booking API (integration)", () => {
       doctorId: "not-a-uuid",
       date: FUTURE_ISO,
       slotId: "09:00",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  // ── All-modes support (2026-06): the public page now surfaces SLOT,
+  // TOKEN and CALLING doctors, not just SLOT. TOKEN/CALLING book against the
+  // date with no slotId. ──
+
+  it("suggest-doctors returns appointmentMode + nextToken for a TOKEN doctor", async () => {
+    const prisma = await getPrisma();
+    const tokenDoc = await createDoctorFixture({ specialization: "General Medicine" });
+    await prisma.doctor.update({
+      where: { id: tokenDoc.id },
+      data: { appointmentMode: "TOKEN" },
+    });
+    await prisma.doctorSchedule.create({
+      data: {
+        doctorId: tokenDoc.id,
+        dayOfWeek: FUTURE_DOW,
+        startTime: "09:00",
+        endTime: "12:00",
+        slotDurationMinutes: 15,
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/public/booking/suggest-doctors")
+      .send({ symptom: "fever", date: FUTURE_ISO });
+    expect(res.status).toBe(200);
+    const found = res.body.data.doctors.find(
+      (d: any) => d.doctorId === tokenDoc.id,
+    );
+    expect(found).toBeTruthy();
+    expect(found.appointmentMode).toBe("TOKEN");
+    // TOKEN doctors expose no time grid but DO carry the next token number.
+    expect(found.slots).toEqual([]);
+    expect(typeof found.nextToken).toBe("number");
+  });
+
+  it("books a TOKEN doctor with NO slotId (date + token only)", async () => {
+    const prisma = await getPrisma();
+    const tokenDoc = await createDoctorFixture({ specialization: "Pediatrics" });
+    await prisma.doctor.update({
+      where: { id: tokenDoc.id },
+      data: { appointmentMode: "TOKEN" },
+    });
+    await prisma.doctorSchedule.create({
+      data: {
+        doctorId: tokenDoc.id,
+        dayOfWeek: FUTURE_DOW,
+        startTime: "09:00",
+        endTime: "12:00",
+        slotDurationMinutes: 15,
+      },
+    });
+
+    const res = await request(app).post("/api/v1/public/booking/book").send({
+      name: "Token Patient",
+      phone: "9123450088",
+      doctorId: tokenDoc.id,
+      date: FUTURE_ISO,
+      // no slotId
+      gender: "MALE",
+      dateOfBirth: "1990-01-01",
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data.tokenNumber).toBeGreaterThan(0);
+    expect(res.body.data.slotStart).toBeNull();
+  });
+
+  it("books a CALLING doctor with NO slotId (date + arrival order)", async () => {
+    const prisma = await getPrisma();
+    const callingDoc = await createDoctorFixture({ specialization: "Orthopedics" });
+    await prisma.doctor.update({
+      where: { id: callingDoc.id },
+      data: { appointmentMode: "CALLING" },
+    });
+    await prisma.doctorSchedule.create({
+      data: {
+        doctorId: callingDoc.id,
+        dayOfWeek: FUTURE_DOW,
+        startTime: "09:00",
+        endTime: "12:00",
+        slotDurationMinutes: 15,
+      },
+    });
+
+    const res = await request(app).post("/api/v1/public/booking/book").send({
+      name: "Calling Patient",
+      phone: "9123450077",
+      doctorId: callingDoc.id,
+      date: FUTURE_ISO,
+      // no slotId
+      gender: "FEMALE",
+      dateOfBirth: "1990-01-01",
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.data.arrivalSeq).toBeGreaterThan(0);
+    expect(res.body.data.slotStart).toBeNull();
+  });
+
+  it("rejects a SLOT doctor booking with NO slotId (400)", async () => {
+    const res = await request(app).post("/api/v1/public/booking/book").send({
+      name: "No Slot Patient",
+      phone: "9123450066",
+      doctorId, // the SLOT-mode fixture doctor
+      date: FUTURE_ISO,
+      // no slotId — SLOT mode requires one
+      gender: "MALE",
+      dateOfBirth: "1990-01-01",
     });
     expect(res.status).toBe(400);
   });

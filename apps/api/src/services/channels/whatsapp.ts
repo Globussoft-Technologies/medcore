@@ -104,6 +104,24 @@ async function sendViaEnv(to: string, text: string): Promise<ChannelResult> {
   const apiUrl = process.env.WHATSAPP_API_URL;
 
   if (!apiKey || !apiUrl) {
+    // No legacy WHATSAPP_API_URL/KEY configured. Before falling back to the
+    // dev stub, try the Meta Cloud API sender (services/messaging/whatsapp.ts)
+    // which uses WHATSAPP_ACCESS_TOKEN + WHATSAPP_PHONE_NUMBER_ID — the env
+    // the project actually configures. This is what makes appointment-booking
+    // confirmations (notification pipeline) actually deliver, matching the
+    // public-booking flow. Imported lazily to avoid a static cycle.
+    if (
+      process.env.WHATSAPP_ACCESS_TOKEN &&
+      process.env.WHATSAPP_PHONE_NUMBER_ID
+    ) {
+      const { sendWhatsApp: sendViaMetaCloud } = await import(
+        "../messaging/whatsapp"
+      );
+      const r = await sendViaMetaCloud({ to, body: text });
+      return r.ok
+        ? { ok: true, messageId: r.messageId }
+        : { ok: false, error: r.error };
+    }
     console.log(`[WhatsApp stub] to=${to} text=${text}`);
     return { ok: true, messageId: "stub-" + Date.now() };
   }

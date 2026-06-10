@@ -64,7 +64,13 @@ interface DoctorSuggestion {
   experienceYears: number | null;
   averageRating: number | null;
   consultationFee: number | null;
+  // Booking shape depends on the doctor's appointmentMode:
+  //   SLOT    → `slots` holds open HH:MM times; patient picks one.
+  //   TOKEN   → no time grid; `nextToken` is the number they'll be given.
+  //   CALLING → no time / token; book by arrival on the chosen date.
+  appointmentMode: "SLOT" | "TOKEN" | "CALLING";
   slots: string[];
+  nextToken: number | null;
 }
 
 interface ChatMessage {
@@ -89,6 +95,18 @@ function nextDays(count: number): { iso: string; weekday: string; day: string }[
     });
   }
   return out;
+}
+
+// Pretty "Mon, 12 Jun" label for an ISO date string (used in the TOKEN /
+// CALLING doctor cards, which book against a date rather than a time slot).
+function fmtDateLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
 }
 
 // "Zero" code points for the digit blocks of every supported (and most other
@@ -865,8 +883,13 @@ export default function QuickBookPage() {
   // ── Step 3: book the picked doctor/slot (identity already collected) ──
   async function confirmBooking() {
     setError(null);
-    if (!selectedDoctor || !selectedSlot) {
-      setError("Please pick a doctor and a time slot.");
+    if (!selectedDoctor) {
+      setError("Please pick a doctor.");
+      return;
+    }
+    // SLOT mode needs a time; TOKEN/CALLING book against the date with no slot.
+    if (selectedDoctor.appointmentMode === "SLOT" && !selectedSlot) {
+      setError("Please pick a time slot.");
       return;
     }
     setBusy(true);
@@ -884,7 +907,10 @@ export default function QuickBookPage() {
           phone: phone.trim(),
           doctorId: selectedDoctor.doctorId,
           date,
-          slotId: selectedSlot,
+          // Only SLOT mode carries a slotId.
+          ...(selectedDoctor.appointmentMode === "SLOT" && selectedSlot
+            ? { slotId: selectedSlot }
+            : {}),
           symptom: symptomText || undefined,
           gender,
           dateOfBirth: dob,
@@ -1449,7 +1475,7 @@ export default function QuickBookPage() {
                                     </span>
                                   ) : null}
                                 </button>
-                                {picked && (
+                                {picked && d.appointmentMode === "SLOT" && (
                                   <div className="mt-2" data-testid="quick-book-slots">
                                     <div className="flex flex-wrap gap-1.5">
                                       {d.slots.map((s) => (
@@ -1470,6 +1496,44 @@ export default function QuickBookPage() {
                                     </div>
                                   </div>
                                 )}
+                                {picked && d.appointmentMode === "TOKEN" && (
+                                  <div
+                                    className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs dark:bg-blue-950/30"
+                                    data-testid="quick-book-token"
+                                  >
+                                    <p className="text-gray-600 dark:text-gray-300">
+                                      Token booking for{" "}
+                                      <span className="font-semibold">
+                                        {fmtDateLabel(date)}
+                                      </span>
+                                    </p>
+                                    {d.nextToken != null && (
+                                      <p className="mt-0.5 text-gray-500 dark:text-gray-400">
+                                        Your token will be{" "}
+                                        <span className="font-semibold text-blue-700 dark:text-blue-300">
+                                          #{d.nextToken}
+                                        </span>
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                                {picked && d.appointmentMode === "CALLING" && (
+                                  <div
+                                    className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs dark:bg-emerald-950/30"
+                                    data-testid="quick-book-calling"
+                                  >
+                                    <p className="text-gray-600 dark:text-gray-300">
+                                      Booking for{" "}
+                                      <span className="font-semibold">
+                                        {fmtDateLabel(date)}
+                                      </span>
+                                    </p>
+                                    <p className="mt-0.5 text-gray-500 dark:text-gray-400">
+                                      You&apos;ll be seen by arrival order — no fixed
+                                      time.
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
@@ -1478,7 +1542,14 @@ export default function QuickBookPage() {
                           <button
                             type="button"
                             data-testid="quick-book-confirm"
-                            disabled={busy || !selectedDoctor || !selectedSlot}
+                            disabled={
+                              busy ||
+                              !selectedDoctor ||
+                              // SLOT mode needs a picked time; TOKEN/CALLING
+                              // book against the date with no slot.
+                              (selectedDoctor?.appointmentMode === "SLOT" &&
+                                !selectedSlot)
+                            }
                             onClick={() => void confirmBooking()}
                             className={`${primaryBtn} mc-shimmer w-full justify-center`}
                           >

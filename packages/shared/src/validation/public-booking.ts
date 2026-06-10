@@ -55,10 +55,14 @@ export const publicBookSchema = z.object({
     .regex(PHONE_REGEX, "Enter a valid 10–15 digit phone number"),
   doctorId: z.string().uuid("Invalid doctor"),
   date: isoDateField,
-  // Slot is HH:MM. Required for the public flow (the UI always picks one).
+  // Slot is HH:MM. Required only for SLOT-mode doctors (the UI picks a time);
+  // TOKEN and CALLING mode doctors book against the date itself with no time
+  // grid, so slotId is optional. The /book handler enforces "SLOT mode needs
+  // a slotId" server-side after it loads the doctor's appointmentMode.
   slotId: z
     .string()
-    .regex(/^\d{2}:\d{2}$/, "Pick a time slot"),
+    .regex(/^\d{2}:\d{2}$/, "Pick a time slot")
+    .optional(),
   // Carry the symptom through so it lands on the appointment notes + the
   // patient's first triage context. Optional — the booking still works without.
   symptom: symptomField.optional(),

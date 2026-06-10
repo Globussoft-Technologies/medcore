@@ -34,6 +34,7 @@ import { resolveFirstPhotoUrl } from "../lib/patient-photo";
 // use) so reschedule confirmations actually go out with the configured
 // WHATSAPP_ACCESS_TOKEN / WHATSAPP_PHONE_NUMBER_ID env.
 import { sendWhatsApp } from "../services/messaging/whatsapp";
+import { patientPortalLink } from "../lib/site-link";
 import { recordCampaignConversion } from "../services/campaign-conversion";
 import {
   onAppointmentBooked,
@@ -1238,7 +1239,7 @@ async function onAppointmentRescheduled(appointment: {
     const body =
       `Hi ${appointment.patient.user.name}, your appointment with ${doctorName} ` +
       `has been rescheduled to ${dateStr}${timeStr}.${tokenLine}\n\n` +
-      `Sign in with this phone number to view or manage it. — MedCore`;
+      `View or manage it here: ${patientPortalLink()} — MedCore`;
     try {
       await sendWhatsApp({ to: phone, body });
     } catch (e) {

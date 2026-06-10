@@ -49,6 +49,7 @@ import { onAppointmentBooked } from "../services/notification-triggers";
 // / WHATSAPP_PHONE_NUMBER_ID env. The older channels/whatsapp adapter
 // needs different env vars (WHATSAPP_API_URL/_KEY) and otherwise stubs.
 import { sendWhatsApp } from "../services/messaging/whatsapp";
+import { patientPortalLink } from "../lib/site-link";
 
 export const publicBookingRouter = Router();
 
@@ -511,6 +512,8 @@ publicBookingRouter.post(
           experienceYears: true,
           averageRating: true,
           consultationFee: true,
+          appointmentMode: true,
+          tokenPrefix: true,
           user: { select: { name: true } },
         },
         take: 12,
@@ -540,12 +543,33 @@ publicBookingRouter.post(
         experienceYears: number | null;
         averageRating: number | null;
         consultationFee: number | null;
+        // Booking shape varies by the doctor's appointmentMode:
+        //   SLOT    → `slots` holds the open HH:MM times; patient picks one.
+        //   TOKEN   → no time grid; `nextToken` is the number they'll get.
+        //   CALLING → no time, no token; book by arrival on the chosen date.
+        appointmentMode: "SLOT" | "TOKEN" | "CALLING";
         slots: string[];
+        nextToken: number | null;
       }> = [];
       for (const d of sorted) {
         if (suggestions.length >= 3) break;
+        const mode = d.appointmentMode as "SLOT" | "TOKEN" | "CALLING";
+
+        // Availability differs by mode. SLOT needs at least one open time
+        // slot. TOKEN/CALLING don't run a time grid — they just need the
+        // doctor to be working that day (a schedule exists, not on leave,
+        // date not in the past), which computeOpenSlots already encodes via
+        // its non-empty return. So we use the same availability signal for
+        // all three but only SLOT surfaces the actual times.
         const slots = await computeOpenSlots(d.id, date);
-        if (slots.length === 0) continue; // "always suggest on availability"
+        if (slots.length === 0) continue; // not working / no availability that day
+
+        let nextToken: number | null = null;
+        if (mode === "TOKEN") {
+          const n = await getNextToken(d.id, new Date(date));
+          nextToken = n;
+        }
+
         suggestions.push({
           doctorId: d.id,
           name: d.user.name,
@@ -555,7 +579,11 @@ publicBookingRouter.post(
           // plain numbers so the JSON client gets a number, not a Decimal blob.
           averageRating: d.averageRating != null ? Number(d.averageRating) : null,
           consultationFee: d.consultationFee != null ? Number(d.consultationFee) : null,
-          slots: slots.slice(0, 24), // cap the grid
+          appointmentMode: mode,
+          // Only SLOT mode exposes a pickable time grid; TOKEN/CALLING book
+          // against the date itself.
+          slots: mode === "SLOT" ? slots.slice(0, 24) : [],
+          nextToken,
         });
       }
 
@@ -600,9 +628,11 @@ publicBookingRouter.post(
       const dateObj = new Date(date);
 
       // Same-day past-slot guard (mirrors /appointments/book). IST-anchored
-      // so a UTC-host server rejects the correct elapsed slots.
+      // so a UTC-host server rejects the correct elapsed slots. Only applies
+      // when a time slot was supplied (SLOT mode); TOKEN/CALLING book against
+      // the date with no specific time, so there's no elapsed-time to reject.
       const todayStr = istTodayDateStr();
-      if (date === todayStr) {
+      if (date === todayStr && slotId) {
         const [sh, sm] = slotId.split(":").map(Number);
         if (sh * 60 + sm < istNowMinutes()) {
           res.status(400).json({
@@ -642,8 +672,21 @@ publicBookingRouter.post(
 
       const tenantId = doctor.tenantId ?? (await resolveTenant(req));
 
-      // ── Slot-collision pre-check (TOKEN w/ slot + SLOT modes) ──
-      if (doctor.appointmentMode !== "CALLING") {
+      // SLOT mode requires a specific time slot; TOKEN/CALLING do not (they
+      // book against the date — next token / arrival order). Enforce here now
+      // that slotId is schema-optional.
+      if (doctor.appointmentMode === "SLOT" && !slotId) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Please pick a time slot for this doctor.",
+        });
+        return;
+      }
+
+      // ── Slot-collision pre-check (SLOT mode only — it's the only mode that
+      // books a specific slotStart time). ──
+      if (doctor.appointmentMode === "SLOT" && slotId) {
         const taken = await prisma.appointment.findFirst({
           where: {
             doctorId,
@@ -740,15 +783,17 @@ publicBookingRouter.post(
       }
 
       // ── Mode-specific token / arrival / slot assignment + create ──
+      //   SLOT    → slotStart = the picked time.
+      //   TOKEN   → next token number, no slotStart (date + token only).
+      //   CALLING → next arrival seq, no slotStart/token (date + arrival).
       const mode = doctor.appointmentMode;
       let tokenNumber: number | null = null;
       let arrivalSeq: number | null = null;
       let slotStartToUse: string | null = null;
       if (mode === "TOKEN") {
         tokenNumber = await getNextToken(doctorId, dateObj);
-        slotStartToUse = slotId;
       } else if (mode === "SLOT") {
-        slotStartToUse = slotId;
+        slotStartToUse = slotId ?? null;
       } else {
         arrivalSeq = await getNextArrivalSeq(doctorId, dateObj);
       }
@@ -816,8 +861,8 @@ publicBookingRouter.post(
       const waMessage =
         `Hi ${name}, your appointment with ${doctor.user.name} is confirmed for ` +
         `${dateStr}${timeLine}.${tokenLine}\n\n` +
-        `You can view your appointments and reports anytime — just sign in with this ` +
-        `phone number. — MedCore`;
+        `View your appointments and reports anytime: ${patientPortalLink()}\n` +
+        `Just sign in with this phone number. — MedCore`;
       // Fire-and-forget — a WhatsApp failure must never block the 201.
       // The sender normalises the phone to E.164 itself.
       sendWhatsApp({ to: phone, body: waMessage }).catch((e) =>

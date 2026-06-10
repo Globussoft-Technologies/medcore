@@ -31,15 +31,23 @@ export async function onPatientCheckedIn(patientId: string): Promise<void> {
 
 // ─── Appointment Triggers ──────────────────────────────
 
-export async function onAppointmentBooked(appointment: {
-  id: string;
-  tokenNumber: number;
-  date: Date;
-  slotStart?: string | null;
-  patient: { id: string; userId: string; user: { name: string; phone: string } };
-  doctor: { id: string; userId: string; user: { name: string } };
-}): Promise<void> {
+export async function onAppointmentBooked(
+  appointment: {
+    id: string;
+    tokenNumber: number;
+    date: Date;
+    slotStart?: string | null;
+    patient: { id: string; userId: string; user: { name: string; phone: string } };
+    doctor: { id: string; userId: string; user: { name: string } };
+  },
+  // Optional pre-resolved portal link (derived from the request host at the
+  // call site so it points at whichever environment the user is on). When
+  // omitted (workers / older callers / tests) `patientPortalLink()` falls back
+  // to PUBLIC_APP_URL / the demos domain.
+  portalLink?: string,
+): Promise<void> {
   const { patient, doctor, tokenNumber, date, slotStart } = appointment;
+  const link = portalLink ?? patientPortalLink();
   const dateStr = new Date(date).toLocaleDateString("en-IN", {
     day: "numeric",
     month: "short",
@@ -52,7 +60,7 @@ export async function onAppointmentBooked(appointment: {
     userId: patient.userId,
     type: NotificationType.APPOINTMENT_BOOKED,
     title: "Appointment Confirmed",
-    message: `Hi ${patient.user.name}, your appointment with ${formatDoctorName(doctor.user.name)} is confirmed for ${dateStr}${timeStr}. Your token number is ${tokenNumber}. View your appointments: ${patientPortalLink()}`,
+    message: `Hi ${patient.user.name}, your appointment with ${formatDoctorName(doctor.user.name)} is confirmed for ${dateStr}${timeStr}. Your token number is ${tokenNumber}. View your appointments: ${link}`,
     data: { appointmentId: appointment.id, tokenNumber, doctorName: doctor.user.name },
   });
 

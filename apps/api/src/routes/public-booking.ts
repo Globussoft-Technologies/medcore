@@ -837,7 +837,7 @@ publicBookingRouter.post(
       // Queue socket update + in-app notifications (fire-and-forget).
       const io = req.app.get("io");
       if (io) io.to(`queue:${doctorId}`).emit("queue-updated", { doctorId, date });
-      onAppointmentBooked(appointment as any).catch(console.error);
+      onAppointmentBooked(appointment as any, patientPortalLink(req)).catch(console.error);
       auditLog(req, "PUBLIC_APPOINTMENT_BOOK", "appointment", appointment.id, {
         patientId,
         doctorId,
@@ -861,7 +861,7 @@ publicBookingRouter.post(
       const waMessage =
         `Hi ${name}, your appointment with ${doctor.user.name} is confirmed for ` +
         `${dateStr}${timeLine}.${tokenLine}\n\n` +
-        `View your appointments and reports anytime: ${patientPortalLink()}\n` +
+        `View your appointments and reports anytime: ${patientPortalLink(req)}\n` +
         `Just sign in with this phone number. — MedCore`;
       // Fire-and-forget — a WhatsApp failure must never block the 201.
       // The sender normalises the phone to E.164 itself.

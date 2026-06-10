@@ -34,6 +34,7 @@ import {
   Clock,
   Save,
   X,
+  Send,
 } from "lucide-react";
 import { SkeletonCard, SkeletonText } from "@/components/Skeleton";
 
@@ -234,6 +235,7 @@ export default function CampaignDetailPage() {
   const [editName, setEditName] = useState("");
   const [editStatus, setEditStatus] = useState<"DRAFT" | "SCHEDULED">("DRAFT");
   const [saving, setSaving] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
 
   useEffect(() => {
     if (!isLoading && user && user.role !== "ADMIN") {
@@ -297,6 +299,48 @@ export default function CampaignDetailPage() {
       toast.error((err as Error).message || "Failed to update campaign");
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Send immediately — runs the synchronous dispatcher (POST /:id/dispatch)
+  // instead of waiting for the background sweep tick. The server enforces the
+  // guards (audience attached, channels enabled, inside the send window, not
+  // already RUNNING) and surfaces a clear error if any fails.
+  async function dispatchNow() {
+    if (!campaign) return;
+    if (
+      !window.confirm(
+        `Send "${campaign.name}" now to its full audience over ${campaign.channels.join(
+          ", ",
+        )}? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setDispatching(true);
+    try {
+      const res = await api.post<{
+        success: boolean;
+        data?: {
+          summary?: {
+            total?: number;
+            sent?: number;
+            failed?: number;
+            suppressed?: number;
+          };
+        };
+      }>(`/campaigns/${campaign.id}/dispatch`, {});
+      const s = res.data?.summary ?? {};
+      toast.success(
+        `Campaign sent — ${s.sent ?? 0} delivered` +
+          (s.failed ? `, ${s.failed} failed` : "") +
+          (s.suppressed ? `, ${s.suppressed} suppressed` : ""),
+      );
+      await load();
+    } catch (err) {
+      toast.error((err as Error).message || "Couldn't send the campaign");
+    } finally {
+      setDispatching(false);
     }
   }
 
@@ -391,15 +435,37 @@ export default function CampaignDetailPage() {
           </div>
         </div>
 
-        {campaign.status === "DRAFT" && !editing && (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="flex h-9 items-center gap-1 rounded-lg border border-gray-300 px-3 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
-          >
-            <Edit3 className="h-4 w-4" /> Edit
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {campaign.status === "DRAFT" && !editing && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="flex h-9 items-center gap-1 rounded-lg border border-gray-300 px-3 text-sm hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-800"
+            >
+              <Edit3 className="h-4 w-4" /> Edit
+            </button>
+          )}
+          {/* Send immediately — available while the campaign can still be
+              dispatched (DRAFT or SCHEDULED). Hidden once RUNNING/COMPLETED/
+              CANCELLED. The server re-checks every guard. */}
+          {(campaign.status === "DRAFT" ||
+            campaign.status === "SCHEDULED") && (
+            <button
+              type="button"
+              data-testid="campaign-send-now"
+              onClick={dispatchNow}
+              disabled={dispatching}
+              className="flex h-9 items-center gap-1 rounded-lg bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {dispatching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              {dispatching ? "Sending…" : "Send now"}
+            </button>
+          )}
+        </div>
       </div>
 
       {editing && (

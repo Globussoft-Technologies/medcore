@@ -3,6 +3,7 @@ import { NotificationType } from "@medcore/shared";
 import { sendNotification } from "./notification";
 import { formatDoctorName } from "../lib/format-doctor-name";
 import { advanceChronicCareSequence } from "./chronic-care-scheduler";
+import { patientPortalLink } from "../lib/site-link";
 
 // ─── Pearl §5.2 row 145 — on-visit auto-schedule next message ──────────
 //
@@ -51,7 +52,7 @@ export async function onAppointmentBooked(appointment: {
     userId: patient.userId,
     type: NotificationType.APPOINTMENT_BOOKED,
     title: "Appointment Confirmed",
-    message: `Hi ${patient.user.name}, your appointment with ${formatDoctorName(doctor.user.name)} is confirmed for ${dateStr}${timeStr}. Your token number is ${tokenNumber}.`,
+    message: `Hi ${patient.user.name}, your appointment with ${formatDoctorName(doctor.user.name)} is confirmed for ${dateStr}${timeStr}. Your token number is ${tokenNumber}. View your appointments: ${patientPortalLink()}`,
     data: { appointmentId: appointment.id, tokenNumber, doctorName: doctor.user.name },
   });
 

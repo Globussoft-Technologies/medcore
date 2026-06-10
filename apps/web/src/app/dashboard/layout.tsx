@@ -372,9 +372,12 @@ const navByRole: Record<
   PHARMACIST: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/pharmacy", label: "Pharmacy", icon: Package },
-    { href: "/dashboard/pharmacy-kanban", label: "Kanban Board", icon: LayoutGrid },
+    // Kanban is opened per-prescription via Prescriptions → "Finish in Kanban",
+    // so it's not a standalone sidebar destination (it'd just show the empty
+    // "pick a prescription" prompt).
     { href: "/dashboard/medicines", label: "Medicines", icon: Pill },
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
+    { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
     { href: "/dashboard/controlled-substances", label: "Controlled Register", icon: ShieldAlert },
     { href: "/dashboard/suppliers", label: "Suppliers", icon: Truck },
     { href: "/dashboard/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },

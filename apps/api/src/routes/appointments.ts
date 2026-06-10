@@ -995,7 +995,10 @@ router.patch(
         onPatientCheckedIn(appointment.patientId).catch(console.error);
       }
 
-      // No-show policy: increment counter + add fee when transitioning to NO_SHOW
+      // No-show policy: increment counter (analytics) when transitioning to
+      // NO_SHOW. No consultation/no-show FEE is billed — only COMPLETED
+      // appointments generate a consultation charge; a no-show invoice may
+      // still carry pharmacy/medicine lines, but nothing is auto-added here.
       if (req.body.status === "NO_SHOW" && prev?.status !== "NO_SHOW") {
         // Mirror the no-show reason into the threaded Remarks so it surfaces in
         // the Remarks panel alongside the audit trail. Best-effort; staff only.
@@ -1020,43 +1023,6 @@ router.patch(
           });
         } catch (e) {
           console.error("Failed to increment noShowCount", e);
-        }
-        // Add ₹500 no-show fee to an open invoice for this patient (or create a new one)
-        try {
-          const feeRow = await prisma.systemConfig.findUnique({
-            where: { key: "no_show_fee" },
-          });
-          const fee = feeRow ? parseFloat(feeRow.value) : 500;
-          if (!isNaN(fee) && fee > 0) {
-            const openInvoice = await prisma.invoice.findFirst({
-              where: {
-                patientId: appointment.patientId,
-                paymentStatus: { in: ["PENDING", "PARTIAL"] },
-              },
-              orderBy: { createdAt: "desc" },
-            });
-            if (openInvoice) {
-              await prisma.invoiceItem.create({
-                data: {
-                  invoiceId: openInvoice.id,
-                  description: `No-show fee (appt ${appointment.id.slice(0, 8)})`,
-                  category: "FEE",
-                  quantity: 1,
-                  unitPrice: fee,
-                  amount: fee,
-                },
-              });
-              await prisma.invoice.update({
-                where: { id: openInvoice.id },
-                data: {
-                  subtotal: { increment: fee },
-                  totalAmount: { increment: fee },
-                },
-              });
-            }
-          }
-        } catch (e) {
-          console.error("Failed to add no-show fee", e);
         }
       }
 

@@ -550,7 +550,7 @@ export default function InvoiceDetailPage() {
   // compact one-line summary above, not as a table row.
   const renderTaxableTable = (rows: typeof itemsWithTax) => (
     <div className="mb-6 overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full min-w-[640px] text-xs tabular-nums [&_td]:px-2 [&_th]:px-2 [&_td:first-child]:pl-0 [&_th:first-child]:pl-0 [&_td:last-child]:pr-0 [&_th:last-child]:pr-0">
         <thead>
           <tr className="border-b border-t border-gray-200 text-left text-gray-500 dark:border-gray-700 dark:text-gray-400 print:border-gray-200 print:text-gray-500">
             <th className="py-3">#</th>
@@ -600,11 +600,11 @@ export default function InvoiceDetailPage() {
               <td className="py-3 text-center">
                 {formatQuantityWithUnit(item.category, item.quantity)}
               </td>
-              <td className="py-3 text-right">{fmtMoney(item.unitPrice)}</td>
-              <td className="py-3 text-right">{fmtMoney(item.tax.taxable)}</td>
-              <td className="py-3 text-right">{fmtMoney(item.tax.cgst)}</td>
-              <td className="py-3 text-right">{fmtMoney(item.tax.sgst)}</td>
-              <td className="py-3 text-right font-medium">
+              <td className="py-3 text-right whitespace-nowrap">{fmtMoney(item.unitPrice)}</td>
+              <td className="py-3 text-right whitespace-nowrap">{fmtMoney(item.tax.taxable)}</td>
+              <td className="py-3 text-right whitespace-nowrap">{fmtMoney(item.tax.cgst)}</td>
+              <td className="py-3 text-right whitespace-nowrap">{fmtMoney(item.tax.sgst)}</td>
+              <td className="py-3 text-right font-medium whitespace-nowrap">
                 {fmtMoney(item.tax.total)}
               </td>
               {isPending && (
@@ -909,12 +909,17 @@ export default function InvoiceDetailPage() {
             {invoice.patient.user.email && (
               <p className="text-sm text-gray-600 dark:text-gray-300 print:text-gray-600">{invoice.patient.user.email}</p>
             )}
-            <Link
-              href={`/dashboard/billing/patient/${invoice.patient.id}`}
-              className="no-print mt-2 inline-block text-xs text-primary hover:underline"
-            >
-              View all patient invoices →
-            </Link>
+            {/* Pharmacists only work with the pharmacy bill they generated, not
+                a patient's full invoice history — hide the cross-link for them
+                (the per-patient billing page isn't in their scope). */}
+            {user?.role !== "PHARMACIST" && (
+              <Link
+                href={`/dashboard/billing/patient/${invoice.patient.id}`}
+                className="no-print mt-2 inline-block text-xs text-primary hover:underline"
+              >
+                View all patient invoices →
+              </Link>
+            )}
           </div>
           {invoice.appointment && (
             <div>

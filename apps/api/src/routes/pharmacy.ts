@@ -17,6 +17,7 @@ import {
   stockTransferSchema,
   PHARMACY_RETURN_PREFIX,
   STOCK_TRANSFER_PREFIX,
+  INVOICE_NUMBER_PREFIX,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -469,11 +470,31 @@ router.post(
   validate(dispensePrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { prescriptionId, witnessSignature, witnessUserId } = req.body as {
+      const {
+        prescriptionId,
+        witnessSignature,
+        witnessUserId,
+        allowPartial,
+        medicineIds,
+        itemIds,
+      } = req.body as {
         prescriptionId: string;
         witnessSignature?: string;
         witnessUserId?: string;
+        allowPartial?: boolean;
+        medicineIds?: string[];
+        itemIds?: string[];
       };
+      // When a per-medicine subset is requested, only those medicines dispense.
+      const medicineIdFilter =
+        Array.isArray(medicineIds) && medicineIds.length > 0
+          ? new Set(medicineIds)
+          : null;
+      // Per-LINE-ITEM subset (preferred by the per-medicine Kanban): dispense
+      // only these PrescriptionItem ids. Targets a single prescribed line, so
+      // duplicate medicines (same medicineId, different qty) stay independent.
+      const itemIdFilter =
+        Array.isArray(itemIds) && itemIds.length > 0 ? new Set(itemIds) : null;
 
       const prescription = await prisma.prescription.findUnique({
         where: { id: prescriptionId },
@@ -581,6 +602,21 @@ router.post(
       }> = [];
       const warnings: string[] = [];
 
+      // Idempotency: a partial dispense (e.g. one line out of stock) leaves the
+      // prescription un-flipped, so a retry would deduct stock + re-bill the
+      // lines that already went out. Skip any medicine that already has a
+      // DISPENSED stock movement against THIS prescription so retries only
+      // pick up the newly-available lines.
+      const priorMovements = await prisma.stockMovement.findMany({
+        where: { type: "DISPENSED", referenceId: prescription.id },
+        select: { inventoryItem: { select: { medicineId: true } } },
+      });
+      const alreadyDispensedMedicineIds = new Set(
+        priorMovements
+          .map((m) => m.inventoryItem?.medicineId)
+          .filter((id): id is string => Boolean(id)),
+      );
+
       await prisma.$transaction(async (tx) => {
         for (const item of prescription.items) {
           // Parse numeric qty from duration/dosage — assume 1 unit per item if not derivable
@@ -608,6 +644,21 @@ router.post(
           if (!medicine) {
             warnings.push(`Medicine not found: ${item.medicineName}`);
             continue;
+          }
+
+          if (itemIdFilter) {
+            // Per-line-item path: dispense exactly the requested line(s).
+            // Skip lines not requested and lines already dispensed (idempotent
+            // — relies on the per-item kanbanStatus, not the medicine, so a
+            // duplicate medicine's other line is unaffected).
+            if (!itemIdFilter.has(item.id)) continue;
+            if (item.kanbanStatus === "DISPENSED") continue;
+          } else {
+            // Already handed out on an earlier (partial) dispense — don't
+            // deduct or re-bill it again.
+            if (alreadyDispensedMedicineIds.has(medicine.id)) continue;
+            // Per-medicine dispense: skip anything not in the requested subset.
+            if (medicineIdFilter && !medicineIdFilter.has(medicine.id)) continue;
           }
 
           // Find an inventory batch with enough stock, earliest expiry first
@@ -641,6 +692,13 @@ router.post(
               performedBy: req.user!.userId,
               reason: `Dispensed for prescription ${prescriptionId}`,
             },
+          });
+
+          // Mark this line's Kanban card as Dispensed so the per-medicine
+          // board reflects it immediately.
+          await tx.prescriptionItem.update({
+            where: { id: item.id },
+            data: { kanbanStatus: "DISPENSED" },
           });
 
           dispensed.push({
@@ -714,67 +772,49 @@ router.post(
         }
       }
 
-      // Auto-billing: if this prescription's appointment has a PENDING invoice,
-      // append dispensed items as InvoiceItems.
-      let autoBilled: {
+      // Pharmacy billing is NO LONGER auto-attached to the appointment invoice
+      // at dispense time. Per the pharmacy workflow, the dispensed medicines are
+      // billed on a SEPARATE pharmacy-only invoice generated on demand from the
+      // Kanban "Generate Bill" (POST /pharmacy/prescriptions/:id/invoice). That
+      // keeps the consultation fee and the pharmacy charges on distinct bills.
+      const autoBilled: {
         invoiceId: string | null;
         addedLines: number;
         addedAmount: number;
       } = { invoiceId: null, addedLines: 0, addedAmount: 0 };
-      if (dispensed.length > 0) {
-        try {
-          const invoice = await prisma.invoice.findUnique({
-            where: { appointmentId: prescription.appointmentId },
-          });
-          if (invoice && invoice.paymentStatus === "PENDING") {
-            const itemsToCreate = dispensed.map((d) => ({
-              invoiceId: invoice.id,
-              description: `Pharmacy: ${d.medicineName} (Batch ${d.batchNumber})`,
-              category: "PHARMACY",
-              quantity: d.quantity,
-              unitPrice: d.unitPrice,
-              amount: d.lineAmount,
-            }));
-            const addedAmount = itemsToCreate.reduce((s, i) => s + i.amount, 0);
-            // Issue #901: Invoice money columns are now Prisma.Decimal — coerce.
-            const invSubN = typeof (invoice.subtotal as unknown) === "number"
-              ? (invoice.subtotal as unknown as number)
-              : (invoice.subtotal as unknown as { toNumber: () => number }).toNumber();
-            const invTotN = typeof (invoice.totalAmount as unknown) === "number"
-              ? (invoice.totalAmount as unknown as number)
-              : (invoice.totalAmount as unknown as { toNumber: () => number }).toNumber();
-            await prisma.$transaction([
-              prisma.invoiceItem.createMany({ data: itemsToCreate }),
-              prisma.invoice.update({
-                where: { id: invoice.id },
-                data: {
-                  subtotal: invSubN + addedAmount,
-                  totalAmount: invTotN + addedAmount,
-                },
-              }),
-            ]);
-            autoBilled = {
-              invoiceId: invoice.id,
-              addedLines: itemsToCreate.length,
-              addedAmount,
-            };
-          }
-        } catch (e) {
-          console.error("[pharmacy-autobill]", e);
-          warnings.push("Auto-billing failed; dispense completed without line items");
-        }
-      }
 
-      // Lifecycle (2026-05-03): flip Prescription.status to DISPENSED on a
-      // successful full-dispense (zero warnings = every line found stock).
-      // This complements the legacy `printed` boolean so existing dispense-
-      // log / pharmacy reports keep working. Defense in depth — neither
-      // breaks if the other already exists.
+      // Lifecycle (2026-05-03): flip Prescription.status to DISPENSED.
+      // Normally requires a clean full-dispense (every line found stock). But
+      // when the pharmacist passes allowPartial=true they've chosen to skip
+      // the out-of-stock lines, so we complete as long as SOMETHING was given
+      // (now or on an earlier partial dispense). Complements the legacy
+      // `printed` boolean so dispense-log / pharmacy reports keep working.
+      // Lines dispensed on an EARLIER run, by line item (kanbanStatus) so
+      // duplicate medicines are counted independently. prescription.items was
+      // loaded before this request's transaction, so it reflects prior runs
+      // only — this run's freshly-dispensed lines come from `dispensed`.
+      const priorDispensedItemCount = prescription.items.filter(
+        (i) => i.kanbanStatus === "DISPENSED",
+      ).length;
+      const somethingDispensed =
+        dispensed.length > 0 ||
+        priorDispensedItemCount > 0 ||
+        alreadyDispensedMedicineIds.size > 0;
+      // Count this run's lines plus any dispensed on an earlier partial run so
+      // a per-medicine dispense flips the Rx to DISPENSED once the LAST line is
+      // handled (not only when one request dispenses everything at once). The
+      // item path counts by line (handles duplicate medicines); the legacy
+      // medicine path keeps its medicine-set count.
+      const totalHandled = itemIdFilter
+        ? dispensed.length + priorDispensedItemCount
+        : dispensed.length + alreadyDispensedMedicineIds.size;
       const fullyDispensed =
-        dispensed.length > 0 &&
+        somethingDispensed &&
         warnings.length === 0 &&
-        dispensed.length === prescription.items.length;
-      if (fullyDispensed) {
+        totalHandled >= prescription.items.length;
+      const flipToDispensed =
+        fullyDispensed || (allowPartial === true && somethingDispensed);
+      if (flipToDispensed) {
         try {
           await prisma.prescription.update({
             where: { id: prescriptionId },
@@ -791,7 +831,8 @@ router.post(
         warningCount: warnings.length,
         autoBilledInvoiceId: autoBilled.invoiceId,
         autoBilledAmount: autoBilled.addedAmount,
-        statusFlipped: fullyDispensed,
+        statusFlipped: flipToDispensed,
+        allowPartial: allowPartial === true,
         // §65 audit trail: capture both signers when any line item required
         // the controlled-substance register, so the regulator can trace who
         // dispensed and who witnessed even if the CSR rows are mutated later.
@@ -887,29 +928,72 @@ router.get(
         start.setHours(0, 0, 0, 0);
         where.createdAt = { gte: start };
       }
-
+      // Terminal scripts (whole-Rx rejected/cancelled) drop out of the active
+      // board; their lines still surface in the Returned/Cancelled footer.
       const rows = await prisma.prescription.findMany({
         where,
         orderBy: { createdAt: "desc" },
         take: 500,
         include: {
-          patient: {
-            include: { user: { select: { name: true } } },
-          },
-          doctor: {
-            include: { user: { select: { name: true } } },
-          },
-          items: {
-            select: { id: true, medicineName: true },
-            take: 5,
-          },
+          patient: { include: { user: { select: { name: true } } } },
+          doctor: { include: { user: { select: { name: true } } } },
+          items: true,
         },
       });
 
-      // Project to a lean shape: the Kanban only needs patient first
-      // name + last initial (privacy convention), doctor name, top
-      // item + "+N more", a few timing fields, plus the count of
-      // line items so the +N badge renders without a second query.
+      // ── Resolve each line item → medicine, then look up stock + already-
+      // dispensed so the per-MEDICINE card knows whether it's movable. ──
+      // 1) Resolve medicineId for items lacking the FK (legacy free-text) via
+      //    a single case-insensitive name lookup.
+      const namesNeedingMatch = Array.from(
+        new Set(
+          rows
+            .flatMap((r) => r.items)
+            .filter((it) => !it.medicineId)
+            .map((it) => it.medicineName),
+        ),
+      );
+      const matchedByName = namesNeedingMatch.length
+        ? await prisma.medicine.findMany({
+            where: {
+              OR: namesNeedingMatch.flatMap((n) => [
+                { name: { equals: n, mode: "insensitive" as const } },
+                { genericName: { equals: n, mode: "insensitive" as const } },
+              ]),
+            },
+            select: { id: true, name: true, genericName: true },
+          })
+        : [];
+      const nameToMedId = new Map<string, string>();
+      for (const m of matchedByName) {
+        if (m.name) nameToMedId.set(m.name.toLowerCase(), m.id);
+        if (m.genericName) nameToMedId.set(m.genericName.toLowerCase(), m.id);
+      }
+      const resolveMedId = (it: { medicineId: string | null; medicineName: string }) =>
+        it.medicineId ?? nameToMedId.get(it.medicineName.toLowerCase()) ?? null;
+
+      // 2) Stock on hand per medicine (non-expired, qty > 0).
+      const allMedIds = Array.from(
+        new Set(
+          rows.flatMap((r) => r.items.map(resolveMedId)).filter((v): v is string => !!v),
+        ),
+      );
+      const stock = allMedIds.length
+        ? await prisma.inventoryItem.groupBy({
+            by: ["medicineId"],
+            where: {
+              medicineId: { in: allMedIds },
+              quantity: { gt: 0 },
+              expiryDate: { gt: new Date() },
+            },
+            _sum: { quantity: true },
+          })
+        : [];
+      const stockByMed = new Map<string, number>();
+      for (const s of stock) {
+        if (s.medicineId) stockByMed.set(s.medicineId, s._sum.quantity ?? 0);
+      }
+
       const columns: Record<string, Array<unknown>> = {
         PENDING: [],
         DISPENSING: [],
@@ -922,28 +1006,349 @@ router.get(
         const fullName = row.patient.user.name || "Patient";
         const parts = fullName.trim().split(/\s+/);
         const firstName = parts[0] || fullName;
-        const lastInitial = parts.length > 1 ? `${parts[parts.length - 1][0]}.` : "";
+        const lastInitial =
+          parts.length > 1 ? `${parts[parts.length - 1][0]}.` : "";
         const patientLabel = lastInitial ? `${firstName} ${lastInitial}` : firstName;
-        const itemCount = row.items.length;
-        const topItem = row.items[0]?.medicineName || "—";
+        const doctorName = row.doctor.user.name || "Doctor";
 
-        const projected = {
-          id: row.id,
-          status: row.status,
-          patientId: row.patientId,
-          patientLabel,
-          doctorName: row.doctor.user.name || "Doctor",
-          topItem,
-          extraItems: Math.max(0, itemCount - 1),
-          createdAt: row.createdAt,
-          updatedAt: row.updatedAt,
-        };
-        if (columns[row.status]) columns[row.status].push(projected);
+        for (const item of row.items) {
+          const medId = resolveMedId(item);
+          const qtyMatch = item.instructions?.match(/Qty:\s*(\d+)/i);
+          const requiredQty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+          const availableQty = medId ? stockByMed.get(medId) ?? 0 : 0;
+          // Dispensed state is tracked PER LINE ITEM via kanbanStatus — NOT by
+          // medicine — so two lines of the same medicine stay independent (one
+          // dispensed line doesn't drag its duplicate into the Dispensed lane).
+          // Normalise to a known column key so NO line is ever silently dropped:
+          // a null / legacy / unexpected kanbanStatus falls back to PENDING
+          // (New) instead of vanishing from the board.
+          const status =
+            item.kanbanStatus && columns[item.kanbanStatus]
+              ? item.kanbanStatus
+              : "PENDING";
+          const dispensed = status === "DISPENSED";
+
+          const card = {
+            id: item.id,
+            prescriptionId: row.id,
+            medicineId: medId,
+            medicineName: item.medicineName,
+            dosage: item.dosage,
+            frequency: item.frequency,
+            duration: item.duration,
+            instructions: item.instructions,
+            patientId: row.patientId,
+            patientLabel,
+            doctorName,
+            requiredQty,
+            availableQty,
+            inStock: Boolean(medId) && availableQty >= requiredQty,
+            dispensed,
+            status,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
+          };
+          columns[status].push(card);
+        }
       }
 
       res.json({
         success: true,
         data: { columns, todayOnly },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Find-or-create the STANDALONE pharmacy-only invoice for a prescription.
+// Pharmacy-only: appointmentId / admissionId stay null; the row is linked via
+// the @unique prescriptionId so a prescription has at most one pharmacy bill.
+async function ensurePharmacyInvoice(
+  prescriptionId: string,
+  patientId: string,
+  branchId: string | null,
+): Promise<{ id: string }> {
+  const existing = await prisma.invoice.findUnique({
+    where: { prescriptionId },
+    select: { id: true },
+  });
+  if (existing) return existing;
+
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + 14);
+
+  return prisma.$transaction(async (tx) => {
+    const config = await tx.systemConfig.findUnique({
+      where: { key: "next_invoice_number" },
+    });
+    const invSeq = config ? parseInt(config.value, 10) || 1 : 1;
+    const invoiceNumber = `${INVOICE_NUMBER_PREFIX}${String(invSeq).padStart(6, "0")}`;
+    const inv = await tx.invoice.create({
+      data: {
+        invoiceNumber,
+        prescriptionId,
+        patientId,
+        branchId: branchId ?? undefined,
+        subtotal: 0,
+        taxableAmount: 0,
+        totalAmount: 0,
+        dueDate,
+        paymentStatus: "PENDING",
+        notes: "Pharmacy bill (dispensed medicines)",
+      },
+      select: { id: true },
+    });
+    if (config) {
+      await tx.systemConfig.update({
+        where: { key: "next_invoice_number" },
+        data: { value: String(invSeq + 1) },
+      });
+    } else {
+      await tx.systemConfig.create({
+        data: { key: "next_invoice_number", value: String(invSeq + 1) },
+      });
+    }
+    return inv;
+  });
+}
+
+// GET /api/v1/pharmacy/prescriptions/:id/invoice
+// Pure lookup (no side effects): returns the prescription's standalone pharmacy
+// bill id and how many dispensed lines it currently carries. The Kanban uses
+// this on load to decide the button: not billed → "Generate Bill"; billed and
+// all dispensed lines on it → "Bill Generated" (disabled); billed but MORE
+// medicines have since been dispensed → "Update Bill".
+router.get(
+  "/prescriptions/:id/invoice",
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const inv = await prisma.invoice.findUnique({
+        where: { prescriptionId: req.params.id },
+        select: { id: true, _count: { select: { items: true } } },
+      });
+      res.json({
+        success: true,
+        data: {
+          invoiceId: inv?.id ?? null,
+          billedCount: inv?._count.items ?? 0,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// POST /api/v1/pharmacy/prescriptions/:id/invoice
+// Generate (or UPDATE) the prescription's standalone PHARMACY-only bill: a
+// dedicated invoice containing ONLY the dispensed medicines — never the
+// consultation fee or any other section. Idempotent: it rebuilds the bill's
+// lines to exactly match the current DISPENSED stock movements, so calling it
+// again after another medicine is dispensed simply ADDS that line ("Update
+// Bill"). Returns { invoiceId: null } when nothing has been dispensed yet.
+router.post(
+  "/prescriptions/:id/invoice",
+  authorize(Role.ADMIN, Role.PHARMACIST),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rx = await prisma.prescription.findUnique({
+        where: { id: req.params.id },
+        select: {
+          patientId: true,
+          appointment: { select: { branchId: true } },
+          items: { select: { kanbanStatus: true } },
+        },
+      });
+      if (!rx) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Prescription not found" });
+        return;
+      }
+      // Nothing dispensed → nothing to bill.
+      const dispensedCount = rx.items.filter(
+        (i) => i.kanbanStatus === "DISPENSED",
+      ).length;
+      if (dispensedCount === 0) {
+        res.json({
+          success: true,
+          data: { invoiceId: null, billedCount: 0 },
+          error: null,
+          message: "No medicines dispensed yet — dispense before billing.",
+        });
+        return;
+      }
+
+      const invoice = await ensurePharmacyInvoice(
+        req.params.id,
+        rx.patientId,
+        rx.appointment?.branchId ?? null,
+      );
+
+      // Rebuild the pharmacy bill's lines to EXACTLY match the DISPENSED stock
+      // movements (qty + batch + sale price). The invoice is pharmacy-only, so
+      // we clear all its lines and recreate — idempotent, and a newly-dispensed
+      // medicine is picked up on the next call (Update Bill).
+      const movements = await prisma.stockMovement.findMany({
+        where: { type: "DISPENSED", referenceId: req.params.id },
+        select: {
+          quantity: true,
+          inventoryItem: {
+            select: {
+              sellingPrice: true,
+              batchNumber: true,
+              medicine: { select: { name: true } },
+            },
+          },
+        },
+      });
+      const desiredLines = movements
+        .filter((m) => m.inventoryItem && Math.abs(m.quantity) > 0)
+        .map((m) => {
+          const inv = m.inventoryItem!;
+          const qty = Math.abs(m.quantity);
+          const unitPrice = Number(inv.sellingPrice);
+          return {
+            invoiceId: invoice.id,
+            description: `Pharmacy: ${inv.medicine?.name ?? "Medicine"} (Batch ${inv.batchNumber})`,
+            category: "PHARMACY",
+            quantity: qty,
+            unitPrice,
+            amount: unitPrice * qty,
+          };
+        });
+      const newSum = desiredLines.reduce((s, l) => s + l.amount, 0);
+
+      await prisma.$transaction([
+        prisma.invoiceItem.deleteMany({ where: { invoiceId: invoice.id } }),
+        ...(desiredLines.length > 0
+          ? [prisma.invoiceItem.createMany({ data: desiredLines })]
+          : []),
+        prisma.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            subtotal: newSum,
+            taxableAmount: newSum,
+            totalAmount: newSum,
+          },
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        data: { invoiceId: invoice.id, billedCount: desiredLines.length },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/pharmacy/prescriptions/:id/availability
+// For the Kanban "view" modal: returns every prescribed line with the
+// quantity required vs. the quantity currently in stock, and an
+// `available` flag, so the UI can flag out-of-stock medicines in red.
+// Required qty is parsed from the structured "Qty: N" in instructions
+// (falls back to 1); available qty sums all non-expired inventory batches
+// for the matched medicine (same name-match used by /dispense).
+router.get(
+  "/prescriptions/:id/availability",
+  authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const prescription = await prisma.prescription.findUnique({
+        where: { id: req.params.id },
+        include: {
+          items: true,
+          patient: { include: { user: { select: { name: true } } } },
+          doctor: { include: { user: { select: { name: true } } } },
+        },
+      });
+      if (!prescription) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Prescription not found" });
+        return;
+      }
+
+      // Which medicines have already been handed to the patient — i.e. a
+      // DISPENSED stock movement was recorded against this prescription. Used
+      // to flag those lines as "Dispensed" instead of a stock count.
+      const dispensedMovements = await prisma.stockMovement.findMany({
+        where: { type: "DISPENSED", referenceId: prescription.id },
+        select: { inventoryItem: { select: { medicineId: true } } },
+      });
+      const dispensedMedicineIds = new Set(
+        dispensedMovements
+          .map((m) => m.inventoryItem?.medicineId)
+          .filter((id): id is string => Boolean(id)),
+      );
+
+      const items = await Promise.all(
+        prescription.items.map(async (item) => {
+          // Required qty from the "Qty: N" segment of instructions; default 1.
+          const qtyMatch = item.instructions?.match(/Qty:\s*(\d+)/i);
+          const requiredQty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+
+          const medicine = await prisma.medicine.findFirst({
+            where: {
+              OR: [
+                { name: { equals: item.medicineName, mode: "insensitive" } },
+                { genericName: { equals: item.medicineName, mode: "insensitive" } },
+                { name: { contains: item.medicineName, mode: "insensitive" } },
+              ],
+            },
+            select: { id: true },
+          });
+
+          let availableQty = 0;
+          if (medicine) {
+            const batches = await prisma.inventoryItem.findMany({
+              where: {
+                medicineId: medicine.id,
+                quantity: { gt: 0 },
+                expiryDate: { gt: new Date() },
+              },
+              select: { quantity: true },
+            });
+            availableQty = batches.reduce((sum, b) => sum + b.quantity, 0);
+          }
+
+          const dispensed = Boolean(
+            medicine && dispensedMedicineIds.has(medicine.id),
+          );
+
+          return {
+            medicineName: item.medicineName,
+            medicineId: medicine?.id ?? null,
+            dosage: item.dosage,
+            frequency: item.frequency,
+            duration: item.duration,
+            requiredQty,
+            availableQty,
+            matched: Boolean(medicine),
+            dispensed,
+            available: Boolean(medicine) && availableQty >= requiredQty,
+          };
+        }),
+      );
+
+      res.json({
+        success: true,
+        data: {
+          prescriptionId: prescription.id,
+          patientName: prescription.patient.user.name || "Patient",
+          doctorName: prescription.doctor.user.name || "Doctor",
+          diagnosis: prescription.diagnosis,
+          items,
+          allAvailable: items.every((i) => i.available),
+        },
         error: null,
       });
     } catch (err) {
@@ -1021,6 +1426,122 @@ router.patch(
         error: null,
         ...(dispenseWarnings.length ? { warnings: dispenseWarnings } : {}),
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/pharmacy/prescription-items/:itemId/status
+// Per-MEDICINE Kanban transition. Each line item moves independently through
+// PENDING (New) → DISPENSING → READY (and READY → DISPENSING step-back). The
+// final READY → DISPENSED step is NOT done here — that goes through POST
+// /pharmacy/dispense (medicineIds) so stock/billing/controlled-register run.
+// An OUT-OF-STOCK medicine cannot be advanced (forward moves are rejected).
+router.patch(
+  "/prescription-items/:itemId/status",
+  authorize(Role.ADMIN, Role.PHARMACIST),
+  validateUuidParams(["itemId"]),
+  validate(kanbanTransitionBodySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { status: target } = req.body as { status: string };
+      const item = await prisma.prescriptionItem.findUnique({
+        where: { id: req.params.itemId },
+        select: {
+          id: true,
+          kanbanStatus: true,
+          medicineId: true,
+          medicineName: true,
+          instructions: true,
+        },
+      });
+      if (!item) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Prescription item not found" });
+        return;
+      }
+
+      const allowed = KANBAN_TRANSITIONS[item.kanbanStatus] ?? [];
+      if (!allowed.includes(target)) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Invalid transition ${item.kanbanStatus} → ${target}`,
+        });
+        return;
+      }
+
+      // DISPENSED must go through the dispense flow (stock + billing + CSR).
+      if (target === "DISPENSED") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: "Dispense this medicine via POST /pharmacy/dispense (medicineIds)",
+        });
+        return;
+      }
+
+      // Out-of-stock medicines aren't movable forward. Resolve the medicine and
+      // its on-hand stock; a forward move while short on stock is rejected.
+      const order: Record<string, number> = {
+        PENDING: 0,
+        DISPENSING: 1,
+        READY: 2,
+        DISPENSED: 3,
+      };
+      const isForward = (order[target] ?? 0) > (order[item.kanbanStatus] ?? 0);
+      if (isForward) {
+        const medicine = item.medicineId
+          ? { id: item.medicineId }
+          : await prisma.medicine.findFirst({
+              where: {
+                OR: [
+                  { name: { equals: item.medicineName, mode: "insensitive" } },
+                  { genericName: { equals: item.medicineName, mode: "insensitive" } },
+                  { name: { contains: item.medicineName, mode: "insensitive" } },
+                ],
+              },
+              select: { id: true },
+            });
+        const qtyMatch = item.instructions?.match(/Qty:\s*(\d+)/i);
+        const requiredQty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+        let availableQty = 0;
+        if (medicine) {
+          const agg = await prisma.inventoryItem.aggregate({
+            where: {
+              medicineId: medicine.id,
+              quantity: { gt: 0 },
+              expiryDate: { gt: new Date() },
+            },
+            _sum: { quantity: true },
+          });
+          availableQty = agg._sum.quantity ?? 0;
+        }
+        if (!medicine || availableQty < requiredQty) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: "Out of stock — this medicine can't be moved until restocked",
+          });
+          return;
+        }
+      }
+
+      const updated = await prisma.prescriptionItem.update({
+        where: { id: item.id },
+        data: { kanbanStatus: target as any },
+        select: { id: true, kanbanStatus: true, prescriptionId: true },
+      });
+      await auditLog(
+        req,
+        "PRESCRIPTION_ITEM_KANBAN_TRANSITION",
+        "prescription_item",
+        item.id,
+        { from: item.kanbanStatus, to: target, prescriptionItemId: item.id },
+      );
+      res.json({ success: true, data: updated, error: null });
     } catch (err) {
       next(err);
     }

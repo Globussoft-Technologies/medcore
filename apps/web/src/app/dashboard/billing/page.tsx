@@ -14,8 +14,9 @@ import { SkeletonTable } from "@/components/Skeleton";
 import { derivePaymentStatus, computeInvoiceTotals } from "@medcore/shared";
 
 // Issue #89: DOCTOR must NOT see Billing / invoices. PATIENT keeps own-data
-// access; ADMIN + RECEPTION are the operational roles.
-const BILLING_ALLOWED = new Set(["ADMIN", "RECEPTION", "PATIENT"]);
+// access; ADMIN + RECEPTION are the operational roles. PHARMACIST sees the
+// pharmacy bills they generate (list is API-scoped to prescriptionId != null).
+const BILLING_ALLOWED = new Set(["ADMIN", "RECEPTION", "PATIENT", "PHARMACIST"]);
 import {
   Printer,
   Receipt,
@@ -422,6 +423,10 @@ export default function BillingPage() {
   // phone number on every invoice row removes redundant noise. Staff
   // (ADMIN/RECEPTION) still need it for collections.
   const isPatient = user?.role === "PATIENT";
+  // Pharmacists can't open the per-patient billing page (all of a patient's
+  // invoices, incl. consult/IPD) — so their invoice rows show the patient name
+  // as plain text instead of a dead link.
+  const isPharmacist = user?.role === "PHARMACIST";
 
   const enrichedInvoices = useMemo(
     () =>
@@ -588,12 +593,16 @@ export default function BillingPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/dashboard/billing/patient/${r.patientId}`}
-                        className="font-medium hover:underline"
-                      >
-                        {r.patient.user.name}
-                      </Link>
+                      {isPharmacist ? (
+                        <span className="font-medium">{r.patient.user.name}</span>
+                      ) : (
+                        <Link
+                          href={`/dashboard/billing/patient/${r.patientId}`}
+                          className="font-medium hover:underline"
+                        >
+                          {r.patient.user.name}
+                        </Link>
+                      )}
                       {!isPatient && (
                         <p className="text-xs text-gray-500 dark:text-gray-400">{r.patient.user.phone}</p>
                       )}
@@ -665,12 +674,16 @@ export default function BillingPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-3">
-                    <Link
-                      href={`/dashboard/billing/patient/${inv.patientId}`}
-                      className="font-medium hover:underline"
-                    >
-                      {inv.patient.user.name}
-                    </Link>
+                    {isPharmacist ? (
+                      <span className="font-medium">{inv.patient.user.name}</span>
+                    ) : (
+                      <Link
+                        href={`/dashboard/billing/patient/${inv.patientId}`}
+                        className="font-medium hover:underline"
+                      >
+                        {inv.patient.user.name}
+                      </Link>
+                    )}
                     {!isPatient && (
                       <p className="text-xs text-gray-500 dark:text-gray-400">{inv.patient.user.phone}</p>
                     )}

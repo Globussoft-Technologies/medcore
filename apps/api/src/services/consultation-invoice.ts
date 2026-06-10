@@ -70,25 +70,8 @@ export async function createConsultationInvoiceForAppointment(
   });
   if (activeAdmission) return null;
 
-  // Idempotency — Invoice.appointmentId is @unique, so a consult invoice may
-  // already exist (re-flip to COMPLETED, retried request). Don't double-bill.
-  const existing = await prisma.invoice.findUnique({
-    where: { appointmentId },
-    select: { id: true, invoiceNumber: true, totalAmount: true, patientId: true },
-  });
-  if (existing) {
-    return {
-      id: existing.id,
-      invoiceNumber: existing.invoiceNumber,
-      totalAmount: dec(existing.totalAmount),
-      patientId: existing.patientId,
-      created: false,
-    };
-  }
-
   // Fee = the per-doctor consultation fee. No fee set → nothing to bill.
   const fee = +dec(appt.doctor?.consultationFee).toFixed(2);
-  if (fee <= 0) return null;
 
   // Consultations are GST-exempt — no tax line.
   const totalAmount = fee;
@@ -97,6 +80,61 @@ export async function createConsultationInvoiceForAppointment(
   const description = doctorName
     ? `Consultation — ${doctorName}`
     : "Consultation fee";
+
+  // Invoice.appointmentId is @unique, so an invoice may already exist — either
+  // a prior consult flip, OR one the pharmacy dispense created first (when a
+  // patient is dispensed before the consult completes). In that case append
+  // the consultation line to the SAME invoice (idempotently) so both the
+  // consult fee and the pharmacy items land on one bill — and vice-versa.
+  const existing = await prisma.invoice.findUnique({
+    where: { appointmentId },
+    select: { id: true, invoiceNumber: true, totalAmount: true, patientId: true },
+  });
+  if (existing) {
+    let addedConsult = false;
+    if (fee > 0) {
+      const hasConsultLine = await prisma.invoiceItem.findFirst({
+        where: { invoiceId: existing.id, category: "CONSULTATION" },
+        select: { id: true },
+      });
+      if (!hasConsultLine) {
+        await prisma.$transaction([
+          prisma.invoiceItem.create({
+            data: {
+              invoiceId: existing.id,
+              description,
+              category: "CONSULTATION",
+              quantity: 1,
+              unitPrice: fee,
+              amount: fee,
+              cgst: 0,
+              sgst: 0,
+              gstRate: 0,
+              hsnSac: "9993",
+            },
+          }),
+          prisma.invoice.update({
+            where: { id: existing.id },
+            data: {
+              subtotal: { increment: fee },
+              taxableAmount: { increment: fee },
+              totalAmount: { increment: fee },
+            },
+          }),
+        ]);
+        addedConsult = true;
+      }
+    }
+    return {
+      id: existing.id,
+      invoiceNumber: existing.invoiceNumber,
+      totalAmount: dec(existing.totalAmount) + (addedConsult ? fee : 0),
+      patientId: existing.patientId,
+      created: false,
+    };
+  }
+
+  if (fee <= 0) return null;
 
   // Due date: createdAt + invoice_default_due_days (default 14), matching the
   // manual billing path so receivables age consistently.
@@ -166,4 +204,82 @@ export async function createConsultationInvoiceForAppointment(
     patientId: invoice.patientId,
     created: true,
   };
+}
+
+/**
+ * Get the appointment's invoice, creating a bare PENDING one (no line items,
+ * zero total) if none exists yet. Used by the pharmacy dispense flow so that
+ * dispensing BEFORE the consult completes still produces a bill to attach the
+ * pharmacy lines to — the consultation fee is appended later when the consult
+ * completes (see createConsultationInvoiceForAppointment). Returns null when
+ * the patient is admitted (IPD running bill owns the charges) or the
+ * appointment doesn't exist.
+ */
+export async function ensureAppointmentInvoice(
+  appointmentId: string,
+): Promise<{ id: string; paymentStatus: string; created: boolean } | null> {
+  const existing = await prisma.invoice.findUnique({
+    where: { appointmentId },
+    select: { id: true, paymentStatus: true },
+  });
+  if (existing) {
+    return { id: existing.id, paymentStatus: existing.paymentStatus, created: false };
+  }
+
+  const appt = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    select: { id: true, patientId: true, tenantId: true, branchId: true },
+  });
+  if (!appt) return null;
+
+  // IPD patients are billed on the running admission bill, not an appointment
+  // invoice — mirror the skip in createConsultationInvoiceForAppointment.
+  const activeAdmission = await prisma.admission.findFirst({
+    where: { patientId: appt.patientId, status: "ADMITTED" },
+    select: { id: true },
+  });
+  if (activeAdmission) return null;
+
+  const dueDays =
+    (await readConfigNumber("invoice_default_due_days", appt.tenantId)) ?? 14;
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + (Number.isFinite(dueDays) ? dueDays : 14));
+
+  const invoice = await prisma.$transaction(async (tx) => {
+    const config = await tx.systemConfig.findUnique({
+      where: { key: "next_invoice_number" },
+    });
+    const invSeq = config ? parseInt(config.value, 10) || 1 : 1;
+    const invoiceNumber = `${INVOICE_NUMBER_PREFIX}${String(invSeq).padStart(6, "0")}`;
+
+    const inv = await tx.invoice.create({
+      data: {
+        invoiceNumber,
+        appointmentId: appt.id,
+        patientId: appt.patientId,
+        branchId: appt.branchId ?? undefined,
+        subtotal: 0,
+        taxableAmount: 0,
+        totalAmount: 0,
+        dueDate,
+        paymentStatus: "PENDING",
+        notes: "Auto-generated appointment invoice (pharmacy dispense)",
+      },
+      select: { id: true, paymentStatus: true },
+    });
+
+    if (config) {
+      await tx.systemConfig.update({
+        where: { key: "next_invoice_number" },
+        data: { value: String(invSeq + 1) },
+      });
+    } else {
+      await tx.systemConfig.create({
+        data: { key: "next_invoice_number", value: String(invSeq + 1) },
+      });
+    }
+    return inv;
+  });
+
+  return { id: invoice.id, paymentStatus: invoice.paymentStatus, created: true };
 }

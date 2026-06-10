@@ -105,6 +105,10 @@ test.describe("Print / PDF surfaces — cross-cutting coverage of the four shipp
               diagnosis: "Acute pharyngitis",
               advice: null,
               issuedAt: new Date().toISOString(),
+              // The list defaults to a "Today" filter that keys off createdAt
+              // (page.tsx) — without it the stubbed row is filtered out and the
+              // row never renders.
+              createdAt: new Date().toISOString(),
               followUpDate: null,
               printed: false,
               sharedVia: null,

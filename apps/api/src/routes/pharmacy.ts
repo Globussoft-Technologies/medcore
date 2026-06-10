@@ -1071,7 +1071,9 @@ async function ensurePharmacyInvoice(
   patientId: string,
   branchId: string | null,
 ): Promise<{ id: string }> {
-  const existing = await prisma.invoice.findUnique({
+  // findFirst (not findUnique): prescriptionId is a plain indexed column, not a
+  // DB UNIQUE — uniqueness is enforced here by checking for an existing row.
+  const existing = await prisma.invoice.findFirst({
     where: { prescriptionId },
     select: { id: true },
   });
@@ -1126,7 +1128,7 @@ router.get(
   authorize(Role.ADMIN, Role.PHARMACIST, Role.DOCTOR, Role.NURSE),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const inv = await prisma.invoice.findUnique({
+      const inv = await prisma.invoice.findFirst({
         where: { prescriptionId: req.params.id },
         select: { id: true, _count: { select: { items: true } } },
       });

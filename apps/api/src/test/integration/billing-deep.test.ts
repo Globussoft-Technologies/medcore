@@ -1,8 +1,17 @@
 // Deep / edge-case integration tests for the billing router.
 // Augments billing.test.ts — focused on error branches + multi-step flows.
-import { it, expect, beforeAll } from "vitest";
+import { it, expect, beforeAll, vi } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
+
+// The /reminder endpoint now sends the bill DIRECTLY over WhatsApp (Meta Cloud
+// API) instead of queuing a stub Notification row. CI has no Meta credentials,
+// so the real sender would return a delivery error → the route 502s. Mock the
+// transport to a deterministic success so the test asserts the endpoint's
+// contract (201 + channel echoed) rather than live WhatsApp connectivity.
+vi.mock("../../services/messaging/whatsapp", () => ({
+  sendWhatsApp: vi.fn().mockResolvedValue({ ok: true, messageId: "wa-test" }),
+}));
 import {
   createPatientFixture,
   createDoctorFixture,

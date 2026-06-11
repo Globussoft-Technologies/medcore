@@ -23,10 +23,19 @@ import {
   updateCohortSchema,
   addCohortMemberSchema,
   addCohortMembersSchema,
+  audienceRulesSchema,
+  type AudienceRules,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { compileAudience } from "../services/audience-compiler";
+
+// Snapshot "add by rule" cap. The bulk member-add endpoint accepts at most
+// 500 ids per request; we mirror that here so a rule matching thousands of
+// patients can't blow the request. The preview surfaces the TRUE total so the
+// operator sees when a rule over-matches and can tighten it.
+const RULE_ADD_CAP = 500;
 
 const router = Router();
 router.use(authenticate);
@@ -44,6 +53,61 @@ const COHORT_READ_ROLES = [
   Role.RECEPTION,
 ] as const;
 const COHORT_WRITE_ROLES = [Role.ADMIN, Role.DOCTOR, Role.NURSE] as const;
+
+// ─── GET /cohorts/diagnoses?q=term — diagnosis autocomplete ───────
+//
+// Powers the "Diagnosis contains" typeahead on the Add-by-rule panel. Returns
+// DISTINCT diagnosis strings that ACTUALLY EXIST in this tenant's data, pulled
+// from the two real diagnosis surfaces:
+//   • Prescription.diagnosis  (per-visit)
+//   • ChronicCondition.condition (problem list)
+// so the operator picks a value that will actually match patients (instead of
+// typing a guess). Tenant-scoped via tenantScopedPrisma. Declared BEFORE any
+// `/:id` route so Express doesn't shadow it (CLAUDE.md static-before-dynamic).
+router.get(
+  "/diagnoses",
+  authorize(...COHORT_READ_ROLES),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+      if (q.length < 1) {
+        res.json({ success: true, data: [], error: null });
+        return;
+      }
+      const ci = { contains: q, mode: "insensitive" as const };
+      const [rxRows, condRows] = await Promise.all([
+        prisma.prescription.findMany({
+          where: { diagnosis: ci },
+          select: { diagnosis: true },
+          distinct: ["diagnosis"],
+          take: 50,
+        }),
+        prisma.chronicCondition.findMany({
+          where: { condition: ci },
+          select: { condition: true },
+          distinct: ["condition"],
+          take: 50,
+        }),
+      ]);
+      // Merge + de-dupe (case-insensitive) + cap to a tidy list.
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const v of [
+        ...rxRows.map((r) => r.diagnosis),
+        ...condRows.map((c) => c.condition),
+      ]) {
+        const key = v.trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(v.trim());
+        if (out.length >= 15) break;
+      }
+      res.json({ success: true, data: out, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // ─── GET /cohorts — list ──────────────────────────────────────────
 router.get(
@@ -452,6 +516,90 @@ router.post(
       }).catch(console.error);
 
       res.status(201).json({ success: true, data: member, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ─── POST /cohorts/:id/preview-by-rules — snapshot "add by rule" preview ──
+//
+// Compile a CampaignAudience-style rules blob (filters + matchMode) into a
+// Prisma where over Patient, scoped to the caller's tenant, and return:
+//   - total       — how many patients match (the TRUE count)
+//   - patientIds  — the matching ids, capped at RULE_ADD_CAP (what the client
+//                   then POSTs back to /:id/members for the actual add)
+//   - sample      — a few rows for an at-a-glance preview
+//
+// Reuses the audience-compiler (services/audience-compiler.ts) so the cohort
+// rule DSL is identical to campaign audiences (gender / age / lastVisitDays /
+// abhaLinked / city / branchId / optedOut). This is a SNAPSHOT operation: it
+// reads the patients who match RIGHT NOW; it does not persist the rule or
+// auto-sync membership (that's the ChronicCareCohort cron path).
+router.post(
+  "/:id/preview-by-rules",
+  authorize(...COHORT_WRITE_ROLES),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const cohort = await prisma.cohort.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, archivedAt: true },
+      });
+      if (!cohort) {
+        res
+          .status(404)
+          .json({ success: false, data: null, error: "Cohort not found" });
+        return;
+      }
+
+      const parsed = audienceRulesSchema.safeParse(req.body?.rules ?? req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: parsed.error.issues[0]?.message ?? "Invalid rules",
+        });
+        return;
+      }
+
+      const compiled = compileAudience(parsed.data as AudienceRules);
+      // tenantScopedPrisma already injects the tenant filter, but we wrap
+      // explicitly (defence-in-depth, mirrors campaign-audiences /compile) so
+      // a stale-token operator can never preview across tenants.
+      const where = { tenantId: req.tenantId ?? undefined, AND: [compiled] };
+
+      const [total, rows] = await Promise.all([
+        prisma.patient.count({ where }),
+        prisma.patient.findMany({
+          where,
+          take: RULE_ADD_CAP,
+          orderBy: { mrNumber: "desc" },
+          select: {
+            id: true,
+            mrNumber: true,
+            user: { select: { name: true, phone: true } },
+          },
+        }),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          total,
+          // Capped to what a single bulk-add can absorb. If total > cap, the
+          // client shows "showing first N of T" and the operator can tighten
+          // the rule.
+          patientIds: rows.map((r) => r.id),
+          cap: RULE_ADD_CAP,
+          sample: rows.slice(0, 8).map((r) => ({
+            id: r.id,
+            mrNumber: r.mrNumber,
+            name: r.user?.name ?? null,
+            phone: r.user?.phone ?? null,
+          })),
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

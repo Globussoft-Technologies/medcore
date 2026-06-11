@@ -55,9 +55,14 @@ interface AppointmentRow {
   // uses `include: { doctor }`, so all scalar fields incl. doctorId come
   // back). Needed to fetch the doctor's open slots when rescheduling.
   doctorId?: string | null;
+  // The doctor's appointment mode. Reschedule only applies to SLOT (there's a
+  // specific time to move); TOKEN/CALLING have no fixed time, so those rows
+  // hide the reschedule action (the patient cancels + rebooks instead).
+  appointmentMode?: "SLOT" | "TOKEN" | "CALLING" | null;
   doctor?: {
     user?: { name?: string | null } | null;
     specialty?: string | null;
+    appointmentMode?: "SLOT" | "TOKEN" | "CALLING" | null;
   } | null;
 }
 
@@ -387,9 +392,15 @@ export default function PatientAppointmentsPage() {
 
   async function submitReschedule(): Promise<void> {
     if (!rescheduleDraft) return;
-    // The patient must pick an available slot (token/slot-wise) — no
-    // free-form time. slotStart is empty until a grid chip is clicked.
-    if (!rescheduleDraft.slotStart) {
+    // SLOT appointments must pick an available slot (no free-form time).
+    // TOKEN / CALLING have no fixed time — they reschedule by date + reason
+    // only, so the slot requirement is skipped and slotStart is omitted.
+    const mode =
+      rescheduleDraft.appointment.appointmentMode ??
+      rescheduleDraft.appointment.doctor?.appointmentMode ??
+      "SLOT";
+    const isSlot = mode === "SLOT";
+    if (isSlot && !rescheduleDraft.slotStart) {
       setActionError("Please pick an available time slot.");
       return;
     }
@@ -410,7 +421,8 @@ export default function PatientAppointmentsPage() {
         `/appointments/${rescheduleDraft.appointment.id}/reschedule`,
         {
           date: rescheduleDraft.date,
-          slotStart: rescheduleDraft.slotStart,
+          // Only SLOT mode carries a slotStart.
+          ...(isSlot ? { slotStart: rescheduleDraft.slotStart } : {}),
           reason,
         },
       );
@@ -718,10 +730,14 @@ export default function PatientAppointmentsPage() {
                   className="block h-11 w-full rounded-md border border-slate-300 dark:border-gray-600 px-3 text-sm"
                 />
               </label>
-              {/* New time — slot/token-wise picker. The patient may only
-                  pick from the doctor's open slots, not a free-form time.
-                  Booked slots come back isAvailable=false and render
-                  disabled. */}
+              {/* New time — SLOT mode only. SLOT appointments have a specific
+                  HH:MM the patient picks from the doctor's open slots. TOKEN /
+                  CALLING appointments have no fixed time (just a date + queue),
+                  so for those we hide the slot grid entirely and the patient
+                  only changes the date + reason below. */}
+              {(rescheduleDraft.appointment.appointmentMode ??
+                rescheduleDraft.appointment.doctor?.appointmentMode ??
+                "SLOT") === "SLOT" ? (
               <div className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700 dark:text-gray-200">
                   New time
@@ -784,6 +800,7 @@ export default function PatientAppointmentsPage() {
                   </div>
                 )}
               </div>
+              ) : null}
               <label className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700 dark:text-gray-200">
                   Reason <span className="text-red-600 dark:text-red-300">*</span>
@@ -830,7 +847,16 @@ export default function PatientAppointmentsPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={submitting || !rescheduleDraft.slotStart}
+                  disabled={
+                    submitting ||
+                    // SLOT mode needs a picked slot; TOKEN/CALLING only need a
+                    // reason (≥3 chars) — they reschedule by date alone.
+                    ((rescheduleDraft.appointment.appointmentMode ??
+                      rescheduleDraft.appointment.doctor?.appointmentMode ??
+                      "SLOT") === "SLOT"
+                      ? !rescheduleDraft.slotStart
+                      : rescheduleDraft.reason.trim().length < 3)
+                  }
                   onClick={() => void submitReschedule()}
                   className="inline-flex h-11 min-w-[44px] items-center justify-center rounded-md bg-slate-900 px-4 text-sm font-medium text-white disabled:opacity-60"
                   data-testid="patient-appointments-reschedule-submit"

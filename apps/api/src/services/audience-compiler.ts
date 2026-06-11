@@ -197,6 +197,50 @@ function compileFilter(filter: AudienceFilter): Clause {
       return { whatsappOptIn: !value };
     }
 
+    case "condition": {
+      // Diagnosis match — searches a patient's diagnosis WHEREVER it's
+      // recorded, so a condition logged in any surface catches the patient:
+      //   • ChronicCondition (the problem list)   — name OR icd10Code, ACTIVE
+      //   • Prescription.diagnosis (per-visit)     — the visit diagnosis
+      //   • Admission.diagnosis / finalDiagnosis   — inpatient diagnosis
+      // Case-insensitive `contains`, so "diabet" catches "Type 2 Diabetes
+      // Mellitus" and "E11" catches the ICD code. `eq` (single term) and `in`
+      // (any of several terms) are supported.
+      const terms: string[] =
+        op === "in"
+          ? Array.isArray(value)
+            ? value.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+            : []
+          : typeof value === "string" && value.trim().length > 0
+            ? [value]
+            : [];
+      if (op !== "eq" && op !== "in") {
+        console.warn(
+          `[audience-compiler] unsupported op "${op}" for field "condition"; treating as no-op`,
+        );
+        return null;
+      }
+      if (terms.length === 0) {
+        console.warn(
+          `[audience-compiler] empty value for condition ${op}; treating as no-op`,
+        );
+        return null;
+      }
+      const ci = (t: string) => ({ contains: t.trim(), mode: "insensitive" as const });
+      // A patient matches if ANY term hits ANY of the diagnosis surfaces.
+      const perPatient = terms.map((t) => ({
+        OR: [
+          // Problem list (active conditions) — name or ICD code.
+          { chronicConditions: { some: { status: "ACTIVE" as any, OR: [{ condition: ci(t) }, { icd10Code: ci(t) }] } } },
+          // Per-visit prescription diagnosis.
+          { prescriptions: { some: { diagnosis: ci(t) } } },
+          // Inpatient admission diagnosis (working + final).
+          { admissions: { some: { OR: [{ diagnosis: ci(t) }, { finalDiagnosis: ci(t) }] } } },
+        ],
+      }));
+      return perPatient.length === 1 ? perPatient[0] : { OR: perPatient };
+    }
+
     default: {
       console.warn(
         `[audience-compiler] unknown field "${field}"; treating as no-op`,

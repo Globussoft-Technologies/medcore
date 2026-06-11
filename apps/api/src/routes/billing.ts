@@ -52,6 +52,8 @@ import {
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
+import { sendWhatsApp } from "../services/messaging/whatsapp";
+import { patientBillLink } from "../lib/site-link";
 import { validate } from "../middleware/validate";
 // Issue #139 / #159 / #165 (2026-04-26): all revenue / outstanding / refund
 // KPIs route through ../services/revenue so dashboard, billing, reports and
@@ -3033,22 +3035,59 @@ router.post(
       }
       const paid = invoice.payments.reduce((s, p) => s + p.amount, 0);
       const balance = dec(invoice.totalAmount) - paid;
-      const channel = (req.body.channel || "SMS") as "SMS" | "EMAIL" | "WHATSAPP";
+      const channel = (req.body.channel || "WHATSAPP") as
+        | "SMS"
+        | "EMAIL"
+        | "WHATSAPP";
 
-      // Stub: create a Notification row; any real gateway would pick it up.
-      await prisma.notification.create({
-        data: {
-          userId: invoice.patient.userId,
-          type: "BILL_GENERATED",
-          channel: channel === "WHATSAPP" ? "WHATSAPP" : channel === "EMAIL" ? "EMAIL" : "SMS",
-          title: `Payment reminder for ${invoice.invoiceNumber}`,
-          message: `Dear ${invoice.patient.user.name}, a balance of Rs.${balance.toFixed(
-            2
-          )} is due on invoice ${invoice.invoiceNumber}. Kindly settle it at the earliest.`,
-          data: { invoiceId: invoice.id, balance },
-          deliveryStatus: "QUEUED",
-        },
-      });
+      // Send the bill DIRECTLY over WhatsApp with a tappable link to the
+      // bill, mirroring how prescriptions are shared (routes/prescriptions.ts
+      // /:id/share). The link points at the patient portal bill page where
+      // they can view + download the PDF. No more "queue a reminder" stub —
+      // this delivers the bill on the spot. Falls back to the prod domain
+      // when PUBLIC_APP_URL is unset (same convention as rx share + pdf.ts).
+      const phone = invoice.patient.user.phone;
+      if (channel === "WHATSAPP" || channel === "SMS") {
+        if (!phone) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error:
+              "Patient has no phone on file. Add one to the patient record before sending the bill.",
+          });
+          return;
+        }
+        // Derive the link from the request host so it points at whichever
+        // environment the staff member is on (software / demos) — same helper
+        // booking + reschedule use. Falls back to the demos domain if no host.
+        const billUrl = patientBillLink(req, invoice.id);
+        const body =
+          `Hi ${invoice.patient.user.name}, here is your bill ${invoice.invoiceNumber} ` +
+          `from MedCore — amount due Rs.${balance.toFixed(2)}.\n\n` +
+          `View & download it here: ${billUrl}`;
+        const result = await sendWhatsApp({ to: phone, body });
+        if (!result.ok) {
+          auditLog(req, "PAYMENT_REMINDER_FAILED", "invoice", invoice.id, {
+            channel,
+            error: result.error,
+          }).catch(console.error);
+          res.status(502).json({
+            success: false,
+            data: null,
+            error: `WhatsApp delivery failed: ${result.error}`,
+          });
+          return;
+        }
+      } else {
+        // EMAIL path not yet wired for bills — keep parity with the rx-share
+        // 501 rather than silently faking success.
+        res.status(501).json({
+          success: false,
+          data: null,
+          error: `${channel} delivery is not yet available for bills. Use WHATSAPP.`,
+        });
+        return;
+      }
 
       await prisma.invoice.update({
         where: { id: invoice.id },

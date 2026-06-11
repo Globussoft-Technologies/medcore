@@ -85,7 +85,7 @@ describe("campaignStatusEnum", () => {
 // ───────────────────────────────────────────────────────
 
 describe("audience DSL constants", () => {
-  it("AUDIENCE_FILTER_FIELDS is the v1 documented field set", () => {
+  it("AUDIENCE_FILTER_FIELDS is the documented field set", () => {
     expect(AUDIENCE_FILTER_FIELDS).toEqual([
       "gender",
       "age",
@@ -94,6 +94,8 @@ describe("audience DSL constants", () => {
       "city",
       "branchId",
       "optedOut",
+      // 2026-06: diagnosis / chronic-condition match (cohort Add-by-rule).
+      "condition",
     ]);
   });
   it("AUDIENCE_FILTER_OPS is the v1 documented operator set", () => {

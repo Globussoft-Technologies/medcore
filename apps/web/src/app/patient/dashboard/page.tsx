@@ -38,9 +38,13 @@ interface AppointmentRow {
   tokenNumber?: number | null;
   status: string;
   branchId?: string | null;
+  // Reschedule only applies to SLOT appointments; TOKEN/CALLING have no fixed
+  // time. Mode may come as a scalar on the row or nested on the doctor.
+  appointmentMode?: "SLOT" | "TOKEN" | "CALLING" | null;
   doctor?: {
     user?: { name?: string | null } | null;
     specialty?: string | null;
+    appointmentMode?: "SLOT" | "TOKEN" | "CALLING" | null;
   } | null;
 }
 interface PrescriptionRow {

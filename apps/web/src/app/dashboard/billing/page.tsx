@@ -22,7 +22,7 @@ import {
   Receipt,
   Undo2,
   Percent,
-  BellRing,
+  Send,
   Download,
   MoreHorizontal,
   Globe,
@@ -318,14 +318,27 @@ export default function BillingPage() {
     setDiscSubmitting(false);
   }
 
-  function sendReminder(inv: { patient: { user: { name: string; phone: string } }; invoiceNumber: string; balance?: number }) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[REMINDER] Sending reminder to ${inv.patient.user.name} (${inv.patient.user.phone}) for invoice ${inv.invoiceNumber}${
-        inv.balance !== undefined ? ` — balance ${fmtMoney(inv.balance)}` : ""
-      }`
-    );
-    toast.success(`Reminder queued for ${inv.patient.user.name}`);
+  // Send the bill directly over WhatsApp (a tappable link to the patient's
+  // bill page), the same way prescriptions are shared. Replaces the old
+  // "queue a reminder" stub — this actually delivers on the spot.
+  async function sendBill(inv: {
+    id: string;
+    patient: { user: { name: string; phone: string } };
+    invoiceNumber: string;
+  }) {
+    try {
+      await api.post(`/billing/invoices/${inv.id}/reminder`, {
+        // The schema validates the body; invoiceId is required there even
+        // though the handler reads the id from the URL param.
+        invoiceId: inv.id,
+        channel: "WHATSAPP",
+      });
+      toast.success(`Bill ${inv.invoiceNumber} sent to ${inv.patient.user.name} on WhatsApp`);
+    } catch (err) {
+      toast.error(
+        (err as Error)?.message || "Couldn't send the bill. Please try again.",
+      );
+    }
   }
 
   function exportCSV() {
@@ -630,15 +643,15 @@ export default function BillingPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          sendReminder({
+                          void sendBill({
+                            id: r.invoiceId,
                             patient: r.patient,
                             invoiceNumber: r.invoiceNumber,
-                            balance: r.balance,
                           });
                         }}
-                        className="flex items-center gap-1 rounded bg-orange-500 px-2 py-1 text-xs text-white hover:bg-orange-600"
+                        className="flex items-center gap-1 rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                       >
-                        <BellRing size={12} /> Remind
+                        <Send size={12} /> Send Bill
                       </button>
                     </td>
                   </tr>
@@ -869,13 +882,17 @@ export default function BillingPage() {
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        sendReminder({ ...inv, balance: inv.balance });
+                                        void sendBill({
+                                          id: inv.id,
+                                          patient: inv.patient,
+                                          invoiceNumber: inv.invoiceNumber,
+                                        });
                                         setOpenActionsFor(null);
                                         setActionsRect(null);
                                       }}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                                     >
-                                      <BellRing size={14} /> Send Reminder
+                                      <Send size={14} /> Send Bill (WhatsApp)
                                     </button>
                                   )}
                                 </div>

@@ -46,8 +46,8 @@
  *          flat path POSTs { flatAmount, reason }.
  *      15. Discount — toast.error path on rejection.
  *      16. Outstanding tab — renders the outstanding report table, "Days
- *          Overdue" overdueClass bucket colors, and the Remind button.
- *      17. Outstanding tab Remind — toast.success + console.log on click.
+ *          Overdue" overdueClass bucket colors, and the Send Bill button.
+ *      17. Outstanding tab Send Bill — POSTs the WhatsApp send + toast.success.
  *      18. Export CSV — writes a Blob URL + clicks the anchor.
  *      19. Export CSV with zero rows → toast.info("No rows to export").
  *      20. Razorpay TEST badge surfaces when isTestMode === true.
@@ -448,10 +448,24 @@ describe("BillingPage — global billing dashboard", () => {
     expect(screen.getByText(/15 days/).className).toMatch(/text-orange-500/);
     expect(screen.getByText(/3 days/).className).toMatch(/text-gray-500/);
 
-    // Click Remind → toast.success quoting the patient name.
-    fireEvent.click(within(screen.getByText("INV-OUT-1").closest("tr")!).getByRole("button", { name: /Remind/i }));
-    expect(toastMock.success).toHaveBeenCalledWith(
-      expect.stringContaining("Bob"),
+    // Click Send Bill → POSTs the WhatsApp send, then toast.success quoting
+    // the patient name. (The button was renamed from "Remind" to "Send Bill"
+    // when the stub reminder became a real WhatsApp bill send.)
+    apiMock.post.mockResolvedValueOnce({ data: { invoiceId: "inv-out-1", channel: "WHATSAPP", balance: 3000 } });
+    fireEvent.click(
+      within(screen.getByText("INV-OUT-1").closest("tr")!).getByRole("button", {
+        name: /Send Bill/i,
+      }),
+    );
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(
+        expect.stringContaining("Bob"),
+      ),
+    );
+    // It hit the real send endpoint with the invoice id + WHATSAPP channel.
+    expect(apiMock.post).toHaveBeenCalledWith(
+      "/billing/invoices/inv-out-1/reminder",
+      expect.objectContaining({ invoiceId: "inv-out-1", channel: "WHATSAPP" }),
     );
 
     // Outstanding-empty branch — separate render with rows: [].

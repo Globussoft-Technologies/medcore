@@ -35,7 +35,7 @@
  *          overpaid rows.
  *       9. Actions menu — opens on the More button, renders Record Payment,
  *          Pay Online (only when Razorpay enabled), Record Refund (only when
- *          netPaid > 0), Apply Discount, Print Invoice, Send Reminder
+ *          netPaid > 0), Apply Discount, Print Invoice, Send Bill
  *          (only when balance > 0).
  *      10. Record Payment modal — POSTs /billing/payments with the right
  *          body shape and re-fetches invoices + summary.
@@ -152,7 +152,7 @@ vi.mock("lucide-react", () => ({
   Receipt: () => <span data-testid="icon-receipt" />,
   Undo2: () => <span data-testid="icon-undo" />,
   Percent: () => <span data-testid="icon-percent" />,
-  BellRing: () => <span data-testid="icon-bell" />,
+  Send: () => <span data-testid="icon-send" />,
   Download: () => <span data-testid="icon-download" />,
   MoreHorizontal: () => <span data-testid="icon-more" />,
   Globe: () => <span data-testid="icon-globe" />,

@@ -256,6 +256,9 @@ export const AUDIENCE_FILTER_FIELDS = [
   "city",
   "branchId",
   "optedOut",
+  // Diagnosis / chronic-condition match (name or ICD-10 contains, ACTIVE
+  // rows only). Compiled in services/audience-compiler.ts.
+  "condition",
 ] as const;
 
 export const AUDIENCE_FILTER_OPS = ["eq", "gte", "lte", "in"] as const;

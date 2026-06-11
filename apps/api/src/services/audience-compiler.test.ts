@@ -277,4 +277,27 @@ describe("compileAudience — Pearl §5.1 piece 2a", () => {
     expect(where).toEqual({});
     expect(warnSpy).toHaveBeenCalled();
   });
+
+  // 2026-06 — diagnosis match across problem-list / prescriptions / admissions.
+  it("condition eq → matches diagnosis across all three surfaces", () => {
+    const where = compileAudience({
+      filters: [{ field: "condition", op: "eq", value: "diabetes" }],
+    }) as { OR?: unknown[]; chronicConditions?: unknown; prescriptions?: unknown };
+    // Single term → returned directly (no wrapping OR). It must hit all three
+    // diagnosis surfaces via an OR.
+    expect(where.OR).toBeDefined();
+    const surfaces = where.OR as Array<Record<string, unknown>>;
+    expect(surfaces).toHaveLength(3);
+    expect(surfaces.some((s) => "chronicConditions" in s)).toBe(true);
+    expect(surfaces.some((s) => "prescriptions" in s)).toBe(true);
+    expect(surfaces.some((s) => "admissions" in s)).toBe(true);
+  });
+
+  it("condition with an empty value → no-op + warn", () => {
+    const where = compileAudience({
+      filters: [{ field: "condition", op: "eq", value: "" }],
+    });
+    expect(where).toEqual({});
+    expect(warnSpy).toHaveBeenCalled();
+  });
 });

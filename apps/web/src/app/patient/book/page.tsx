@@ -62,7 +62,11 @@ type AppointmentMode = "TOKEN" | "SLOT" | "CALLING";
 
 interface DoctorRow {
   id: string;
+  // The API (GET /doctors) returns the column as `specialization`. We accept
+  // both keys so the card shows the specialty (the page previously read only
+  // `specialty`, which is never present → the line was always blank).
   specialty?: string | null;
+  specialization?: string | null;
   appointmentMode?: AppointmentMode | null;
   tokenPrefix?: string | null;
   user?: { id?: string; name?: string | null; isActive?: boolean | null } | null;
@@ -381,9 +385,9 @@ export default function PatientBookAppointmentPage() {
                         <p className="text-base font-semibold text-slate-900 dark:text-gray-100">
                           {d.user?.name ? formatDoctorName(d.user.name) : "Doctor"}
                         </p>
-                        {d.specialty ? (
+                        {(d.specialization ?? d.specialty) ? (
                           <p className="text-sm text-slate-600 dark:text-gray-300">
-                            {d.specialty}
+                            {d.specialization ?? d.specialty}
                           </p>
                         ) : null}
                       </div>
@@ -412,9 +416,9 @@ export default function PatientBookAppointmentPage() {
                 ? formatDoctorName(selectedDoctor.user.name)
                 : "Doctor"}
             </p>
-            {selectedDoctor.specialty ? (
+            {(selectedDoctor.specialization ?? selectedDoctor.specialty) ? (
               <p className="text-sm text-slate-600 dark:text-gray-300">
-                {selectedDoctor.specialty}
+                {selectedDoctor.specialization ?? selectedDoctor.specialty}
               </p>
             ) : null}
             <span
@@ -572,10 +576,10 @@ export default function PatientBookAppointmentPage() {
                     : "Doctor"}
                 </dd>
               </div>
-              {selectedDoctor.specialty ? (
+              {(selectedDoctor.specialization ?? selectedDoctor.specialty) ? (
                 <div className="flex justify-between gap-3">
                   <dt className="text-slate-600 dark:text-gray-300">Specialty</dt>
-                  <dd className="text-slate-900 dark:text-gray-100">{selectedDoctor.specialty}</dd>
+                  <dd className="text-slate-900 dark:text-gray-100">{selectedDoctor.specialization ?? selectedDoctor.specialty}</dd>
                 </div>
               ) : null}
               <div className="flex justify-between gap-3">

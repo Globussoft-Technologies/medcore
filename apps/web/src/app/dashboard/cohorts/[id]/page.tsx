@@ -14,6 +14,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { EntityPicker } from "@/components/EntityPicker";
+import { Autocomplete } from "@/components/Autocomplete";
 import {
   ArrowLeft,
   Users2,
@@ -57,6 +58,77 @@ interface CohortDetail {
 
 const WRITE_ROLES = new Set(["ADMIN", "DOCTOR", "NURSE"]);
 
+// ── Add-by-rule filter DSL (mirrors the campaign-audience builder) ──
+// Each UI filter is one row the operator configures. We map these to the
+// backend's {field, op, value} triples on submit (see buildRules below). The
+// supported fields are the ones the audience-compiler understands.
+type RuleField =
+  | "condition"
+  | "ageMin"
+  | "ageMax"
+  | "gender"
+  | "lastVisitDaysMin"
+  | "lastVisitDaysMax"
+  | "abhaLinked";
+
+interface RuleFilter {
+  field: RuleField;
+  value: string;
+}
+
+const RULE_FIELD_LABELS: Record<RuleField, string> = {
+  condition: "Diagnosis contains",
+  ageMin: "Age ≥",
+  ageMax: "Age ≤",
+  gender: "Gender is",
+  lastVisitDaysMin: "Days since last visit ≥",
+  lastVisitDaysMax: "Days since last visit ≤",
+  abhaLinked: "ABHA linked",
+};
+
+interface RulePreview {
+  total: number;
+  cap: number;
+  patientIds: string[];
+  sample: Array<{ id: string; mrNumber: string; name: string | null; phone: string | null }>;
+}
+
+// UI filter rows → backend {field, op, value} triples. Empty values are
+// dropped so a half-filled row doesn't over-constrain the match.
+function buildRules(
+  filters: RuleFilter[],
+  matchMode: "ALL" | "ANY",
+): { filters: Array<{ field: string; op: string; value: unknown }>; matchMode: "ALL" | "ANY" } {
+  const out: Array<{ field: string; op: string; value: unknown }> = [];
+  for (const f of filters) {
+    if (f.value === "" || f.value == null) continue;
+    switch (f.field) {
+      case "condition":
+        out.push({ field: "condition", op: "eq", value: f.value.trim() });
+        break;
+      case "ageMin":
+        out.push({ field: "age", op: "gte", value: Number(f.value) });
+        break;
+      case "ageMax":
+        out.push({ field: "age", op: "lte", value: Number(f.value) });
+        break;
+      case "gender":
+        out.push({ field: "gender", op: "eq", value: f.value.toUpperCase() });
+        break;
+      case "lastVisitDaysMin":
+        out.push({ field: "lastVisitDays", op: "gte", value: Number(f.value) });
+        break;
+      case "lastVisitDaysMax":
+        out.push({ field: "lastVisitDays", op: "lte", value: Number(f.value) });
+        break;
+      case "abhaLinked":
+        out.push({ field: "abhaLinked", op: "eq", value: f.value === "true" });
+        break;
+    }
+  }
+  return { filters: out, matchMode };
+}
+
 export default function CohortDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -72,6 +144,16 @@ export default function CohortDetailPage() {
   const [selectedPatientId, setSelectedPatientId] = useState("");
   const [memberNote, setMemberNote] = useState("");
   const [adding, setAdding] = useState(false);
+
+  // ── Add-by-rule (snapshot): build filters → preview count → add all ──
+  const [ruleFilters, setRuleFilters] = useState<RuleFilter[]>([
+    { field: "ageMin", value: "" },
+  ]);
+  const [ruleMatchMode, setRuleMatchMode] = useState<"ALL" | "ANY">("ALL");
+  const [rulePreview, setRulePreview] = useState<RulePreview | null>(null);
+  const [rulePreviewing, setRulePreviewing] = useState(false);
+  const [ruleAdding, setRuleAdding] = useState(false);
+  const [ruleError, setRuleError] = useState<string | null>(null);
 
   // Rename modal
   const [editOpen, setEditOpen] = useState(false);
@@ -131,6 +213,55 @@ export default function CohortDetailPage() {
       );
     } finally {
       setAdding(false);
+    }
+  }
+
+  // Add-by-rule: count + preview the patients matching the current filters.
+  async function handlePreviewRule() {
+    if (!cohortId || rulePreviewing) return;
+    setRuleError(null);
+    setRulePreviewing(true);
+    try {
+      const rules = buildRules(ruleFilters, ruleMatchMode);
+      const res = await api.post<{ data: RulePreview }>(
+        `/cohorts/${cohortId}/preview-by-rules`,
+        { rules },
+      );
+      setRulePreview(res.data);
+    } catch (err) {
+      setRuleError(
+        err instanceof Error ? err.message : "Failed to preview matches",
+      );
+      setRulePreview(null);
+    } finally {
+      setRulePreviewing(false);
+    }
+  }
+
+  // Add-by-rule: bulk-add every previewed (matching) patient to the cohort.
+  async function handleAddByRule() {
+    if (!cohortId || ruleAdding || !rulePreview?.patientIds.length) return;
+    setRuleAdding(true);
+    setRuleError(null);
+    try {
+      const res = await api.post<{
+        data: { inserted: number; requested: number; skipped: number };
+      }>(`/cohorts/${cohortId}/members`, {
+        patientIds: rulePreview.patientIds,
+      });
+      const { inserted, skipped } = res.data;
+      toast.success(
+        `Added ${inserted} patient${inserted === 1 ? "" : "s"}` +
+          (skipped ? ` (${skipped} already in the cohort)` : ""),
+      );
+      setRulePreview(null);
+      void load();
+    } catch (err) {
+      setRuleError(
+        err instanceof Error ? err.message : "Failed to add patients",
+      );
+    } finally {
+      setRuleAdding(false);
     }
   }
 
@@ -319,6 +450,227 @@ export default function CohortDetailPage() {
           </div>
         ) : null}
       </div>
+
+      {/* Add by rule — snapshot: build filters → preview → add all matches */}
+      {canWrite && !cohort.archivedAt ? (
+        <div
+          className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900"
+          data-testid="cohort-add-by-rule-card"
+        >
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">
+            Add by rule
+          </h2>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Add every patient matching a condition (age, gender, last visit…)
+            in one click.
+          </p>
+
+          <div className="mt-3 space-y-2">
+            {ruleFilters.map((f, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <select
+                  value={f.field}
+                  onChange={(e) => {
+                    const field = e.target.value as RuleField;
+                    setRuleFilters((prev) =>
+                      prev.map((x, i) =>
+                        i === idx ? { field, value: "" } : x,
+                      ),
+                    );
+                    setRulePreview(null);
+                  }}
+                  className="h-9 rounded-md border border-gray-300 bg-white px-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+                  data-testid={`cohort-rule-field-${idx}`}
+                >
+                  {(Object.keys(RULE_FIELD_LABELS) as RuleField[]).map((k) => (
+                    <option key={k} value={k}>
+                      {RULE_FIELD_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+
+                {f.field === "gender" ? (
+                  <select
+                    value={f.value}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setRuleFilters((prev) =>
+                        prev.map((x, i) => (i === idx ? { ...x, value } : x)),
+                      );
+                      setRulePreview(null);
+                    }}
+                    className="h-9 flex-1 rounded-md border border-gray-300 bg-white px-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+                    data-testid={`cohort-rule-value-${idx}`}
+                  >
+                    <option value="">Select…</option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                ) : f.field === "abhaLinked" ? (
+                  <select
+                    value={f.value}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setRuleFilters((prev) =>
+                        prev.map((x, i) => (i === idx ? { ...x, value } : x)),
+                      );
+                      setRulePreview(null);
+                    }}
+                    className="h-9 flex-1 rounded-md border border-gray-300 bg-white px-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+                    data-testid={`cohort-rule-value-${idx}`}
+                  >
+                    <option value="">Select…</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                ) : f.field === "condition" ? (
+                  <div className="flex-1" data-testid={`cohort-rule-value-${idx}`}>
+                    <Autocomplete<string>
+                      value={f.value}
+                      onChange={(value) => {
+                        setRuleFilters((prev) =>
+                          prev.map((x, i) => (i === idx ? { ...x, value } : x)),
+                        );
+                        setRulePreview(null);
+                      }}
+                      fetchOptions={async (q) => {
+                        const res = await api.get<{ data: string[] }>(
+                          `/cohorts/diagnoses?q=${encodeURIComponent(q)}`,
+                        );
+                        return res.data ?? [];
+                      }}
+                      renderOption={(d) => d}
+                      getOptionLabel={(d) => d}
+                      minChars={1}
+                      placeholder="Search a diagnosis (e.g. diabetes)"
+                      aria-label="Diagnosis"
+                      inputClassName="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+                    />
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    min={0}
+                    value={f.value}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setRuleFilters((prev) =>
+                        prev.map((x, i) => (i === idx ? { ...x, value } : x)),
+                      );
+                      setRulePreview(null);
+                    }}
+                    placeholder={f.field.startsWith("age") ? "years" : "days"}
+                    className="h-9 flex-1 rounded-md border border-gray-300 bg-white px-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+                    data-testid={`cohort-rule-value-${idx}`}
+                  />
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRuleFilters((prev) =>
+                      prev.length === 1 ? prev : prev.filter((_, i) => i !== idx),
+                    );
+                    setRulePreview(null);
+                  }}
+                  disabled={ruleFilters.length === 1}
+                  className="text-gray-400 hover:text-red-600 disabled:opacity-30"
+                  aria-label="Remove filter"
+                >
+                  <UserMinus className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setRuleFilters((prev) => [
+                    ...prev,
+                    { field: "gender", value: "" },
+                  ]);
+                  setRulePreview(null);
+                }}
+                className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add filter
+              </button>
+              <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
+                Match
+                <select
+                  value={ruleMatchMode}
+                  onChange={(e) => {
+                    setRuleMatchMode(e.target.value as "ALL" | "ANY");
+                    setRulePreview(null);
+                  }}
+                  className="h-8 rounded-md border border-gray-300 bg-white px-2 text-xs dark:border-gray-600 dark:bg-gray-800"
+                >
+                  <option value="ALL">ALL filters</option>
+                  <option value="ANY">ANY filter</option>
+                </select>
+              </label>
+            </div>
+          </div>
+
+          {ruleError ? (
+            <p className="mt-2 text-xs text-red-600" role="alert">
+              {ruleError}
+            </p>
+          ) : null}
+
+          {rulePreview ? (
+            <div
+              className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/50 dark:bg-emerald-950/20"
+              data-testid="cohort-rule-preview"
+            >
+              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                {rulePreview.total} patient
+                {rulePreview.total === 1 ? "" : "s"} match
+                {rulePreview.total > rulePreview.cap
+                  ? ` — adding the first ${rulePreview.cap}`
+                  : ""}
+              </p>
+              {rulePreview.sample.length > 0 ? (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  e.g.{" "}
+                  {rulePreview.sample
+                    .slice(0, 4)
+                    .map((s) => s.name ?? s.mrNumber)
+                    .join(", ")}
+                  {rulePreview.total > 4 ? ", …" : ""}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handlePreviewRule}
+              disabled={rulePreviewing}
+              className="inline-flex h-9 items-center rounded-md border border-gray-300 px-4 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:hover:bg-gray-800"
+              data-testid="cohort-rule-preview-btn"
+            >
+              {rulePreviewing ? "Checking…" : "Preview matches"}
+            </button>
+            <button
+              type="button"
+              onClick={handleAddByRule}
+              disabled={ruleAdding || !rulePreview?.patientIds.length}
+              className="inline-flex h-9 items-center rounded-md bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              data-testid="cohort-rule-add-btn"
+            >
+              {ruleAdding
+                ? "Adding…"
+                : rulePreview
+                  ? `Add ${Math.min(rulePreview.total, rulePreview.cap)} patients`
+                  : "Add all"}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {/* Add member */}
       {canWrite && !cohort.archivedAt ? (

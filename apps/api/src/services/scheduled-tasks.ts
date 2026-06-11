@@ -86,6 +86,27 @@ function formatDoctorName(name: string | null | undefined): string {
   return `Dr. ${stripped}`;
 }
 
+// Has this exact reminder (identified by appointmentId + title) already been
+// sent? Used to guarantee each appointment reminder fires ONCE, even though
+// the crons run on overlapping windows. We look for a prior APPOINTMENT_
+// REMINDER notification whose `data.appointmentId` matches and whose title is
+// the same band (24h vs 1h). Cheap point-read; the Notification table is
+// indexed on (userId, createdAt) and we filter by JSON path + title.
+async function reminderAlreadySent(
+  appointmentId: string,
+  title: string,
+): Promise<boolean> {
+  const existing = await prisma.notification.findFirst({
+    where: {
+      type: NotificationType.APPOINTMENT_REMINDER,
+      title,
+      data: { path: ["appointmentId"], equals: appointmentId },
+    },
+    select: { id: true },
+  });
+  return existing !== null;
+}
+
 async function appointmentReminders24h(): Promise<void> {
   const now = new Date();
   const start = new Date(now.getTime() + 23 * 60 * 60 * 1000);
@@ -104,6 +125,14 @@ async function appointmentReminders24h(): Promise<void> {
   for (const a of appts) {
     if (!a.patient?.user) continue;
     try {
+      // Dedup: send the 24h reminder ONCE per appointment. The cron runs
+      // hourly with a 23–25h window, so an appointment can fall in the window
+      // on two consecutive ticks; without this guard the patient would get
+      // the same reminder twice. We skip if a 24h reminder notification was
+      // already created for this appointment.
+      if (await reminderAlreadySent(a.id, "Appointment Reminder (24h)")) {
+        continue;
+      }
       // Issue #879: the original template said "tomorrow" — accurate at send
       // time, but the notification row persists and the patient can read it
       // days later when "tomorrow" is no longer correct. Bake the actual
@@ -152,6 +181,12 @@ async function appointmentReminders1h(): Promise<void> {
     if (slotAt < from || slotAt > to) continue;
     if (!a.patient?.user) continue;
     try {
+      // Dedup: the 1h cron runs every 15 min with a 45–75 min window, so an
+      // appointment can fall in the window across up to 3 ticks. Send the 1h
+      // reminder ONCE per appointment.
+      if (await reminderAlreadySent(a.id, "Appointment Starting Soon (1h)")) {
+        continue;
+      }
       await sendNotification({
         userId: a.patient.user.id,
         type: NotificationType.APPOINTMENT_REMINDER,

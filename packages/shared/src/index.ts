@@ -46,4 +46,5 @@ export * from "./validation/referral-commission";
 export * from "./validation/doctor-bulk-update";
 export * from "./validation/whatsapp-config";
 export * from "./validation/whatsapp-webhook";
+export * from "./validation/abdm";
 export * from "./billing/plans";

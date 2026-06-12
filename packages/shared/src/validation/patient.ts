@@ -55,6 +55,15 @@ const patientBaseSchema = z.object({
     .regex(PHONE_REGEX, "Phone must be 10–15 digits, optional leading +"),
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().optional(),
+  // SOW §2.1.1 address triplet — city/state/PIN alongside the freetext line.
+  city: z.string().trim().max(100).optional(),
+  state: z.string().trim().max(100).optional(),
+  pincode: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "PIN code must be 6 digits")
+    .optional()
+    .or(z.literal("")),
   bloodGroup: z
     .enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"])
     .optional(),

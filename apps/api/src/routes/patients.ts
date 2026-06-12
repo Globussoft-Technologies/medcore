@@ -531,6 +531,9 @@ router.patch(
     try {
       const body = req.body as {
         address?: string | null;
+        city?: string | null;
+        state?: string | null;
+        pincode?: string | null;
         dateOfBirth?: string | null;
         abhaId?: string | null;
         preferredLanguage?: string | null;
@@ -544,6 +547,9 @@ router.patch(
       // .pick() keeps the surface tight and self-documenting).
       const parsed = updatePatientSchema.safeParse({
         ...(body.address !== undefined ? { address: body.address ?? undefined } : {}),
+        ...(body.city !== undefined ? { city: body.city ?? undefined } : {}),
+        ...(body.state !== undefined ? { state: body.state ?? undefined } : {}),
+        ...(body.pincode !== undefined ? { pincode: body.pincode ?? undefined } : {}),
         ...(body.dateOfBirth !== undefined ? { dateOfBirth: body.dateOfBirth ?? undefined } : {}),
         ...(body.abhaId !== undefined ? { abhaId: body.abhaId ?? undefined } : {}),
         ...(body.preferredLanguage !== undefined
@@ -583,6 +589,9 @@ router.patch(
 
       const data: Record<string, unknown> = {};
       if (body.address !== undefined) data.address = body.address;
+      if (body.city !== undefined) data.city = body.city || null;
+      if (body.state !== undefined) data.state = body.state || null;
+      if (body.pincode !== undefined) data.pincode = body.pincode || null;
       if (body.dateOfBirth !== undefined) {
         data.dateOfBirth = body.dateOfBirth ? new Date(body.dateOfBirth) : null;
       }
@@ -604,6 +613,9 @@ router.patch(
         select: {
           id: true,
           address: true,
+          city: true,
+          state: true,
+          pincode: true,
           dateOfBirth: true,
           abhaId: true,
           preferredLanguage: true,

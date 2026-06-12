@@ -35,6 +35,11 @@ import { useSearchParams } from "next/navigation";
 import { csrfFetch } from "@/lib/csrf-fetch";
 import { toast } from "@/lib/toast";
 import {
+  PLAN_FEATURE_CATALOG,
+  resolvePlanFeatures,
+  COMMON_FEATURE_KEYS,
+} from "@medcore/shared";
+import {
   AlertCircle,
   Bell,
   Building2,
@@ -145,6 +150,58 @@ interface MarkPaidResponse {
 
 type Tab = "subscriptions" | "invoices" | "plans";
 type InvoiceFilter = "ISSUED" | "PAID" | "all";
+
+// ── Plan-feature catalog, grouped for the Plan editor checklist ──────────
+// Distinct categories in order of first appearance, each with its feature rows.
+const PLAN_FEATURE_GROUPS: Array<{
+  category: string;
+  features: typeof PLAN_FEATURE_CATALOG;
+}> = (() => {
+  const order: string[] = [];
+  const byCategory = new Map<string, typeof PLAN_FEATURE_CATALOG>();
+  for (const f of PLAN_FEATURE_CATALOG) {
+    if (!byCategory.has(f.category)) {
+      byCategory.set(f.category, []);
+      order.push(f.category);
+    }
+    byCategory.get(f.category)!.push(f);
+  }
+  return order.map((category) => ({
+    category,
+    features: byCategory.get(category)!,
+  }));
+})();
+
+// Set of common keys (always-on, never stored) + set of gateable catalog keys.
+const COMMON_KEY_SET = new Set(COMMON_FEATURE_KEYS);
+// Always-included common modules (catalog order) — shown in the view modal so
+// the read-only feature list reflects what a tenant on the plan really gets.
+const COMMON_FEATURES = PLAN_FEATURE_CATALOG.filter((f) => f.common);
+// key → human label, for rendering stored gateable keys with a friendly name.
+const FEATURE_LABEL_BY_KEY = new Map(
+  PLAN_FEATURE_CATALOG.map((f) => [f.key, f.label] as const),
+);
+const GATEABLE_KEY_SET = new Set(
+  PLAN_FEATURE_CATALOG.filter((f) => !f.common).map((f) => f.key),
+);
+
+// Normalize a non-common selection: expand deps via resolvePlanFeatures, then
+// keep only the gateable (non-common) keys so the stored array never persists
+// implicit common modules and never drops a required dependency.
+function normalizePlanSelection(selected: string[]): string[] {
+  const resolved = resolvePlanFeatures(selected);
+  return PLAN_FEATURE_CATALOG.filter(
+    (f) => !f.common && resolved.has(f.key),
+  ).map((f) => f.key);
+}
+
+// Which currently-selected gateable feature(s) require the given key as a
+// dependency — used to keep a depended-on checkbox checked + locked.
+function featuresRequiring(key: string, selected: Set<string>): string[] {
+  return PLAN_FEATURE_CATALOG.filter(
+    (f) => selected.has(f.key) && (f.dependsOn ?? []).includes(key),
+  ).map((f) => f.label);
+}
 
 const INVOICE_FILTER_CHIPS: Array<{ key: InvoiceFilter; label: string }> = [
   { key: "ISSUED", label: "Unpaid" },
@@ -328,9 +385,10 @@ export default function PlatformBillingPage() {
   // Price is entered in INR as two fields: whole rupees + paise (00-99).
   const [planFormRupees, setPlanFormRupees] = useState("");
   const [planFormPaise, setPlanFormPaise] = useState("");
-  // Features are entered as individual rows (add / remove); empty rows are
-  // dropped on submit.
-  const [planFormFeatures, setPlanFormFeatures] = useState<string[]>([""]);
+  // Selected GATEABLE feature keys (the catalog checklist). Common modules are
+  // always-on and never stored here; dependencies are auto-included. The stored
+  // value is always kept normalized via normalizePlanSelection().
+  const [planFormFeatures, setPlanFormFeatures] = useState<string[]>([]);
   const [planFormSortOrder, setPlanFormSortOrder] = useState("0");
   const [planFormActive, setPlanFormActive] = useState(true);
   const [planFormBusy, setPlanFormBusy] = useState(false);
@@ -569,7 +627,7 @@ export default function PlatformBillingPage() {
     setPlanFormName("");
     setPlanFormRupees("");
     setPlanFormPaise("");
-    setPlanFormFeatures([""]);
+    setPlanFormFeatures([]);
     setPlanFormSortOrder(String(plans.length + 1));
     setPlanFormActive(true);
     setPlanFormError(null);
@@ -581,8 +639,14 @@ export default function PlatformBillingPage() {
     setPlanFormPaise(
       String(p.monthlyPriceInPaise % 100).padStart(2, "0"),
     );
+    // Initialize from the plan's stored features, but only keep keys the
+    // catalog still knows as gateable — unknown legacy free-text keys (e.g.
+    // "opd"/"opd_billing") are ignored and simply start unchecked. Normalizing
+    // also re-adds any transitive dependencies that may be missing.
     setPlanFormFeatures(
-      p.includedFeatures.length > 0 ? [...p.includedFeatures] : [""],
+      normalizePlanSelection(
+        p.includedFeatures.filter((k) => GATEABLE_KEY_SET.has(k)),
+      ),
     );
     setPlanFormSortOrder(String(p.sortOrder));
     setPlanFormActive(p.active);
@@ -593,18 +657,33 @@ export default function PlatformBillingPage() {
     setPlanEditing(null);
     setPlanFormError(null);
   }
-  // Feature-row helpers (dynamic add/remove rows).
-  function addFeatureRow(): void {
-    setPlanFormFeatures((rows) => [...rows, ""]);
-  }
-  function updateFeatureRow(i: number, value: string): void {
-    setPlanFormFeatures((rows) => rows.map((r, idx) => (idx === i ? value : r)));
-  }
-  function removeFeatureRow(i: number): void {
-    setPlanFormFeatures((rows) => {
-      const next = rows.filter((_, idx) => idx !== i);
-      return next.length > 0 ? next : [""];
-    });
+  // Catalog checklist toggle. Checking a feature auto-includes its transitive
+  // dependencies (resolvePlanFeatures); unchecking removes it but re-normalizes
+  // so any feature still selected keeps its dependencies. Common keys are never
+  // stored. Surfaces auto-added deps via a toast.
+  function toggleFeature(key: string, checked: boolean): void {
+    if (COMMON_KEY_SET.has(key)) return; // common — always on, not togglable
+    // Compute the next selection (and any auto-added deps) in the event
+    // handler, NOT inside a setState updater — React StrictMode invokes state
+    // updaters twice in dev, which fired the toast twice (#dup-toast).
+    const current = planFormFeatures;
+    if (checked) {
+      const next = normalizePlanSelection([...current, key]);
+      const before = new Set(current);
+      const added = next.filter((k) => k !== key && !before.has(k));
+      setPlanFormFeatures(next);
+      if (added.length > 0) {
+        const labels = added
+          .map((k) => PLAN_FEATURE_CATALOG.find((f) => f.key === k)?.label ?? k)
+          .join(", ");
+        toast.success(`Auto-added required module(s): ${labels}`);
+      }
+    } else {
+      // Drop the key, then re-normalize the remainder. If another selected
+      // feature still depends on it, normalization re-adds it (and the
+      // checkbox renders checked + locked with a "required by" hint).
+      setPlanFormFeatures(normalizePlanSelection(current.filter((k) => k !== key)));
+    }
   }
   async function submitPlanForm(): Promise<void> {
     if (planEditing == null) return;
@@ -625,9 +704,9 @@ export default function PlatformBillingPage() {
       return;
     }
     const monthlyPriceInPaise = rupees * 100 + paise;
-    const includedFeatures = planFormFeatures
-      .map((f) => f.trim())
-      .filter((f) => f.length > 0);
+    // Persist only the gateable selected keys (+ their deps). Common modules are
+    // always-on and implicit, so they are never stored in includedFeatures.
+    const includedFeatures = normalizePlanSelection(planFormFeatures);
     const sortOrder = Number(planFormSortOrder);
     setPlanFormBusy(true);
     setPlanFormError(null);
@@ -1544,19 +1623,19 @@ export default function PlatformBillingPage() {
                           {formatRupees(p.monthlyPriceInPaise)}/mo
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">
-                          {p.includedFeatures.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => setPlanFeaturesView(p)}
-                              data-testid={`platform-billing-view-features-${p.id}`}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
-                            >
-                              <Eye size={12} aria-hidden="true" />
-                              View ({p.includedFeatures.length})
-                            </button>
-                          ) : (
-                            "—"
-                          )}
+                          {/* Always show the View button: every plan grants the
+                              common modules, so even a plan with no add-ons
+                              still unlocks the common baseline. Count is the
+                              total (common + plan-specific). */}
+                          <button
+                            type="button"
+                            onClick={() => setPlanFeaturesView(p)}
+                            data-testid={`platform-billing-view-features-${p.id}`}
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
+                          >
+                            <Eye size={12} aria-hidden="true" />
+                            View ({p.includedFeatures.length + COMMON_FEATURES.length})
+                          </button>
                         </td>
                         <td className="px-4 py-3">
                           {p.active ? (
@@ -1879,7 +1958,7 @@ export default function PlatformBillingPage() {
           onClick={closePlanForm}
         >
           <div
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
+            className="flex max-h-[90vh] w-full max-w-md flex-col rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-900 dark:text-slate-100"
             onClick={(e) => e.stopPropagation()}
           >
             <h2
@@ -1939,44 +2018,103 @@ export default function PlatformBillingPage() {
               Whole rupees on the left, paise (00–99) on the right.
             </p>
 
-            <div className="mt-3">
-              <div className="flex items-center justify-between">
+            <div className="mt-3 flex min-h-0 flex-1 flex-col">
+              <div className="flex items-center justify-between gap-2">
                 <label className="block text-xs font-medium text-slate-700 dark:text-slate-300">
                   Included features
                 </label>
-                <button
-                  type="button"
-                  onClick={addFeatureRow}
-                  data-testid="platform-billing-plan-add-feature"
-                  className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
+                <span
+                  data-testid="platform-billing-plan-feature-count"
+                  className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-gray-800 dark:text-slate-300"
                 >
-                  <Plus size={12} aria-hidden="true" />
-                  Add feature
-                </button>
+                  {
+                    PLAN_FEATURE_CATALOG.filter(
+                      (f) => f.common || planFormFeatures.includes(f.key),
+                    ).length
+                  }{" "}
+                  / {PLAN_FEATURE_CATALOG.length} selected
+                </span>
               </div>
-              {/* p-1 gives the focused input's 2px ring room so the scroll
-                  container (overflow-y-auto) doesn't clip it into a
-                  broken-looking left/right-only border. */}
-              <div className="mt-1 max-h-44 space-y-2 overflow-y-auto p-1">
-                {planFormFeatures.map((feat, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input
-                      aria-label={`Feature ${i + 1}`}
-                      data-testid={`platform-billing-plan-feature-${i}`}
-                      value={feat}
-                      onChange={(e) => updateFeatureRow(i, e.target.value)}
-                      placeholder="e.g. lab"
-                      className="h-11 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-100"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeFeatureRow(i)}
-                      aria-label={`Remove feature ${i + 1}`}
-                      data-testid={`platform-billing-plan-remove-feature-${i}`}
-                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-500 hover:bg-rose-50 hover:text-rose-600 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-400 dark:hover:bg-rose-950/40"
-                    >
-                      <Trash2 size={14} aria-hidden="true" />
-                    </button>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                Common modules are always included. Checking a feature
+                auto-includes the modules it depends on.
+              </p>
+              {/* Long, grouped catalog — scrollable. p-1 leaves room for the
+                  focused checkbox ring against the overflow container edge. */}
+              <div
+                data-testid="platform-billing-plan-feature-catalog"
+                className="mt-1.5 min-h-0 flex-1 space-y-4 overflow-y-auto rounded-md border border-slate-200 bg-slate-50/50 p-3 dark:border-gray-700 dark:bg-gray-800/50"
+              >
+                {PLAN_FEATURE_GROUPS.map((group) => (
+                  <div key={group.category}>
+                    <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                      {group.category}
+                    </h3>
+                    <div className="space-y-1">
+                      {group.features.map((f) => {
+                        const isCommon = f.common === true;
+                        const selectedSet = new Set(planFormFeatures);
+                        const checked = isCommon || selectedSet.has(f.key);
+                        // A non-common feature that's selected only because
+                        // another selected feature requires it is locked on.
+                        const requiredBy = isCommon
+                          ? []
+                          : featuresRequiring(f.key, selectedSet);
+                        const lockedByDep =
+                          !isCommon &&
+                          selectedSet.has(f.key) &&
+                          requiredBy.length > 0;
+                        const disabled = isCommon || lockedByDep;
+                        return (
+                          <label
+                            key={f.key}
+                            title={
+                              isCommon
+                                ? "Always included for every tenant"
+                                : lockedByDep
+                                  ? `Required by ${requiredBy.join(", ")}`
+                                  : undefined
+                            }
+                            className={`flex items-start gap-2 rounded-md px-2 py-1.5 text-sm ${
+                              disabled
+                                ? "cursor-default"
+                                : "cursor-pointer hover:bg-white dark:hover:bg-gray-800"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              data-testid={`platform-billing-plan-feature-${f.key}`}
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={(e) =>
+                                toggleFeature(f.key, e.target.checked)
+                              }
+                              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 disabled:opacity-60 dark:border-gray-600"
+                            />
+                            <span className="flex min-w-0 flex-col">
+                              <span className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-slate-800 dark:text-slate-200">
+                                  {f.label}
+                                </span>
+                                <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                                  {f.key}
+                                </span>
+                                {isCommon ? (
+                                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                    Common
+                                  </span>
+                                ) : null}
+                              </span>
+                              {lockedByDep ? (
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                                  required by {requiredBy.join(", ")}
+                                </span>
+                              ) : null}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -2132,25 +2270,79 @@ export default function PlatformBillingPage() {
               {planFeaturesView.name} — included features
             </h2>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              {planFeaturesView.includedFeatures.length} feature
-              {planFeaturesView.includedFeatures.length === 1 ? "" : "s"} unlocked
-              on this plan.
+              {planFeaturesView.includedFeatures.length + COMMON_FEATURES.length}{" "}
+              feature
+              {planFeaturesView.includedFeatures.length + COMMON_FEATURES.length ===
+              1
+                ? ""
+                : "s"}{" "}
+              unlocked on this plan
+              {COMMON_FEATURES.length > 0
+                ? ` (${COMMON_FEATURES.length} common + ${planFeaturesView.includedFeatures.length} plan-specific)`
+                : ""}
+              .
             </p>
-            <ul className="mt-4 max-h-72 space-y-1 overflow-y-auto">
-              {planFeaturesView.includedFeatures.map((f) => (
-                <li
-                  key={f}
-                  className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-gray-800 dark:text-slate-200"
-                >
-                  <CheckCircle2
-                    size={14}
-                    className="shrink-0 text-emerald-500"
-                    aria-hidden="true"
-                  />
-                  <span className="font-mono text-xs">{f}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="mt-4 max-h-72 space-y-4 overflow-y-auto">
+              {/* Always-included common modules — every plan gets these. */}
+              {COMMON_FEATURES.length > 0 ? (
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                    Always included
+                  </p>
+                  <ul className="space-y-1">
+                    {COMMON_FEATURES.map((f) => (
+                      <li
+                        key={f.key}
+                        className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-slate-700 dark:bg-amber-900/20 dark:text-slate-200"
+                      >
+                        <CheckCircle2
+                          size={14}
+                          className="shrink-0 text-amber-500"
+                          aria-hidden="true"
+                        />
+                        <span className="flex-1">{f.label}</span>
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                          Common
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {/* Plan-specific gateable features stored on this plan. */}
+              <div>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+                  Plan-specific
+                </p>
+                {planFeaturesView.includedFeatures.length > 0 ? (
+                  <ul className="space-y-1">
+                    {planFeaturesView.includedFeatures.map((f) => (
+                      <li
+                        key={f}
+                        className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-gray-800 dark:text-slate-200"
+                      >
+                        <CheckCircle2
+                          size={14}
+                          className="shrink-0 text-emerald-500"
+                          aria-hidden="true"
+                        />
+                        <span className="flex-1">
+                          {FEATURE_LABEL_BY_KEY.get(f) ?? f}
+                        </span>
+                        <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                          {f}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-slate-400 dark:text-slate-500">
+                    No plan-specific features selected.
+                  </p>
+                )}
+              </div>
+            </div>
             <div className="mt-6 flex items-center justify-end gap-2">
               <button
                 type="button"

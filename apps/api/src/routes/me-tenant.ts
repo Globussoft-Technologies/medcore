@@ -18,12 +18,23 @@
 
 import { Router, Request, Response, NextFunction } from "express";
 import { prisma } from "@medcore/db";
+import { PLAN_FEATURE_CATALOG, resolvePlanFeatures } from "@medcore/shared";
 import { authenticate } from "../middleware/auth";
 
 const router = Router();
 router.use(authenticate);
 
+// Catalog keys we recognise — used to tell genuine plan selections (which we
+// gate on) apart from LEGACY free-text includedFeatures (e.g. "opd") that
+// predate the route-slug catalog. If a plan's includedFeatures contain no
+// recognised catalog key, we fail OPEN (planFeatures = null → no gating) so a
+// never-migrated plan never locks a tenant out of its whole sidebar.
+const CATALOG_KEY_SET = new Set(PLAN_FEATURE_CATALOG.map((f) => f.key));
+
 // GET /api/v1/me/tenant — caller's own tenant, friendly fields only.
+// Also returns `planFeatures`: the resolved set of feature keys the tenant's
+// plan unlocks (common baseline ∪ plan picks ∪ deps), or null when the plan is
+// unknown / legacy (caller treats null as "show everything").
 router.get("/tenant", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = await prisma.user.findUnique({
@@ -44,7 +55,39 @@ router.get("/tenant", async (req: Request, res: Response, next: NextFunction) =>
         active: true,
       },
     });
-    res.json({ success: true, data: tenant, error: null });
+
+    let planFeatures: string[] | null = null;
+    // The default tenant ("MedCore Hospital", subdomain "default") is the
+    // platform's own house tenant — it always gets full access regardless of
+    // plan, so we never gate it (null → caller shows everything).
+    if (tenant?.plan && tenant.subdomain !== "default") {
+      const plan = await prisma.platformPlan.findUnique({
+        where: { key: tenant.plan },
+        select: { includedFeatures: true },
+      });
+      if (plan) {
+        const included = plan.includedFeatures ?? [];
+        const recognised = included.filter((k) => CATALOG_KEY_SET.has(k));
+        if (recognised.length > 0) {
+          // Plan has genuine catalog picks → gate to those (+ common + deps).
+          planFeatures = Array.from(resolvePlanFeatures(recognised));
+        } else if (included.length === 0) {
+          // Plan deliberately has NO add-ons → tenant gets ONLY the common
+          // baseline (resolvePlanFeatures([]) === the common keys). This is the
+          // "feature-less plan" case shown as common-only in the plan editor.
+          planFeatures = Array.from(resolvePlanFeatures([]));
+        }
+        // else: non-empty but purely LEGACY free-text includedFeatures (e.g.
+        // "opd") that predate the catalog → leave null (fail open) so a
+        // never-migrated plan never locks a tenant out of its whole sidebar.
+      }
+    }
+
+    res.json({
+      success: true,
+      data: tenant ? { ...tenant, planFeatures } : null,
+      error: null,
+    });
   } catch (err) {
     next(err);
   }

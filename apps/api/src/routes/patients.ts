@@ -44,7 +44,8 @@ router.get(
   ),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { search, page = "1", limit = "20" } = req.query;
+      const { search, page = "1", limit = "20", tenantId: tenantIdParam } =
+        req.query;
       const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
       const take = Math.min(parseInt(limit as string), 100);
 
@@ -65,6 +66,21 @@ router.get(
             ],
           }
         : { mergedIntoId: null };
+
+      // Super-admin tenant filter. A platform/super-admin caller has NO tenant
+      // context (`req.tenantId` is undefined → tenantScopedPrisma doesn't
+      // scope, so they see every tenant's patients). The `/dashboard/patients`
+      // tenant dropdown (super-admin only) sends `?tenantId=<id>` to narrow
+      // that view to one tenant. Ignored when the caller IS tenant-bound — the
+      // tenantScopedPrisma extension overwrites `where.tenantId` with their own
+      // tenant anyway, so this can never be used to read across tenants.
+      if (
+        !req.tenantId &&
+        typeof tenantIdParam === "string" &&
+        tenantIdParam.trim().length > 0
+      ) {
+        where.tenantId = tenantIdParam.trim();
+      }
 
       const [patients, total] = await Promise.all([
         prisma.patient.findMany({
@@ -429,7 +445,16 @@ router.post(
       // reliable inside `$transaction` interactive callbacks for this
       // Prisma version + extension setup. Passing tenantId explicitly
       // closes the gap regardless of whether the extension fires.
-      const reqTenantId = req.tenantId;
+      // Tenant-bound callers always write to their OWN tenant (req.tenantId).
+      // A super-admin/platform caller has no tenant context, so they pick the
+      // target tenant via the form (data.tenantId). The `req.tenantId ??`
+      // ordering guarantees a tenant user can NEVER override their own tenant
+      // with a body value (it's only consulted when req.tenantId is undefined).
+      const reqTenantId =
+        req.tenantId ??
+        (typeof data.tenantId === "string" && data.tenantId.trim()
+          ? data.tenantId.trim()
+          : undefined);
       // Create user + patient in transaction
       const result = await prisma.$transaction(async (tx) => {
         const user = await tx.user.create({
@@ -488,6 +513,46 @@ router.post(
 
       res.status(201).json({ success: true, data: result, error: null });
     } catch (err) {
+      // Friendly handling for unique-constraint violations (Prisma P2002) so
+      // the UI shows a clear message instead of the raw `Invalid
+      // tx.user.create() invocation …` dump. The tenant-scoped pre-checks
+      // above can't catch a cross-tenant `User.email` collision — User.email
+      // is GLOBALLY unique (it's the login identity), so an email already
+      // registered under ANOTHER tenant still 409s here.
+      const code = (err as { code?: string })?.code;
+      if (code === "P2002") {
+        const target = (err as { meta?: { target?: string[] | string } })?.meta
+          ?.target;
+        const fields = Array.isArray(target)
+          ? target
+          : target
+            ? [String(target)]
+            : [];
+        const field = fields.includes("email")
+          ? "email"
+          : fields.includes("phone")
+            ? "phone"
+            : fields.includes("mrNumber")
+              ? "mrNumber"
+              : fields[0] ?? "value";
+        const label = field === "mrNumber" ? "MR number" : field;
+        const msg =
+          field === "email"
+            ? "This email is already registered to another account. Use a different email, or leave it blank."
+            : `A patient with this ${label} already exists.`;
+        // `details` lets the web form (extractFieldErrors) render the message
+        // inline under the offending input in addition to the toast. We do
+        // NOT include the conflicting patient's identity here — it may live in
+        // another tenant (User.email is global), and surfacing it would leak
+        // cross-tenant data.
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: msg,
+          details: [{ field, message: msg }],
+        });
+        return;
+      }
       next(err);
     }
   }

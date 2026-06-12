@@ -83,10 +83,22 @@ function looksLikeTestInjection(u: {
 router.get(
   "/",
   authorize(Role.ADMIN),
-  async (_req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Super-admin Staff-tab tenant filter: a no-tenant-context caller
+      // (super-admin/platform) sees every tenant's staff; the dashboard tenant
+      // dropdown sends ?tenantId=<id> to narrow it. Ignored for tenant-bound
+      // callers — tenantScopedPrisma already scopes them to their own tenant.
+      const tenantIdParam = req.query.tenantId;
+      const tenantFilter: Record<string, string> =
+        !req.tenantId &&
+        typeof tenantIdParam === "string" &&
+        tenantIdParam.trim().length > 0
+          ? { tenantId: tenantIdParam.trim() }
+          : {};
       const users = await prisma.user.findMany({
         where: {
+          ...tenantFilter,
           // Issue #190 + Pearl §8.2: include SUPER_ADMIN so cross-tenant
           // operators (the seeded super-admin + anyone invited via the
           // Super-Admins tab) show up in the User Management table

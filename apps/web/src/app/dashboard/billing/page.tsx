@@ -11,6 +11,7 @@ import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/EmptyState";
 import { SkeletonTable } from "@/components/Skeleton";
+import { TenantSelect } from "@/components/TenantSelect";
 import { derivePaymentStatus, computeInvoiceTotals } from "@medcore/shared";
 
 // Issue #89: DOCTOR must NOT see Billing / invoices. PATIENT keeps own-data
@@ -115,6 +116,15 @@ export default function BillingPage() {
       );
     }
   }, [user, isLoading, router, pathname]);
+  // Main super-admin tenant filter. ONLY the platform's main super-admin (not
+  // the broader SUPER_ADMIN role) may narrow the cross-tenant invoice list to
+  // a single tenant via `?tenantId=`. The `/billing/invoices?tenantId=` param
+  // + main-only gating is enforced server-side; this is the UI affordance.
+  const isMainSuperAdmin = user?.isMainSuperAdmin === true;
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [outstanding, setOutstanding] = useState<OutstandingRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,14 +182,19 @@ export default function BillingPage() {
   const loadInvoices = useCallback(async () => {
     setLoading(true);
     try {
-      const q = tab !== "all" && tab !== "outstanding" ? `?status=${tab}` : "";
+      let q = tab !== "all" && tab !== "outstanding" ? `?status=${tab}` : "";
+      // Main super-admin only: narrow the cross-tenant invoice list to one
+      // tenant. Compose with whatever `q` already carries (? vs &).
+      if (isMainSuperAdmin && selectedTenantId) {
+        q += `${q ? "&" : "?"}tenantId=${encodeURIComponent(selectedTenantId)}`;
+      }
       const res = await api.get<{ data: InvoiceRecord[] }>(`/billing/invoices${q}`);
       setInvoices(res.data);
     } catch {
       // empty
     }
     setLoading(false);
-  }, [tab]);
+  }, [tab, isMainSuperAdmin, selectedTenantId]);
 
   const loadOutstanding = useCallback(async () => {
     setLoading(true);
@@ -203,18 +218,30 @@ export default function BillingPage() {
     // from whichever endpoints the current role is allowed to hit.
     const today = new Date();
     const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    // Main super-admin only: narrow every KPI report to one tenant. Each URL
+    // composes the param with its own existing query (? vs &) below.
+    const tenantParam =
+      isMainSuperAdmin && selectedTenantId
+        ? `tenantId=${encodeURIComponent(selectedTenantId)}`
+        : "";
     const results = await Promise.allSettled([
       api.get<{ data: { totalOutstanding: number } }>(
-        "/billing/reports/outstanding"
+        `/billing/reports/outstanding${tenantParam ? `?${tenantParam}` : ""}`
       ),
       api.get<{ data: { totalCollection: number } }>(
-        `/billing/reports/daily?date=${today.toISOString().slice(0, 10)}`
+        `/billing/reports/daily?date=${today.toISOString().slice(0, 10)}${
+          tenantParam ? `&${tenantParam}` : ""
+        }`
       ),
       api.get<{ data: { totals: { inflow: number } } }>(
-        `/billing/reports/revenue?from=${firstOfMonth.toISOString()}&to=${today.toISOString()}&groupBy=day`
+        `/billing/reports/revenue?from=${firstOfMonth.toISOString()}&to=${today.toISOString()}&groupBy=day${
+          tenantParam ? `&${tenantParam}` : ""
+        }`
       ),
       api.get<{ data: { totalRefunded: number } }>(
-        `/billing/reports/refunds?from=${firstOfMonth.toISOString()}&to=${today.toISOString()}`
+        `/billing/reports/refunds?from=${firstOfMonth.toISOString()}&to=${today.toISOString()}${
+          tenantParam ? `&${tenantParam}` : ""
+        }`
       ),
     ]);
     const [outRes, daily, rev, refunds] = results;
@@ -236,7 +263,7 @@ export default function BillingPage() {
           ? refunds.value.data.totalRefunded ?? 0
           : prev.monthRefunds,
     }));
-  }, []);
+  }, [isMainSuperAdmin, selectedTenantId]);
 
   useEffect(() => {
     if (tab === "outstanding") {
@@ -257,6 +284,27 @@ export default function BillingPage() {
       setRazorpay({ enabled: false, isTestMode: false });
     });
   }, []);
+
+  // Load the tenant list for the main super-admin filter dropdown. GET /tenants
+  // is super-admin-only, so we only call it for the main super-admin; others
+  // would 403. Mirrors the patients page pattern.
+  useEffect(() => {
+    if (!isMainSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // endpoint unavailable / not permitted — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isMainSuperAdmin]);
 
   async function submitRecordPayment() {
     if (!payInv) return;
@@ -510,6 +558,18 @@ export default function BillingPage() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.billing.title")}</h1>
         <div className="flex items-center gap-2">
+          {isMainSuperAdmin && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <TenantSelect
+                tenants={tenants}
+                value={selectedTenantId}
+                onChange={setSelectedTenantId}
+                allLabel="All tenants"
+                className="w-full sm:w-64"
+                testId="billing-tenant-filter"
+              />
+            </div>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();

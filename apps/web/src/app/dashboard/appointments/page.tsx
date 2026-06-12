@@ -20,6 +20,7 @@ import { SkeletonTable, SkeletonCard } from "@/components/Skeleton";
 import { EmptyState } from "@/components/EmptyState";
 import { TablePagination } from "@/components/TablePagination";
 import { EntityPicker } from "@/components/EntityPicker";
+import { TenantSelect } from "@/components/TenantSelect";
 import { AppointmentRemarksModal } from "@/components/AppointmentRemarksModal";
 import { Calendar, MessageSquare, MoreVertical } from "lucide-react";
 
@@ -502,6 +503,18 @@ export default function AppointmentsPage() {
   // mode + channel set is available to derive the channel correctly.
   const searchParams = useSearchParams();
   const isPatient = user?.role === "PATIENT";
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) bypasses tenant scoping and sees every tenant's
+  // appointments; the dropdown in the header lets them narrow to one tenant
+  // via `?tenantId=` on the list / stats / calendar fetches. Hidden for
+  // tenant-bound staff (already scoped to their own tenant server-side).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
   // A logged-in DOCTOR books only for themselves — the booking-form doctor
   // selector is locked to their own record (matched via the shared User name).
   // Other roles (ADMIN/RECEPTION/NURSE) keep the full doctor list.
@@ -730,16 +743,21 @@ export default function AppointmentsPage() {
   const loadAppointments = useCallback(async () => {
     setLoading(true);
     try {
+      // Super-admin only: narrow the cross-tenant list to one tenant.
+      const tq =
+        isSuperAdmin && selectedTenantId
+          ? `&tenantId=${encodeURIComponent(selectedTenantId)}`
+          : "";
       const endpoint = isPatient
-        ? `/appointments?limit=200`
-        : `/appointments?date=${filterDate}&limit=100`;
+        ? `/appointments?limit=200${tq}`
+        : `/appointments?date=${filterDate}&limit=100${tq}`;
       const res = await api.get<{ data: Appointment[] }>(endpoint);
       setAppointments(res.data);
     } catch {
       // empty
     }
     setLoading(false);
-  }, [isPatient, filterDate]);
+  }, [isPatient, filterDate, isSuperAdmin, selectedTenantId]);
 
   const loadSlots = useCallback(async (doctorId: string, date: string) => {
     try {
@@ -761,6 +779,8 @@ export default function AppointmentsPage() {
       qs.set("from", from);
       qs.set("to", to);
       if (calDoctor) qs.set("doctorId", calDoctor);
+      // Super-admin only: narrow the cross-tenant calendar to one tenant.
+      if (isSuperAdmin && selectedTenantId) qs.set("tenantId", selectedTenantId);
       const res = await api.get<{ data: CalendarEvent[] }>(
         `/appointments/calendar?${qs.toString()}`
       );
@@ -769,7 +789,7 @@ export default function AppointmentsPage() {
       setCalEvents([]);
     }
     setCalLoading(false);
-  }, [calWeekStart, calDoctor]);
+  }, [calWeekStart, calDoctor, isSuperAdmin, selectedTenantId]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -778,6 +798,8 @@ export default function AppointmentsPage() {
       qs.set("from", statsFrom);
       qs.set("to", statsTo);
       if (statsDoctor) qs.set("doctorId", statsDoctor);
+      // Super-admin only: narrow the cross-tenant stats + calendar to one tenant.
+      if (isSuperAdmin && selectedTenantId) qs.set("tenantId", selectedTenantId);
       const [sres, cres] = await Promise.all([
         api.get<{ data: StatsData }>(`/appointments/stats?${qs.toString()}`),
         api.get<{ data: CalendarEvent[] }>(`/appointments/calendar?${qs.toString()}`),
@@ -789,13 +811,33 @@ export default function AppointmentsPage() {
       setStatsEvents([]);
     }
     setStatsLoading(false);
-  }, [statsFrom, statsTo, statsDoctor]);
+  }, [statsFrom, statsTo, statsDoctor, isSuperAdmin, selectedTenantId]);
 
   // ─── Effects ──────────────────────
 
   useEffect(() => {
     loadDoctors();
   }, [loadDoctors]);
+
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   // Pearl §3.3 row 7 — prefill from `?patientId=...&doctorId=...` so a
   // lead-convert flow (or any other deep-link) lands here with the
@@ -2520,6 +2562,18 @@ export default function AppointmentsPage() {
             : t("dashboard.appointments.title")}
         </h1>
         <div className="flex items-center gap-3">
+          {/* Super-admin only: cross-tenant filter applied to the List /
+              Stats / Calendar fetches. Hidden for tenant-bound staff. */}
+          {isSuperAdmin && (
+            <TenantSelect
+              tenants={tenants}
+              value={selectedTenantId}
+              onChange={setSelectedTenantId}
+              allLabel="All tenants"
+              className="w-full sm:w-64"
+              testId="appointments-tenant-filter"
+            />
+          )}
           {/* View toggle */}
           <div
             className="inline-flex overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700"

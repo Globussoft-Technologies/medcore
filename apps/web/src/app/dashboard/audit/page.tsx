@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { Shield, Download, Info } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
+import { TenantSelect } from "@/components/TenantSelect";
 
 interface AuditEntry {
   id: string;
@@ -111,6 +112,18 @@ export default function AuditPage() {
   const { user } = useAuthStore();
   const router = useRouter();
 
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) bypasses tenant scoping and sees every tenant's
+  // audit trail; the dropdown lets them narrow to one tenant via `?tenantId=`.
+  // Hidden for tenant-bound admins (already scoped to their own tenant).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -134,6 +147,26 @@ export default function AuditPage() {
     }
   }, [user, router]);
 
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
+
   const buildQuery = useCallback(
     (pageNum: number) => {
       const params = new URLSearchParams();
@@ -146,9 +179,12 @@ export default function AuditPage() {
       if (userId) params.set("userId", userId);
       if (ipContains.trim()) params.set("ipContains", ipContains.trim());
       if (freeText.trim()) params.set("q", freeText.trim());
+      // Super-admin only: narrow the cross-tenant view to one tenant.
+      if (isSuperAdmin && selectedTenantId)
+        params.set("tenantId", selectedTenantId);
       return params.toString();
     },
-    [fromDate, toDate, entity, action, userId, ipContains, freeText]
+    [fromDate, toDate, entity, action, userId, ipContains, freeText, isSuperAdmin, selectedTenantId]
   );
 
   const loadEntries = useCallback(
@@ -256,12 +292,24 @@ export default function AuditPage() {
           <Shield size={24} className="text-gray-700 dark:text-gray-200" />
           <h1 className="text-2xl font-bold">Audit Log</h1>
         </div>
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
-        >
-          <Download size={14} /> Export CSV
-        </button>
+        <div className="flex items-center gap-3">
+          {isSuperAdmin && (
+            <TenantSelect
+              tenants={tenants}
+              value={selectedTenantId}
+              onChange={setSelectedTenantId}
+              allLabel="All tenants"
+              className="w-full sm:w-64"
+              testId="audit-tenant-filter"
+            />
+          )}
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            <Download size={14} /> Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Retention banner — Issue #829: the original `bg-blue-50 text-blue-800`

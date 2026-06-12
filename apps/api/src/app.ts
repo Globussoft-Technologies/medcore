@@ -170,6 +170,7 @@ import { superAdminHealthRouter } from "./routes/super-admin-health";
 import { maintenanceWindowsRouter } from "./routes/maintenance-windows";
 import { superAdminComplianceRouter } from "./routes/super-admin-compliance";
 import { platformBillingRouter } from "./routes/platform-billing";
+import { mySubscriptionRouter } from "./routes/my-subscription";
 import { branchesRouter } from "./routes/branches";
 import { campaignsRouter, publicCampaignsRouter } from "./routes/campaigns";
 import { campaignAudiencesRouter } from "./routes/campaign-audiences";
@@ -558,6 +559,8 @@ export function buildApp() {
   // super-admin shape can read but not mark paid per
   // PEARL_OPEN_DECISIONS.md #1). Mounts UI at /super-admin/platform-billing.
   app.use("/api/v1/platform-billing", platformBillingRouter);
+  // Tenant-facing: a hospital ADMIN sees only their own subscription + invoices.
+  app.use("/api/v1/my-subscription", mySubscriptionRouter);
   app.use("/api/v1/branches", branchesRouter);
   app.use("/api/v1/campaigns", campaignsRouter);
   app.use("/api/v1/campaign-audiences", campaignAudiencesRouter);

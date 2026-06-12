@@ -7,6 +7,7 @@ import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { PasswordInput } from "@/components/PasswordInput";
 import { TablePagination } from "@/components/TablePagination";
+import { TenantSelect } from "@/components/TenantSelect";
 import {
   Plus,
   Shield,
@@ -106,6 +107,11 @@ export default function UsersPage() {
   const router = useRouter();
   const confirm = useConfirm();
   const [users, setUsers] = useState<StaffUser[]>([]);
+  // Super-admin Staff-tab tenant filter.
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -261,18 +267,51 @@ export default function UsersPage() {
     loadUsers();
     if (isSuperAdmin) void loadSuperAdmins();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, router, isSuperAdmin]);
+  }, [user, router, isSuperAdmin, selectedTenantId]);
+
+  // Load the tenant list for the super-admin Staff filter (super-admin-only
+  // endpoint; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   async function loadUsers() {
     setLoading(true);
     try {
-      const res = await api.get<{ data: StaffUser[] }>("/users");
+      // Super-admin only: narrow the Staff list to one tenant.
+      const tq =
+        isSuperAdmin && selectedTenantId
+          ? `?tenantId=${encodeURIComponent(selectedTenantId)}`
+          : "";
+      const res = await api.get<{ data: StaffUser[] }>(`/users${tq}`);
       setUsers(res.data);
     } catch {
-      // If /users endpoint doesn't exist yet, try to get doctors as a fallback
+      // Fallback when /users is unavailable (e.g. a 403 for this caller):
+      // pull doctors. Doctor rows carry no `role` field, so default it to
+      // "DOCTOR" — otherwise the role cell below crashes on
+      // `u.role.replace(...)` (undefined).
       try {
         const res = await api.get<{ data: StaffUser[] }>("/doctors");
-        setUsers(res.data);
+        setUsers(
+          (res.data || []).map((d) => ({
+            ...d,
+            role: (d as { role?: string }).role ?? "DOCTOR",
+          })),
+        );
       } catch {
         // empty
       }
@@ -556,32 +595,45 @@ export default function UsersPage() {
               : "Manage staff accounts"}
           </p>
         </div>
-        {activeTab === "super-admins" ? (
-          // Pearl §8.2 — the Super-Admin invite is a dedicated page, not
-          // an inline form. Keeps the roster table visible on this page
-          // and the invite form focused on its own URL.
-          // Visibility: only the main (root) super-admin can invite new
-          // platform operators. Peer super-admins see the roster but no
-          // invite affordance — the backend rejects them anyway.
-          callerIsMainSuperAdmin ? (
-            <Link
-              href="/dashboard/users/new-super-admin"
-              data-testid="add-super-admin-link"
+        <div className="flex w-full items-center gap-3 sm:w-auto">
+          {/* Super-admin only, Staff tab only: filter staff by tenant. */}
+          {isSuperAdmin && activeTab === "staff" && (
+            <TenantSelect
+              tenants={tenants}
+              value={selectedTenantId}
+              onChange={setSelectedTenantId}
+              allLabel="All tenants"
+              className="w-full sm:w-56"
+              testId="users-tenant-filter"
+            />
+          )}
+          {activeTab === "super-admins" ? (
+            // Pearl §8.2 — the Super-Admin invite is a dedicated page, not
+            // an inline form. Keeps the roster table visible on this page
+            // and the invite form focused on its own URL.
+            // Visibility: only the main (root) super-admin can invite new
+            // platform operators. Peer super-admins see the roster but no
+            // invite affordance — the backend rejects them anyway.
+            callerIsMainSuperAdmin ? (
+              <Link
+                href="/dashboard/users/new-super-admin"
+                data-testid="add-super-admin-link"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark sm:w-auto"
+              >
+                <Plus size={16} />
+                Add Super-Admin
+              </Link>
+            ) : null
+          ) : (
+            <button
+              onClick={() => setShowForm(!showForm)}
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark sm:w-auto"
             >
               <Plus size={16} />
-              Add Super-Admin
-            </Link>
-          ) : null
-        ) : (
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark sm:w-auto"
-          >
-            <Plus size={16} />
-            Add Staff User
-          </button>
-        )}
+              Add Staff User
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Pearl §8.2 — tab switcher above the table. Super-admin viewers
@@ -1026,7 +1078,7 @@ export default function UsersPage() {
                       ) : (
                         <Shield size={12} />
                       )}
-                      {u.role.replace(/_/g, " ")}
+                      {(u.role ?? "").replace(/_/g, " ")}
                     </span>
                   </td>
                   <td className="px-4 py-3">

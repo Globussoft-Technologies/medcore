@@ -42,7 +42,21 @@ router.use(authenticate);
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const isPatient = req.user?.role === "PATIENT";
+    // Super-admin tenant filter: a platform/super-admin caller has no tenant
+    // context (sees every tenant's doctors), so the dashboard tenant dropdown
+    // sends ?tenantId=<id> to narrow the view. Ignored for tenant-bound
+    // callers — tenantScopedPrisma scopes them to their own tenant.
+    const tenantIdParam = req.query.tenantId;
+    const where: Record<string, unknown> = {};
+    if (
+      !req.tenantId &&
+      typeof tenantIdParam === "string" &&
+      tenantIdParam.trim().length > 0
+    ) {
+      where.tenantId = tenantIdParam.trim();
+    }
     const doctors = await prisma.doctor.findMany({
+      where,
       include: {
         user: {
           select: isPatient

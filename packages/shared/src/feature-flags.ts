@@ -133,6 +133,148 @@ export const FEATURE_METADATA: Record<FeatureKey, FeatureMetadata> = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+// PLAN FEATURE CATALOG (Platform-Billing plan editor, 2026-06-11)
+//
+// The super-admin Edit-Plan dialog renders this as a grouped checkbox list:
+// each gateable module the plan unlocks for its tenants. `common: true` rows
+// are baseline modules every tenant always gets (shown checked + disabled).
+// `dependsOn` rows auto-select their prerequisites so the operator can't grant
+// a module without what it needs (e.g. Refunds needs Billing).
+//
+// NOTE (staging): this catalog drives the PLAN EDITOR + (next stage) live
+// plan→tenant gating. The legacy 16 FEATURE_KEYS above still drive the current
+// route gating until Stage 2 reconciles them. Keys here are route-slug-based.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface PlanFeature {
+  key: string;
+  label: string;
+  category: string;
+  /** Always-on for every tenant regardless of plan (checked + locked in UI). */
+  common?: boolean;
+  /** Other catalog keys this feature requires (auto-selected when checked). */
+  dependsOn?: string[];
+}
+
+export const PLAN_FEATURE_CATALOG: PlanFeature[] = [
+  // Core (common — every tenant always gets these)
+  { key: "dashboard", label: "Dashboard", category: "Core", common: true },
+  { key: "patients", label: "Patients", category: "Core", common: true },
+  { key: "appointments", label: "Appointments", category: "Core", common: true },
+  { key: "queue", label: "Live Queue", category: "Core", common: true },
+  { key: "calendar", label: "Calendar", category: "Core", common: true },
+  { key: "doctors", label: "Doctors", category: "Core", common: true },
+  { key: "users", label: "User Management", category: "Core", common: true },
+  { key: "notifications", label: "Notifications", category: "Core", common: true },
+  { key: "chat", label: "Chat", category: "Core", common: true },
+
+  // Clinical
+  { key: "prescriptions", label: "Prescriptions", category: "Clinical" },
+  { key: "medicines", label: "Medicines (formulary)", category: "Clinical" },
+  { key: "immunizations", label: "Immunizations", category: "Clinical" },
+  { key: "referrals", label: "Referrals", category: "Clinical" },
+  { key: "antenatal", label: "Antenatal", category: "Clinical" },
+  { key: "pediatric", label: "Pediatric / Growth", category: "Clinical" },
+  { key: "cohorts", label: "Care Cohorts", category: "Clinical" },
+  { key: "adherence", label: "Adherence", category: "Clinical" },
+
+  // Inpatient & OT
+  { key: "ipd", label: "IPD — Wards / Admissions", category: "Inpatient & OT" },
+  { key: "surgery", label: "Surgery", category: "Inpatient & OT" },
+  { key: "ot", label: "Operating Theatres", category: "Inpatient & OT", dependsOn: ["surgery"] },
+  { key: "emergency", label: "Emergency / ER", category: "Inpatient & OT" },
+  { key: "bloodbank", label: "Blood Bank", category: "Inpatient & OT" },
+  { key: "ambulance", label: "Ambulance", category: "Inpatient & OT" },
+  { key: "census", label: "Census Report", category: "Inpatient & OT", dependsOn: ["ipd"] },
+
+  // Diagnostics
+  { key: "lab", label: "Lab", category: "Diagnostics" },
+  { key: "labQc", label: "Lab QC", category: "Diagnostics", dependsOn: ["lab"] },
+  { key: "labExplainer", label: "Lab Explainer", category: "Diagnostics", dependsOn: ["lab"] },
+
+  // Pharmacy
+  { key: "pharmacy", label: "Pharmacy (inventory)", category: "Pharmacy", dependsOn: ["medicines"] },
+  { key: "controlledRegister", label: "Controlled Register", category: "Pharmacy", dependsOn: ["pharmacy"] },
+  { key: "suppliers", label: "Suppliers", category: "Pharmacy" },
+  { key: "purchaseOrders", label: "Purchase Orders", category: "Pharmacy", dependsOn: ["suppliers"] },
+  { key: "pharmacyForecast", label: "Pharmacy Forecast (AI)", category: "Pharmacy", dependsOn: ["pharmacy"] },
+
+  // Finance & Billing
+  { key: "billing", label: "Billing", category: "Finance & Billing", common: true },
+  { key: "refunds", label: "Refunds", category: "Finance & Billing", dependsOn: ["billing"] },
+  { key: "paymentPlans", label: "Payment Plans", category: "Finance & Billing", dependsOn: ["billing"] },
+  { key: "packages", label: "Health Packages", category: "Finance & Billing", dependsOn: ["billing"] },
+  { key: "discountApprovals", label: "Discount Approvals", category: "Finance & Billing", dependsOn: ["billing"] },
+  { key: "insuranceClaims", label: "Insurance Claims", category: "Finance & Billing", dependsOn: ["billing"] },
+  { key: "preauth", label: "Pre-Authorization", category: "Finance & Billing", dependsOn: ["insuranceClaims"] },
+  { key: "expenses", label: "Expenses", category: "Finance & Billing" },
+  { key: "budgets", label: "Budgets", category: "Finance & Billing", dependsOn: ["expenses"] },
+
+  // Front Office & CRM
+  { key: "visitors", label: "Visitor Management", category: "Front Office & CRM" },
+  { key: "leads", label: "Leads (CRM)", category: "Front Office & CRM" },
+  { key: "campaigns", label: "Campaigns", category: "Front Office & CRM", dependsOn: ["leads"] },
+  { key: "broadcasts", label: "Broadcasts", category: "Front Office & CRM" },
+  { key: "feedback", label: "Feedback", category: "Front Office & CRM" },
+  { key: "complaints", label: "Complaints", category: "Front Office & CRM" },
+
+  // HR & Staff
+  { key: "hrmsPayroll", label: "Payroll", category: "HR & Staff" },
+  { key: "dutyRoster", label: "Duty Roster", category: "HR & Staff" },
+  { key: "leaveManagement", label: "Leave Requests", category: "HR & Staff" },
+  { key: "holidays", label: "Holidays", category: "HR & Staff" },
+  { key: "certifications", label: "Certifications", category: "HR & Staff" },
+  { key: "assets", label: "Assets", category: "HR & Staff" },
+
+  // Analytics & Reports
+  { key: "analytics", label: "Analytics Dashboard", category: "Analytics & Reports" },
+  { key: "reports", label: "Report Builder", category: "Analytics & Reports", dependsOn: ["analytics"] },
+  { key: "scheduledReports", label: "Scheduled Reports", category: "Analytics & Reports", dependsOn: ["reports"] },
+  { key: "auditLog", label: "Audit Log", category: "Analytics & Reports" },
+
+  // AI suite
+  { key: "agentConsole", label: "Agent Console", category: "AI" },
+  { key: "voiceRx", label: "AI Scribe / Voice-Rx", category: "AI" },
+  { key: "aiBooking", label: "AI Booking", category: "AI" },
+  { key: "predictiveCds", label: "Diagnosis / Predictive CDS", category: "AI" },
+  { key: "chartSearch", label: "AI Chart Search", category: "AI" },
+  { key: "aiAnalytics", label: "AI Analytics", category: "AI", dependsOn: ["analytics"] },
+  { key: "aiKpis", label: "AI KPIs", category: "AI", dependsOn: ["analytics"] },
+  { key: "predictiveNoShow", label: "No-Show Predictions", category: "AI" },
+  { key: "erTriage", label: "ER Triage (AI)", category: "AI", dependsOn: ["emergency"] },
+  { key: "aiLetters", label: "AI Letters", category: "AI" },
+  { key: "aiRadiology", label: "AI Radiology", category: "AI" },
+
+  // Integrations
+  { key: "telemedicine", label: "Telemedicine", category: "Integrations" },
+  { key: "abdm", label: "ABDM / ABHA", category: "Integrations" },
+  { key: "fhirExport", label: "FHIR Export", category: "Integrations" },
+];
+
+/** Catalog keys that are common (always granted to every tenant). */
+export const COMMON_FEATURE_KEYS: string[] = PLAN_FEATURE_CATALOG.filter(
+  (f) => f.common,
+).map((f) => f.key);
+
+/**
+ * Resolve a plan's selected feature keys into the full effective set a tenant
+ * on that plan can access: the common baseline ∪ the plan's picks ∪ every
+ * dependency those picks transitively require. Used by the plan editor (to
+ * auto-select deps) and (Stage 2) by live plan→tenant gating.
+ */
+export function resolvePlanFeatures(selected: string[]): Set<string> {
+  const byKey = new Map(PLAN_FEATURE_CATALOG.map((f) => [f.key, f]));
+  const out = new Set<string>(COMMON_FEATURE_KEYS);
+  const visit = (key: string) => {
+    if (out.has(key)) return;
+    out.add(key);
+    for (const dep of byKey.get(key)?.dependsOn ?? []) visit(dep);
+  };
+  for (const key of selected) visit(key);
+  return out;
+}
+
 /**
  * Resolve a single feature flag against the tenant's stored overrides.
  * Pure function — accepts the raw JSON from `Tenant.featureFlags` and

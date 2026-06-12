@@ -36,6 +36,7 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { listSuperAdminPermissions } from "../services/permission-catalog";
 import { sendEmail } from "../services/messaging/email";
 import { renderSuperAdminInviteEmail } from "../templates/super-admin-invite.html";
 import {
@@ -110,6 +111,20 @@ const patchUserSchema = z.object({
 // (tenantId = null + role = ADMIN). The temporary password is set
 // inline; TOTP enrolment is enforced on first login when
 // `requireTwoFactor=true` (default true).
+// Pearl §8.2 — granular permission grants. The catalog of available grant keys
+// is DB-backed (the SuperAdminPermission table, served by GET
+// /permissions/catalog), so validation accepts ANY boolean grant flag rather
+// than hardcoding the keys — keeping it in lock-step with a catalog that can
+// change at runtime. The two explicit array fields below are scopes, not
+// grants. Stored as JSON in SystemConfig under `superadmin:<userId>:permissions`;
+// `tenantScope`/`moduleScope` empty or missing == all-tenants / all-modules.
+const permissionsSchema = z
+  .object({
+    tenantScope: z.array(z.string()).optional(),
+    moduleScope: z.array(z.string()).optional(),
+  })
+  .catchall(z.boolean());
+
 const createSuperAdminSchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email(),
@@ -119,32 +134,7 @@ const createSuperAdminSchema = z.object({
     .regex(/^\+?\d{7,15}$/, "Invalid phone (7-15 digits, optional leading +)"),
   password: z.string().min(8).max(128),
   requireTwoFactor: z.boolean().optional().default(true),
-  permissions: z
-    .object({
-      canManageTenants: z.boolean().optional(),
-      canOnboardTenant: z.boolean().optional(),
-      canViewBilling: z.boolean().optional(),
-      canTriggerJobs: z.boolean().optional(),
-      canDpdpWorkbench: z.boolean().optional(),
-      canViewAudit: z.boolean().optional(),
-      tenantScope: z.array(z.string()).optional(),
-      moduleScope: z.array(z.string()).optional(),
-    })
-    .optional(),
-});
-
-// Pearl §8.2 — granular permission grants. Stored as JSON in
-// SystemConfig under `superadmin:<userId>:permissions` (no schema change).
-// `tenantScope` empty/missing == all-tenants; same for `moduleScope`.
-const permissionsSchema = z.object({
-  canManageTenants: z.boolean().optional(),
-  canOnboardTenant: z.boolean().optional(),
-  canViewBilling: z.boolean().optional(),
-  canTriggerJobs: z.boolean().optional(),
-  canDpdpWorkbench: z.boolean().optional(),
-  canViewAudit: z.boolean().optional(),
-  tenantScope: z.array(z.string()).optional(),
-  moduleScope: z.array(z.string()).optional(),
+  permissions: permissionsSchema.optional(),
 });
 
 const PERMISSIONS_KEY = (userId: string) =>
@@ -176,6 +166,30 @@ router.use(requireSuperAdmin);
 // surfaces. Returns 401 with code "session_idle" when the cross-tenant
 // operator has been idle longer than the configured window.
 router.use(enforceSuperAdminIdleTimeout);
+
+// GET /api/v1/super-admin/users/permissions/catalog — the dynamic grant
+// catalog (active rows only) the invite form renders its checklist from. Two
+// path segments so it never collides with `/:id` or `/:id/permissions`.
+router.get(
+  "/permissions/catalog",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rows = await listSuperAdminPermissions(prisma, { activeOnly: true });
+      res.status(200).json({
+        success: true,
+        data: rows.map((r) => ({
+          key: r.key,
+          label: r.label,
+          description: r.description,
+          defaultGranted: r.defaultGranted,
+        })),
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 // GET /api/v1/super-admin/users — list the super-admin set.
 router.get(

@@ -325,3 +325,47 @@ export async function openPlatformRazorpayCheckout(
     onFailure: opts.onFailure,
   });
 }
+
+/**
+ * Tenant-facing subscription Pay-Online flow — a hospital ADMIN pays their OWN
+ * platform invoice from the "My Subscription" page. Same modal as the operator
+ * platform flow, but against the tenant-scoped /my-subscription endpoints (each
+ * verifies the invoice belongs to the caller's tenant):
+ *   1. POST /my-subscription/invoices/:id/pay-online → order + platform keyId
+ *   2. Open Razorpay checkout modal
+ *   3. On success → POST /my-subscription/invoices/:id/verify-payment
+ */
+export async function openMySubscriptionRazorpayCheckout(
+  opts: OpenPlatformCheckoutOpts,
+): Promise<void> {
+  await ensureRazorpayLoaded();
+
+  const orderRes = await api.post<{ data: OrderResponse }>(
+    `/my-subscription/invoices/${opts.invoiceId}/pay-online`,
+    {},
+  );
+
+  const description = opts.invoiceNumber
+    ? `Subscription invoice ${opts.invoiceNumber}`
+    : `Platform invoice ${opts.invoiceId.slice(0, 8)}`;
+
+  return openRazorpayModal({
+    order: orderRes.data,
+    name: "MedCore — Subscription",
+    description,
+    prefill: { name: opts.contact?.name, email: opts.contact?.email },
+    notes: { platformInvoiceId: opts.invoiceId },
+    onVerify: async (response) => {
+      await api.post(
+        `/my-subscription/invoices/${opts.invoiceId}/verify-payment`,
+        {
+          razorpayOrderId: response.razorpay_order_id,
+          razorpayPaymentId: response.razorpay_payment_id,
+          razorpaySignature: response.razorpay_signature,
+        },
+      );
+    },
+    onSuccess: opts.onSuccess,
+    onFailure: opts.onFailure,
+  });
+}

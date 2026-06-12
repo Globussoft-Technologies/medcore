@@ -49,6 +49,11 @@ interface User {
   // value is kept here so badges / labels / the role chip can still
   // display "SUPER_ADMIN" — see coerceUser() below.
   actualRole?: string;
+  // Surfaced from /auth/me. True only for the single root super-admin who may
+  // provision tenants + mint other super-admins. Gates the Tenants nav and
+  // the "Add Tenant" / "Add Super-Admin" affordances client-side (the API
+  // enforces it server-side regardless).
+  isMainSuperAdmin?: boolean;
 }
 
 /**
@@ -527,3 +532,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * Module-scope getter used by the api-client's request interceptor so
+ * non-React code can read the active tenant id without subscribing to the
+ * store. Sourced from /auth/me (server-authoritative), so it always equals
+ * the caller's real tenant. Sent as `X-Tenant-Id` on every API call so the
+ * backend's tenantContextMiddleware scopes explicitly (it prioritises the
+ * header). Returns null on the server and for tenant-less super-admins
+ * (who bypass scoping). See apps/api/src/middleware/tenant.ts.
+ */
+export function getCurrentTenantId(): string | null {
+  if (typeof window === "undefined") return null;
+  return useAuthStore.getState().user?.tenantId ?? null;
+}

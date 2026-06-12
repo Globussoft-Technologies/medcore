@@ -245,16 +245,19 @@ export default function RolePermissionsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      // GET /api/v1/role-permissions — global catalog endpoint. The
-      // tenant detail fetch is kept for the header chip in the per-tenant
-      // (onboarding) flow; in the global flow (?from=tenants) the chip is
-      // hidden so the detail call is harmless redundancy.
-      const [catRes, detailRes] = await Promise.all([
-        api.get<CatalogResponse>(`/role-permissions`),
-        api.get<{ data: TenantDetail }>(`/tenants/${tenantId}`),
-      ]);
+      // GET /api/v1/role-permissions — global catalog endpoint. The tenant
+      // detail fetch is ONLY for the header chip in the per-tenant (onboarding)
+      // flow; in the global flow (?from=tenants) the chip is hidden, so we skip
+      // it entirely — that's what lets the catalog open with zero tenants / a
+      // "catalog" sentinel id without the detail call 404ing the whole load.
+      const catRes = await api.get<CatalogResponse>(`/role-permissions`);
       setCatalog(catRes.data.roles || []);
-      setDetail(detailRes.data);
+      if (!fromTenantsList) {
+        const detailRes = await api
+          .get<{ data: TenantDetail }>(`/tenants/${tenantId}`)
+          .catch(() => null);
+        if (detailRes) setDetail(detailRes.data);
+      }
     } catch (err) {
       // Preserve the server message so the page can render an
       // actionable error rather than a misleading "empty catalog"
@@ -266,7 +269,7 @@ export default function RolePermissionsPage() {
       toast.error(msg);
     }
     setLoading(false);
-  }, [tenantId]);
+  }, [tenantId, fromTenantsList]);
 
   useEffect(() => {
     if (canView) load();

@@ -165,31 +165,34 @@ async function main() {
   // API alias layer (apps/api/src/services/medicines/serialize.ts). See Issue
   // #41 for why we don't use a dedicated `manufacturer` column.
   const medicineRecords: Record<string, string> = {};
+  // Medicine is now a per-tenant catalog (@@unique([tenantId, name])). Tag each
+  // seeded row with the default tenant and look it up by (tenant, name) rather
+  // than the old global name-unique upsert.
+  const defaultTenant = await prisma.tenant.findFirst({
+    where: { subdomain: "default" },
+    select: { id: true },
+  });
+  const defaultTenantId = defaultTenant?.id ?? null;
   for (const m of MEDICINES) {
-    const med = await prisma.medicine.upsert({
-      where: { name: m.name },
-      update: {
-        genericName: m.genericName,
-        brand: m.manufacturer,
-        form: m.form,
-        strength: m.strength,
-        category: m.category,
-        sideEffects: m.sideEffects,
-        contraindications: m.contraindications,
-        prescriptionRequired: m.prescriptionRequired,
-      },
-      create: {
-        name: m.name,
-        genericName: m.genericName,
-        brand: m.manufacturer,
-        form: m.form,
-        strength: m.strength,
-        category: m.category,
-        sideEffects: m.sideEffects,
-        contraindications: m.contraindications,
-        prescriptionRequired: m.prescriptionRequired,
-      },
+    const data = {
+      genericName: m.genericName,
+      brand: m.manufacturer,
+      form: m.form,
+      strength: m.strength,
+      category: m.category,
+      sideEffects: m.sideEffects,
+      contraindications: m.contraindications,
+      prescriptionRequired: m.prescriptionRequired,
+    };
+    const existing = await prisma.medicine.findFirst({
+      where: { name: m.name, tenantId: defaultTenantId },
+      select: { id: true },
     });
+    const med = existing
+      ? await prisma.medicine.update({ where: { id: existing.id }, data })
+      : await prisma.medicine.create({
+          data: { name: m.name, tenantId: defaultTenantId, ...data },
+        });
     medicineRecords[m.name] = med.id;
   }
   console.log(`  Medicines: ${Object.keys(medicineRecords).length}`);

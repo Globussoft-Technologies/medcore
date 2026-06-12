@@ -91,8 +91,19 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { includeInactive } = req.query;
+      const tenantIdParam = req.query.tenantId;
+      // super-admin/platform callers have no tenant context (see all tenants);
+      // the dashboard tenant dropdown sends ?tenantId to narrow. Ignored for
+      // tenant-bound callers (tenantScopedPrisma already scopes them).
       const where: Record<string, unknown> = {};
       if (includeInactive !== "true") where.isActive = true;
+      if (
+        !req.tenantId &&
+        typeof tenantIdParam === "string" &&
+        tenantIdParam.trim().length > 0
+      ) {
+        where.tenantId = tenantIdParam.trim();
+      }
 
       const ots = await prisma.operatingTheater.findMany({
         where,

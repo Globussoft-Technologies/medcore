@@ -115,12 +115,27 @@ export async function tenantContextMiddleware(
   // super-admin curl with `-H 'X-Tenant-Id: …'` would silently pin
   // themselves to that tenant before the bypass ever ran).
   let bearerTenant: string | undefined;
+  // Issue #477 fix (2026-06-11): browser clients authenticate via the httpOnly
+  // `medcore_at` COOKIE — they send no Authorization header. This middleware
+  // runs BEFORE `authenticate`, so `req.user` is still undefined here. Reading
+  // only the Bearer header (the original behaviour) therefore left every
+  // cookie-authenticated request with NO tenant candidate → `tenantScopedPrisma`
+  // ran UNSCOPED and returned cross-tenant rows (a tenant admin saw the default
+  // tenant's data). Mirror `authenticate`: prefer the cookie, fall back to the
+  // Bearer header (migration / server-to-server). The decoded tenantId feeds
+  // the candidate below only when no explicit X-Tenant-Id header / req.user is
+  // present, so the documented header-override precedence is unchanged.
+  const cookieToken = (req as unknown as { cookies?: Record<string, string> })
+    .cookies?.medcore_at;
   const authHeader = req.headers.authorization;
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.slice("Bearer ".length);
+  const headerToken = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length)
+    : undefined;
+  const decodeToken = cookieToken || headerToken;
+  if (decodeToken) {
     try {
       // Issue #482: algorithm-agnostic — see services/jwt.ts.
-      const decoded = verifyAccessToken<Partial<AuthPayload>>(token);
+      const decoded = verifyAccessToken<Partial<AuthPayload>>(decodeToken);
       if (decoded && typeof decoded.tenantId === "string" && decoded.tenantId.length > 0) {
         bearerTenant = decoded.tenantId;
       }

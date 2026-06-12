@@ -1,6 +1,11 @@
 import { toast } from "@/lib/toast";
 import { sanitizeNextPath } from "@/lib/utils";
 import { getCurrentBranchId } from "@/lib/branch-store";
+// NOTE: store.ts imports `api` from here — this is a deferred-usage import
+// cycle. getCurrentTenantId() is only invoked inside request() at call time
+// (long after both modules finish evaluating), so the live binding resolves
+// safely; do not call it at module scope.
+import { getCurrentTenantId } from "@/lib/store";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
 
@@ -166,6 +171,15 @@ async function request<T>(
     const branchId = getCurrentBranchId();
     if (branchId) headers["X-Branch-Id"] = branchId;
   }
+
+  // Multi-tenant: send the active tenant explicitly as `X-Tenant-Id` so the
+  // API's tenantContextMiddleware scopes every query to this tenant (it
+  // prioritises the header). The value comes from /auth/me (server-
+  // authoritative), so it always matches the caller's real tenant. Null for
+  // tenant-less super-admins (who bypass scoping) and for unauthenticated /
+  // server-side calls → header omitted, backend falls back to the JWT.
+  const tenantId = getCurrentTenantId();
+  if (tenantId) headers["X-Tenant-Id"] = tenantId;
 
   // Issue #377 (2026-04-26): bound every request with an AbortController
   // so a server-side hang surfaces as a "Request timed out" toast instead

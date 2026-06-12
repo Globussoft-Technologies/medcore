@@ -187,12 +187,14 @@ describeIfDB("Suspending a tenant blocks login within 60 s (Pearl §6 row 349)",
       .send({ email: tenantAdmin.email, password: tenantAdmin.password });
     const t1 = Date.now();
 
-    // 4) Login MUST be rejected. The handler returns 401 with the generic
-    // "Invalid email or password" envelope (deliberately not leaking
-    // "tenant suspended" to avoid email enumeration) — see auth.ts:898-906.
-    expect(postSuspend.status).toBe(401);
+    // 4) Login MUST be rejected. The tenant-deactivation gate runs only after
+    // the password is already verified, so the handler returns 403 with a
+    // clear "your hospital account has been suspended" message (no enumeration
+    // risk — the caller proved valid credentials) — see auth.ts.
+    expect(postSuspend.status).toBe(403);
     expect(postSuspend.body.success).toBe(false);
     expect(postSuspend.body.data).toBeNull();
+    expect(postSuspend.body.error).toMatch(/suspended/i);
 
     // 5) SLO assertion: under 60 seconds end-to-end (suspend → rejected login).
     const elapsedMs = t1 - t0;
@@ -228,11 +230,11 @@ describeIfDB("Suspending a tenant blocks login within 60 s (Pearl §6 row 349)",
       .set("Authorization", `Bearer ${superToken}`);
     expect(suspendRes.status).toBe(200);
 
-    // Suspended admin → 401.
+    // Suspended admin → 403 (clear suspended message).
     const suspendedLogin = await request(app)
       .post("/api/v1/auth/login")
       .send({ email: suspendedAdmin.email, password: suspendedAdmin.password });
-    expect(suspendedLogin.status).toBe(401);
+    expect(suspendedLogin.status).toBe(403);
 
     // Active admin (different tenant) → 200.
     const activeLogin = await request(app)
@@ -270,7 +272,7 @@ describeIfDB("Suspending a tenant blocks login within 60 s (Pearl §6 row 349)",
     const blocked = await request(app)
       .post("/api/v1/auth/login")
       .send({ email: tenantAdmin.email, password: tenantAdmin.password });
-    expect(blocked.status).toBe(401);
+    expect(blocked.status).toBe(403);
 
     const restore = await request(app)
       .post(`/api/v1/tenants/${tenantId}/restore`)

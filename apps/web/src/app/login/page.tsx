@@ -46,7 +46,8 @@ function safeRedirectTarget(
  *
  * Status mapping:
  *  - 429 → "too many attempts" copy
- *  - 401 / 403 → invalid credentials
+ *  - 401 → invalid credentials
+ *  - 403 → backend's specific reason (e.g. tenant suspended), else blocked copy
  *  - other → backend's error text, else the provided fallback
  */
 function messageForAuthError(
@@ -65,8 +66,18 @@ function messageForAuthError(
       "Too many login attempts. Please wait a minute and try again.",
     );
   }
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     return t("login.error.invalidCredentials", "Invalid email or password.");
+  }
+  if (status === 403) {
+    // 403 on login means the credentials were valid but access is blocked
+    // (e.g. the hospital tenant was suspended). Surface the backend's
+    // specific reason rather than the misleading "invalid credentials" copy.
+    if (err instanceof Error && err.message) return err.message;
+    return t(
+      "login.error.accountBlocked",
+      "Your account access has been blocked. Please contact support.",
+    );
   }
   if (err instanceof Error && err.message) return err.message;
   return fallback ?? t("login.error.generic");

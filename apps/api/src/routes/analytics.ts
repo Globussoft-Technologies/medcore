@@ -1,5 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant: scoped client auto-filters reads + tags writes by tenantId
+// for TENANT_SCOPED_MODELS (cross-tenant leak fix, 2026-06-11).
+import { tenantScopedPrisma as prisma, runWithTenant } from "@medcore/db";
 import { Role, LEAD_STATUS_VALUES, LEAD_SOURCE_VALUES } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
@@ -21,6 +23,21 @@ router.use(authenticate);
 // Revenue routes still pin ADMIN-only at the per-route level
 // (see /revenue, /revenue/breakdown, /export/revenue.csv).
 router.use(authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR));
+
+// Super-admin tenant filter (cross-cutting for every analytics endpoint). A
+// no-tenant-context caller (super-admin/platform) otherwise gets cross-tenant
+// aggregates. When the dashboard tenant dropdown sends ?tenantId, open a tenant
+// ALS frame for the rest of the request so EVERY tenantScopedPrisma query in
+// every handler scopes to that tenant — no per-endpoint changes needed. Tenant-
+// bound callers already have their own frame open (withTenantContext) and
+// `req.tenantId` set, so we skip them.
+router.use((req: Request, _res: Response, next: NextFunction) => {
+  const tp = req.query.tenantId;
+  if (!req.tenantId && typeof tp === "string" && tp.trim().length > 0) {
+    return runWithTenant(tp.trim(), () => next());
+  }
+  next();
+});
 // #511 audit (2026-05-05, cron-tick): all handlers verified safe via
 // router-level authorize(ADMIN, RECEPTION, DOCTOR) above — PATIENT is
 // excluded fleet-wide for this file. Per-handler overrides only narrow

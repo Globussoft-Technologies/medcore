@@ -13,7 +13,9 @@
 // Audit: every mutation writes a CALENDAR_EVENT_<ACTION> row tagged
 // with the calendarEvent id.
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant: scoped client auto-filters reads + tags writes by tenantId
+// for TENANT_SCOPED_MODELS (cross-tenant leak fix, 2026-06-11).
+import { tenantScopedPrisma as prisma } from "@medcore/db";
 import {
   Role,
   createCalendarEventSchema,

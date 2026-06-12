@@ -189,6 +189,31 @@ function relativeTime(iso: string | null | undefined): string {
   }
 }
 
+// Split a login timestamp into { time, date } for the stacked "Last login"
+// column (time on top, date below). Returns null when there's no login.
+function lastLoginParts(
+  iso: string | null | undefined,
+): { time: string; date: string } | null {
+  if (!iso) return null;
+  try {
+    const d = new Date(iso);
+    return {
+      time: d.toLocaleTimeString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }),
+      date: d.toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function billingBadge(
   h: TenantStats["billingHealth"] | undefined,
   active: boolean,
@@ -586,26 +611,21 @@ export default function TenantsAdminPage() {
               whichever tenant rendered first in the list. Disabled
               while tenants are still loading. */}
           {(() => {
-            const firstTenantId = tenants[0]?.id;
-            // `?from=tenants` tells the role-permissions page to send the
-            // "Back" link to /dashboard/tenants instead of the per-tenant
-            // onboarding checklist (which is the default destination when
-            // the same page is reached from the onboarding flow).
-            const href = firstTenantId
-              ? `/dashboard/tenants/${firstTenantId}/role-permissions?from=tenants`
-              : "#";
-            const disabled = !firstTenantId;
+            // The role-permission catalog is GLOBAL (not per-tenant); the
+            // route just happens to live under /tenants/[id]. So the button
+            // is ALWAYS available to the super-admin — even with zero tenants
+            // or an empty filter — by routing through a real tenant id when
+            // one is present, else a "catalog" sentinel the page tolerates in
+            // ?from=tenants mode (it skips the per-tenant detail fetch).
+            // `?from=tenants` also sets the Back link to the tenants list and
+            // unlocks Edit for super-admins.
+            const routeId = tenants[0]?.id ?? "catalog";
+            const href = `/dashboard/tenants/${routeId}/role-permissions?from=tenants`;
             return (
               <Link
                 href={href}
-                aria-disabled={disabled}
-                onClick={(e) => {
-                  if (disabled) e.preventDefault();
-                }}
                 data-testid="tenants-role-permissions-link"
-                className={`inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 ${
-                  disabled ? "pointer-events-none opacity-50" : ""
-                }`}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
                 <ShieldCheck size={16} />{" "}
                 {t("tenants.rolePermissions", "Permissions catalog")}
@@ -838,11 +858,28 @@ export default function TenantsAdminPage() {
                     tenantSubdomain={tt.subdomain}
                   />
                   <td
-                    className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400"
-                    title={tt.stats?.lastLoginAt ?? "Never"}
+                    className="whitespace-nowrap px-4 py-3 text-xs text-gray-600 dark:text-gray-400"
+                    title={
+                      tt.stats?.lastLoginAt
+                        ? relativeTime(tt.stats.lastLoginAt)
+                        : "Never"
+                    }
                     data-testid={`tenant-kpi-lastlogin-${tt.subdomain}`}
                   >
-                    {relativeTime(tt.stats?.lastLoginAt)}
+                    {(() => {
+                      const parts = lastLoginParts(tt.stats?.lastLoginAt);
+                      if (!parts) return "Never";
+                      return (
+                        <span className="flex flex-col leading-tight">
+                          <span className="font-medium text-gray-800 dark:text-gray-200">
+                            {parts.time}
+                          </span>
+                          <span className="text-[11px] text-gray-500 dark:text-gray-500">
+                            {parts.date}
+                          </span>
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3 text-xs">
                     {(() => {
@@ -1707,8 +1744,15 @@ function TenantDetailDrawer({
     Number(sessionIdleDraft) !== (detail.sessionIdleMinutes ?? 30);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/30" data-testid="tenants-detail">
-      <div className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100">
+    <div
+      className="fixed inset-0 z-50 flex justify-end bg-black/30"
+      data-testid="tenants-detail"
+      onClick={onClose}
+    >
+      <div
+        className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-900 dark:text-gray-100"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h3 className="text-lg font-semibold">

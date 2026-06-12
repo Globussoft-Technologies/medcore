@@ -1040,6 +1040,9 @@ router.post(
         return;
       }
 
+      // Verify the password FIRST. A wrong email/password always returns the
+      // generic "Invalid email or password" (so a bad credential never reveals
+      // whether the tenant exists / is suspended).
       const valid = await bcrypt.compare(password, user.passwordHash);
       if (!valid) {
         recordFailure(user.id, "bad_password");
@@ -1051,10 +1054,10 @@ router.post(
         return;
       }
 
-      // Tenant-deactivation gate — block login entirely if the owning tenant
-      // has been soft-deactivated via `/api/v1/tenants/:id/deactivate`. We
-      // return the same generic error as a bad password so a deactivated
-      // tenant cannot be probed by email enumeration.
+      // Tenant-deactivation gate — only AFTER the credentials check passes do
+      // we tell a legitimate user that their hospital tenant has been
+      // suspended/archived (via `/api/v1/tenants/:id/deactivate`). Valid creds
+      // → clear suspended message; wrong creds → generic error above.
       if (user.tenantId) {
         const tenant = await prisma.tenant.findUnique({
           where: { id: user.tenantId },
@@ -1062,10 +1065,11 @@ router.post(
         });
         if (tenant && !tenant.active) {
           recordFailure(user.id, "tenant_deactivated");
-          res.status(401).json({
+          res.status(403).json({
             success: false,
             data: null,
-            error: "Invalid email or password",
+            error:
+              "Your hospital account has been suspended. Please contact your administrator or MedCore support to restore access.",
           });
           return;
         }
@@ -1189,6 +1193,10 @@ router.post(
       });
 
       auditLog(req, "AUTH_LOGIN", "user", user.id, { email: user.email }).catch(console.error);
+      // Stamp last-login for the super-admin Tenants "Last login" column.
+      prisma.user
+        .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+        .catch(console.error);
 
       // Issue #477: set the access + refresh + csrf cookies. The login
       // honoured the user's `rememberMe` flag for refresh-token TTL — pass
@@ -1349,8 +1357,16 @@ router.get(
         (user?.patient as { photoUrl?: string | null } | null)?.photoUrl ??
         null;
       const resolvedPhoto = await resolvePatientPhotoUrl(rawPhoto);
+      // Surface isMainSuperAdmin so the web client can gate main-only UI
+      // (Add Tenant / Add Super-Admin / Tenants nav). Raw SQL because the
+      // on-disk Prisma client may not yet know the column on a dev box under
+      // the `prisma generate` DLL lock — mirrors super-admin-users.ts.
+      const meMainRows = await prisma.$queryRaw<
+        Array<{ isMainSuperAdmin: boolean }>
+      >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
+      const isMainSuperAdmin = meMainRows[0]?.isMainSuperAdmin === true;
       const data = user
-        ? { ...user, photoUrl: resolvedPhoto }
+        ? { ...user, photoUrl: resolvedPhoto, isMainSuperAdmin }
         : user;
 
       res.json({ success: true, data, error: null });
@@ -2128,6 +2144,10 @@ router.post(
       auditLog(req, "AUTH_LOGIN", "user", user.id, { email: user.email, twoFactor: true }).catch(
         console.error
       );
+      // Stamp last-login for the super-admin Tenants "Last login" column.
+      prisma.user
+        .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
+        .catch(console.error);
 
       // Issue #477: set cookies after 2FA verify (same as login).
       setAuthCookies(res, tokens, tokens.refreshTtlSeconds);

@@ -56,7 +56,14 @@ async function nextAdmissionNumber(): Promise<string> {
 // GET /api/v1/admissions — list admissions with filters
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { status, patientId, doctorId, page = "1", limit = "20" } = req.query;
+    const {
+      status,
+      patientId,
+      doctorId,
+      page = "1",
+      limit = "20",
+      tenantId: tenantIdParam,
+    } = req.query;
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
     const take = Math.min(parseInt(limit as string), 100);
 
@@ -64,6 +71,17 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     if (status) where.status = status;
     if (patientId) where.patientId = patientId;
     if (doctorId) where.doctorId = doctorId;
+    // Super-admin tenant filter: a platform/super-admin caller has no tenant
+    // context (sees every tenant's admissions), so the dashboard tenant
+    // dropdown sends ?tenantId=<id> to narrow the view. Ignored for tenant-
+    // bound callers — tenantScopedPrisma scopes them to their own tenant.
+    if (
+      !req.tenantId &&
+      typeof tenantIdParam === "string" &&
+      tenantIdParam.trim().length > 0
+    ) {
+      where.tenantId = tenantIdParam.trim();
+    }
 
     // If patient role, only show own admissions
     if (req.user!.role === Role.PATIENT) {
@@ -191,6 +209,17 @@ router.post(
         referredByDoctor,
       } = req.body;
 
+      // An admission belongs to the PATIENT's tenant. Derive it explicitly:
+      // a super-admin admit has no tenant context (so tenantScopedPrisma can't
+      // inject one), and the extension is unreliable inside $transaction
+      // anyway. rawPrisma looks the patient up regardless of caller scope.
+      const admittingPatient = await rawPrisma.patient.findUnique({
+        where: { id: patientId },
+        select: { tenantId: true },
+      });
+      const admissionTenantId =
+        admittingPatient?.tenantId ?? req.tenantId ?? null;
+
       // Issue #37 — data-integrity guard: one ACTIVE admission per patient.
       // Before touching the bed, reject with 409 if this patient already has
       // an ADMITTED admission anywhere in the hospital. This is the
@@ -304,6 +333,7 @@ router.post(
               admissionType: admissionType ?? null,
               referredByDoctor: referredByDoctor ?? null,
               status: "ADMITTED",
+              tenantId: admissionTenantId,
             },
             include: {
               patient: {

@@ -25,9 +25,15 @@ interface OnboardingStatusResponse {
 export function OnboardingBanner() {
   const { user } = useAuthStore();
   const tenantId = user?.tenantId ?? null;
-  // Tenant admins carry a tenantId; super-admins are tenant-less and manage
-  // onboarding from the Tenants page instead, so they don't get the nudge.
-  const isTenantAdmin = user?.role === "ADMIN" && !!tenantId;
+  // Super-admins manage onboarding from the Tenants page and never get the
+  // clinic nudge. The store coerces role SUPER_ADMIN → ADMIN (keeping
+  // `actualRole`), so we must check `actualRole` too — checking only
+  // `tenantId == null` is fragile (a super-admin wrongly assigned a tenant
+  // would otherwise see this banner).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" || (user?.role === "ADMIN" && !tenantId);
+  // Only genuine tenant admins (ADMIN with a tenant, not a super-admin) get it.
+  const isTenantAdmin = user?.role === "ADMIN" && !!tenantId && !isSuperAdmin;
 
   const [pending, setPending] = useState(0);
 

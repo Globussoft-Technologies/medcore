@@ -55,9 +55,17 @@ const SAMPLE_ENTRIES: SeedEntry[] = [
 
 async function ensureMedicines(): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
+  // Medicine is now a per-tenant catalog (@@unique([tenantId, name])); tag rows
+  // with the default tenant and look up by (tenant, name) instead of the old
+  // global name-unique.
+  const defaultTenant = await prisma.tenant.findFirst({
+    where: { subdomain: "default" },
+    select: { id: true },
+  });
+  const defaultTenantId = defaultTenant?.id ?? null;
   for (const m of SAMPLE_MEDICINES) {
-    const existing = await prisma.medicine.findUnique({
-      where: { name: m.name },
+    const existing = await prisma.medicine.findFirst({
+      where: { name: m.name, tenantId: defaultTenantId },
       select: { id: true },
     });
     if (existing) {
@@ -75,6 +83,7 @@ async function ensureMedicines(): Promise<Record<string, string>> {
       const created = await prisma.medicine.create({
         data: {
           name: m.name,
+          tenantId: defaultTenantId,
           genericName: m.genericName,
           form: m.form,
           strength: m.strength,

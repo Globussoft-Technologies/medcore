@@ -1,5 +1,10 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant wiring: `tenantScopedPrisma` is a Prisma $extends wrapper that
+// auto-filters reads + auto-tags writes by the caller's tenantId for models in
+// TENANT_SCOPED_MODELS. Medicine joined that set on 2026-06-11 so each tenant
+// keeps its own formulary. `drugInteraction` is NOT a scoped model, so those
+// queries pass through this client untouched (global drug-interaction catalog).
+import { tenantScopedPrisma as prisma } from "@medcore/db";
 import {
   Role,
   createMedicineSchema,

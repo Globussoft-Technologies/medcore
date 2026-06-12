@@ -4,8 +4,10 @@ import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { getSocket } from "@/lib/socket";
+import { useAuthStore } from "@/lib/store";
 import { Plus, Building, Power, PowerOff, Edit2 } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
+import { TenantSelect } from "@/components/TenantSelect";
 
 interface OT {
   id: string;
@@ -55,6 +57,18 @@ function ymd(d: Date) {
 }
 
 export default function OTPage() {
+  const { user } = useAuthStore();
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) bypasses tenant scoping and sees every tenant's
+  // OTs; the dropdown lets them narrow to one tenant via `?tenantId=`. Hidden
+  // for tenant-bound staff (already scoped to their own tenant).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
   const [ots, setOts] = useState<OT[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -73,13 +87,20 @@ export default function OTPage() {
   const loadOts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get<{ data: OT[] }>("/surgery/ots?includeInactive=true");
+      // Super-admin only: narrow the cross-tenant view to one tenant.
+      const tq =
+        isSuperAdmin && selectedTenantId
+          ? `&tenantId=${encodeURIComponent(selectedTenantId)}`
+          : "";
+      const res = await api.get<{ data: OT[] }>(
+        `/surgery/ots?includeInactive=true${tq}`,
+      );
       setOts(res.data);
     } catch {
       setOts([]);
     }
     setLoading(false);
-  }, []);
+  }, [isSuperAdmin, selectedTenantId]);
 
   const loadWeekSchedule = useCallback(async () => {
     if (!selectedOt) {
@@ -97,6 +118,26 @@ export default function OTPage() {
       setWeekSurgeries([]);
     }
   }, [selectedOt, weekStart]);
+
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     loadOts();
@@ -216,12 +257,24 @@ export default function OTPage() {
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">Manage OTs and view weekly schedule</p>
         </div>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
-        >
-          <Plus size={16} /> Add OT
-        </button>
+        <div className="flex items-center gap-3">
+          {isSuperAdmin && (
+            <TenantSelect
+              tenants={tenants}
+              value={selectedTenantId}
+              onChange={setSelectedTenantId}
+              allLabel="All tenants"
+              className="w-full sm:w-64"
+              testId="ot-tenant-filter"
+            />
+          )}
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
+          >
+            <Plus size={16} /> Add OT
+          </button>
+        </div>
       </div>
 
       <div className="mb-6 rounded-xl bg-white shadow-sm dark:bg-gray-800">

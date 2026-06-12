@@ -30,18 +30,41 @@ import {
   XCircle,
   AlertTriangle,
   Trash2,
+  FileText,
+  Upload,
+  ScrollText,
+  Download,
+  RefreshCw,
 } from "lucide-react";
 import { SkeletonText } from "@/components/Skeleton";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-type TabKey = "link" | "consents" | "careContexts";
+type TabKey =
+  | "dashboard"
+  | "link"
+  | "profile"
+  | "consents"
+  | "records"
+  | "upload"
+  | "careContexts"
+  | "audit";
 
 interface PatientOpt {
   id: string;
   user: { name: string; phone?: string | null };
   dateOfBirth?: string | null;
 }
+
+// Which tabs each role can see. Patients self-serve a narrower set (no upload,
+// no care-context push, no admin audit); they don't search patients — they're
+// scoped to their own record server-side.
+const TABS_BY_ROLE: Record<string, TabKey[]> = {
+  ADMIN: ["dashboard", "link", "profile", "consents", "records", "upload", "careContexts", "audit"],
+  DOCTOR: ["dashboard", "link", "profile", "consents", "records", "upload", "careContexts"],
+  RECEPTION: ["dashboard", "link", "profile", "consents", "records"],
+  PATIENT: ["profile", "consents", "records"],
+};
 
 interface ConsentRow {
   id: string;
@@ -113,16 +136,51 @@ function isSandbox(): boolean {
 export default function AbdmPage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
-  const [tab, setTab] = useState<TabKey>("link");
+  const role = user?.role ?? "";
+  const isPatient = role === "PATIENT";
+  const allowedTabs = TABS_BY_ROLE[role] ?? [];
+  const [tab, setTab] = useState<TabKey>("dashboard");
   const sandbox = isSandbox();
 
-  // Patient search (shared across tabs)
+  // Patient search (shared across staff tabs). Patients are scoped to self.
   const [patientSearch, setPatientSearch] = useState("");
   const [patientResults, setPatientResults] = useState<PatientOpt[]>([]);
   const [patient, setPatient] = useState<PatientOpt | null>(null);
 
+  // For PATIENT role, resolve their own patient id once so the scoped tabs
+  // (Profile, Consents, Records) can render without a search picker.
   useEffect(() => {
-    if (!isLoading && user && !["ADMIN", "DOCTOR", "RECEPTION"].includes(user.role)) {
+    if (!isPatient) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await api.get<{ data: { patient?: { id?: string } | null } }>(
+          "/auth/me",
+          { skip401Redirect: true },
+        );
+        const pid = me.data?.patient?.id;
+        if (pid && !cancelled) {
+          setPatient({ id: pid, user: { name: "You" } });
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isPatient]);
+
+  // Ensure the active tab is one this role can see (default to the first).
+  useEffect(() => {
+    if (allowedTabs.length > 0 && !allowedTabs.includes(tab)) {
+      setTab(allowedTabs[0]);
+    }
+  }, [allowedTabs, tab]);
+
+  useEffect(() => {
+    const allowed = ["ADMIN", "DOCTOR", "RECEPTION", "PATIENT"];
+    if (!isLoading && user && !allowed.includes(user.role)) {
       router.push("/dashboard");
     }
   }, [user, isLoading, router]);
@@ -153,7 +211,7 @@ export default function AbdmPage() {
     );
   }
 
-  if (user && !["ADMIN", "DOCTOR", "RECEPTION"].includes(user.role)) {
+  if (user && !["ADMIN", "DOCTOR", "RECEPTION", "PATIENT"].includes(user.role)) {
     return null;
   }
 
@@ -186,7 +244,8 @@ export default function AbdmPage() {
         </div>
       )}
 
-      {/* Patient picker (shared) */}
+      {/* Patient picker (staff only — patients are scoped to themselves) */}
+      {!isPatient && (
       <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <label
           htmlFor="abdm-patient-search"
@@ -243,35 +302,44 @@ export default function AbdmPage() {
           </>
         )}
       </div>
+      )}
 
-      {/* Tabs */}
-      <div className="mb-4 flex gap-1 border-b border-gray-200 dark:border-gray-800">
-        <TabButton
-          active={tab === "link"}
-          onClick={() => setTab("link")}
-          icon={LinkIcon}
-          label="Link ABHA"
-        />
-        <TabButton
-          active={tab === "consents"}
-          onClick={() => setTab("consents")}
-          icon={FileCheck}
-          label="Consents"
-        />
-        <TabButton
-          active={tab === "careContexts"}
-          onClick={() => setTab("careContexts")}
-          icon={Activity}
-          label="Care Contexts"
-        />
+      {/* Tabs — role-aware */}
+      <div className="mb-4 flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-800">
+        {allowedTabs.map((key) => (
+          <TabButton
+            key={key}
+            active={tab === key}
+            onClick={() => setTab(key)}
+            icon={TAB_META[key].icon}
+            label={TAB_META[key].label}
+          />
+        ))}
       </div>
 
+      {tab === "dashboard" && <DashboardTab />}
       {tab === "link" && <LinkAbhaTab patient={patient} />}
+      {tab === "profile" && <ProfileTab patient={patient} isPatient={isPatient} />}
       {tab === "consents" && <ConsentsTab patient={patient} />}
+      {tab === "records" && <RecordsTab patient={patient} isPatient={isPatient} />}
+      {tab === "upload" && <UploadTab patient={patient} />}
       {tab === "careContexts" && <CareContextsTab patient={patient} />}
+      {tab === "audit" && <AuditTab />}
     </div>
   );
 }
+
+// Tab labels + icons.
+const TAB_META: Record<TabKey, { label: string; icon: React.ElementType }> = {
+  dashboard: { label: "Dashboard", icon: Activity },
+  link: { label: "Link ABHA", icon: LinkIcon },
+  profile: { label: "ABHA Profile", icon: Shield },
+  consents: { label: "Consents", icon: FileCheck },
+  records: { label: "Medical Records", icon: FileText },
+  upload: { label: "Upload Records", icon: Upload },
+  careContexts: { label: "Care Contexts", icon: Activity },
+  audit: { label: "Audit Logs", icon: ScrollText },
+};
 
 // ─── Tabs ───────────────────────────────────────────────────────────────────
 
@@ -308,35 +376,67 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
   const [abhaAddress, setAbhaAddress] = useState("");
   const [abhaNumber, setAbhaNumber] = useState("");
   const [otp, setOtp] = useState("");
+  const [txnId, setTxnId] = useState<string | null>(null);
+  const [sendingOtp, setSendingOtp] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
   const [linking, setLinking] = useState(false);
   const [result, setResult] = useState<{
-    kind: "ok" | "err";
+    kind: "ok" | "err" | "warn";
     message: string;
   } | null>(null);
 
+  // Step 1 — send OTP to the ABHA holder's registered mobile.
+  async function sendOtp() {
+    if (!abhaAddress.match(/@/)) {
+      setResult({ kind: "err", message: "Enter a valid ABHA address (handle@domain)" });
+      return;
+    }
+    setSendingOtp(true);
+    setResult(null);
+    try {
+      const res = await api.post<{ data: { transactionId: string } }>(
+        "/abdm/abha/auth/otp",
+        { abhaAddress },
+      );
+      setTxnId(res.data.transactionId);
+      setVerified(false);
+      setResult({
+        kind: "ok",
+        message: "OTP sent to the ABHA-registered mobile. Enter it below to verify.",
+      });
+    } catch (err) {
+      setResult({ kind: "err", message: (err as Error).message || "Could not send OTP" });
+    } finally {
+      setSendingOtp(false);
+    }
+  }
+
+  // Step 2 — confirm the OTP → verified ABHA profile.
   async function verify() {
+    if (!txnId) {
+      setResult({ kind: "err", message: "Send the OTP first" });
+      return;
+    }
+    if (!/^\d{4,8}$/.test(otp)) {
+      setResult({ kind: "err", message: "Enter the OTP (4–8 digits)" });
+      return;
+    }
     setVerifying(true);
     setResult(null);
     try {
       const res = await api.post<{ data: { ok: boolean; name?: string } }>(
-        "/abdm/abha/verify",
-        {
-          abhaAddress: abhaAddress || undefined,
-          abhaNumber: abhaNumber || undefined,
-        }
+        "/abdm/abha/auth/verify",
+        { transactionId: txnId, otp, abhaAddress },
       );
-      setResult({
-        kind: res.data.ok ? "ok" : "err",
-        message: res.data.ok
-          ? `Verified — ${res.data.name ?? "ABHA account valid"}`
-          : "ABHA could not be verified",
-      });
+      if (res.data.ok) {
+        setVerified(true);
+        setResult({ kind: "ok", message: `Verified — ${res.data.name ?? "ABHA account valid"}` });
+      } else {
+        setResult({ kind: "err", message: "ABHA could not be verified" });
+      }
     } catch (err) {
-      setResult({
-        kind: "err",
-        message: (err as Error).message || "Verification failed",
-      });
+      setResult({ kind: "err", message: (err as Error).message || "Verification failed" });
     } finally {
       setVerifying(false);
     }
@@ -358,6 +458,9 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
         patientId: patient.id,
         abhaAddress,
         abhaNumber: abhaNumber || undefined,
+        // Already OTP-verified in this session — tell the server to skip the
+        // re-verify round-trip (which uses the legacy existsByHealthId path).
+        preVerified: true,
       });
       setResult({
         kind: "ok",
@@ -404,37 +507,53 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
             className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
           />
         </div>
-        <div>
-          <label htmlFor="abdm-link-otp" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {isSandbox() ? "OTP (mock)" : "OTP"}
-          </label>
-          <input
-            id="abdm-link-otp"
-            type="text"
-            value={otp}
-            onChange={(e) => setOtp(e.target.value)}
-            placeholder={isSandbox() ? "123456" : "••••••"}
-            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
-          />
-        </div>
       </div>
 
-      <div className="mt-4 flex gap-3">
+      {/* Step 1 — send OTP. Once sent, the OTP field + Verify appear. */}
+      <div className="mt-4 flex flex-wrap items-end gap-3">
         <button
-          onClick={verify}
-          disabled={verifying || (!abhaAddress && !abhaNumber)}
+          onClick={sendOtp}
+          disabled={sendingOtp || !abhaAddress}
           className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
         >
-          {verifying && <Loader2 className="h-4 w-4 animate-spin" />} Verify
-          ABHA
+          {sendingOtp && <Loader2 className="h-4 w-4 animate-spin" />}
+          {txnId ? "Resend OTP" : "Send OTP"}
         </button>
+
+        {txnId && (
+          <>
+            <div>
+              <label htmlFor="abdm-link-otp" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                OTP{isSandbox() ? " (sandbox: 123456)" : ""}
+              </label>
+              <input
+                id="abdm-link-otp"
+                type="text"
+                inputMode="numeric"
+                maxLength={8}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                placeholder="123456"
+                className="mt-1 w-36 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+              />
+            </div>
+            <button
+              onClick={verify}
+              disabled={verifying || otp.length < 4}
+              className="flex items-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+            >
+              {verifying && <Loader2 className="h-4 w-4 animate-spin" />} Verify ABHA
+            </button>
+          </>
+        )}
+
         <button
           onClick={link}
-          disabled={linking || !patient || !abhaAddress}
+          disabled={linking || !patient || !abhaAddress || !verified}
+          title={!verified ? "Verify the ABHA with OTP first" : undefined}
           className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
         >
-          {linking && <Loader2 className="h-4 w-4 animate-spin" />} Link to
-          patient
+          {linking && <Loader2 className="h-4 w-4 animate-spin" />} Link to patient
         </button>
       </div>
 
@@ -444,11 +563,15 @@ function LinkAbhaTab({ patient }: { patient: PatientOpt | null }) {
             "mt-4 flex items-start gap-2 rounded-lg p-3 text-sm " +
             (result.kind === "ok"
               ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
-              : "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-200")
+              : result.kind === "warn"
+                ? "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                : "bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-200")
           }
         >
           {result.kind === "ok" ? (
             <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          ) : result.kind === "warn" ? (
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
           ) : (
             <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
           )}
@@ -867,6 +990,420 @@ function CareContextsTab({ patient }: { patient: PatientOpt | null }) {
             <XCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
           )}
           {result.message}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NEW TABS (2026-06 module completion)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const cardCls =
+  "rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900";
+const inputCls =
+  "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100";
+const primaryBtn =
+  "inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50";
+
+function statusBadge(status: string): string {
+  const s = status.toUpperCase();
+  if (["SUCCESS", "GRANTED", "PUSHED", "LINKED"].includes(s))
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200";
+  if (["FAILED", "DENIED", "REVOKED"].includes(s))
+    return "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200";
+  return "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200";
+}
+
+interface DashboardData {
+  abdmConnected: boolean;
+  mode: string;
+  hip: { id: string; status: string };
+  hiu: { id: string; status: string };
+  linkedAbhaCount: number;
+  recordCount: number;
+  consents: Record<string, number>;
+  recentTransactions: Array<{ id: string; type: string; status: string; summary?: string | null; createdAt: string }>;
+}
+
+function DashboardTab() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: DashboardData }>("/abdm/dashboard");
+        setData(res.data);
+      } catch {
+        /* ignore */
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+  if (loading) return <SkeletonText lines={4} />;
+  if (!data) return <p className="text-sm text-gray-500">Could not load the ABDM dashboard.</p>;
+  return (
+    <div className="space-y-4" data-testid="abdm-dashboard">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="ABDM" value={data.abdmConnected ? "Connected" : "Not configured"} tone={data.abdmConnected ? "ok" : "warn"} />
+        <StatCard label="HIP" value={data.hip.status} tone={data.hip.status === "ready" ? "ok" : "warn"} />
+        <StatCard label="HIU" value={data.hiu.status} tone={data.hiu.status === "ready" ? "ok" : "warn"} />
+        <StatCard label="Linked ABHA" value={String(data.linkedAbhaCount)} />
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className={cardCls}>
+          <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">Consent statistics</h3>
+          {Object.keys(data.consents).length === 0 ? (
+            <p className="text-sm text-gray-500">No consents yet.</p>
+          ) : (
+            <ul className="space-y-1 text-sm">
+              {Object.entries(data.consents).map(([k, v]) => (
+                <li key={k} className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-300">{k}</span>
+                  <span className="font-medium">{v}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className={cardCls}>
+          <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">Records stored</h3>
+          <p className="text-3xl font-semibold text-indigo-600">{data.recordCount}</p>
+          <p className="text-xs text-gray-500">across HIP-authored + HIU-fetched</p>
+        </div>
+      </div>
+      <div className={cardCls}>
+        <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-200">Recent transactions</h3>
+        {data.recentTransactions.length === 0 ? (
+          <p className="text-sm text-gray-500">No transactions yet.</p>
+        ) : (
+          <ul className="divide-y divide-gray-100 text-sm dark:divide-gray-800">
+            {data.recentTransactions.map((t) => (
+              <li key={t.id} className="flex items-center justify-between py-2">
+                <span className="min-w-0">
+                  <span className="font-medium">{t.type}</span>
+                  <span className="ml-2 truncate text-gray-500">{t.summary}</span>
+                </span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(t.status)}`}>{t.status}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, tone }: { label: string; value: string; tone?: "ok" | "warn" }) {
+  const color = tone === "ok" ? "text-emerald-600" : tone === "warn" ? "text-amber-600" : "text-gray-900 dark:text-gray-100";
+  return (
+    <div className={cardCls}>
+      <p className="text-xs uppercase tracking-wide text-gray-500">{label}</p>
+      <p className={`mt-1 text-lg font-semibold ${color}`}>{value}</p>
+    </div>
+  );
+}
+
+function ProfileTab({ patient, isPatient }: { patient: PatientOpt | null; isPatient: boolean }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!patient) return;
+    setLoading(true);
+    (async () => {
+      try {
+        const res = await api.get<{ data: any }>(`/abdm/profile/${patient.id}`);
+        setData(res.data);
+      } catch {
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [patient]);
+  if (!patient) return <p className="text-sm text-gray-500">{isPatient ? "Loading your profile…" : "Select a patient to view their ABHA profile."}</p>;
+  if (loading) return <SkeletonText lines={4} />;
+  if (!data) return <p className="text-sm text-gray-500">No profile found.</p>;
+  const link = data.abhaLinks?.[0];
+  return (
+    <div className={cardCls} data-testid="abdm-profile">
+      <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">ABHA Profile</h3>
+      <dl className="grid grid-cols-2 gap-3 text-sm">
+        <ProfileField k="Name" v={data.user?.name} />
+        <ProfileField k="Gender" v={data.gender} />
+        <ProfileField k="Date of birth" v={data.dateOfBirth ? new Date(data.dateOfBirth).toLocaleDateString() : "—"} />
+        <ProfileField k="Phone" v={data.user?.phone} />
+        <ProfileField k="ABHA Address" v={link?.abhaAddress ?? data.abhaId ?? "Not linked"} />
+        <ProfileField k="ABHA Number" v={link?.abhaNumber ?? "—"} />
+      </dl>
+      {link?.abhaAddress && (
+        <button type="button" onClick={() => window.print()} className={`${primaryBtn} mt-4`}>
+          <Download className="h-4 w-4" /> Download ABHA Card
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ProfileField({ k, v }: { k: string; v?: string | null }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-gray-500">{k}</dt>
+      <dd className="font-medium text-gray-900 dark:text-gray-100">{v || "—"}</dd>
+    </div>
+  );
+}
+
+interface RecordRow {
+  id: string;
+  source: string;
+  hiType: string;
+  title: string;
+  providerName?: string | null;
+  recordDate?: string | null;
+  createdAt: string;
+  fileKey?: string | null;
+}
+
+function RecordsTab({ patient, isPatient }: { patient: PatientOpt | null; isPatient: boolean }) {
+  const [rows, setRows] = useState<RecordRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const load = useMemo(
+    () => async () => {
+      if (!patient && !isPatient) return;
+      setLoading(true);
+      try {
+        const qs = patient && !isPatient ? `?patientId=${patient.id}` : "";
+        const res = await api.get<{ data: RecordRow[] }>(`/abdm/records${qs}`);
+        setRows(res.data ?? []);
+      } catch {
+        setRows([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [patient, isPatient],
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function download(id: string) {
+    try {
+      const res = await api.get<{ data: { url: string } }>(`/abdm/records/${id}/download`);
+      window.open(res.data.url, "_blank");
+    } catch (e) {
+      toast.error((e as Error).message || "No file to download");
+    }
+  }
+
+  if (!patient && !isPatient) return <p className="text-sm text-gray-500">Select a patient to view records.</p>;
+  return (
+    <div className={cardCls} data-testid="abdm-records">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Medical Records</h3>
+        <button type="button" onClick={() => void load()} className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline">
+          <RefreshCw className="h-3.5 w-3.5" /> Refresh
+        </button>
+      </div>
+      {loading ? (
+        <SkeletonText lines={3} />
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-gray-500">No records yet. Records fetched via HIU (after consent) and pushed via HIP appear here.</p>
+      ) : (
+        <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+          {rows.map((r) => (
+            <li key={r.id} className="flex items-center justify-between py-2 text-sm">
+              <div className="min-w-0">
+                <p className="font-medium text-gray-900 dark:text-gray-100">{r.title}</p>
+                <p className="text-xs text-gray-500">
+                  {r.hiType} · {r.source === "HIU_EXTERNAL" ? `from ${r.providerName ?? "external provider"}` : "MedCore"} ·{" "}
+                  {new Date(r.recordDate ?? r.createdAt).toLocaleDateString()}
+                </p>
+              </div>
+              {r.fileKey && (
+                <button type="button" onClick={() => void download(r.id)} className="inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline">
+                  <Download className="h-3.5 w-3.5" /> Download
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function UploadTab({ patient }: { patient: PatientOpt | null }) {
+  const [abhaAddress, setAbhaAddress] = useState("");
+  const [type, setType] = useState<"OPConsultation" | "DischargeSummary" | "DiagnosticReport">("OPConsultation");
+  const [title, setTitle] = useState("");
+  const [diagnosis, setDiagnosis] = useState("");
+  const [notes, setNotes] = useState("");
+  const [fileKey, setFileKey] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !patient) return;
+    setUploading(true);
+    try {
+      const base64 = await fileToBase64(file);
+      const res = await api.post<{ data: { filePath: string } }>("/uploads", {
+        filename: file.name,
+        base64Content: base64,
+        patientId: patient.id,
+        type: "abdm-record",
+      });
+      setFileKey(res.data.filePath);
+      toast.success("File attached");
+    } catch (err) {
+      toast.error((err as Error).message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function submit() {
+    if (!patient) {
+      toast.error("Select a patient first");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api.post<{ data: { status: string } }>("/abdm/records/upload", {
+        patientId: patient.id,
+        abhaAddress,
+        type,
+        title,
+        fileKey: fileKey ?? undefined,
+        diagnosis: diagnosis || undefined,
+        notes: notes || undefined,
+      });
+      toast.success(`Record ${res.data.status === "PUSHED" ? "pushed to ABDM" : "saved (push pending)"}`);
+      setTitle("");
+      setDiagnosis("");
+      setNotes("");
+      setFileKey(null);
+    } catch (err) {
+      toast.error((err as Error).message || "Upload failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!patient) return <p className="text-sm text-gray-500">Select a patient to upload a record.</p>;
+  return (
+    <div className={`${cardCls} space-y-3`} data-testid="abdm-upload">
+      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">Upload a record to ABDM (HIP)</h3>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="text-sm">
+          <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">ABHA Address</span>
+          <input className={inputCls} value={abhaAddress} onChange={(e) => setAbhaAddress(e.target.value)} placeholder="rahul@sbx" />
+        </label>
+        <label className="text-sm">
+          <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">Record type</span>
+          <select className={inputCls} value={type} onChange={(e) => setType(e.target.value as any)}>
+            <option value="OPConsultation">Consultation note</option>
+            <option value="DischargeSummary">Discharge summary</option>
+            <option value="DiagnosticReport">Lab / diagnostic report</option>
+          </select>
+        </label>
+      </div>
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">Title</span>
+        <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. OPD consult 12 Jun" />
+      </label>
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">Diagnosis (optional)</span>
+        <input className={inputCls} value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} />
+      </label>
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">Notes (optional)</span>
+        <textarea className={inputCls} rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+      </label>
+      <label className="block text-sm">
+        <span className="mb-1 block font-medium text-gray-700 dark:text-gray-300">Attach PDF / report (optional)</span>
+        <input type="file" accept="application/pdf,image/*" onChange={onFile} disabled={uploading} className="text-sm" />
+        {uploading && <span className="ml-2 text-xs text-gray-500">Uploading…</span>}
+        {fileKey && <span className="ml-2 text-xs text-emerald-600">Attached ✓</span>}
+      </label>
+      <button type="button" onClick={submit} disabled={busy || !title || !abhaAddress} className={primaryBtn}>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+        Push to ABDM
+      </button>
+    </div>
+  );
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.includes(",") ? result.split(",")[1] : result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+interface AuditRow {
+  id: string;
+  action: string;
+  entity: string;
+  entityId?: string | null;
+  ipAddress?: string | null;
+  createdAt: string;
+}
+
+function AuditTab() {
+  const [rows, setRows] = useState<AuditRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: AuditRow[] }>("/abdm/audit");
+        setRows(res.data ?? []);
+      } catch {
+        setRows([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+  return (
+    <div className={cardCls} data-testid="abdm-audit">
+      <h3 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">ABDM Audit Logs</h3>
+      {loading ? (
+        <SkeletonText lines={4} />
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-gray-500">No ABDM activity recorded yet.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-gray-500">
+                <th className="py-2 pr-4">Action</th>
+                <th className="py-2 pr-4">Entity</th>
+                <th className="py-2 pr-4">When</th>
+                <th className="py-2">IP</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="py-2 pr-4 font-medium">{r.action.replace("ABDM_", "")}</td>
+                  <td className="py-2 pr-4 text-gray-500">{r.entity}{r.entityId ? ` · ${r.entityId.slice(0, 8)}…` : ""}</td>
+                  <td className="py-2 pr-4 text-gray-500">{new Date(r.createdAt).toLocaleString()}</td>
+                  <td className="py-2 text-gray-400">{r.ipAddress ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

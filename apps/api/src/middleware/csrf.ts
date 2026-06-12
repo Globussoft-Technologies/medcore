@@ -96,6 +96,13 @@ const CSRF_BYPASS_PATHS = [
   // mounted before express.json so it doesn't even pass through here,
   // but list it for documentation.
   "/api/v1/billing/webhooks/razorpay",
+  // ABDM gateway webhooks — server-to-server POSTs from the ABDM gateway (or
+  // the local mock), carrying NO session/CSRF cookie. They're authenticated by
+  // the gateway's RS256 JWT signature (verifyAbdmSignature in routes/abdm.ts),
+  // not CSRF. Without this bypass the link/consent/HI callbacks 403, leaving
+  // AbhaLink rows stuck PENDING and consents un-granted.
+  "/api/v1/abdm/gateway/callback",
+  "/api/v1/abdm/hiu/data-push",
 ];
 
 const CSRF_HEADER = "x-csrf-token";

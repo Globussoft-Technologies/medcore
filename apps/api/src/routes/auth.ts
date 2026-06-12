@@ -509,6 +509,25 @@ const strictRegisterSchema = registerSchema
       .min(5, "Address must be at least 5 characters")
       .max(500, "Address must be at most 500 characters")
       .optional(),
+    // SOW §2.1.1 address triplet — city/state captured at registration.
+    // Optional; legacy clients that don't send them stay valid.
+    city: z.string().trim().max(100).optional(),
+    state: z.string().trim().max(100).optional(),
+    pincode: z
+      .string()
+      .trim()
+      .regex(/^\d{6}$/, "PIN code must be 6 digits")
+      .optional()
+      .or(z.literal("")),
+    // SOW §2.1.1 — optional ABHA address capture at registration. Stored as a
+    // placeholder on Patient.abhaId; the full OTP-verified link flow lives on
+    // the ABHA page (services/abdm). Optional by design.
+    abhaId: z
+      .string()
+      .trim()
+      .regex(/^[a-zA-Z0-9._-]{3,30}@[a-zA-Z0-9]+$/, "ABHA address must look like handle@domain")
+      .optional()
+      .or(z.literal("")),
     emergencyContact: emergencyContactSchema.optional(),
     // Issue #617: optional DOB + T&C consent on the public /register surface.
     // Both are sent by the web register form but kept optional so older clients
@@ -698,11 +717,16 @@ router.post(
   validate(strictRegisterSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, phone: rawPhone, password, address, emergencyContact, dateOfBirth, gender, age, photoUrl } = req.body as {
+      const { email, phone: rawPhone, password, address, city, state, pincode, abhaId, emergencyContact, dateOfBirth, gender, age, photoUrl } = req.body as {
         email: string;
         phone: string;
         password: string;
         address?: string;
+        // SOW §2.1.1 registration address triplet + optional ABHA capture.
+        city?: string;
+        state?: string;
+        pincode?: string;
+        abhaId?: string;
         emergencyContact?: {
           name: string;
           phone: string;
@@ -866,6 +890,11 @@ router.post(
             // (already written above); address + emergency contact live
             // on Patient.
             address: address?.trim() || null,
+            // SOW §2.1.1 — registration address triplet + optional ABHA.
+            city: city?.trim() || null,
+            state: state?.trim() || null,
+            pincode: pincode?.trim() || null,
+            abhaId: abhaId?.trim() || null,
             emergencyContactName: emergencyContact?.name?.trim() || null,
             emergencyContactPhone: emergencyContact?.phone?.trim() || null,
             emergencyContactRelationship:

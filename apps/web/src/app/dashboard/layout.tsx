@@ -241,7 +241,7 @@ const navByRole: Record<
     { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
     { href: "/dashboard/ai-radiology", label: "AI Radiology", icon: ScanLine },
     { href: "/dashboard/adherence", label: "Adherence", icon: BellIcon },
-    { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
+    { href: "/dashboard/abdm", label: "ABHA", icon: ShieldCheck },
     { href: "/dashboard/fhir-export", label: "FHIR Export", icon: FileJson },
     { href: "/dashboard/insurance-claims", label: "Insurance Claims", icon: Workflow },
     { href: "/dashboard/support", label: "Support", icon: MessageCircleQuestion },
@@ -279,7 +279,7 @@ const navByRole: Record<
     { href: "/dashboard/lab-explainer", label: "Lab Explainer", icon: Languages },
     { href: "/dashboard/ai-letters", label: "AI Letters", icon: FileText },
     { href: "/dashboard/ai-radiology", label: "AI Radiology", icon: ScanLine },
-    { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
+    { href: "/dashboard/abdm", label: "ABHA", icon: ShieldCheck },
   ],
   RECEPTION: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -318,7 +318,7 @@ const navByRole: Record<
     // Issue #839: AI Booking + No-Show Predictions removed — both routes
     // 403 for RECEPTION (DOCTOR/ADMIN-only per the API authorize()).
     { href: "/dashboard/insurance-claims", label: "Insurance Claims", icon: Workflow },
-    { href: "/dashboard/abdm", label: "ABDM / ABHA", icon: ShieldCheck },
+    { href: "/dashboard/abdm", label: "ABHA", icon: ShieldCheck },
   ],
   NURSE: [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -355,6 +355,9 @@ const navByRole: Record<
     // fully-built form covering name, DOB, address, language preference,
     // reminder opt-in, ABHA linking).
     { href: "/patient/profile", label: "My Profile", icon: UserCog },
+    // ABDM/ABHA self-service: link ABHA, view profile + records, manage
+    // consent, download health records fetched via HIU.
+    { href: "/dashboard/abdm", label: "ABHA", icon: ShieldCheck },
     { href: "/dashboard/notifications", label: "Notifications", icon: Bell },
     { href: "/dashboard/ai-booking", label: "AI Booking", icon: Bot },
     { href: "/dashboard/adherence", label: "Medication Reminders", icon: BellIcon },

@@ -761,6 +761,9 @@ model Tenant {
   adherenceDoseLogs          AdherenceDoseLog[]
   abhaLinks                  AbhaLink[]
   careContexts               CareContext[]
+  abdmTransactions           AbdmTransaction[]
+  medicalRecords             MedicalRecord[]
+  recordUploads              RecordUpload[]
   insuranceClaimsV2          InsuranceClaim2[]
   radiologyStudies           RadiologyStudy[]
   radiologyReports           RadiologyReport[]
@@ -1366,6 +1369,7 @@ model User {
   nurseRounds               NurseRound[]
   stockMovements            StockMovement[]
   uploadedDocuments         PatientDocument[]
+  recordUploads             RecordUpload[]             @relation("RecordUploadAuthor")
   shifts                    StaffShift[]
   leaveRequests             LeaveRequest[]             @relation("LeaveOwner")
   approvedLeaves            LeaveRequest[]             @relation("LeaveApprover")
@@ -1700,6 +1704,11 @@ model Patient {
   // a city filter is active).
   city String?
 
+  // SOW §2.1.1 registration address triplet — state + PIN captured alongside
+  // city at registration. Optional so legacy rows stay valid.
+  state   String?
+  pincode String?
+
   // Pearl §5.1 audience-builder opt-in filter for WhatsApp campaigns.
   // Default false (must explicitly opt in to be eligible for marketing
   // pushes). DPDP-aligned — consent must be affirmative.
@@ -1749,6 +1758,9 @@ model Patient {
   abhaLinks            AbhaLink[]
   consentArtefacts     ConsentArtefact[]
   careContexts         CareContext[]
+  abdmTransactions     AbdmTransaction[]
+  medicalRecords       MedicalRecord[]
+  recordUploads        RecordUpload[]
   insuranceClaimsV2    InsuranceClaim2[]
   doseLogs             AdherenceDoseLog[]
 
@@ -5792,6 +5804,151 @@ model CareContext {
   @@index([abhaAddress])
   @@index([tenantId])
   @@map("care_contexts")
+}
+
+// ─── ABDM HIU records + transaction/upload tracking (2026-06) ──────────
+//
+// Three tables that complete the ABDM module on top of the existing HIP push
+// + ABHA-link + consent groundwork:
+//   • AbdmTransaction  — one row per ABDM gateway interaction (ABHA verify/
+//     link, consent request/grant, care-context link, HIP push, HIU fetch).
+//     Powers the dashboard "recent transactions" + status tracking.
+//   • MedicalRecord    — records fetched FROM ABDM via HIU (decrypted FHIR
+//     bundles from external providers) AND a pointer to records pushed via
+//     HIP. `source` distinguishes MedCore-authored vs external.
+//   • RecordUpload     — tracks a doctor's HIP upload (file → FHIR push) with
+//     a status the Upload-Records UI polls.
+
+enum AbdmTxnType {
+  ABHA_VERIFY
+  ABHA_LINK
+  ABHA_DELINK
+  CONSENT_REQUEST
+  CONSENT_GRANT
+  CONSENT_REVOKE
+  CARE_CONTEXT_LINK
+  HIP_PUSH
+  HIU_REQUEST
+  HIU_RECEIVE
+}
+
+enum AbdmTxnStatus {
+  INITIATED
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum MedicalRecordSource {
+  // Authored in MedCore and pushed out as a HIP.
+  HIP_LOCAL
+  // Fetched from another provider via the HIU consent flow.
+  HIU_EXTERNAL
+}
+
+enum RecordUploadStatus {
+  QUEUED
+  BUNDLED
+  PUSHED
+  FAILED
+}
+
+model AbdmTransaction {
+  id            String        @id @default(uuid())
+  type          AbdmTxnType
+  status        AbdmTxnStatus @default(INITIATED)
+  // Correlation id we sent to / received from the gateway (REQUEST-ID /
+  // consentRequestId / linkId / transactionId — whichever applies).
+  requestId     String?
+  // Opaque reference to the local row this txn acted on (consentArtefactId,
+  // abhaLinkId, careContextRef, medicalRecordId, recordUploadId).
+  refId         String?
+  patientId     String?
+  // Short human summary + the raw gateway response/error for debugging.
+  summary       String?
+  detail        Json?
+  errorMessage  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  tenantId String?
+  tenant   Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient  Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  @@index([patientId])
+  @@index([type])
+  @@index([status])
+  @@index([requestId])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("abdm_transactions")
+}
+
+model MedicalRecord {
+  id             String              @id @default(uuid())
+  patientId      String
+  source         MedicalRecordSource @default(HIU_EXTERNAL)
+  // HI-type (OPConsultation / Prescription / DischargeSummary /
+  // DiagnosticReport / …) as a free string to match ABDM's HI-type vocabulary.
+  hiType         String
+  // Human-friendly title for the records list.
+  title          String
+  // Which provider authored it (for HIU records — the external HIP's name/id).
+  providerName   String?
+  providerHipId  String?
+  // The consent under which it was fetched (HIU) — null for HIP_LOCAL rows.
+  consentId      String?
+  // The decrypted FHIR bundle (HIU) or a reference to the local source.
+  careContextRef String?
+  fhirBundle     Json?
+  // If the record is a binary (PDF/image) it's stored via the uploads
+  // pipeline; this is the storage key + signed-download is minted on read.
+  fileKey        String?
+  recordDate     DateTime?
+  fetchedAt      DateTime?
+  createdAt      DateTime            @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([source])
+  @@index([hiType])
+  @@index([consentId])
+  @@index([tenantId])
+  @@map("medical_records")
+}
+
+model RecordUpload {
+  id             String             @id @default(uuid())
+  patientId      String
+  // OPConsultation | DischargeSummary | DiagnosticReport | Prescription
+  type           String
+  status         RecordUploadStatus @default(QUEUED)
+  // The care-context this upload became, once linked + pushed.
+  careContextRef String?
+  // The bundle id we built (for traceability against the gateway).
+  bundleId       String?
+  // Optional uploaded source file (PDF) stored via the uploads pipeline.
+  fileKey        String?
+  title          String?
+  errorMessage   String?
+  uploadedById   String?
+  pushedAt       DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  patient      Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  uploadedBy   User?   @relation("RecordUploadAuthor", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([patientId])
+  @@index([status])
+  @@index([tenantId])
+  @@map("record_uploads")
 }
 
 // ─── INSURANCE TPA CLAIMS (v2) ──────────────────────────

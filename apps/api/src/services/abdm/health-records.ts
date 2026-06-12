@@ -348,24 +348,95 @@ export async function handleHealthInformationRequest(payload: {
   hiuNonce: string;
   hiTypes: CareContextType[];
   dateRange: { from: string; to: string };
-}): Promise<{ queued: true }> {
-  // Actual implementation: enqueue a job that fans out care-context bundles.
-  // For the scaffold, we just log and return — real logic lives in the
-  // worker that also respects the consent's dateRange and hiTypes filter.
-  console.log(
-    JSON.stringify({
-      level: "info",
-      event: "abdm_health_information_request_queued",
-      consentId: payload.consentId,
-      transactionId: payload.transactionId,
-      hiTypes: payload.hiTypes,
-      ts: new Date().toISOString(),
-    })
-  );
+}): Promise<{ pushed: number }> {
   if (!payload.dataPushUrl || !payload.hiuPublicKey || !payload.hiuNonce) {
     throw new ABDMError("HIU did not supply dataPushUrl / public key / nonce", 400);
   }
-  return { queued: true };
+
+  // Resolve the consent → patient → that patient's care-contexts, filtered to
+  // the requested hiTypes + dateRange. Then build + push a bundle per context.
+  const consent = await prisma.consentArtefact.findUnique({
+    where: { id: payload.consentId },
+    include: { patient: { include: { user: { select: { name: true } } } } },
+  });
+  if (!consent) {
+    throw new ABDMError("Consent not found for HI request", 404);
+  }
+
+  const wantTypes = new Set(payload.hiTypes);
+  const contexts = await prisma.careContext.findMany({
+    where: {
+      patientId: consent.patientId,
+      ...(wantTypes.size > 0 ? { type: { in: [...wantTypes] } } : {}),
+    },
+  });
+
+  const from = new Date(payload.dateRange.from);
+  const to = new Date(payload.dateRange.to);
+  const patientName = consent.patient?.user?.name ?? "Patient";
+  const patientAbha =
+    (consent.artefact as Record<string, unknown> | null)?.abhaAddress as
+      | string
+      | undefined ?? "";
+
+  let pushed = 0;
+  for (const ctx of contexts) {
+    // A minimal, valid bundle per type. (Richer field mapping is layered on
+    // the consultation/discharge/report records that produced the context.)
+    let bundle: FhirBundle;
+    if (ctx.type === "DischargeSummary") {
+      bundle = buildDischargeSummaryBundle({
+        patientName,
+        patientAbha,
+        admittingDiagnosis: "",
+        dischargeDiagnosis: "",
+        proceduresPerformed: [],
+        medicationsOnDischarge: [],
+        admissionDate: from,
+        dischargeDate: to,
+        doctorName: "",
+      });
+    } else if (ctx.type === "DiagnosticReport") {
+      bundle = buildDiagnosticReportBundle({
+        patientName,
+        patientAbha,
+        reportName: ctx.careContextRef,
+        conclusion: "",
+        observations: [],
+        reportDate: to,
+        orderedBy: "",
+      });
+    } else {
+      bundle = buildOPConsultationBundle({
+        patientName,
+        patientAbha,
+        chiefComplaint: "",
+        diagnosis: "",
+        medications: [],
+        doctorName: "",
+        visitDate: to,
+      });
+    }
+
+    try {
+      await pushHealthInformation({
+        dataPushUrl: payload.dataPushUrl,
+        bundle,
+        hiuPublicKey: payload.hiuPublicKey,
+        hiuNonce: payload.hiuNonce,
+        transactionId: payload.transactionId,
+        careContextRef: ctx.careContextRef,
+      });
+      pushed += 1;
+    } catch (err) {
+      console.error(
+        `[abdm] HI-request push failed for ctx ${ctx.careContextRef}:`,
+        (err as Error).message,
+      );
+    }
+  }
+
+  return { pushed };
 }
 
 /** Re-export for convenience so callers can generate nonces when needed. */

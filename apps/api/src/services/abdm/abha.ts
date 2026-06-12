@@ -90,6 +90,89 @@ export interface VerifyAbhaResult {
   yearOfBirth?: number;
   /** Correlation id to match against the async webhook response. */
   requestId: string;
+  /** True when the sandbox couldn't confirm the ABHA (404/unavailable) but we
+   *  allow the link to proceed for local testing. */
+  unverified?: boolean;
+  /** Human-readable note shown to the operator when unverified. */
+  note?: string;
+}
+
+// ── ABHA mobile-OTP verify (real 2-step flow) ─────────────────────────────
+//
+// The correct ABDM ABHA identity check is a 2-step OTP handshake (NOT the
+// version-shifted `existsByHealthId` endpoint, which the gateway/mock returns
+// 404 for):
+//   1. POST /v0.5/users/auth/init { healthid }       → { transactionId }
+//      (gateway sends an OTP to the ABHA holder's registered mobile)
+//   2. POST /v0.5/users/auth/confirmWithMobileOtp { transactionId, otp }
+//      → the verified ABHA profile.
+// Against the bundled mock server (scripts/abdm-mock-server.ts): any
+// `<x>@abdm` address is accepted at init, and OTP `123456` confirms.
+
+export interface SendAbhaOtpResult {
+  transactionId: string;
+  requestId: string;
+}
+
+/** Step 1 — request an OTP for an ABHA address. */
+export async function sendAbhaAuthOtp(abhaAddress: string): Promise<SendAbhaOtpResult> {
+  if (!isValidAbhaAddress(abhaAddress)) {
+    throw new ABDMError("ABHA address must be handle@domain", 400);
+  }
+  const requestId = crypto.randomUUID();
+  const resp = await abdmRequest<{
+    authInitResponse?: { transactionId?: string };
+    transactionId?: string;
+  }>({
+    method: "POST",
+    path: "/v0.5/users/auth/init",
+    requestId,
+    body: { healthid: abhaAddress, authMode: "MOBILE_OTP", purpose: "KYC_AND_LINK" },
+  });
+  const transactionId =
+    resp?.authInitResponse?.transactionId ?? resp?.transactionId ?? "";
+  if (!transactionId) {
+    throw new ABDMError("ABDM did not return a transactionId for the OTP", 502);
+  }
+  return { transactionId, requestId };
+}
+
+/** Step 2 — confirm the OTP and resolve the verified ABHA profile. */
+export async function confirmAbhaOtp(input: {
+  transactionId: string;
+  otp: string;
+  abhaAddress?: string;
+}): Promise<VerifyAbhaResult> {
+  if (!input.transactionId) throw new ABDMError("transactionId is required", 400);
+  if (!/^\d{4,8}$/.test(input.otp)) throw new ABDMError("OTP must be 4–8 digits", 400);
+  const requestId = crypto.randomUUID();
+  const resp = await abdmRequest<{
+    id?: string;
+    fullName?: string;
+    name?: string;
+    gender?: string;
+    yearOfBirth?: number;
+    abhaAddress?: string;
+    healthIdNumber?: string;
+  }>({
+    method: "POST",
+    path: "/v0.5/users/auth/confirmWithMobileOtp",
+    requestId,
+    body: {
+      transactionId: input.transactionId,
+      otp: input.otp,
+      healthid: input.abhaAddress,
+    },
+  });
+  return {
+    ok: true,
+    abhaAddress: resp?.abhaAddress ?? input.abhaAddress,
+    abhaNumber: resp?.healthIdNumber,
+    name: resp?.fullName ?? resp?.name,
+    gender: resp?.gender,
+    yearOfBirth: resp?.yearOfBirth,
+    requestId,
+  };
 }
 
 // ── verifyAbha ────────────────────────────────────────────────────────────
@@ -120,32 +203,67 @@ export async function verifyAbha(input: VerifyAbhaInput): Promise<VerifyAbhaResu
 
   const requestId = crypto.randomUUID();
 
-  // Existence check against the Gateway's search API.
-  const resp = await abdmRequest<{
-    status?: "ACTIVE" | "INACTIVE" | string;
-    name?: string;
-    gender?: string;
-    yearOfBirth?: number;
-    healthIdNumber?: string;
-    healthId?: string;
-  }>({
-    method: "POST",
-    path: "/v1/search/existsByHealthId",
-    requestId,
-    body: input.abhaNumber
-      ? { healthIdNumber: input.abhaNumber }
-      : { healthId: input.abhaAddress },
-  });
+  // The ABHA existence-check API lives on the ABDM HEALTHID service at the
+  // BASE url (e.g. https://dev.abdm.gov.in/api/v1/search/existsByHealthId) —
+  // NOT under the /gateway prefix that abdmRequest prepends by default. Build
+  // the absolute URL off ABDM_BASE_URL so the call reaches the right service.
+  // (Hitting /gateway/v1/search/existsByHealthId returns a 404 "no matching
+  // resource", which is the symptom this fixes.)
+  const base = (process.env.ABDM_BASE_URL ?? "https://dev.abdm.gov.in").replace(
+    /\/$/,
+    "",
+  );
+  const searchUrl = `${base}/api/v1/search/existsByHealthId`;
 
-  return {
-    ok: (resp?.status ?? "ACTIVE") === "ACTIVE",
-    abhaAddress: resp?.healthId ?? input.abhaAddress,
-    abhaNumber: resp?.healthIdNumber ?? input.abhaNumber,
-    name: resp?.name,
-    gender: resp?.gender,
-    yearOfBirth: resp?.yearOfBirth,
-    requestId,
-  };
+  try {
+    const resp = await abdmRequest<{
+      status?: "ACTIVE" | "INACTIVE" | string;
+      name?: string;
+      gender?: string;
+      yearOfBirth?: number;
+      healthIdNumber?: string;
+      healthId?: string;
+    }>({
+      method: "POST",
+      path: searchUrl,
+      absoluteUrl: true,
+      requestId,
+      body: input.abhaNumber
+        ? { healthIdNumber: input.abhaNumber }
+        : { healthId: input.abhaAddress },
+    });
+
+    return {
+      ok: (resp?.status ?? "ACTIVE") === "ACTIVE",
+      abhaAddress: resp?.healthId ?? input.abhaAddress,
+      abhaNumber: resp?.healthIdNumber ?? input.abhaNumber,
+      name: resp?.name,
+      gender: resp?.gender,
+      yearOfBirth: resp?.yearOfBirth,
+      requestId,
+    };
+  } catch (err) {
+    // Graceful sandbox degradation. The ABDM sandbox frequently returns 404
+    // for ABHA addresses that don't exist in the staging directory (and the
+    // search endpoint itself is version-sensitive). In a NON-production env we
+    // don't want a 404 to block local testing of the link flow — we surface an
+    // `ok:false, unverified:true` result the route maps to a clear message and
+    // still allows "Link to patient". In production we re-throw so a real
+    // verification failure is honest.
+    const status = err instanceof ABDMError ? err.statusCode : 0;
+    const isSandbox = process.env.ABDM_CM_ID !== "ndhm" && process.env.NODE_ENV !== "production";
+    if (isSandbox && (status === 404 || status === 503)) {
+      return {
+        ok: false,
+        unverified: true,
+        abhaAddress: input.abhaAddress,
+        abhaNumber: input.abhaNumber,
+        requestId,
+        note: "ABHA could not be verified against the ABDM sandbox (not found / endpoint unavailable). You can still link it for local testing.",
+      } as VerifyAbhaResult;
+    }
+    throw err;
+  }
 }
 
 // ── linkAbha ──────────────────────────────────────────────────────────────
@@ -177,7 +295,11 @@ export async function linkAbha(input: LinkAbhaInput): Promise<{ linkId: string; 
     abhaNumber: input.abhaNumber,
   }));
 
-  if (!verified.ok) {
+  // Block linking only on a genuine verification failure. A sandbox-degraded
+  // result (`unverified` — the ABDM staging directory couldn't confirm) is
+  // allowed through so local testing of the link flow isn't blocked; the
+  // AbhaLink row simply starts PENDING as usual.
+  if (!verified.ok && !verified.unverified) {
     throw new ABDMError("ABHA identity could not be verified", 404);
   }
 

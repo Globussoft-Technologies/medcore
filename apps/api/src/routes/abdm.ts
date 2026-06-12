@@ -34,6 +34,8 @@ import {
   handleLinkCallback,
   isValidAbhaAddress,
   isValidAbhaNumber,
+  sendAbhaAuthOtp,
+  confirmAbhaOtp,
 } from "../services/abdm/abha";
 import {
   requestConsent,
@@ -45,9 +47,33 @@ import {
 import {
   linkCareContext,
   handleHealthInformationRequest,
+  buildOPConsultationBundle,
+  buildDischargeSummaryBundle,
+  buildDiagnosticReportBundle,
 } from "../services/abdm/health-records";
+import {
+  requestDataTransfer,
+  receiveHealthInformation,
+} from "../services/abdm/hiu";
 import { ABDMError } from "../services/abdm/client";
 import { verifyGatewaySignature } from "../services/abdm/jwks";
+import { getSignedDownloadUrl } from "../services/storage";
+import { assertPatientOwnsResource } from "../middleware/patient-self-only";
+import {
+  hiuFetchSchema,
+  uploadRecordSchema,
+  recordsQuerySchema,
+} from "@medcore/shared";
+
+// Resolve the caller's own Patient row id (PATIENT role) — null for staff.
+async function callerPatientId(req: Request): Promise<string | null> {
+  if (req.user?.role !== Role.PATIENT) return null;
+  const p = await prisma.patient.findFirst({
+    where: { userId: req.user.userId, mergedIntoId: null },
+    select: { id: true },
+  });
+  return p?.id ?? null;
+}
 
 export const abdmRouter = Router();
 
@@ -77,6 +103,9 @@ const linkAbhaSchema = z.object({
     .string()
     .refine(isValidAbhaNumber, "Invalid ABHA number")
     .optional(),
+  // Set when the ABHA was already OTP-verified in the same session, so the
+  // link handler skips the re-verify gateway round-trip.
+  preVerified: z.boolean().optional(),
 });
 
 const delinkAbhaSchema = z.object({
@@ -276,6 +305,45 @@ abdmRouter.post(
   }
 );
 
+// ── POST /hiu/data-push (UNAUTHENTICATED webhook) ─────────────────────────
+//
+// The remote HIP pushes the encrypted FHIR bundle here after we requested a
+// data-transfer (POST /hiu/fetch). Like /gateway/callback it carries no user
+// session — it's identified by the transactionId we minted, and the entries
+// are AES-GCM-encrypted to OUR ephemeral key (only we can decrypt). Mounted
+// BEFORE `authenticate`. Rate-limited to blunt junk pushes.
+const dataPushLimit =
+  process.env.NODE_ENV === "test"
+    ? (_: any, __: any, n: any) => n()
+    : rateLimit(60, 60_000);
+abdmRouter.post(
+  "/hiu/data-push",
+  dataPushLimit,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as {
+        transactionId?: string;
+        entries?: any[];
+        keyMaterial?: unknown;
+      };
+      if (!body?.transactionId || !Array.isArray(body.entries)) {
+        // Always 202 so the gateway/HIP doesn't retry-storm on a malformed
+        // push; we log and move on.
+        res.status(202).json({ success: true, data: { received: false }, error: null });
+        return;
+      }
+      const result = await receiveHealthInformation({
+        transactionId: body.transactionId,
+        entries: body.entries,
+        keyMaterial: body.keyMaterial,
+      });
+      res.status(202).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // All remaining endpoints require auth.
 abdmRouter.use(authenticate);
 
@@ -449,6 +517,65 @@ abdmRouter.post(
   }
 );
 
+// ── POST /abha/auth/otp — send OTP for an ABHA address (real 2-step) ───────
+//
+// Step 1 of the proper ABHA mobile-OTP verify: ask ABDM to send an OTP to the
+// ABHA holder's registered mobile and return the transactionId the confirm
+// step quotes back. Replaces the legacy mobile/aadhaar OTP stub for the link
+// flow on the UI.
+const abhaAuthOtpSchema = z.object({
+  abhaAddress: z
+    .string()
+    .regex(/^[a-zA-Z0-9._-]{3,30}@[a-zA-Z0-9]+$/, "ABHA address must be handle@domain"),
+});
+abdmRouter.post(
+  "/abha/auth/otp",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION, Role.PATIENT),
+  abhaVerifyLinkLimit,
+  validate(abhaAuthOtpSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await sendAbhaAuthOtp(req.body.abhaAddress);
+      await auditLog(req, "ABDM_ABHA_OTP_SEND", "AbhaLink", undefined, {
+        abhaAddress: req.body.abhaAddress,
+        transactionId: result.transactionId,
+      });
+      res.json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /abha/auth/verify — confirm OTP → verified ABHA profile ──────────
+const abhaAuthVerifySchema = z.object({
+  transactionId: z.string().min(1, "transactionId is required"),
+  otp: z.string().regex(/^\d{4,8}$/, "OTP must be 4–8 digits"),
+  abhaAddress: z
+    .string()
+    .regex(/^[a-zA-Z0-9._-]{3,30}@[a-zA-Z0-9]+$/)
+    .optional(),
+});
+abdmRouter.post(
+  "/abha/auth/verify",
+  authorize(Role.DOCTOR, Role.ADMIN, Role.RECEPTION, Role.PATIENT),
+  abhaVerifyLinkLimit,
+  validate(abhaAuthVerifySchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await confirmAbhaOtp(req.body);
+      await auditLog(req, "ABDM_ABHA_VERIFY", "AbhaLink", undefined, {
+        abhaAddress: result.abhaAddress,
+        ok: result.ok,
+        via: "mobile-otp",
+      });
+      res.json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // ── POST /abha/link ───────────────────────────────────────────────────────
 
 abdmRouter.post(
@@ -458,10 +585,27 @@ abdmRouter.post(
   validate(linkAbhaSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await linkAbha(req.body);
+      const { patientId, abhaAddress, abhaNumber, preVerified } = req.body;
+      const result = await linkAbha({
+        patientId,
+        abhaAddress,
+        abhaNumber,
+        // Skip the internal re-verify when the session already OTP-verified.
+        ...(preVerified
+          ? {
+              verified: {
+                ok: true,
+                abhaAddress,
+                abhaNumber,
+                requestId: "session-verified",
+              },
+            }
+          : {}),
+      });
       await auditLog(req, "ABDM_ABHA_LINK_CREATE", "AbhaLink", result.linkId, {
-        patientId: req.body.patientId,
-        abhaAddress: req.body.abhaAddress,
+        patientId,
+        abhaAddress,
+        preVerified: !!preVerified,
       });
       res.status(202).json({ success: true, data: result, error: null });
     } catch (err) {
@@ -648,6 +792,400 @@ abdmRouter.get(
       next(err);
     }
   }
+);
+
+// ══════════════════════════════════════════════════════════════════════════
+// ABDM MODULE COMPLETION (2026-06) — dashboard, profile, HIU fetch, records,
+// upload→HIP, transactions, audit. Patients see only their own data; staff
+// scope by the patientId they pass.
+// ══════════════════════════════════════════════════════════════════════════
+
+// ── GET /dashboard — connection + HIP/HIU status + recent txns + stats ────
+abdmRouter.get(
+  "/dashboard",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const configured = Boolean(
+        process.env.ABDM_CLIENT_ID && process.env.ABDM_CLIENT_SECRET,
+      );
+      const [recentTxns, consentStats, linkCount, recordCount] = await Promise.all([
+        prisma.abdmTransaction.findMany({
+          orderBy: { createdAt: "desc" },
+          take: 10,
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            summary: true,
+            createdAt: true,
+          },
+        }),
+        prisma.consentArtefact.groupBy({
+          by: ["status"],
+          _count: { _all: true },
+        }),
+        prisma.abhaLink.count({ where: { status: "LINKED" } }),
+        prisma.medicalRecord.count(),
+      ]);
+      const consents: Record<string, number> = {};
+      for (const row of consentStats) consents[row.status] = row._count._all;
+      res.json({
+        success: true,
+        data: {
+          abdmConnected: configured,
+          mode: process.env.ABDM_CM_ID === "ndhm" ? "production" : "sandbox",
+          hip: { id: process.env.ABDM_HIP_ID ?? "medcore-hip-sandbox", status: configured ? "ready" : "not-configured" },
+          hiu: { id: process.env.ABDM_HIU_ID ?? "medcore-hiu-sandbox", status: configured ? "ready" : "not-configured" },
+          linkedAbhaCount: linkCount,
+          recordCount,
+          consents,
+          recentTransactions: recentTxns,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /profile/:patientId — ABHA profile + demographics ─────────────────
+abdmRouter.get(
+  "/profile/:patientId",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.PATIENT),
+  validateUuidParams(["patientId"]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patientId = req.params.patientId;
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
+      const patient = await prisma.patient.findUnique({
+        where: { id: patientId },
+        select: {
+          id: true,
+          gender: true,
+          dateOfBirth: true,
+          abhaId: true,
+          user: { select: { name: true, phone: true } },
+          abhaLinks: {
+            where: { status: "LINKED" },
+            orderBy: { linkedAt: "desc" },
+            take: 1,
+            select: { abhaAddress: true, abhaNumber: true, linkedAt: true },
+          },
+        },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+      await auditLog(req, "ABDM_ABHA_PROFILE_VIEW", "Patient", patientId);
+      res.json({ success: true, data: patient, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /hiu/fetch — request a data-transfer for a granted consent ───────
+abdmRouter.post(
+  "/hiu/fetch",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.PATIENT),
+  validate(hiuFetchSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { consentId } = req.body as { consentId: string };
+      const consent = await prisma.consentArtefact.findUnique({
+        where: { id: consentId },
+        select: { id: true, patientId: true },
+      });
+      if (!consent) {
+        res.status(404).json({ success: false, data: null, error: "Consent not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, consent.patientId))) return;
+      const result = await requestDataTransfer(consentId);
+      await auditLog(req, "ABDM_HIU_FETCH", "ConsentArtefact", consentId, {
+        transactionId: result.transactionId,
+      });
+      res.status(202).json({ success: true, data: result, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /records — list medical records (HIP + HIU) ───────────────────────
+abdmRouter.get(
+  "/records",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.PATIENT),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = recordsQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({ success: false, data: null, error: parsed.error.issues[0]?.message ?? "Invalid query" });
+        return;
+      }
+      // Patients are scoped to their own records; staff may pass a patientId.
+      const selfPatientId = await callerPatientId(req);
+      const patientId = selfPatientId ?? parsed.data.patientId;
+      if (!patientId) {
+        res.status(400).json({ success: false, data: null, error: "patientId is required" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, patientId))) return;
+      const rows = await prisma.medicalRecord.findMany({
+        where: {
+          patientId,
+          ...(parsed.data.source ? { source: parsed.data.source } : {}),
+          ...(parsed.data.hiType ? { hiType: { contains: parsed.data.hiType, mode: "insensitive" } } : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        select: {
+          id: true,
+          source: true,
+          hiType: true,
+          title: true,
+          providerName: true,
+          recordDate: true,
+          fetchedAt: true,
+          createdAt: true,
+          fileKey: true,
+        },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /records/:id — record detail (full FHIR bundle) ───────────────────
+abdmRouter.get(
+  "/records/:id",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.PATIENT),
+  validateUuidParams(["id"]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const row = await prisma.medicalRecord.findUnique({ where: { id: req.params.id } });
+      if (!row) {
+        res.status(404).json({ success: false, data: null, error: "Record not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, row.patientId))) return;
+      await auditLog(req, "ABDM_RECORD_VIEW", "MedicalRecord", row.id);
+      res.json({ success: true, data: row, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /records/:id/download — signed URL for an attached file ───────────
+abdmRouter.get(
+  "/records/:id/download",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION, Role.PATIENT),
+  validateUuidParams(["id"]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const row = await prisma.medicalRecord.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, patientId: true, fileKey: true },
+      });
+      if (!row) {
+        res.status(404).json({ success: false, data: null, error: "Record not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, row.patientId))) return;
+      if (!row.fileKey) {
+        res.status(404).json({ success: false, data: null, error: "This record has no downloadable file" });
+        return;
+      }
+      const url = await getSignedDownloadUrl(row.fileKey);
+      await auditLog(req, "ABDM_RECORD_DOWNLOAD", "MedicalRecord", row.id);
+      res.json({ success: true, data: { url }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /records/upload — doctor uploads a record → build FHIR → push HIP ─
+abdmRouter.post(
+  "/records/upload",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  validate(uploadRecordSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as {
+        patientId: string;
+        abhaAddress: string;
+        type: "OPConsultation" | "DischargeSummary" | "DiagnosticReport";
+        title: string;
+        fileKey?: string;
+        diagnosis?: string;
+        notes?: string;
+        recordDate?: Date;
+      };
+      const patient = await prisma.patient.findUnique({
+        where: { id: body.patientId },
+        select: { id: true, user: { select: { name: true } } },
+      });
+      if (!patient) {
+        res.status(404).json({ success: false, data: null, error: "Patient not found" });
+        return;
+      }
+
+      // Create the upload-tracking row first (status QUEUED).
+      const upload = await prisma.recordUpload.create({
+        data: {
+          patientId: body.patientId,
+          type: body.type,
+          status: "QUEUED",
+          title: body.title,
+          fileKey: body.fileKey ?? null,
+          uploadedById: req.user?.userId ?? null,
+        },
+        select: { id: true },
+      });
+
+      // Build the FHIR bundle for the chosen type.
+      const patientName = patient.user?.name ?? "Patient";
+      const when = body.recordDate ? new Date(body.recordDate) : new Date();
+      let bundle;
+      if (body.type === "DischargeSummary") {
+        bundle = buildDischargeSummaryBundle({
+          patientName, patientAbha: body.abhaAddress,
+          admittingDiagnosis: body.diagnosis ?? "", dischargeDiagnosis: body.diagnosis ?? "",
+          proceduresPerformed: [], medicationsOnDischarge: [],
+          admissionDate: when, dischargeDate: when, doctorName: req.user?.email ?? "",
+        });
+      } else if (body.type === "DiagnosticReport") {
+        bundle = buildDiagnosticReportBundle({
+          patientName, patientAbha: body.abhaAddress,
+          reportName: body.title, conclusion: body.notes ?? "",
+          observations: [], reportDate: when, orderedBy: req.user?.email ?? "",
+        });
+      } else {
+        bundle = buildOPConsultationBundle({
+          patientName, patientAbha: body.abhaAddress,
+          chiefComplaint: body.notes ?? "", diagnosis: body.diagnosis ?? "",
+          medications: [], doctorName: req.user?.email ?? "", visitDate: when,
+        });
+      }
+
+      const careContextRef = `upload:${upload.id}`;
+
+      // Advertise the care-context (HIP discovery) — best-effort against sandbox.
+      let status: "BUNDLED" | "PUSHED" | "FAILED" = "BUNDLED";
+      let errorMessage: string | null = null;
+      try {
+        await linkCareContext({
+          patientId: body.patientId,
+          abhaAddress: body.abhaAddress,
+          careContextRef,
+          display: body.title,
+          type: body.type,
+        });
+        status = "PUSHED";
+      } catch (e) {
+        errorMessage = (e as Error).message;
+        status = "FAILED";
+      }
+
+      // Persist the local MedicalRecord (HIP_LOCAL) + finalise the upload row.
+      const record = await prisma.medicalRecord.create({
+        data: {
+          patientId: body.patientId,
+          source: "HIP_LOCAL",
+          hiType: body.type,
+          title: body.title,
+          careContextRef,
+          fhirBundle: bundle as any,
+          fileKey: body.fileKey ?? null,
+          recordDate: when,
+        },
+        select: { id: true },
+      });
+      await prisma.recordUpload.update({
+        where: { id: upload.id },
+        data: {
+          status,
+          careContextRef,
+          bundleId: bundle.id,
+          errorMessage,
+          pushedAt: status === "PUSHED" ? new Date() : null,
+        },
+      });
+      await prisma.abdmTransaction.create({
+        data: {
+          type: "HIP_PUSH",
+          status: status === "PUSHED" ? "SUCCESS" : "FAILED",
+          refId: record.id,
+          patientId: body.patientId,
+          summary: `${body.type} "${body.title}" ${status === "PUSHED" ? "pushed to ABDM" : "bundle built (push failed)"}`,
+          errorMessage,
+        },
+      });
+      await auditLog(req, "ABDM_RECORD_UPLOAD", "MedicalRecord", record.id, {
+        patientId: body.patientId, type: body.type, status,
+      });
+
+      res.status(201).json({
+        success: true,
+        data: { uploadId: upload.id, recordId: record.id, careContextRef, status },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /transactions — ABDM gateway transaction feed ─────────────────────
+abdmRouter.get(
+  "/transactions",
+  authorize(Role.ADMIN, Role.DOCTOR, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patientId = typeof req.query.patientId === "string" ? req.query.patientId : undefined;
+      const rows = await prisma.abdmTransaction.findMany({
+        where: patientId ? { patientId } : {},
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        select: {
+          id: true, type: true, status: true, requestId: true, refId: true,
+          patientId: true, summary: true, errorMessage: true, createdAt: true,
+        },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /audit — ABDM-scoped audit log feed (admin) ───────────────────────
+abdmRouter.get(
+  "/audit",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rows = await prisma.auditLog.findMany({
+        where: { action: { startsWith: "ABDM_" } },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: {
+          id: true, userId: true, action: true, entity: true, entityId: true,
+          details: true, ipAddress: true, createdAt: true,
+        },
+      });
+      res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // ── Error translation ─────────────────────────────────────────────────────

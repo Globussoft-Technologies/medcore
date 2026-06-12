@@ -55,6 +55,9 @@ import {
   Camera,
   Eye,
   EyeOff,
+  Building2,
+  Hash,
+  ShieldCheck,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -127,6 +130,10 @@ export default function PatientRegisterPage() {
     dateOfBirth: "",
     gender: "",
     address: "",
+    city: "",
+    state: "",
+    pincode: "",
+    abhaId: "",
     emergencyContactName: "",
     emergencyContactPhone: "",
     emergencyContactRelationship: "",
@@ -211,6 +218,13 @@ export default function PatientRegisterPage() {
     if (!form.address.trim()) errs.address = "Address is required";
     else if (form.address.trim().length < 5)
       errs.address = "Address must be at least 5 characters";
+    if (form.pincode.trim() && !/^\d{6}$/.test(form.pincode.trim()))
+      errs.pincode = "PIN code must be 6 digits";
+    if (
+      form.abhaId.trim() &&
+      !/^[a-zA-Z0-9._-]{3,30}@[a-zA-Z0-9]+$/.test(form.abhaId.trim())
+    )
+      errs.abhaId = "ABHA address must look like handle@domain";
     if (!form.emergencyContactName.trim())
       errs.emergencyContactName = "Emergency contact name is required";
     if (!form.emergencyContactPhone.trim())
@@ -283,6 +297,10 @@ export default function PatientRegisterPage() {
         gender: form.gender,
         dateOfBirth: form.dateOfBirth,
         address: form.address.trim(),
+        city: form.city.trim() || undefined,
+        state: form.state.trim() || undefined,
+        pincode: form.pincode.trim() || undefined,
+        abhaId: form.abhaId.trim() || undefined,
         emergencyContact: {
           name: form.emergencyContactName.trim(),
           phone: form.emergencyContactPhone.trim(),
@@ -338,11 +356,11 @@ export default function PatientRegisterPage() {
 
   return (
     <section
-      className="grid w-full flex-1 items-stretch lg:grid-cols-2"
+      className="grid w-full flex-1 items-stretch lg:grid-cols-2 lg:h-screen lg:overflow-hidden"
       data-testid="patient-register-shell"
     >
-      {/* LEFT — brand panel */}
-      <aside className="relative hidden overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-emerald-600 px-10 py-16 text-white lg:flex lg:flex-col lg:justify-between">
+      {/* LEFT — brand panel (fixed: stays put while the form scrolls) */}
+      <aside className="relative hidden overflow-hidden bg-gradient-to-br from-blue-600 via-blue-700 to-emerald-600 px-10 py-16 text-white lg:flex lg:flex-col lg:justify-between lg:h-screen lg:sticky lg:top-0">
         <div className="absolute inset-0 -z-0 bg-[radial-gradient(ellipse_at_top_right,rgba(255,255,255,0.18),transparent_60%)]" />
         <div className="relative z-10">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium uppercase tracking-wider backdrop-blur-sm">
@@ -376,8 +394,8 @@ export default function PatientRegisterPage() {
         </ul>
       </aside>
 
-      {/* RIGHT — registration card */}
-      <div className="flex items-center justify-center px-4 py-12 sm:px-6 lg:px-12">
+      {/* RIGHT — registration card (scrolls independently of the fixed hero) */}
+      <div className="flex items-start justify-center px-4 py-12 sm:px-6 lg:h-screen lg:overflow-y-auto lg:px-12">
         <div className="w-full max-w-lg">
           {/* Mobile-only compact brand banner */}
           <div className="mb-8 flex items-center gap-3 lg:hidden">
@@ -645,13 +663,63 @@ export default function PatientRegisterPage() {
                     testid="patient-register-address-input"
                     label="Home address"
                     icon={MapPin}
-                    placeholder="House no., street, city, state"
+                    placeholder="House no., street"
                     value={form.address}
                     onChange={(v) => update("address", v)}
                     autoComplete="street-address"
                     error={fieldErrors.address}
                     disabled={busy}
                     required
+                  />
+                  {/* SOW §2.1.1 — city / state / PIN address triplet. */}
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Field
+                      id="patient-register-city"
+                      testid="patient-register-city-input"
+                      label="City"
+                      icon={Building2}
+                      placeholder="Mumbai"
+                      value={form.city}
+                      onChange={(v) => update("city", v)}
+                      autoComplete="address-level2"
+                      disabled={busy}
+                    />
+                    <Field
+                      id="patient-register-state"
+                      testid="patient-register-state-input"
+                      label="State"
+                      icon={MapPin}
+                      placeholder="Maharashtra"
+                      value={form.state}
+                      onChange={(v) => update("state", v)}
+                      autoComplete="address-level1"
+                      disabled={busy}
+                    />
+                    <Field
+                      id="patient-register-pincode"
+                      testid="patient-register-pincode-input"
+                      label="PIN code"
+                      icon={Hash}
+                      placeholder="400001"
+                      inputMode="numeric"
+                      value={form.pincode}
+                      onChange={(v) => update("pincode", v.replace(/\D/g, "").slice(0, 6))}
+                      autoComplete="postal-code"
+                      error={fieldErrors.pincode}
+                      disabled={busy}
+                    />
+                  </div>
+                  {/* SOW §2.1.1 — optional ABHA capture at registration. */}
+                  <Field
+                    id="patient-register-abha"
+                    testid="patient-register-abha-input"
+                    label="ABHA address (optional)"
+                    icon={ShieldCheck}
+                    placeholder="yourname@abdm"
+                    value={form.abhaId}
+                    onChange={(v) => update("abhaId", v)}
+                    error={fieldErrors.abhaId}
+                    disabled={busy}
                   />
                   <fieldset className="space-y-3 rounded-xl border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-950/40">
                     <legend className="inline-flex items-center gap-1.5 px-1 text-sm font-semibold text-gray-800 dark:text-gray-200">

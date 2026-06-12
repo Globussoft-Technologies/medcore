@@ -64,6 +64,9 @@ interface PatientInfo {
   id?: string;
   dateOfBirth?: string | null;
   address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
   gender?: string | null;
   preferredLanguage?: string | null;
   abhaId?: string | null;
@@ -128,6 +131,9 @@ interface FormState {
   dateOfBirth: string; // YYYY-MM-DD, composed from the day/month/year pickers
   gender: string; // "" | MALE | FEMALE | OTHER
   address: string;
+  city: string;
+  state: string;
+  pincode: string;
   preferredLanguage: string;
   abhaId: string;
   notifications: Record<NotificationChannel, boolean>;
@@ -345,6 +351,9 @@ function buildInitialForm(
     dateOfBirth: toDateInput(me?.patient?.dateOfBirth),
     gender: me?.patient?.gender ?? "",
     address: me?.patient?.address ?? "",
+    city: me?.patient?.city ?? "",
+    state: me?.patient?.state ?? "",
+    pincode: me?.patient?.pincode ?? "",
     // Prefer the User row's preferredLanguage — that's the column the
     // dashboard LanguageDropdown writes to. The Patient row mirrors it.
     preferredLanguage: me?.preferredLanguage ?? me?.patient?.preferredLanguage ?? "en",
@@ -439,6 +448,9 @@ export default function PatientProfilePage() {
     if (form.dateOfBirth !== initialForm.dateOfBirth) return true;
     if (form.gender !== initialForm.gender) return true;
     if (form.address !== initialForm.address) return true;
+    if (form.city !== initialForm.city) return true;
+    if (form.state !== initialForm.state) return true;
+    if (form.pincode !== initialForm.pincode) return true;
     if (form.preferredLanguage !== initialForm.preferredLanguage) return true;
     if (form.abhaId !== initialForm.abhaId) return true;
     for (const ch of CHANNELS) {
@@ -525,6 +537,15 @@ export default function PatientProfilePage() {
       }
       if (form.address !== initialForm.address) {
         patientPatch.address = form.address;
+      }
+      if (form.city !== initialForm.city) {
+        patientPatch.city = form.city || null;
+      }
+      if (form.state !== initialForm.state) {
+        patientPatch.state = form.state || null;
+      }
+      if (form.pincode !== initialForm.pincode) {
+        patientPatch.pincode = form.pincode || null;
       }
       if (form.preferredLanguage !== initialForm.preferredLanguage) {
         patientPatch.preferredLanguage = form.preferredLanguage;
@@ -805,6 +826,53 @@ export default function PatientProfilePage() {
               </span>
             ) : null}
           </Field>
+
+          {/* SOW §2.1.1 — city / state / PIN. */}
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <Field label="City">
+              <input
+                type="text"
+                data-testid="patient-profile-city-input"
+                value={form.city}
+                onChange={(e) => patchField("city", e.target.value)}
+                placeholder="Mumbai"
+                className={inputClass}
+              />
+            </Field>
+            <Field label="State">
+              <input
+                type="text"
+                data-testid="patient-profile-state-input"
+                value={form.state}
+                onChange={(e) => patchField("state", e.target.value)}
+                placeholder="Maharashtra"
+                className={inputClass}
+              />
+            </Field>
+            <Field label="PIN code">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                data-testid="patient-profile-pincode-input"
+                value={form.pincode}
+                onChange={(e) =>
+                  patchField("pincode", e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
+                placeholder="400001"
+                aria-invalid={fieldErrors.pincode ? "true" : undefined}
+                className={fieldErrors.pincode ? inputErrorClass : inputClass}
+              />
+              {fieldErrors.pincode ? (
+                <span
+                  data-testid="patient-profile-pincode-error"
+                  className="mt-1 block text-xs text-red-600"
+                >
+                  {fieldErrors.pincode}
+                </span>
+              ) : null}
+            </Field>
+          </div>
         </div>
 
         {/* ─── Preferences ──────────────────────────────────────────── */}

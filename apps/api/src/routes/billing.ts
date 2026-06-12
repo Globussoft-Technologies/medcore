@@ -588,34 +588,6 @@ router.get(
       const where: Record<string, unknown> = {};
       if (patientId) where.patientId = patientId;
 
-      // Billing cross-tenant visibility is MAIN-super-admin-only (financial
-      // data). Tenant-bound callers are already scoped to their own tenant by
-      // tenantScopedPrisma. A no-tenant-context caller (super-admin/platform,
-      // who otherwise bypasses scoping) only sees every tenant's invoices when
-      // they are the MAIN super-admin; any other no-tenant caller gets an empty
-      // list. The main super-admin may narrow the view with ?tenantId=<id>.
-      if (!req.tenantId) {
-        const callerMainRows = await rawPrisma.$queryRaw<
-          Array<{ isMainSuperAdmin: boolean }>
-        >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
-        if (callerMainRows[0]?.isMainSuperAdmin !== true) {
-          res.json({
-            success: true,
-            data: [],
-            error: null,
-            meta: { page: parseInt(page as string), limit: take, total: 0 },
-          });
-          return;
-        }
-        const tenantIdParam = req.query.tenantId;
-        if (
-          typeof tenantIdParam === "string" &&
-          tenantIdParam.trim().length > 0
-        ) {
-          where.tenantId = tenantIdParam.trim();
-        }
-      }
-
       // Issue #597 (May 2026): patient billing page rendered a flat
       // unfiltered/unsorted list — no way to narrow by date range when
       // the list grew beyond a screen. Add inclusive `dateFrom` / `dateTo`
@@ -688,6 +660,37 @@ router.get(
         }
         where.paymentStatus = parts.length === 1 ? parts[0] : { in: parts };
       }
+
+      // Billing cross-tenant visibility is MAIN-super-admin-only (financial
+      // data). Tenant-bound callers are already scoped to their own tenant by
+      // tenantScopedPrisma. A no-tenant-context caller (super-admin/platform,
+      // who otherwise bypasses scoping) only sees every tenant's invoices when
+      // they are the MAIN super-admin; any other no-tenant caller gets an empty
+      // list. The main super-admin may narrow the view with ?tenantId=<id>.
+      // NOTE: runs AFTER query-param validation above so a malformed
+      // ?status=/dateFrom= still returns a clean 400 (not a 200 empty list).
+      if (!req.tenantId) {
+        const callerMainRows = await rawPrisma.$queryRaw<
+          Array<{ isMainSuperAdmin: boolean }>
+        >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
+        if (callerMainRows[0]?.isMainSuperAdmin !== true) {
+          res.json({
+            success: true,
+            data: [],
+            error: null,
+            meta: { page: parseInt(page as string), limit: take, total: 0 },
+          });
+          return;
+        }
+        const tenantIdParam = req.query.tenantId;
+        if (
+          typeof tenantIdParam === "string" &&
+          tenantIdParam.trim().length > 0
+        ) {
+          where.tenantId = tenantIdParam.trim();
+        }
+      }
+
       // Issue #82: support `?search=<invoiceNumber|patient name>` so the
       // EntityPicker on the Insurance Claims modal can find an invoice by
       // typing. Falls through to no-op when search is missing/empty.

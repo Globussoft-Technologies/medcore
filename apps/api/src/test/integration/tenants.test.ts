@@ -449,13 +449,15 @@ describeIfDB("Tenants API (integration)", () => {
       .post(`/api/v1/tenants/${tenantId}/deactivate`)
       .set("Authorization", `Bearer ${superAdminToken}`);
 
-    // Second login is refused (401 with generic invalid-credentials to
-    // prevent tenant enumeration via error message).
+    // Second login is refused. The credentials are valid, so the tenant-
+    // suspension gate (which runs after the password check) returns 403 with a
+    // clear "your hospital account has been suspended" message.
     const login2 = await request(app).post("/api/v1/auth/login").send({
       email: body.adminEmail,
       password: body.adminPassword,
     });
-    expect(login2.status).toBe(401);
+    expect(login2.status).toBe(403);
+    expect(login2.body.error).toMatch(/suspended/i);
   });
 
   // ── 9. Onboarding step endpoints ─────────────────────────

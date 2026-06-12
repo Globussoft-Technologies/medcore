@@ -31,7 +31,9 @@
  */
 
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant: scoped client auto-filters reads + tags writes by tenantId
+// for TENANT_SCOPED_MODELS (cross-tenant leak fix, 2026-06-11).
+import { tenantScopedPrisma as prisma } from "@medcore/db";
 import {
   Role,
   createCampaignSchema,
@@ -579,7 +581,10 @@ router.post(
 
       let summary;
       try {
-        summary = await dispatchCampaign(prisma, {
+        // dispatchCampaign scopes by `tenantId` param explicitly and tags
+        // every CampaignSend with campaign.tenantId, so it takes the base
+        // client (typed PrismaClient); the scoped client isn't assignable.
+        summary = await dispatchCampaign(rawPrisma, {
           campaignId: campaign.id,
           tenantId,
         });

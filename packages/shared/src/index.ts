@@ -48,3 +48,4 @@ export * from "./validation/whatsapp-config";
 export * from "./validation/whatsapp-webhook";
 export * from "./validation/abdm";
 export * from "./billing/plans";
+export * from "./super-admin-permissions";

@@ -598,7 +598,16 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
     const take = Math.min(parseInt(limit as string), 100);
 
-    const where: Record<string, unknown> = {};
+    // Super-admin tenant filter: a cross-tenant (req.tenantId unset) caller
+    // may narrow the list to one tenant via `?tenantId=`. Tenant-bound
+    // callers are already scoped by tenantScopedPrisma, so the param is
+    // ignored for them.
+    const tenantIdParam = req.query.tenantId;
+    const where: Record<string, unknown> = {
+      ...(!req.tenantId && typeof tenantIdParam === "string" && tenantIdParam.trim().length > 0
+        ? { tenantId: tenantIdParam.trim() }
+        : {}),
+    };
     // Doctors may only see their own appointments — ignore any doctorId
     // query param and auto-scope to the authenticated doctor's record.
     if (req.user?.role === Role.DOCTOR) {
@@ -1523,7 +1532,15 @@ router.get(
     try {
       const { doctorId, from, to } = req.query;
 
-      const where: Record<string, unknown> = {};
+      // Super-admin tenant filter (see GET / above): narrow a cross-tenant
+      // calendar to one tenant via `?tenantId=`. Ignored for tenant-bound
+      // callers (already scoped by tenantScopedPrisma).
+      const tenantIdParam = req.query.tenantId;
+      const where: Record<string, unknown> = {
+        ...(!req.tenantId && typeof tenantIdParam === "string" && tenantIdParam.trim().length > 0
+          ? { tenantId: tenantIdParam.trim() }
+          : {}),
+      };
       if (doctorId) where.doctorId = doctorId;
       if (from || to) {
         const range: Record<string, Date> = {};
@@ -1741,7 +1758,16 @@ router.get(
     try {
       const { from, to, doctorId } = req.query;
 
-      const where: Record<string, unknown> = {};
+      // Super-admin tenant filter (see GET / above): narrow cross-tenant
+      // stats to one tenant via `?tenantId=`. Ignored for tenant-bound
+      // callers (already scoped by tenantScopedPrisma). Only the top-level
+      // appointment where is filtered — the aggregation is unchanged.
+      const tenantIdParam = req.query.tenantId;
+      const where: Record<string, unknown> = {
+        ...(!req.tenantId && typeof tenantIdParam === "string" && tenantIdParam.trim().length > 0
+          ? { tenantId: tenantIdParam.trim() }
+          : {}),
+      };
       if (doctorId) where.doctorId = doctorId;
       if (from || to) {
         const range: Record<string, Date> = {};

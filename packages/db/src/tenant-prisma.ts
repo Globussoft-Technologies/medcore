@@ -54,6 +54,14 @@ import { prisma } from "./client";
 export const PLATFORM_ROLES: ReadonlySet<Role> = new Set<Role>([
   Role.PLATFORM_OPERATOR,
   Role.PLATFORM_BILLING_OPERATOR,
+  // 2026-06-11 — SUPER_ADMIN is the cross-tenant "root" role and must see /
+  // manage every tenant, not just the one it happens to be bound to. Adding it
+  // here makes `tenantContextMiddleware` short-circuit tenant resolution for
+  // super-admins (req.tenantId stays undefined) so `tenantScopedPrisma` applies
+  // no filter. Caveat: writes made by a super-admin are NOT auto-tagged with a
+  // tenant (no context) — super-admins are operators, not data-entry users; any
+  // tenant-owned row they must create should be made via a tenant-bound account.
+  Role.SUPER_ADMIN,
 ]);
 
 /**
@@ -286,6 +294,46 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   // any cross-tenant admin) could see another tenant's rows.
   "InsuranceProvider",
   "ReferralCommission",
+  // 2026-06-11 — per-tenant drug formulary. medicines.ts switched to the
+  // scoped client; Medicine.name is now @@unique([tenantId, name]) so two
+  // tenants can each carry "Paracetamol".
+  "Medicine",
+  // 2026-06-11 — close the enforcement gap. These models already carried a
+  // tenantId column but were missing from this set, so any route using the
+  // scoped client returned cross-tenant rows. Each is created TOP-LEVEL
+  // (verified: no nested-relation creates) so auto-tagging on write is sound,
+  // and the matching base-prisma routes were switched to the scoped client in
+  // the same change. The WhatsApp inbound webhook stays on the base client and
+  // sets tenantId explicitly, so it is unaffected by this scoping.
+  "AppointmentRemark",
+  "Branch",
+  "CalendarEvent",
+  "Campaign",
+  "CampaignAudience",
+  "CampaignSend",
+  "Cohort",
+  "CohortMember",
+  "DoctorFavouriteMedicine",
+  "Lead",
+  "LeadActivity",
+  // SupportTicket intentionally OMITTED — its route (routes/support-tickets.ts)
+  // is a dual-purpose operator inbox that serves cross-tenant super-admin reads
+  // and does its own tenant filtering; auto-scoping would break that view.
+  "UserInvite",
+  "WhatsAppConfig",
+  "WhatsAppConversation",
+  "WhatsAppMessage",
+  // NOTE: still intentionally NOT enforced (ownership column only): the
+  // line-item children (InvoiceItem/LabOrderItem/PrescriptionItem/
+  // PurchaseOrderItem/GrnItem/ClaimDocument/ClaimStatusEvent/
+  // PlatformInvoiceLineItem/SupportTicketMessage — nested writes), auth-time
+  // tokens (RefreshToken/PasswordResetCode/TwoFactorTempToken/
+  // PatientOtpChallenge), user prefs (NotificationPreference/
+  // UserDashboardPreference), platform billing (PlatformInvoice/
+  // TenantSubscription/TenantUsageDaily/DPDPErasureRequest), telemetry
+  // (RequestMetric/UsageEvent/ScheduledTaskRun), and LabTest/
+  // LabTestReferenceRange (global @unique code + base-client FHIR/HL7 ingest —
+  // needs a composite-unique + tenant-aware ingest before it can be enforced).
 ]);
 
 /** Operations on which we INJECT `tenantId` into `args.data`. */

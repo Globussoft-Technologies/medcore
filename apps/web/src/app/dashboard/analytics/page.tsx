@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 import { SkeletonText, SkeletonCard } from "@/components/Skeleton";
+import { TenantSelect } from "@/components/TenantSelect";
 import {
   Users,
   Calendar,
@@ -742,6 +743,19 @@ export default function AnalyticsPage() {
   const { user } = useAuthStore();
   const router = useRouter();
 
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) sees every tenant's analytics; the dropdown
+  // narrows the whole dashboard to one tenant via `?tenantId=` appended to
+  // every /analytics/* call. Hidden + no tenantId for tenant-bound staff
+  // (the backend already scopes them to their own tenant).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+
   const [from, setFrom] = useState(defaultFrom());
   const [to, setTo] = useState(today());
   const [pendingFrom, setPendingFrom] = useState(from);
@@ -784,6 +798,26 @@ export default function AnalyticsPage() {
       router.push("/dashboard");
     }
   }, [user, router]);
+
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   function applyPreset(key: PresetKey) {
     setPreset(key);
@@ -831,7 +865,20 @@ export default function AnalyticsPage() {
       }
     }
     const params = new URLSearchParams({ from: effectiveFrom, to: effectiveTo });
+    // Super-admin only: scope every /analytics/* call to one tenant. When "All
+    // tenants" (empty) or a tenant-bound caller, send NO tenantId (the backend
+    // middleware leaves the cross-tenant view / the caller's own scope intact).
+    if (isSuperAdmin && selectedTenantId) {
+      params.set("tenantId", selectedTenantId);
+    }
     const qs = params.toString();
+    // For the few analytics fetches that don't use the shared `qs` above, this
+    // is the pre-formatted tenant fragment (with the correct leading separator
+    // chosen at each call site). Empty unless a super-admin picked a tenant.
+    const tenantParam =
+      isSuperAdmin && selectedTenantId
+        ? `tenantId=${encodeURIComponent(selectedTenantId)}`
+        : "";
 
     try {
       const overviewUrl =
@@ -866,17 +913,17 @@ export default function AnalyticsPage() {
         api.get<{ data: RevenuePoint[] }>(`/analytics/revenue?${qs}&groupBy=day`).catch(() => null),
         api.get<{ data: DoctorStat[] }>(`/analytics/doctors?${qs}`).catch(() => null),
         api.get<{ data: DiagnosisItem[] }>(`/analytics/top-diagnoses?${qs}&limit=10`).catch(() => null),
-        api.get<{ data: Demographics }>(`/analytics/patient-demographics`).catch(() => null),
-        api.get<{ data: Occupancy }>(`/analytics/ipd/occupancy`).catch(() => null),
-        api.get<{ data: LowStockData }>(`/analytics/pharmacy/low-stock`).catch(() => null),
-        api.get<{ data: DispensedItem[] }>(`/analytics/pharmacy/top-dispensed?limit=10`).catch(() => null),
+        api.get<{ data: Demographics }>(`/analytics/patient-demographics${tenantParam ? `?${tenantParam}` : ""}`).catch(() => null),
+        api.get<{ data: Occupancy }>(`/analytics/ipd/occupancy${tenantParam ? `?${tenantParam}` : ""}`).catch(() => null),
+        api.get<{ data: LowStockData }>(`/analytics/pharmacy/low-stock${tenantParam ? `?${tenantParam}` : ""}`).catch(() => null),
+        api.get<{ data: DispensedItem[] }>(`/analytics/pharmacy/top-dispensed?limit=10${tenantParam ? `&${tenantParam}` : ""}`).catch(() => null),
         api.get<{ data: RevenueBreakdown }>(`/analytics/revenue/breakdown?${qs}`).catch(() => null),
         api.get<{ data: PatientGrowthPoint[] }>(`/analytics/patients/growth?${qs}&groupBy=month`).catch(() => null),
         api.get<{ data: Retention }>(`/analytics/patients/retention?${qs}`).catch(() => null),
         api.get<{ data: NoShowData }>(`/analytics/appointments/no-show-rate?${qs}`).catch(() => null),
         api.get<{ data: DischargeTrends }>(`/analytics/ipd/discharge-trends?${qs}`).catch(() => null),
         api.get<{ data: ErPerformance }>(`/analytics/er/performance?${qs}`).catch(() => null),
-        api.get<{ data: ExpiryData }>(`/analytics/pharmacy/expiry?days=30`).catch(() => null),
+        api.get<{ data: ExpiryData }>(`/analytics/pharmacy/expiry?days=30${tenantParam ? `&${tenantParam}` : ""}`).catch(() => null),
         api.get<{ data: FeedbackTrends }>(`/analytics/feedback/trends?${qs}&groupBy=month`).catch(() => null),
         api.get<{ data: QueueWalkoutsData }>(`/analytics/queue-walkouts?${qs}`).catch(() => null),
       ]);
@@ -916,7 +963,7 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false);
     }
-  }, [from, to, compareMode, preset]);
+  }, [from, to, compareMode, preset, isSuperAdmin, selectedTenantId]);
 
   useEffect(() => {
     loadAll();
@@ -1094,6 +1141,16 @@ export default function AnalyticsPage() {
         </div>
 
         <div className="no-print flex flex-wrap items-center gap-2">
+          {isSuperAdmin && (
+            <TenantSelect
+              tenants={tenants}
+              value={selectedTenantId}
+              onChange={setSelectedTenantId}
+              allLabel="All tenants"
+              className="w-full sm:w-64"
+              testId="analytics-tenant-filter"
+            />
+          )}
           <button
             onClick={() => loadAll()}
             className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50"
@@ -1334,7 +1391,9 @@ export default function AnalyticsPage() {
 
       {/* Benchmarks + Forecast (Apr 2026) */}
       <div className="mb-6">
-        <BenchmarkAndForecastPanel />
+        <BenchmarkAndForecastPanel
+          tenantId={isSuperAdmin && selectedTenantId ? selectedTenantId : ""}
+        />
       </div>
 
       {/* Revenue breakdown + Demographics */}
@@ -2425,7 +2484,7 @@ interface ForecastData {
   confidence: string;
 }
 
-function BenchmarkAndForecastPanel() {
+function BenchmarkAndForecastPanel({ tenantId }: { tenantId: string }) {
   const [metric, setMetric] = useState<"revenue" | "appointments" | "admissions">(
     "revenue"
   );
@@ -2437,15 +2496,17 @@ function BenchmarkAndForecastPanel() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    // Super-admin tenant scope (empty unless a super-admin picked a tenant).
+    const tq = tenantId ? `&tenantId=${encodeURIComponent(tenantId)}` : "";
     (async () => {
       try {
         const b = await api.get<{ data: BenchmarkData }>(
-          `/analytics/benchmarks?metric=${metric}&period=${period}`
+          `/analytics/benchmarks?metric=${metric}&period=${period}${tq}`
         );
         if (!cancelled) setBench(b.data);
         if (metric !== "admissions") {
           const f = await api.get<{ data: ForecastData }>(
-            `/analytics/forecast?metric=${metric}&periods=7&groupBy=day`
+            `/analytics/forecast?metric=${metric}&periods=7&groupBy=day${tq}`
           );
           if (!cancelled) setForecast(f.data);
         } else {
@@ -2462,7 +2523,7 @@ function BenchmarkAndForecastPanel() {
     return () => {
       cancelled = true;
     };
-  }, [metric, period]);
+  }, [metric, period, tenantId]);
 
   function fmtValue(n: number | null | undefined): string {
     const v = n ?? 0;

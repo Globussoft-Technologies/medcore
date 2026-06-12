@@ -31,51 +31,16 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
 
-interface PermissionsState {
-  canManageTenants: boolean;
-  canOnboardTenant: boolean;
-  canViewBilling: boolean;
-  canTriggerJobs: boolean;
-  canDpdpWorkbench: boolean;
-  canViewAudit: boolean;
-}
-
-const PERMISSION_OPTIONS: Array<{
-  key: keyof PermissionsState;
+// The super-admin permission grants are DB-backed and dynamic: the checklist
+// is fetched at runtime from GET /super-admin/users/permissions/catalog, so a
+// grant added/edited/disabled in the catalog shows up here with no code change.
+type PermissionOption = {
+  key: string;
   label: string;
   description: string;
-}> = [
-  {
-    key: "canManageTenants",
-    label: "Manage tenants",
-    description: "Create / suspend / restore / archive tenants",
-  },
-  {
-    key: "canOnboardTenant",
-    label: "Onboard tenant",
-    description: "Run the 8-step tenant onboarding wizard",
-  },
-  {
-    key: "canViewBilling",
-    label: "View billing",
-    description: "Platform billing dashboards + invoices",
-  },
-  {
-    key: "canTriggerJobs",
-    label: "Trigger jobs",
-    description: "Retry failed crons, manual archival",
-  },
-  {
-    key: "canDpdpWorkbench",
-    label: "DPDP workbench",
-    description: "Execute right-to-erasure requests",
-  },
-  {
-    key: "canViewAudit",
-    label: "View audit trail",
-    description: "Read the cross-tenant super-admin audit log",
-  },
-];
+  defaultGranted: boolean;
+};
+type PermissionsState = Record<string, boolean>;
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_REGEX = /^\+?\d{10,15}$/;
@@ -98,14 +63,10 @@ export default function DashboardInviteSuperAdminPage() {
   // we send `requireTwoFactor: true` so the SystemConfig flag stays in
   // sync with the enforced rule.
   const requireTwoFactor = true;
-  const [permissions, setPermissions] = useState<PermissionsState>({
-    canManageTenants: true,
-    canOnboardTenant: true,
-    canViewBilling: false,
-    canTriggerJobs: false,
-    canDpdpWorkbench: false,
-    canViewAudit: true,
-  });
+  // Catalog + grant values are populated once the catalog loads from the API.
+  const [catalog, setCatalog] = useState<PermissionOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [permissions, setPermissions] = useState<PermissionsState>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -119,6 +80,34 @@ export default function DashboardInviteSuperAdminPage() {
     if (!userRole) return;
     if (!isSuperAdmin) router.replace("/dashboard/users");
   }, [userRole, isSuperAdmin, router]);
+
+  // Load the dynamic permission catalog and seed the checkbox defaults from
+  // each grant's `defaultGranted` flag.
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    api
+      .get<{ data: PermissionOption[] | null }>(
+        "/super-admin/users/permissions/catalog",
+      )
+      .then((res) => {
+        if (cancelled) return;
+        const rows = res.data ?? [];
+        setCatalog(rows);
+        setPermissions(
+          Object.fromEntries(rows.map((r) => [r.key, r.defaultGranted])),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("Could not load permission catalog.");
+      })
+      .finally(() => {
+        if (!cancelled) setCatalogLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   const validation = useMemo<string | null>(() => {
     if (name.trim().length < 2) return "Name must be at least 2 characters";
@@ -223,7 +212,7 @@ export default function DashboardInviteSuperAdminPage() {
             </span>
             <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-300">
               <ShieldCheck size={12} aria-hidden="true" />
-              {grantedCount}/{PERMISSION_OPTIONS.length} grants
+              {grantedCount}/{catalog.length} grants
             </span>
           </div>
         </div>
@@ -422,11 +411,20 @@ export default function DashboardInviteSuperAdminPage() {
             title="Permission grants"
             description="Select which areas this super-admin can access. Leaving everything unchecked creates a read-only operator."
             step={3}
-            badge={`${grantedCount} of ${PERMISSION_OPTIONS.length} selected`}
+            badge={`${grantedCount} of ${catalog.length} selected`}
           />
           <div className="grid grid-cols-1 gap-3 p-6 pt-4 sm:grid-cols-2">
-            {PERMISSION_OPTIONS.map((opt) => {
-              const checked = permissions[opt.key];
+            {catalogLoading ? (
+              <p className="col-span-full text-sm text-gray-500 dark:text-gray-400">
+                Loading permission catalog…
+              </p>
+            ) : catalog.length === 0 ? (
+              <p className="col-span-full text-sm text-gray-500 dark:text-gray-400">
+                No permission grants are configured.
+              </p>
+            ) : null}
+            {catalog.map((opt) => {
+              const checked = permissions[opt.key] ?? false;
               return (
                 <label
                   key={opt.key}

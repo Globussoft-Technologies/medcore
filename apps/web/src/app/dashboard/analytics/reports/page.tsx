@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { TenantSelect } from "@/components/TenantSelect";
 import {
   ArrowLeft,
   Download,
@@ -137,6 +138,19 @@ export default function ReportsPage() {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) bypasses tenant scoping; the /analytics router
+  // middleware scopes every analytics endpoint to `?tenantId` for them. The
+  // dropdown below lets them narrow to one tenant. Hidden for tenant-bound
+  // staff (already scoped to their own).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+
   // Guard
   useEffect(() => {
     if (user && user.role !== "ADMIN") {
@@ -162,7 +176,36 @@ export default function ReportsPage() {
     }
   }, []);
 
-  const qs = useMemo(() => `from=${from}&to=${to}`, [from, to]);
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
+
+  // Shared query string for the period-based report fetches. Super-admins
+  // append `?tenantId` to scope every /analytics endpoint to one tenant.
+  const tenantQ =
+    isSuperAdmin && selectedTenantId
+      ? `&tenantId=${encodeURIComponent(selectedTenantId)}`
+      : "";
+  const qs = useMemo(
+    () => `from=${from}&to=${to}${tenantQ}`,
+    [from, to, tenantQ],
+  );
 
   // Build preview
   const runPreview = useCallback(async () => {
@@ -240,7 +283,7 @@ export default function ReportsPage() {
             .catch(() => null),
           api
             .get<{ data: { byWard: Array<{ wardName: string; total: number; occupied: number }> } }>(
-              `/analytics/ipd/occupancy`
+              `/analytics/ipd/occupancy${tenantQ ? `?${tenantQ.slice(1)}` : ""}`
             )
             .catch(() => null),
         ]);
@@ -272,12 +315,12 @@ export default function ReportsPage() {
         const [topRes, lowRes] = await Promise.all([
           api
             .get<{ data: Array<Record<string, number | string>> }>(
-              `/analytics/pharmacy/top-dispensed?limit=25`
+              `/analytics/pharmacy/top-dispensed?limit=25${tenantQ}`
             )
             .catch(() => null),
           api
             .get<{ data: { count: number; items: Array<{ medicineName: string; quantity: number; reorderLevel: number }> } }>(
-              `/analytics/pharmacy/low-stock`
+              `/analytics/pharmacy/low-stock${tenantQ ? `?${tenantQ.slice(1)}` : ""}`
             )
             .catch(() => null),
         ]);
@@ -312,6 +355,7 @@ export default function ReportsPage() {
         });
       } else if (type === "no-show") {
         const p = new URLSearchParams({ from, to });
+        if (isSuperAdmin && selectedTenantId) p.set("tenantId", selectedTenantId);
         const res = await api
           .get<{
             data: {
@@ -437,6 +481,7 @@ export default function ReportsPage() {
         });
       } else if (type === "lead-funnel") {
         const p = new URLSearchParams({ from, to });
+        if (isSuperAdmin && selectedTenantId) p.set("tenantId", selectedTenantId);
         if (filters.source) p.set("source", filters.source);
         const res = await api
           .get<{
@@ -471,7 +516,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [type, qs, groupBy, from, to, filters]);
+  }, [type, qs, groupBy, from, to, filters, tenantQ, isSuperAdmin, selectedTenantId]);
 
   useEffect(() => {
     runPreview();
@@ -542,27 +587,36 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div>
+          {/* Normal text link (breadcrumb-style) above the title. */}
           <button
             onClick={() => router.push("/dashboard/analytics")}
-            className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50"
+            className="mb-2 flex items-center gap-1 text-sm font-medium text-primary hover:underline dark:text-blue-400"
           >
             <ArrowLeft size={14} /> Back to Analytics
           </button>
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-bold">
-              <ClipboardList size={22} /> Report Builder
-            </h1>
-            <p className="text-sm text-gray-500">
-              Configure, preview, and export custom reports
-            </p>
-          </div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold dark:text-gray-100">
+            <ClipboardList size={22} /> Report Builder
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Configure, preview, and export custom reports
+          </p>
         </div>
+        {isSuperAdmin && (
+          <TenantSelect
+            tenants={tenants}
+            value={selectedTenantId}
+            onChange={setSelectedTenantId}
+            allLabel="All tenants"
+            className="w-full sm:w-64"
+            testId="report-builder-tenant-filter"
+          />
+        )}
       </div>
 
       {/* Configuration panel */}
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
+      <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           1. Select report type
         </h2>
         <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-5">
@@ -572,48 +626,48 @@ export default function ReportsPage() {
               onClick={() => setType(t.key)}
               className={`rounded-lg border p-3 text-left transition ${
                 type === t.key
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-gray-200 bg-white hover:bg-gray-50"
+                  ? "border-primary bg-primary/5 shadow-sm dark:bg-primary/10"
+                  : "border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-700"
               }`}
             >
-              <p className="text-sm font-semibold text-gray-800">{t.label}</p>
-              <p className="mt-1 text-xs text-gray-500">{t.description}</p>
+              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{t.label}</p>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{t.description}</p>
             </button>
           ))}
         </div>
 
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           2. Configure parameters
         </h2>
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-4">
           <div>
-            <label htmlFor="report-builder-from" className="mb-1 block text-xs text-gray-500">From</label>
+            <label htmlFor="report-builder-from" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">From</label>
             <input
               id="report-builder-from"
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
           <div>
-            <label htmlFor="report-builder-to" className="mb-1 block text-xs text-gray-500">To</label>
+            <label htmlFor="report-builder-to" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">To</label>
             <input
               id="report-builder-to"
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
           {!NON_PERIOD_TYPES.has(type) && (
             <div>
-              <label htmlFor="report-builder-group-by" className="mb-1 block text-xs text-gray-500">Group By</label>
+              <label htmlFor="report-builder-group-by" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">Group By</label>
               <select
                 id="report-builder-group-by"
                 value={groupBy}
                 onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="day">Day</option>
                 <option value="week">Week</option>
@@ -635,14 +689,14 @@ export default function ReportsPage() {
         <div className="mb-2 grid grid-cols-1 gap-4 md:grid-cols-3">
           {type === "revenue" && (
             <div>
-              <label htmlFor="report-builder-payment-mode" className="mb-1 block text-xs text-gray-500">Payment Mode</label>
+              <label htmlFor="report-builder-payment-mode" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">Payment Mode</label>
               <select
                 id="report-builder-payment-mode"
                 value={filters.paymentMode || ""}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, paymentMode: e.target.value || undefined }))
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="">All Modes</option>
                 <option value="CASH">Cash</option>
@@ -655,14 +709,14 @@ export default function ReportsPage() {
           )}
           {type === "appointments" && (
             <div>
-              <label htmlFor="report-builder-appt-status" className="mb-1 block text-xs text-gray-500">Status</label>
+              <label htmlFor="report-builder-appt-status" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">Status</label>
               <select
                 id="report-builder-appt-status"
                 value={filters.appointmentStatus || ""}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, appointmentStatus: e.target.value || undefined }))
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="">All</option>
                 <option value="BOOKED">Booked</option>
@@ -674,7 +728,7 @@ export default function ReportsPage() {
           )}
           {type === "tds" && (
             <div>
-              <label htmlFor="report-builder-tds-rate" className="mb-1 block text-xs text-gray-500">TDS %</label>
+              <label htmlFor="report-builder-tds-rate" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">TDS %</label>
               <input
                 id="report-builder-tds-rate"
                 type="number"
@@ -685,20 +739,20 @@ export default function ReportsPage() {
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, tdsRate: e.target.value }))
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               />
             </div>
           )}
           {type === "lead-funnel" && (
             <div>
-              <label htmlFor="report-builder-lead-source" className="mb-1 block text-xs text-gray-500">Source</label>
+              <label htmlFor="report-builder-lead-source" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">Source</label>
               <select
                 id="report-builder-lead-source"
                 value={filters.source || ""}
                 onChange={(e) =>
                   setFilters((f) => ({ ...f, source: e.target.value || undefined }))
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
               >
                 <option value="">All sources</option>
                 {["WEB", "WALK_IN", "PHONE", "WHATSAPP", "REFERRAL", "OTHER"].map(
@@ -715,18 +769,18 @@ export default function ReportsPage() {
       </div>
 
       {/* Preview */}
-      <div className="rounded-xl bg-white p-6 shadow-sm">
+      <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
               Preview
             </h2>
             {preview?.summary && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 {Object.entries(preview.summary).map(([k, v], i) => (
                   <span key={k}>
                     {i > 0 && <span className="mx-2">•</span>}
-                    <span className="font-medium text-gray-700">{k}:</span> {v}
+                    <span className="font-medium text-gray-700 dark:text-gray-200">{k}:</span> {v}
                   </span>
                 ))}
               </p>
@@ -736,14 +790,14 @@ export default function ReportsPage() {
             <button
               onClick={exportCsv}
               disabled={!preview || preview.rows.length === 0}
-              className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
             >
               <Download size={14} /> CSV
             </button>
             <button
               onClick={exportJson}
               disabled={!preview || preview.rows.length === 0}
-              className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
             >
               <FileJson size={14} /> JSON
             </button>
@@ -761,14 +815,14 @@ export default function ReportsPage() {
             <SkeletonTable rows={6} columns={5} />
           </div>
         ) : !preview || preview.rows.length === 0 ? (
-          <div className="py-12 text-center text-sm text-gray-400">
+          <div className="py-12 text-center text-sm text-gray-400 dark:text-gray-500">
             No data for this configuration
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-gray-500">
+                <tr className="border-b text-left text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   {preview.columns.map((c) => (
                     <th key={c.key} className="px-3 py-2 font-medium">
                       {c.label}
@@ -778,11 +832,11 @@ export default function ReportsPage() {
               </thead>
               <tbody>
                 {preview.rows.map((row, i) => (
-                  <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                  <tr key={i} className="border-b last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
                     {preview.columns.map((c) => {
                       const val = row[c.key];
                       return (
-                        <td key={c.key} className="px-3 py-2 text-gray-700">
+                        <td key={c.key} className="px-3 py-2 text-gray-700 dark:text-gray-300">
                           {c.isCurrency && typeof val === "number"
                             ? formatCurrency(val)
                             : String(val ?? "")}
@@ -798,20 +852,20 @@ export default function ReportsPage() {
       </div>
 
       {/* Save / Load configs */}
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500">
+      <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           Saved Configurations
         </h2>
         <div className="mb-4 flex flex-wrap items-end gap-2">
           <div className="flex-1 min-w-60">
-            <label htmlFor="report-builder-config-name" className="mb-1 block text-xs text-gray-500">Configuration Name</label>
+            <label htmlFor="report-builder-config-name" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">Configuration Name</label>
             <input
               id="report-builder-config-name"
               type="text"
               value={configName}
               onChange={(e) => setConfigName(e.target.value)}
               placeholder="e.g. Monthly Revenue Q4"
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
           </div>
           <button
@@ -823,12 +877,12 @@ export default function ReportsPage() {
         </div>
 
         {saved.length === 0 ? (
-          <p className="text-sm text-gray-400">No saved configurations yet</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500">No saved configurations yet</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-left text-gray-500">
+                <tr className="border-b text-left text-gray-500 dark:border-gray-700 dark:text-gray-400">
                   <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">Type</th>
                   <th className="px-3 py-2">Range</th>
@@ -839,28 +893,28 @@ export default function ReportsPage() {
               </thead>
               <tbody>
                 {saved.map((cfg) => (
-                  <tr key={cfg.id} className="border-b last:border-0">
-                    <td className="px-3 py-2 font-medium text-gray-800">{cfg.name}</td>
-                    <td className="px-3 py-2">
+                  <tr key={cfg.id} className="border-b last:border-0 dark:border-gray-700">
+                    <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-100">{cfg.name}</td>
+                    <td className="px-3 py-2 dark:text-gray-300">
                       {REPORT_TYPES.find((t) => t.key === cfg.type)?.label || cfg.type}
                     </td>
-                    <td className="px-3 py-2 text-gray-600">
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
                       {cfg.from} → {cfg.to}
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{cfg.groupBy}</td>
-                    <td className="px-3 py-2 text-gray-500">
+                    <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{cfg.groupBy}</td>
+                    <td className="px-3 py-2 text-gray-500 dark:text-gray-400">
                       {new Date(cfg.createdAt).toLocaleDateString("en-IN")}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <button
                         onClick={() => loadConfig(cfg)}
-                        className="mr-2 rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                        className="mr-2 rounded border px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700"
                       >
                         Load
                       </button>
                       <button
                         onClick={() => deleteConfig(cfg.id)}
-                        className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100"
+                        className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
                       >
                         <Trash2 size={12} className="inline" />
                       </button>

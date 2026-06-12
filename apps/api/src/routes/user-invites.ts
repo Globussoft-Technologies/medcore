@@ -44,7 +44,9 @@ import { Router, Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { prisma } from "@medcore/db";
+// Multi-tenant: scoped client auto-filters reads + tags writes by tenantId
+// for TENANT_SCOPED_MODELS (cross-tenant leak fix, 2026-06-11).
+import { tenantScopedPrisma as prisma } from "@medcore/db";
 import { Role, validatePasswordStrength } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";

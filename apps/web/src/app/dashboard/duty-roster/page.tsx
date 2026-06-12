@@ -8,6 +8,7 @@ import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Plus, Users2, CalendarDays, Trash2 } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
+import { TenantSelect } from "@/components/TenantSelect";
 
 // Issue #509: page-level gate. The duty-roster UI is the staff-management
 // write surface — the mutating endpoints in apps/api/src/routes/shifts.ts
@@ -20,7 +21,7 @@ interface StaffUser {
   id: string;
   name: string;
   email: string;
-  role: "ADMIN" | "DOCTOR" | "NURSE" | "RECEPTION";
+  role: "ADMIN" | "DOCTOR" | "NURSE" | "RECEPTION" | "PHARMACIST" | "LAB_TECH";
 }
 
 interface Shift {
@@ -80,6 +81,18 @@ export default function DutyRosterPage() {
   const [loading, setLoading] = useState(true);
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
 
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) sees staff across every tenant; the dropdown
+  // lets them narrow the roster to one tenant via `?tenantId=`. Hidden for
+  // tenant-bound admins (already scoped to their own tenant).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+
   // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
   useEffect(() => {
     if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
@@ -114,12 +127,17 @@ export default function DutyRosterPage() {
 
   const loadStaff = useCallback(async () => {
     try {
-      const res = await api.get<{ data: StaffUser[] }>("/shifts/staff");
+      // Super-admin only: narrow the cross-tenant staff list to one tenant.
+      const tq =
+        isSuperAdmin && selectedTenantId
+          ? `?tenantId=${encodeURIComponent(selectedTenantId)}`
+          : "";
+      const res = await api.get<{ data: StaffUser[] }>(`/shifts/staff${tq}`);
       setStaff(res.data);
     } catch {
       // empty
     }
-  }, []);
+  }, [isSuperAdmin, selectedTenantId]);
 
   const loadRoster = useCallback(async () => {
     setLoading(true);
@@ -137,6 +155,26 @@ export default function DutyRosterPage() {
   useEffect(() => {
     loadStaff();
   }, [loadStaff]);
+
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     loadRoster();
@@ -297,7 +335,17 @@ export default function DutyRosterPage() {
             Shift assignments for all staff on a given date
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {isSuperAdmin && (
+            <TenantSelect
+              tenants={tenants}
+              value={selectedTenantId}
+              onChange={setSelectedTenantId}
+              allLabel="All tenants"
+              className="w-full sm:w-64"
+              testId="roster-tenant-filter"
+            />
+          )}
           <button
             onClick={() => setShowBulk(true)}
             className="flex items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
@@ -338,6 +386,8 @@ export default function DutyRosterPage() {
             <option value="DOCTOR">Doctor</option>
             <option value="NURSE">Nurse</option>
             <option value="RECEPTION">Reception</option>
+            <option value="PHARMACIST">Pharmacist</option>
+            <option value="LAB_TECH">Lab Tech</option>
             <option value="ADMIN">Admin</option>
           </select>
         </div>

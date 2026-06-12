@@ -92,8 +92,18 @@ describe("DoctorsPage", () => {
     routerReplace.mockReset();
     toastMock.success.mockReset();
     toastMock.error.mockReset();
+    // A tenant-bound ADMIN (has a tenantId). Without one, the page treats
+    // "ADMIN + null tenantId" as a SUPER_ADMIN, which now requires picking a
+    // target tenant before the create-doctor POST fires — not this test's
+    // scenario. (Super-admin tenant-scoping is covered separately.)
     authMock.mockReturnValue({
-      user: { id: "admin", name: "Admin", email: "a@x.com", role: "ADMIN" },
+      user: {
+        id: "admin",
+        name: "Admin",
+        email: "a@x.com",
+        role: "ADMIN",
+        tenantId: "t1",
+      },
       isLoading: false,
     });
     apiMock.get.mockResolvedValue({ data: sampleDoctors });
@@ -205,17 +215,23 @@ describe("DoctorsPage", () => {
     await u.type(screen.getByTestId("doctor-form-password"), "abcd1234");
     await u.type(screen.getByTestId("doctor-form-qual"), "MBBS");
     await u.click(screen.getByTestId("doctor-add-save"));
-    await waitFor(() => {
-      expect(apiMock.post).toHaveBeenCalledWith(
-        "/auth/register",
-        expect.objectContaining({
-          name: "Dr. Newbie",
-          email: "new@x.com",
-          phone: "9123456789",
-          role: "DOCTOR",
-        })
-      );
-    });
+    // Assert on the first two args only — the page passes an optional THIRD
+    // arg (the super-admin X-Tenant-Id request options, `undefined` for a
+    // tenant-bound admin), so a strict toHaveBeenCalledWith(url, body) over-
+    // constrains the arg count.
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalled());
+    const registerCall = apiMock.post.mock.calls.find(
+      (c: any[]) => c[0] === "/auth/register",
+    );
+    expect(registerCall).toBeDefined();
+    expect(registerCall![1]).toEqual(
+      expect.objectContaining({
+        name: "Dr. Newbie",
+        email: "new@x.com",
+        phone: "9123456789",
+        role: "DOCTOR",
+      })
+    );
   });
 
   it("redirects non-admins to /dashboard/not-authorized", async () => {

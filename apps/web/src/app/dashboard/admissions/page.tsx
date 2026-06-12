@@ -9,6 +9,7 @@ import { useTranslation } from "@/lib/i18n";
 import { toast } from "@/lib/toast";
 import { Plus, BedDouble } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
+import { TenantSelect } from "@/components/TenantSelect";
 import { formatDate } from "@/lib/format";
 
 // Issue #509: page-level gate matching API authorize() in
@@ -112,6 +113,18 @@ export default function AdmissionsPage() {
   const [tab, setTab] = useState<Tab>("admitted");
   const [showModal, setShowModal] = useState(false);
 
+  // Super-admin tenant filter (mirrors the patients page). A super-admin
+  // (actualRole SUPER_ADMIN, or the legacy tenant-less ADMIN) bypasses tenant
+  // scoping and sees every tenant's admissions; the dropdown below lets them
+  // narrow to one tenant via `?tenantId=`. Hidden for tenant-bound staff.
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+
   // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
   useEffect(() => {
     if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
@@ -159,7 +172,27 @@ export default function AdmissionsPage() {
   useEffect(() => {
     loadAdmissions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, selectedTenantId]);
+
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   // Always pre-fetch wards for the availability badge on the Admit button
   // (Issue #16). Doctors/other roles still only fetch wards once per page load.
@@ -198,8 +231,15 @@ export default function AdmissionsPage() {
           : tab === "discharged"
             ? "?status=DISCHARGED"
             : "";
+      // Super-admin only: narrow the cross-tenant view to one tenant. Use the
+      // correct separator — "&" if statusParam already opened the query string
+      // with "?", otherwise "?".
+      const tenantParam =
+        isSuperAdmin && selectedTenantId
+          ? `${statusParam ? "&" : "?"}tenantId=${encodeURIComponent(selectedTenantId)}`
+          : "";
       const res = await api.get<{ data: Admission[] }>(
-        `/admissions${statusParam}`
+        `/admissions${statusParam}${tenantParam}`
       );
       const flat = (res.data || []).map((a) => ({
         ...a,
@@ -405,39 +445,53 @@ export default function AdmissionsPage() {
             In-patient admission management
           </p>
         </div>
-        {canAdmit && (
-          <button
-            onClick={() => {
-              if (bedsUnavailable) {
-                toast.warning(
-                  "No beds available. Please free a bed first."
-                );
-                return;
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          {/* Super-admin only: cross-tenant filter. Tenant-bound staff are
+              already scoped to their own tenant server-side and never see it. */}
+          {isSuperAdmin && (
+            <TenantSelect
+              tenants={tenants}
+              value={selectedTenantId}
+              onChange={setSelectedTenantId}
+              allLabel="All tenants"
+              className="w-full sm:w-64"
+              testId="admissions-tenant-filter"
+            />
+          )}
+          {canAdmit && (
+            <button
+              onClick={() => {
+                if (bedsUnavailable) {
+                  toast.warning(
+                    "No beds available. Please free a bed first."
+                  );
+                  return;
+                }
+                setShowModal(true);
+              }}
+              disabled={bedsUnavailable}
+              title={
+                bedsUnavailable
+                  ? "No beds available. Please free a bed first."
+                  : undefined
               }
-              setShowModal(true);
-            }}
-            disabled={bedsUnavailable}
-            title={
-              bedsUnavailable
-                ? "No beds available. Please free a bed first."
-                : undefined
-            }
-            aria-disabled={bedsUnavailable}
-            className={
-              "flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white " +
-              (bedsUnavailable
-                ? "cursor-not-allowed bg-gray-400"
-                : "bg-primary hover:bg-primary-dark")
-            }
-          >
-            <Plus size={16} /> Admit Patient
-            {bedsUnavailable && (
-              <span className="ml-1 rounded bg-white/20 px-1 text-xs">
-                no beds
-              </span>
-            )}
-          </button>
-        )}
+              aria-disabled={bedsUnavailable}
+              className={
+                "flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white " +
+                (bedsUnavailable
+                  ? "cursor-not-allowed bg-gray-400"
+                  : "bg-primary hover:bg-primary-dark")
+              }
+            >
+              <Plus size={16} /> Admit Patient
+              {bedsUnavailable && (
+                <span className="ml-1 rounded bg-white/20 px-1 text-xs">
+                  no beds
+                </span>
+              )}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-4 flex gap-2">

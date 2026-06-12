@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
+import { TenantSelect } from "@/components/TenantSelect";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/format";
@@ -58,6 +59,14 @@ export default function RefundsPage() {
   const [rows, setRows] = useState<RefundRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  // Refunds are financial data → cross-tenant view is MAIN-super-admin-only
+  // (matches Billing). The dropdown lets the main super admin scope to one
+  // tenant; the /billing/reports/refunds endpoint enforces the same gate.
+  const isMainSuperAdmin = user?.isMainSuperAdmin === true;
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
 
   // Issue #509: bounce non-allowed roles to /dashboard/not-authorized.
   useEffect(() => {
@@ -75,12 +84,16 @@ export default function RefundsPage() {
     if (from && to && from > to) return;
     setLoading(true);
     try {
+      const tenantParam =
+        isMainSuperAdmin && selectedTenantId
+          ? `&tenantId=${encodeURIComponent(selectedTenantId)}`
+          : "";
       const res = await api.get<{
         data: { refunds: RefundRow[]; totalRefunded: number; count: number };
       }>(
         `/billing/reports/refunds?from=${new Date(from).toISOString()}&to=${new Date(
           to + "T23:59:59.999Z"
-        ).toISOString()}`
+        ).toISOString()}${tenantParam}`
       );
       setRows(res.data.refunds);
       setTotal(res.data.totalRefunded);
@@ -88,16 +101,45 @@ export default function RefundsPage() {
       // ignore
     }
     setLoading(false);
-  }, [from, to]);
+  }, [from, to, isMainSuperAdmin, selectedTenantId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  // Load the tenant list for the super-admin filter (super-admin-only endpoint).
+  useEffect(() => {
+    if (!isMainSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isMainSuperAdmin]);
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Refunds</h1>
+        {isMainSuperAdmin && (
+          <TenantSelect
+            tenants={tenants}
+            value={selectedTenantId}
+            onChange={setSelectedTenantId}
+            allLabel="All tenants"
+            className="w-full sm:w-64"
+            testId="refunds-tenant-filter"
+          />
+        )}
       </div>
 
       {/* Filter */}

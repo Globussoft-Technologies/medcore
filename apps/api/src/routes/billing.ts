@@ -78,6 +78,33 @@ import { generateInvoicePDFBuffer } from "../services/pdf-generator";
 const router = Router();
 router.use(authenticate);
 
+// Billing cross-tenant scope for the report/KPI endpoints. Financial data is
+// MAIN-super-admin-only. Returns a `tenantFilter` to spread into each report
+// query's `where`:
+//   • tenant-bound caller        → {}   (tenantScopedPrisma already scopes it)
+//   • main super-admin + chosen  → { tenantId }   (the dashboard tenant filter)
+//   • main super-admin + "All"   → {}   (cross-tenant aggregate)
+//   • any other no-tenant caller → { tenantId: "__no_access__" }  → matches no
+//     rows, so the report computes zeros (non-main operators can't see totals).
+async function resolveBillingReportScope(
+  req: Request,
+): Promise<{ tenantFilter: Record<string, string> }> {
+  if (req.tenantId) return { tenantFilter: {} };
+  const rows = await rawPrisma.$queryRaw<
+    Array<{ isMainSuperAdmin: boolean }>
+  >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
+  if (rows[0]?.isMainSuperAdmin !== true) {
+    return { tenantFilter: { tenantId: "__no_access__" } };
+  }
+  const tp = req.query.tenantId;
+  return {
+    tenantFilter:
+      typeof tp === "string" && tp.trim().length > 0
+        ? { tenantId: tp.trim() }
+        : {},
+  };
+}
+
 // IPD running-bill sync — moved to services/ipd-billing-sync.ts on
 // 2026-05-25 once a second non-billing caller (discharge handlers in
 // admissions.ts) needed the same contract. Idempotency, formula, and
@@ -561,6 +588,34 @@ router.get(
       const where: Record<string, unknown> = {};
       if (patientId) where.patientId = patientId;
 
+      // Billing cross-tenant visibility is MAIN-super-admin-only (financial
+      // data). Tenant-bound callers are already scoped to their own tenant by
+      // tenantScopedPrisma. A no-tenant-context caller (super-admin/platform,
+      // who otherwise bypasses scoping) only sees every tenant's invoices when
+      // they are the MAIN super-admin; any other no-tenant caller gets an empty
+      // list. The main super-admin may narrow the view with ?tenantId=<id>.
+      if (!req.tenantId) {
+        const callerMainRows = await rawPrisma.$queryRaw<
+          Array<{ isMainSuperAdmin: boolean }>
+        >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
+        if (callerMainRows[0]?.isMainSuperAdmin !== true) {
+          res.json({
+            success: true,
+            data: [],
+            error: null,
+            meta: { page: parseInt(page as string), limit: take, total: 0 },
+          });
+          return;
+        }
+        const tenantIdParam = req.query.tenantId;
+        if (
+          typeof tenantIdParam === "string" &&
+          tenantIdParam.trim().length > 0
+        ) {
+          where.tenantId = tenantIdParam.trim();
+        }
+      }
+
       // Issue #597 (May 2026): patient billing page rendered a flat
       // unfiltered/unsorted list — no way to narrow by date range when
       // the list grew beyond a screen. Add inclusive `dateFrom` / `dateTo`
@@ -984,6 +1039,7 @@ router.get(
   authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const { tenantFilter } = await resolveBillingReportScope(req);
       const { date } = req.query;
       const dateObj = date ? new Date(date as string) : new Date();
       const startOfDay = new Date(dateObj);
@@ -993,6 +1049,7 @@ router.get(
 
       const payments = await prisma.payment.findMany({
         where: {
+          ...tenantFilter,
           paidAt: { gte: startOfDay, lte: endOfDay },
         },
         include: {
@@ -1024,6 +1081,7 @@ router.get(
 
       const pendingInvoices = await prisma.invoice.count({
         where: {
+          ...tenantFilter,
           createdAt: { gte: startOfDay, lte: endOfDay },
           paymentStatus: { in: ["PENDING", "PARTIAL"] },
         },
@@ -1483,8 +1541,10 @@ router.get(
   authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const { tenantFilter } = await resolveBillingReportScope(req);
       const { from, to } = req.query;
       const where: Record<string, unknown> = {
+        ...tenantFilter,
         amount: { lt: 0 },
       };
       if (from || to) {
@@ -2317,10 +2377,12 @@ router.get(
       // aggregate) reflect today's bed charges, not the stale zero stored
       // at admit-time.
       await syncIpdInvoiceTotals().catch(() => undefined);
+      const { tenantFilter } = await resolveBillingReportScope(req);
       const { from, to, minAmount } = req.query;
       const min = minAmount ? parseFloat(minAmount as string) : 0;
 
       const where: Record<string, unknown> = {
+        ...tenantFilter,
         paymentStatus: { in: ["PENDING", "PARTIAL"] },
       };
       if (from || to) {
@@ -2392,6 +2454,7 @@ router.get(
   authorize(Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const { tenantFilter } = await resolveBillingReportScope(req);
       const {
         from,
         to,
@@ -2409,6 +2472,7 @@ router.get(
 
       const payments = await prisma.payment.findMany({
         where: {
+          ...tenantFilter,
           paidAt: { gte: start, lte: end },
           ...(doctorId
             ? { invoice: { appointment: { doctorId } } }

@@ -998,3 +998,139 @@ export async function generatePatientQrDataUrl(
     margin: 1,
   });
 }
+
+// ─── Platform (subscription) invoice PDF ───────────────────────────────
+// The tenant-facing "My Subscription" page downloads its platform invoices as
+// a real PDF via this generator. Uses "Rs." (pdfkit's Helvetica lacks the ₹
+// glyph). GST rate shown is derived from the stored amount / subtotal so it
+// reflects whatever rate the invoice actually carries.
+export interface PlatformInvoiceForPdf {
+  invoiceNumber: string;
+  status: string;
+  periodStart: Date;
+  periodEnd: Date;
+  issuedAt: Date | null;
+  paidAt: Date | null;
+  hsnSacCode: string;
+  subtotalInPaise: number;
+  cgstInPaise: number;
+  sgstInPaise: number;
+  igstInPaise: number;
+  totalInPaise: number;
+  tenant: { name: string; subdomain: string } | null;
+  lineItems: Array<{
+    description: string;
+    quantity: number;
+    unitPriceInPaise: number;
+    amountInPaise: number;
+  }>;
+}
+
+export async function generatePlatformInvoicePDFBuffer(
+  inv: PlatformInvoiceForPdf,
+): Promise<Buffer> {
+  const doc = new PDFDocument({ size: "A4", margin: 40 });
+  const done = collectPdf(doc);
+  const money = (p: number) => "Rs. " + (p / 100).toFixed(2);
+  const pct = (g: number) =>
+    inv.subtotalInPaise ? Math.round((g / inv.subtotalInPaise) * 100) : 0;
+
+  // Header
+  doc.font("Helvetica-Bold").fontSize(20).fillColor("#4f46e5").text("MEDCORE", 40, 40);
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor("#666")
+    .text("Platform Subscription — Tax Invoice", 40, 64);
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(14)
+    .fillColor("#111")
+    .text(inv.invoiceNumber, 400, 40, { align: "right", width: 155 });
+  doc
+    .font("Helvetica")
+    .fontSize(9)
+    .fillColor("#666")
+    .text("Status: " + inv.status, 400, 62, { align: "right", width: 155 });
+
+  doc.moveTo(40, 90).lineTo(555, 90).strokeColor("#4f46e5").lineWidth(2).stroke();
+
+  // Billed-to + meta
+  let y = 104;
+  doc.font("Helvetica-Bold").fontSize(10).fillColor("#111").text("Billed to", 40, y);
+  doc.font("Helvetica").fontSize(10).text(inv.tenant?.name ?? "", 40, y + 14);
+  doc.fontSize(9).fillColor("#666").text(inv.tenant?.subdomain ?? "", 40, y + 28);
+
+  doc.fontSize(9).fillColor("#666");
+  doc.text(
+    `Period: ${formatDate(inv.periodStart)} - ${formatDate(inv.periodEnd)}`,
+    300,
+    y,
+    { align: "right", width: 255 },
+  );
+  doc.text(`Issued: ${formatDate(inv.issuedAt)}`, 300, y + 12, {
+    align: "right",
+    width: 255,
+  });
+  if (inv.paidAt)
+    doc.text(`Paid: ${formatDate(inv.paidAt)}`, 300, y + 24, {
+      align: "right",
+      width: 255,
+    });
+  doc.text(`HSN/SAC: ${inv.hsnSacCode}`, 300, y + 36, {
+    align: "right",
+    width: 255,
+  });
+
+  // Line-item header
+  y = 168;
+  doc.font("Helvetica-Bold").fontSize(9).fillColor("#666");
+  doc.text("DESCRIPTION", 40, y);
+  doc.text("QTY", 320, y, { width: 50, align: "right" });
+  doc.text("UNIT", 380, y, { width: 85, align: "right" });
+  doc.text("AMOUNT", 475, y, { width: 80, align: "right" });
+  y += 14;
+  doc.moveTo(40, y).lineTo(555, y).strokeColor("#e5e7eb").lineWidth(1).stroke();
+  y += 8;
+
+  doc.font("Helvetica").fontSize(9).fillColor("#111");
+  for (const li of inv.lineItems) {
+    doc.text(li.description, 40, y, { width: 270 });
+    doc.text(String(li.quantity), 320, y, { width: 50, align: "right" });
+    doc.text(money(li.unitPriceInPaise), 380, y, { width: 85, align: "right" });
+    doc.text(money(li.amountInPaise), 475, y, { width: 80, align: "right" });
+    y += 18;
+  }
+  doc.moveTo(40, y).lineTo(555, y).strokeColor("#e5e7eb").stroke();
+  y += 10;
+
+  // Totals (right-aligned block)
+  const totalLine = (label: string, val: string, bold = false) => {
+    doc
+      .font(bold ? "Helvetica-Bold" : "Helvetica")
+      .fontSize(bold ? 12 : 9)
+      .fillColor("#111");
+    doc.text(label, 340, y, { width: 130, align: "left" });
+    doc.text(val, 475, y, { width: 80, align: "right" });
+    y += bold ? 20 : 15;
+  };
+  totalLine("Subtotal", money(inv.subtotalInPaise));
+  if (inv.cgstInPaise > 0)
+    totalLine(`CGST (${pct(inv.cgstInPaise)}%)`, money(inv.cgstInPaise));
+  if (inv.sgstInPaise > 0)
+    totalLine(`SGST (${pct(inv.sgstInPaise)}%)`, money(inv.sgstInPaise));
+  if (inv.igstInPaise > 0)
+    totalLine(`IGST (${pct(inv.igstInPaise)}%)`, money(inv.igstInPaise));
+  doc.moveTo(340, y).lineTo(555, y).strokeColor("#111").lineWidth(1).stroke();
+  y += 8;
+  totalLine("Total", money(inv.totalInPaise), true);
+
+  doc
+    .font("Helvetica")
+    .fontSize(8)
+    .fillColor("#666")
+    .text("This is a computer-generated invoice from MedCore.", 40, y + 30);
+
+  doc.end();
+  return done;
+}

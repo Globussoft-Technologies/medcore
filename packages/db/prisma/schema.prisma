@@ -492,6 +492,24 @@ model PlatformPlan {
   updatedAt           DateTime @updatedAt
 }
 
+// Dynamic, DB-backed catalog of super-admin permission grants. Mirrors the
+// PlatformPlan pattern: seeded from SUPER_ADMIN_PERMISSIONS in @medcore/shared,
+// but at runtime the invite form + API validation read this table so grants
+// can be added / edited / disabled without a code change. Per-operator grant
+// VALUES are still stored as JSON in SystemConfig (`superadmin:<id>:permissions`);
+// this table is just the catalog of available grant keys + their copy.
+model SuperAdminPermission {
+  id             String   @id @default(uuid())
+  key            String   @unique
+  label          String
+  description    String
+  defaultGranted Boolean  @default(false)
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
 // Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3a 2026-05-24) —
 // platform-billing subscription state machine. `trial` is the first 30
 // days after tenant creation; on `trialEndsAt` the daily cron flips to
@@ -510,13 +528,13 @@ enum SubscriptionStatus {
 // ─── MULTI-TENANCY ──────────────────────────────────────
 
 model Tenant {
-  id        String     @id @default(uuid())
+  id        String   @id @default(uuid())
   name      String
-  subdomain String     @unique
-  plan      String     @default("STARTER") // PlatformPlan.key
-  active    Boolean    @default(true)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  subdomain String   @unique
+  plan      String   @default("STARTER") // PlatformPlan.key
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Pearl Stage 1 §8.1 row 233 closure (2026-05-25) — 90-day S3 archival.
   // `deactivatedAt` is stamped by `deactivateTenant()` (suspend) and
@@ -853,6 +871,26 @@ model Tenant {
   usageEvents        UsageEvent[]
   requestMetrics     RequestMetric[]
 
+  // ── tenantId added to formerly-unscoped tables (2026-06-11 —
+  //    migration 20260611000002_add_tenant_id_remaining_tables) ──────────
+  medicines                Medicine[]
+  labTests                 LabTest[]
+  labTestReferenceRanges   LabTestReferenceRange[]
+  invoiceItems             InvoiceItem[]
+  labOrderItems            LabOrderItem[]
+  prescriptionItems        PrescriptionItem[]
+  purchaseOrderItems       PurchaseOrderItem[]
+  grnItems                 GrnItem[]
+  claimDocuments           ClaimDocument[]
+  claimStatusEvents        ClaimStatusEvent[]
+  platformInvoiceLineItems PlatformInvoiceLineItem[]
+  supportTicketMessages    SupportTicketMessage[]
+  refreshTokens            RefreshToken[]
+  passwordResetCodes       PasswordResetCode[]
+  twoFactorTempTokens      TwoFactorTempToken[]
+  notificationPreferences  NotificationPreference[]
+  userDashboardPreferences UserDashboardPreference[]
+
   @@map("tenants")
 }
 
@@ -909,7 +947,7 @@ model TenantSubscription {
   id                        String             @id @default(uuid())
   tenantId                  String             @unique
   tenant                    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan                      String             // PlatformPlan.key
+  plan                      String // PlatformPlan.key
   status                    SubscriptionStatus @default(trial)
   trialEndsAt               DateTime?
   currentPeriodStart        DateTime
@@ -980,6 +1018,8 @@ model PlatformInvoice {
 // `unitPriceInPaise * quantity` and is the pre-tax line subtotal.
 model PlatformInvoiceLineItem {
   id               String          @id @default(uuid())
+  tenantId         String?
+  tenant           Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoiceId        String
   invoice          PlatformInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   description      String
@@ -993,6 +1033,7 @@ model PlatformInvoiceLineItem {
   createdAt        DateTime        @default(now())
 
   @@index([invoiceId])
+  @@index([tenantId])
   @@map("platform_invoice_line_items")
 }
 
@@ -1354,6 +1395,11 @@ model User {
   pushToken            String?
   pushPlatform         String?
   pushTokenUpdatedAt   DateTime?
+  // Stamped on every successful login (password + 2FA paths). The super-admin
+  // Tenants list reads MAX(lastLoginAt) per tenant for its "Last login" column
+  // — reliable, unlike the old audit-log derivation (audit rows get archived
+  // and are tenant-scoped).
+  lastLoginAt          DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
@@ -1407,8 +1453,8 @@ model User {
   leadActivities LeadActivity[] @relation("LeadActivityAuthor")
 
   // SOW row M4 — cohorts this user created + memberships they've added.
-  cohortsCreated      Cohort[]       @relation("CohortCreatedBy")
-  cohortMembersAdded  CohortMember[] @relation("CohortMemberAddedBy")
+  cohortsCreated     Cohort[]       @relation("CohortCreatedBy")
+  cohortMembersAdded CohortMember[] @relation("CohortMemberAddedBy")
 
   // Pearl §5.1 (gap item #4 — piece 1 of 4) — campaigns this user created.
   // Named relation so later pieces (A/B variant assignment, etc.) can add
@@ -1443,6 +1489,8 @@ model User {
 
 model RefreshToken {
   id        String   @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   token     String   @unique
   userId    String
   expiresAt DateTime
@@ -1451,11 +1499,14 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([tenantId])
   @@map("refresh_tokens")
 }
 
 model PasswordResetCode {
   id        String    @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId    String
   code      String
   expiresAt DateTime
@@ -1466,11 +1517,14 @@ model PasswordResetCode {
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([tenantId])
   @@map("password_reset_codes")
 }
 
 model TwoFactorTempToken {
   id        String    @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   token     String    @unique
   userId    String
   expiresAt DateTime
@@ -1481,6 +1535,7 @@ model TwoFactorTempToken {
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([tenantId])
   @@map("two_factor_temp_tokens")
 }
 
@@ -2018,8 +2073,8 @@ model Vitals {
 }
 
 model Consultation {
-  id            String   @id @default(uuid())
-  appointmentId String   @unique
+  id            String    @id @default(uuid())
+  appointmentId String    @unique
   doctorId      String
   notes         String?
   findings      String?
@@ -2039,10 +2094,10 @@ model Consultation {
   // Lifecycle: DRAFT while the doctor is still editing; SIGNED once
   // they explicitly finalize. Used by reporting and by the visit
   // history right-rail to filter only signed visits.
-  status        String   @default("DRAFT") // DRAFT | SIGNED
+  status        String    @default("DRAFT") // DRAFT | SIGNED
   signedAt      DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -2124,6 +2179,8 @@ enum PrescriptionStatus {
 
 model PrescriptionItem {
   id             String  @id @default(uuid())
+  tenantId       String?
+  tenant         Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   prescriptionId String
   // Issue #898 (2026-05-19): structured FK to the Medicine master so the
   // allergy/interaction engine, pharmacy dispense (FEFO + stock deduction),
@@ -2147,13 +2204,14 @@ model PrescriptionItem {
   // its own card moving PENDING (New) → DISPENSING → READY → DISPENSED
   // independently — a script with mixed stock can have some lines dispensed
   // while out-of-stock lines stay in New. Reuses the prescription-level enum.
-  kanbanStatus   PrescriptionStatus @default(PENDING)
+  kanbanStatus PrescriptionStatus @default(PENDING)
 
   prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
   medicine     Medicine?    @relation(fields: [medicineId], references: [id], onDelete: SetNull)
 
   @@index([medicineId])
   @@index([kanbanStatus])
+  @@index([tenantId])
   @@map("prescription_items")
 }
 
@@ -2349,6 +2407,8 @@ model Invoice {
 
 model InvoiceItem {
   id          String  @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invoiceId   String
   description String
   category    String
@@ -2371,6 +2431,7 @@ model InvoiceItem {
 
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@map("invoice_items")
 }
 
@@ -2485,14 +2546,17 @@ model Notification {
 }
 
 model NotificationPreference {
-  id      String              @id @default(uuid())
-  userId  String
-  channel NotificationChannel
-  enabled Boolean             @default(true)
+  id       String              @id @default(uuid())
+  tenantId String?
+  tenant   Tenant?             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId   String
+  channel  NotificationChannel
+  enabled  Boolean             @default(true)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, channel])
+  @@index([tenantId])
   @@map("notification_preferences")
 }
 
@@ -2670,6 +2734,7 @@ model SystemConfig {
 
   @@map("system_config")
 }
+
 model RoleCatalogEntry {
   id           String               @id @default(uuid())
   role         String               @unique
@@ -2953,7 +3018,9 @@ model IpdIntakeOutput {
 
 model Medicine {
   id                      String   @id @default(uuid())
-  name                    String   @unique
+  tenantId                String?
+  tenant                  Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                    String
   genericName             String?
   brand                   String?
   form                    String? // tablet, syrup, injection, etc.
@@ -2997,8 +3064,10 @@ model Medicine {
   // medicine quick-add list.
   doctorFavourites DoctorFavouriteMedicine[]
 
+  @@unique([tenantId, name])
   @@index([name])
   @@index([category])
+  @@index([tenantId])
   @@map("medicines")
 }
 
@@ -3082,6 +3151,8 @@ model StockMovement {
 
 model LabTest {
   id          String   @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   code        String   @unique // e.g., CBC, LFT
   name        String
   category    String? // Hematology, Biochemistry, Microbiology, etc.
@@ -3101,11 +3172,14 @@ model LabTest {
 
   @@index([code])
   @@index([category])
+  @@index([tenantId])
   @@map("lab_tests")
 }
 
 model LabTestReferenceRange {
   id        String  @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   testId    String
   parameter String? // if test has sub-parameters (CBC: Hemoglobin etc.)
   gender    String? // MALE | FEMALE | null = any
@@ -3119,6 +3193,7 @@ model LabTestReferenceRange {
   test LabTest @relation(fields: [testId], references: [id], onDelete: Cascade)
 
   @@index([testId])
+  @@index([tenantId])
   @@map("lab_test_reference_ranges")
 }
 
@@ -3156,15 +3231,18 @@ model LabOrder {
 }
 
 model LabOrderItem {
-  id      String        @id @default(uuid())
-  orderId String
-  testId  String
-  status  LabTestStatus @default(ORDERED)
-  results LabResult[]
+  id       String        @id @default(uuid())
+  tenantId String?
+  tenant   Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderId  String
+  testId   String
+  status   LabTestStatus @default(ORDERED)
+  results  LabResult[]
 
   order LabOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   test  LabTest  @relation(fields: [testId], references: [id])
 
+  @@index([tenantId])
   @@map("lab_order_items")
 }
 
@@ -3732,6 +3810,8 @@ model PurchaseOrder {
 
 model PurchaseOrderItem {
   id          String  @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   poId        String
   description String // item name/description
   medicineId  String?
@@ -3742,6 +3822,7 @@ model PurchaseOrderItem {
   purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
 
   @@index([poId])
+  @@index([tenantId])
   @@map("purchase_order_items")
 }
 
@@ -4697,6 +4778,8 @@ model Grn {
 
 model GrnItem {
   id          String    @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   grnId       String
   poItemId    String
   quantity    Int
@@ -4707,6 +4790,7 @@ model GrnItem {
   grn Grn @relation(fields: [grnId], references: [id], onDelete: Cascade)
 
   @@index([grnId])
+  @@index([tenantId])
   @@map("grn_items")
 }
 
@@ -5345,10 +5429,13 @@ model ReportRun {
 // ─── USER DASHBOARD PREFERENCES (Apr 2026) ──────────────
 model UserDashboardPreference {
   id        String   @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userId    String   @unique
   layout    Json // { widgets: [{ type, visible, order, config }] }
   updatedAt DateTime @updatedAt
 
+  @@index([tenantId])
   @@map("user_dashboard_preferences")
 }
 
@@ -6024,6 +6111,8 @@ model InsuranceClaim2 {
 
 model ClaimDocument {
   id            String   @id @default(uuid())
+  tenantId      String?
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   claimId       String
   type          String
   fileKey       String
@@ -6037,11 +6126,14 @@ model ClaimDocument {
   claim InsuranceClaim2 @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   @@index([claimId])
+  @@index([tenantId])
   @@map("claim_documents")
 }
 
 model ClaimStatusEvent {
   id        String                @id @default(uuid())
+  tenantId  String?
+  tenant    Tenant?               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   claimId   String
   status    NormalisedClaimStatus
   timestamp DateTime              @default(now())
@@ -6052,6 +6144,7 @@ model ClaimStatusEvent {
   claim InsuranceClaim2 @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   @@index([claimId, timestamp])
+  @@index([tenantId])
   @@map("claim_status_events")
 }
 
@@ -7022,6 +7115,8 @@ model SupportTicket {
 
 model SupportTicketMessage {
   id           String   @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   ticketId     String
   authorUserId String
   body         String
@@ -7031,6 +7126,7 @@ model SupportTicketMessage {
   author User          @relation(fields: [authorUserId], references: [id])
 
   @@index([ticketId, createdAt])
+  @@index([tenantId])
   @@map("support_ticket_messages")
 }
 
@@ -7129,8 +7225,8 @@ model RequestMetric {
   id           String   @id @default(uuid())
   tenantId     String?
   tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  method       String   // GET / POST / PATCH / DELETE / PUT
-  pathTemplate String   // "/api/v1/patients/:id" — normalised, NOT the realised path
+  method       String // GET / POST / PATCH / DELETE / PUT
+  pathTemplate String // "/api/v1/patients/:id" — normalised, NOT the realised path
   statusCode   Int
   durationMs   Int
   userId       String? // best-effort principal at request time

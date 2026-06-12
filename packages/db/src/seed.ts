@@ -1,6 +1,6 @@
 import { PrismaClient, Role, Gender } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { PLAN_DEFINITIONS } from "@medcore/shared";
+import { PLAN_DEFINITIONS, SUPER_ADMIN_PERMISSIONS } from "@medcore/shared";
 
 const prisma = new PrismaClient();
 
@@ -140,6 +140,35 @@ async function main() {
     planSort++;
   }
   console.log("Seeded platform plans:", Object.keys(PLAN_DEFINITIONS).join(", "));
+
+  // ── Super-admin permission catalog (dynamic DB-backed grants) ────────
+  // Seed the baseline grants from the (seed-only) SUPER_ADMIN_PERMISSIONS
+  // constant. At runtime the invite form + API validation read the
+  // SuperAdminPermission table from the DB; grants can be added/edited/disabled
+  // there without a code change. Idempotent on key.
+  let permSort = 1;
+  for (const perm of SUPER_ADMIN_PERMISSIONS) {
+    await prisma.superAdminPermission.upsert({
+      where: { key: perm.key },
+      update: {
+        label: perm.label,
+        description: perm.description,
+        defaultGranted: perm.defaultGranted,
+      },
+      create: {
+        key: perm.key,
+        label: perm.label,
+        description: perm.description,
+        defaultGranted: perm.defaultGranted,
+        sortOrder: permSort,
+      },
+    });
+    permSort++;
+  }
+  console.log(
+    "Seeded super-admin permission catalog:",
+    SUPER_ADMIN_PERMISSIONS.map((p) => p.key).join(", "),
+  );
 
   // Backfill legacy Tenant.plan values onto the unified plan keys so older
   // tenants (created when Tenant.plan used the BASIC/PRO/ENTERPRISE enum)

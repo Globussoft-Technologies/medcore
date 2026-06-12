@@ -27,6 +27,10 @@
 
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
+// NOT tenant-scoped: this route deliberately serves BOTH tenant ADMINs
+// (own-tenant) AND super-admins (cross-tenant operator inbox), so it does its
+// own tenant filtering and stays on the base client. SupportTicket is
+// intentionally absent from TENANT_SCOPED_MODELS for this reason.
 import { prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
@@ -462,8 +466,7 @@ router.patch(
                   // Re-use the helper so all SLA computation paths
                   // share one source of truth.
                   (
-                    await resolveSlaForTicket(
-                      prisma,
+                    await resolveSlaForTicket(prisma,
                       ticket.tenantId,
                       body.priority,
                     )

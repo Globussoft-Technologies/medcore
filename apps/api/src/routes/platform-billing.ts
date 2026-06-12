@@ -1078,6 +1078,17 @@ router.post(
         },
       });
 
+      // Keep Tenant.plan in lock-step with the subscription so tenant-side
+      // surfaces (Admin Console header, sidebar/module gating via the plan's
+      // included features) reflect the new plan immediately — otherwise the
+      // two columns drift and the tenant keeps its old plan's access.
+      if (planActuallyChanged) {
+        await prisma.tenant.update({
+          where: { id: sub.tenantId },
+          data: { plan: toPlan },
+        });
+      }
+
       await auditLog(
         req,
         "PLATFORM_SUBSCRIPTION_PLAN_CHANGED",

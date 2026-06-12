@@ -254,12 +254,21 @@ router.get("/my", async (req: Request, res: Response, next: NextFunction) => {
 router.get(
   "/staff",
   authorize(Role.ADMIN),
-  async (_req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Super-admin (tenant-less ADMIN/SUPER_ADMIN) may narrow the cross-tenant
+      // staff list to one tenant via ?tenantId=. Tenant-bound callers are already
+      // scoped by tenantScopedPrisma, so the param is ignored for them.
+      const tenantIdParam = req.query.tenantId;
       const users = await prisma.user.findMany({
         where: {
           role: { in: [Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION] },
           isActive: true,
+          ...(!req.tenantId &&
+          typeof tenantIdParam === "string" &&
+          tenantIdParam.trim().length > 0
+            ? { tenantId: tenantIdParam.trim() }
+            : {}),
         },
         select: { id: true, name: true, email: true, role: true },
         orderBy: [{ role: "asc" }, { name: "asc" }],

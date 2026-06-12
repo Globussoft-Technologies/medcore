@@ -296,7 +296,13 @@ router.get(
 // count, with any patient names redacted to "First L." (PRD §2.1.5). Safe for
 // BOTH the authed staff overview (GET /) and the PUBLIC waiting-room board
 // (GET /display) — no patient PII is returned.
-async function buildDisplayBoard() {
+async function buildDisplayBoard(
+  // Super-admin only: optional tenant scope for the doctor query. Tenant-bound
+  // callers pass nothing — `tenantScopedPrisma` already auto-filters them to
+  // their own tenant; this only matters when a tenant-less super-admin wants
+  // to narrow the cross-tenant board to a single tenant's doctors.
+  tenantFilter: { tenantId?: string } = {},
+) {
   // `appointment.date` is a @db.Date column (UTC midnight). Build the day
   // window with setUTCHours (NOT setHours — local time shifts the window on
   // a non-UTC host and either misses today or leaks adjacent days into the
@@ -308,6 +314,7 @@ async function buildDisplayBoard() {
   const todayRange = { gte: today, lt: todayEnd };
 
   const doctors = await prisma.doctor.findMany({
+    where: { ...tenantFilter },
     include: {
       user: { select: { name: true } },
     },
@@ -433,9 +440,23 @@ router.get(
   "/",
   // Issue #383: staff-only. The public, redacted variant is GET /queue/display.
   authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR, Role.NURSE),
-  async (_req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      res.json({ success: true, data: await buildDisplayBoard(), error: null });
+      // Super-admin only: `?tenantId=` narrows the cross-tenant board to one
+      // tenant's doctors. Ignored for tenant-bound callers (req.tenantId set) —
+      // tenantScopedPrisma already scopes them to their own tenant.
+      const tenantIdParam = req.query.tenantId;
+      const tenantFilter =
+        !req.tenantId &&
+        typeof tenantIdParam === "string" &&
+        tenantIdParam.trim().length > 0
+          ? { tenantId: tenantIdParam.trim() }
+          : {};
+      res.json({
+        success: true,
+        data: await buildDisplayBoard(tenantFilter),
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

@@ -10,6 +10,7 @@ import { useTranslation } from "@/lib/i18n";
 import { formatPatientAge } from "@/lib/format";
 import { Search, Plus, Users, MessageCircle, Phone, Mail, UserPlus, KeyRound } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
+import { TenantSelect } from "@/components/TenantSelect";
 import { PatientAvatar } from "@/components/PatientAvatar";
 import { extractFieldErrors } from "@/lib/field-errors";
 
@@ -67,6 +68,20 @@ export default function PatientsPage() {
   const searchParams = useSearchParams();
   const [patients, setPatients] = useState<PatientRecord[]>([]);
   const [search, setSearch] = useState("");
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) bypasses tenant scoping and sees every tenant's
+  // patients; the dropdown below lets them narrow to one tenant via
+  // `?tenantId=`. Hidden for tenant-bound staff (already scoped to their own).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+  // Super-admin only: which tenant a newly-registered patient is created under
+  // (the super-admin has no tenant context of their own).
+  const [formTenantId, setFormTenantId] = useState("");
   // Issue #427: the API call must run against a *debounced* search term so
   // typing a 5-character query doesn't fire 5 sequential `/patients?search=…`
   // requests (and so each new keystroke doesn't replace the previous result
@@ -140,7 +155,27 @@ export default function PatientsPage() {
   useEffect(() => {
     loadPatients();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch]);
+  }, [debouncedSearch, selectedTenantId]);
+
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   async function loadPatients() {
     setLoading(true);
@@ -148,8 +183,13 @@ export default function PatientsPage() {
       const q = debouncedSearch
         ? `&search=${encodeURIComponent(debouncedSearch)}`
         : "";
+      // Super-admin only: narrow the cross-tenant view to one tenant.
+      const tq =
+        isSuperAdmin && selectedTenantId
+          ? `&tenantId=${encodeURIComponent(selectedTenantId)}`
+          : "";
       const res = await api.get<{ data: PatientRecord[]; meta: { total: number } }>(
-        `/patients?limit=50${q}`
+        `/patients?limit=50${q}${tq}`
       );
       const flat = (res.data || []).map((p) => ({
         ...p,
@@ -330,6 +370,10 @@ export default function PatientsPage() {
       if (form.address.match(/\bpin[: ]/i) && !pinMatch)
         errs.address = "PIN code must be 6 digits";
     }
+    // Super-admin must choose a target tenant (they have none of their own).
+    if (isSuperAdmin && !formTenantId) {
+      errs.tenantId = "Select a tenant to register the patient under";
+    }
     setFormErrors(errs);
     setDuplicateMatch(null);
     if (Object.keys(errs).length > 0) return;
@@ -340,6 +384,9 @@ export default function PatientsPage() {
         phone: trimmedPhone,
         age: form.age ? parseInt(form.age) : undefined,
         bloodGroup: form.bloodGroup || undefined,
+        // Super-admin only — which tenant to create under. The API ignores it
+        // for tenant-bound callers (uses their own req.tenantId).
+        tenantId: isSuperAdmin && formTenantId ? formTenantId : undefined,
       });
       // Pearl §2.1.1 (gap row 40) — if reception entered an ABHA address,
       // fire the existing /abdm/abha/link endpoint with the newly-minted
@@ -854,6 +901,31 @@ export default function PatientsPage() {
               <option value="PHONE">Source: Phone</option>
               <option value="OTHER">Source: Other</option>
             </select>
+            {/* Super-admin only: target tenant for the new patient. A super-
+                admin has no tenant of their own, so they must choose which
+                tenant the patient belongs to. Tenant-bound staff never see
+                this — the API pins the patient to their own tenant. */}
+            {isSuperAdmin && (
+              <div className="flex flex-col gap-1">
+                <TenantSelect
+                  tenants={tenants}
+                  value={formTenantId}
+                  onChange={setFormTenantId}
+                  placeholder="Select tenant…"
+                  error={!!formErrors.tenantId}
+                  className="w-full"
+                  testId="patient-form-tenant"
+                />
+                {formErrors.tenantId && (
+                  <p
+                    data-testid="error-tenant"
+                    className="text-xs text-red-600 dark:text-red-400"
+                  >
+                    {formErrors.tenantId}
+                  </p>
+                )}
+              </div>
+            )}
             <label htmlFor="patient-address" className="sr-only">
               {t("common.address")}
             </label>
@@ -943,24 +1015,36 @@ export default function PatientsPage() {
         </form>
       )}
 
-      {/* Search */}
-      <div className="relative mb-4">
-        <Search
-          size={16}
-          aria-hidden="true"
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400"
-        />
-        <label htmlFor="patient-search" className="sr-only">
-          {t("common.search")}
-        </label>
-        <input
-          id="patient-search"
-          data-testid="patient-search"
-          placeholder={t("dashboard.patients.searchPlaceholder")}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        />
+      {/* Search + (super-admin only) tenant filter */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search
+            size={16}
+            aria-hidden="true"
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600 dark:text-gray-400"
+          />
+          <label htmlFor="patient-search" className="sr-only">
+            {t("common.search")}
+          </label>
+          <input
+            id="patient-search"
+            data-testid="patient-search"
+            placeholder={t("dashboard.patients.searchPlaceholder")}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+          />
+        </div>
+        {isSuperAdmin && (
+          <TenantSelect
+            tenants={tenants}
+            value={selectedTenantId}
+            onChange={setSelectedTenantId}
+            allLabel="All tenants"
+            className="w-full sm:w-64"
+            testId="patient-tenant-filter"
+          />
+        )}
       </div>
 
       <DataTable<PatientRecord>

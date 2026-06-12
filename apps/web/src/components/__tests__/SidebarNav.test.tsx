@@ -86,15 +86,20 @@ describe("SidebarNav", () => {
     );
   });
 
-  it("appends newly-added items not present in the saved order", async () => {
+  it("inserts newly-added items at their DEFAULT position, not the bottom", async () => {
+    // Saved order reorders the two known hrefs (/c before /b); /a is a 'new'
+    // href whose DEFAULT position is the front. Per reconcile()'s documented
+    // behaviour, /a lands at its default position (front) rather than being
+    // stranded at the bottom — this is what keeps a super-admin's later-
+    // appearing Tenants item where the stock layout puts it.
     apiMock.get.mockResolvedValue({
       success: true,
-      data: { order: ["/c"] }, // only /c known; /a,/b are 'new'
+      data: { order: ["/c", "/b"] }, // /c,/b known + reordered; /a is 'new'
       error: null,
     });
     renderNav();
     await waitFor(() =>
-      expect(linkHrefs()).toEqual(["/dashboard", "/c", "/a", "/b"]),
+      expect(linkHrefs()).toEqual(["/dashboard", "/a", "/c", "/b"]),
     );
   });
 

@@ -91,14 +91,24 @@ describe("LoginPage — status-aware error handling (Issue #15)", () => {
     );
   });
 
-  it("shows the credentials message on 403", async () => {
-    loginMock.mockRejectedValueOnce(buildHttpError(403, "Forbidden"));
+  it("shows the backend reason (e.g. tenant suspended) on 403, not the generic credentials copy", async () => {
+    // A 403 on login means the credentials were valid but access is blocked
+    // (e.g. the hospital tenant was suspended). The page surfaces the
+    // backend's specific message rather than "Invalid email or password".
+    loginMock.mockRejectedValueOnce(
+      buildHttpError(
+        403,
+        "Your hospital account has been suspended. Please contact your administrator or MedCore support to restore access.",
+      ),
+    );
     await submitCredentials();
     await waitFor(() =>
-      expect(
-        screen.getByText(/invalid email or password/i)
-      ).toBeInTheDocument()
+      expect(screen.getByText(/suspended/i)).toBeInTheDocument()
     );
+    // MUST NOT fall back to the generic credentials copy on a 403.
+    expect(
+      screen.queryByText(/invalid email or password/i),
+    ).not.toBeInTheDocument();
   });
 
   it("falls back to the backend error text on 500", async () => {

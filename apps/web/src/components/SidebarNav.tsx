@@ -52,15 +52,39 @@ interface SidebarNavProps {
 
 /**
  * Merge a saved href order with the set of currently-available hrefs:
- * kept-in-saved-order first, then any new hrefs appended in default order,
- * with stale hrefs dropped.
+ * saved order is honoured for items the user explicitly placed; any NEW href
+ * (not in the saved order) is inserted at its DEFAULT position rather than
+ * dumped at the bottom; stale hrefs are dropped.
+ *
+ * The "default position" matters for nav items that become visible later in a
+ * session — e.g. `Tenants` once a user is recognised as a super-admin. With
+ * the old `[...kept, ...appended]` behaviour that item stranded itself at the
+ * very bottom of the sidebar; now it lands where the stock layout puts it
+ * (Tenants is the first reorderable item, so it sits above Platform Billing).
  */
 function reconcile(savedOrder: string[], currentHrefs: string[]): string[] {
   const present = new Set(currentHrefs);
   const kept = savedOrder.filter((h) => present.has(h));
   const keptSet = new Set(kept);
-  const appended = currentHrefs.filter((h) => !keptSet.has(h));
-  return [...kept, ...appended];
+  const defaultIndex = new Map(currentHrefs.map((h, i) => [h, i] as const));
+  const result = [...kept];
+  // currentHrefs is in default order, so new items are processed in default
+  // order; each is spliced in before the first existing item whose default
+  // index is greater (i.e. at its own default position).
+  for (const href of currentHrefs) {
+    if (keptSet.has(href)) continue;
+    const di = defaultIndex.get(href) ?? result.length;
+    let insertAt = result.length;
+    for (let i = 0; i < result.length; i++) {
+      const ri = defaultIndex.get(result[i]);
+      if (ri !== undefined && ri > di) {
+        insertAt = i;
+        break;
+      }
+    }
+    result.splice(insertAt, 0, href);
+  }
+  return result;
 }
 
 // A 1×1 transparent image used as the drag ghost so the browser doesn't show

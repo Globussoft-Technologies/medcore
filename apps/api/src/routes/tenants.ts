@@ -262,10 +262,12 @@ async function loadTenantStats(tenantId: string): Promise<TenantUsageStats> {
         pastDueSince: true,
       },
     }),
-    prisma.auditLog.findFirst({
-      where: { tenantId, action: "AUTH_LOGIN" },
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true },
+    // Most-recent login across the tenant's users (covers the admin). Reads
+    // the first-class User.lastLoginAt column — reliable across audit-log
+    // archival and tenant-scoping.
+    prisma.user.aggregate({
+      where: { tenantId },
+      _max: { lastLoginAt: true },
     }),
   ]);
 
@@ -308,8 +310,8 @@ async function loadTenantStats(tenantId: string): Promise<TenantUsageStats> {
     subscriptionStatus: subscription
       ? String(subscription.status)
       : null,
-    lastLoginAt: lastLogin?.createdAt
-      ? lastLogin.createdAt.toISOString()
+    lastLoginAt: lastLogin?._max.lastLoginAt
+      ? lastLogin._max.lastLoginAt.toISOString()
       : null,
   };
 }
@@ -322,6 +324,23 @@ router.post(
   validate(createTenantSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Main-only gate: only the root super-admin may provision new tenants.
+      // Peer super-admins can view/manage existing tenants (router-level
+      // requireSuperAdmin) but cannot add one. Raw SQL mirrors
+      // super-admin-users.ts — the dev-box Prisma client may not yet know the
+      // column under the `prisma generate` DLL lock.
+      const callerMainRows = await prisma.$queryRaw<
+        Array<{ isMainSuperAdmin: boolean }>
+      >`SELECT "isMainSuperAdmin" FROM users WHERE id = ${req.user!.userId}`;
+      if (callerMainRows[0]?.isMainSuperAdmin !== true) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "Only the main super-admin can create tenants.",
+        });
+        return;
+      }
+
       const body = req.body as z.infer<typeof createTenantSchema>;
 
       // Pre-check subdomain uniqueness for a clean 409 instead of a Prisma error.

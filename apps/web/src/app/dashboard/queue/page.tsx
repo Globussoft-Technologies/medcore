@@ -10,6 +10,7 @@ import { useAuthStore } from "@/lib/store";
 import { useTranslation } from "@/lib/i18n";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { SkeletonCard } from "@/components/Skeleton";
+import { TenantSelect } from "@/components/TenantSelect";
 import { BellRing, BellOff } from "lucide-react";
 
 // Issue #383 (CRITICAL prod RBAC bypass, Apr 29 2026): Live Queue exposes
@@ -88,6 +89,25 @@ export default function QueuePage() {
   const drawerRestoredRef = useRef(false);
   const { t } = useTranslation();
 
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) sees every tenant's live queue; the dropdown
+  // lets them narrow to one tenant's doctors via `?tenantId=`. Hidden for
+  // tenant-bound staff (already scoped to their own tenant by the API).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+  // Mirror the current tenant selection into a ref so the socket/poll
+  // refresh effect (which doesn't list selectedTenantId in its deps to avoid
+  // re-registering the socket) always fetches with the LATEST selection.
+  const selectedTenantIdRef = useRef(selectedTenantId);
+  useEffect(() => {
+    selectedTenantIdRef.current = selectedTenantId;
+  }, [selectedTenantId]);
+
   // Issue #383: redirect PATIENT (and any other non-staff) away.
   useEffect(() => {
     if (!isAuthLoading && user && !QUEUE_ALLOWED.has(user.role)) {
@@ -99,6 +119,38 @@ export default function QueuePage() {
       );
     }
   }, [isAuthLoading, user, router, pathname]);
+
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuperAdmin]);
+
+  // Super-admin only: re-fetch the board whenever the tenant filter changes.
+  // The main socket/poll effect below only re-runs on auth identity (to avoid
+  // re-registering the socket), so the selection change is handled here. The
+  // ref above keeps the polling fetch pinned to the latest tenantId too.
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    loadDisplay();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTenantId]);
+
   const [display, setDisplay] = useState<QueueDoctor[]>([]);
   // Pearl §2.1.2 — doctor view splits queue data into two slots:
   //   myDoctorQueue:    pinned to the doctor's own queue, shown in the
@@ -372,7 +424,15 @@ export default function QueuePage() {
 
   async function loadDisplay() {
     try {
-      const res = await api.get<{ data: QueueDoctor[] }>("/queue");
+      // Super-admin only: narrow the cross-tenant board to one tenant. Read
+      // the selection from the ref so the interval/socket-driven refresh
+      // (which captures this closure once) always uses the LATEST selection.
+      const tid = selectedTenantIdRef.current;
+      const url =
+        isSuperAdmin && tid
+          ? `/queue?tenantId=${encodeURIComponent(tid)}`
+          : "/queue";
+      const res = await api.get<{ data: QueueDoctor[] }>(url);
       setDisplay(res.data);
     } catch {
       // empty
@@ -467,7 +527,20 @@ export default function QueuePage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.queue.title")}</h1>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.queue.title")}</h1>
+        {/* Super-admin only: narrow the cross-tenant live queue to one tenant. */}
+        {isSuperAdmin && (
+          <TenantSelect
+            tenants={tenants}
+            value={selectedTenantId}
+            onChange={setSelectedTenantId}
+            allLabel="All tenants"
+            className="w-full sm:w-64"
+            testId="queue-tenant-filter"
+          />
+        )}
+      </div>
 
       {/* Pearl §2.1.2 — when a DOCTOR opens the page, prioritize their
           own card + queue detail at the top (left = their card, right =

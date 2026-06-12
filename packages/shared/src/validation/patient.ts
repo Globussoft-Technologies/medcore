@@ -96,6 +96,13 @@ const patientBaseSchema = z.object({
   // legacy row can be backfilled in the editor without a separate
   // admin tool.
   source: z.enum(PATIENT_SOURCES).optional(),
+  // Super-admin-only target tenant. A platform/super-admin caller has no
+  // tenant context, so the /dashboard/patients "Register Patient" form lets
+  // them pick which tenant to create the patient under; the value is sent
+  // here. IGNORED for tenant-bound callers — the route uses their own
+  // req.tenantId regardless (see routes/patients.ts), so this can't be used
+  // to plant a patient in someone else's tenant.
+  tenantId: z.string().trim().min(1).max(64).optional(),
 });
 
 // Issue #896: when BOTH `age` and `dateOfBirth` are supplied they must be

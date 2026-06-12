@@ -1,5 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { prisma } from "@medcore/db";
+// Multi-tenant: scoped client auto-filters reads + tags writes by tenantId
+// for TENANT_SCOPED_MODELS (cross-tenant leak fix, 2026-06-11).
+import { tenantScopedPrisma as prisma } from "@medcore/db";
 import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 // Issue #456: audit-log reads must be tenant-scoped so a tenant's ADMIN
@@ -313,7 +315,19 @@ function dedupAuditRows<
 function buildAuditWhere(req: Request): Record<string, unknown> {
   const { userId, entity, action, actionIn, ipContains, from, to, q } =
     req.query;
-  const where: Record<string, unknown> = {};
+  // Super-admin tenant filter: a tenant-bound caller (req.tenantId set) is
+  // already auto-scoped by tenantScopedPrisma, so this is a no-op for them.
+  // A super-admin (no req.tenantId) may narrow the cross-tenant view to one
+  // tenant via `?tenantId=`. AuditLog rows with null tenantId (platform
+  // events) simply fall outside a tenant-specific filter, which is correct.
+  const tenantIdParam = req.query.tenantId;
+  const where: Record<string, unknown> = {
+    ...(!req.tenantId &&
+    typeof tenantIdParam === "string" &&
+    tenantIdParam.trim().length > 0
+      ? { tenantId: tenantIdParam.trim() }
+      : {}),
+  };
 
   // Issue #690: inverted-range guard. If both `from` and `to` are present
   // and parse to valid dates, fromDate must be on or before toDate.

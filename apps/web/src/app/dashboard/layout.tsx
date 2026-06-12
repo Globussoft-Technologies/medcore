@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/lib/store";
 import { useFeatureFlags } from "@/lib/feature-flags-client";
+import { api } from "@/lib/api";
 import type { FeatureKey } from "@medcore/shared";
 import { onAuthBroadcast } from "@/lib/auth-broadcast";
 import { useTranslation } from "@/lib/i18n";
@@ -185,6 +186,7 @@ const navByRole: Record<
     { href: "/dashboard/controlled-substances", label: "Controlled Register", icon: ShieldAlert },
     { href: "/dashboard/immunization-schedule", label: "Immunizations", icon: Syringe },
     { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
+    { href: "/dashboard/my-subscription", label: "My Subscription", icon: IndianRupee },
     { href: "/dashboard/refunds", label: "Refunds", icon: Undo2 },
     { href: "/dashboard/payment-plans", label: "Payment Plans", icon: CreditCard },
     { href: "/dashboard/preauth", label: "Pre-Authorization", icon: FileCheck },
@@ -407,6 +409,104 @@ const navByRole: Record<
   ],
 };
 
+// ── Plan-based gating: sidebar route → PLAN_FEATURE_CATALOG key ──────────
+// Drives both the sidebar filter and the module-access route guard below.
+// ONLY gateable (non-common) modules appear here — common modules (Dashboard,
+// Patients, Appointments, Queue, Calendar, Doctors, Users, Notifications,
+// Chat) and operator/self routes (workspace, my-schedule, tenants, …) are
+// never plan-gated. Several routes share one feature key (e.g. Wards +
+// Admissions both unlock via `ipd`). When the tenant's plan doesn't include
+// the mapped key, the nav item is hidden and direct navigation is bounced.
+const PLAN_GATED_ROUTES: Record<string, string> = {
+  "/dashboard/agent-console": "agentConsole",
+  // Clinical
+  "/dashboard/prescriptions": "prescriptions",
+  "/dashboard/medicines": "medicines",
+  "/dashboard/immunization-schedule": "immunizations",
+  "/dashboard/referrals": "referrals",
+  "/dashboard/antenatal": "antenatal",
+  "/dashboard/pediatric": "pediatric",
+  "/dashboard/cohorts": "cohorts",
+  "/dashboard/adherence": "adherence",
+  // Inpatient & OT
+  "/dashboard/wards": "ipd",
+  "/dashboard/admissions": "ipd",
+  "/dashboard/surgery": "surgery",
+  "/dashboard/ot": "ot",
+  "/dashboard/emergency": "emergency",
+  "/dashboard/bloodbank": "bloodbank",
+  "/dashboard/ambulance": "ambulance",
+  "/dashboard/census": "census",
+  // Diagnostics
+  "/dashboard/lab/qc": "labQc",
+  "/dashboard/lab": "lab",
+  "/dashboard/lab-explainer": "labExplainer",
+  // Pharmacy
+  "/dashboard/pharmacy": "pharmacy",
+  "/dashboard/controlled-substances": "controlledRegister",
+  "/dashboard/suppliers": "suppliers",
+  "/dashboard/purchase-orders": "purchaseOrders",
+  "/dashboard/pharmacy-forecast": "pharmacyForecast",
+  // Finance & Billing
+  "/dashboard/billing": "billing",
+  "/dashboard/refunds": "refunds",
+  "/dashboard/payment-plans": "paymentPlans",
+  "/dashboard/packages": "packages",
+  "/dashboard/discount-approvals": "discountApprovals",
+  "/dashboard/insurance-claims": "insuranceClaims",
+  "/dashboard/preauth": "preauth",
+  "/dashboard/expenses": "expenses",
+  "/dashboard/budgets": "budgets",
+  // Front Office & CRM
+  "/dashboard/visitors": "visitors",
+  "/dashboard/leads": "leads",
+  "/dashboard/campaigns": "campaigns",
+  "/dashboard/broadcasts": "broadcasts",
+  "/dashboard/feedback": "feedback",
+  "/dashboard/complaints": "complaints",
+  // HR & Staff
+  "/dashboard/payroll": "hrmsPayroll",
+  "/dashboard/duty-roster": "dutyRoster",
+  "/dashboard/leave-management": "leaveManagement",
+  "/dashboard/holidays": "holidays",
+  "/dashboard/certifications": "certifications",
+  "/dashboard/assets": "assets",
+  // Analytics & Reports
+  "/dashboard/analytics": "analytics",
+  "/dashboard/reports": "reports",
+  "/dashboard/scheduled-reports": "scheduledReports",
+  "/dashboard/audit": "auditLog",
+  // AI suite
+  "/dashboard/scribe": "voiceRx",
+  "/dashboard/ai-booking": "aiBooking",
+  "/dashboard/ai-differential": "predictiveCds",
+  "/dashboard/ai/chart-search": "chartSearch",
+  "/dashboard/ai-analytics": "aiAnalytics",
+  "/dashboard/ai-kpis": "aiKpis",
+  "/dashboard/predictions": "predictiveNoShow",
+  "/dashboard/er-triage": "erTriage",
+  "/dashboard/ai-letters": "aiLetters",
+  "/dashboard/ai-radiology": "aiRadiology",
+  // Integrations
+  "/dashboard/telemedicine": "telemedicine",
+  "/dashboard/abdm": "abdm",
+  "/dashboard/fhir-export": "fhirExport",
+};
+
+// Longest-prefix match so `/dashboard/lab/qc` resolves to `labQc` (not `lab`)
+// and detail routes like `/dashboard/billing/123` resolve to `billing`.
+const PLAN_GATED_PREFIXES = Object.keys(PLAN_GATED_ROUTES).sort(
+  (a, b) => b.length - a.length,
+);
+function planKeyForPath(pathname: string): string | null {
+  for (const prefix of PLAN_GATED_PREFIXES) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      return PLAN_GATED_ROUTES[prefix];
+    }
+  }
+  return null;
+}
+
 export default function DashboardLayout({
   children,
 }: {
@@ -421,6 +521,10 @@ export default function DashboardLayout({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Resolved plan-feature set for the caller's tenant (null = not loaded yet,
+  // or plan unknown/legacy → no plan gating). Drives the sidebar filter +
+  // module-access route guard below.
+  const [planFeatures, setPlanFeatures] = useState<Set<string> | null>(null);
   // Track multi-key sequences (e.g. "g h" for go home)
   const seqRef = useRef<{ key: string; ts: number } | null>(null);
 
@@ -440,6 +544,46 @@ export default function DashboardLayout({
     if (!user?.id) return;
     void loadBranches();
   }, [user?.id, loadBranches]);
+
+  // Plan→module gating: fetch the tenant's resolved plan features so the
+  // sidebar + route guard reflect exactly what the current plan unlocks.
+  // `planFeatures: null` from the API (unknown/legacy plan) → fail open
+  // (show everything); a network error also fails open.
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    api
+      .get<{ data: { planFeatures?: string[] | null } | null }>("/me/tenant")
+      .then((res) => {
+        if (cancelled) return;
+        const pf = res.data?.planFeatures;
+        setPlanFeatures(Array.isArray(pf) ? new Set(pf) : null);
+      })
+      .catch(() => {
+        if (!cancelled) setPlanFeatures(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  // Module-access guard — bounce direct navigation to a route the tenant's
+  // plan doesn't unlock (the sidebar already hides it, but deep links / typed
+  // URLs would otherwise reach the page). Tenant-side only; super-admins skip.
+  // Only fires once plan features have loaded (null = fail open).
+  useEffect(() => {
+    if (!user || !planFeatures) return;
+    const callerIsSuperAdmin =
+      user.role === "SUPER_ADMIN" ||
+      (user.role === "ADMIN" && (user.tenantId ?? null) === null);
+    if (callerIsSuperAdmin) return;
+    const planKey = planKeyForPath(pathname || "");
+    if (planKey && !planFeatures.has(planKey)) {
+      router.replace(
+        `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "")}`,
+      );
+    }
+  }, [user, planFeatures, pathname, router]);
 
   // Cross-tab cookie-swap defence (#524 / #538 / #540 / #564 / #567 / #584).
   // Belt-and-suspenders companion to the module-init subscription in
@@ -953,13 +1097,36 @@ export default function DashboardLayout({
   const isSuperAdmin =
     user.role === "SUPER_ADMIN" ||
     (user.role === "ADMIN" && (user.tenantId ?? null) === null);
-  const SUPER_ADMIN_ONLY_ROUTES = new Set<string>([
+  // Tenant provisioning is reserved for the single root "main" super-admin
+  // (User.isMainSuperAdmin). Peer super-admins manage existing tenants but
+  // cannot add one, so the Tenants nav is main-only — matching the
+  // server-side gate on POST /api/v1/tenants.
+  const isMainSuperAdmin = user.isMainSuperAdmin === true;
+  const MAIN_SUPER_ADMIN_ONLY_ROUTES = new Set<string>([
     "/dashboard/tenants",
+  ]);
+  const SUPER_ADMIN_ONLY_ROUTES = new Set<string>([
     "/dashboard/platform-billing",
     "/dashboard/observability",
   ]);
+  // Tenant-admin-only surfaces — hidden from super-admins, who use the
+  // cross-tenant equivalents instead. "My Subscription" shows a tenant their
+  // OWN bill; super-admins see everyone's via Platform Billing.
+  const TENANT_ADMIN_ONLY_ROUTES = new Set<string>([
+    "/dashboard/my-subscription",
+  ]);
   const nav = rawNav.filter((item) => {
+    if (MAIN_SUPER_ADMIN_ONLY_ROUTES.has(item.href) && !isMainSuperAdmin)
+      return false;
     if (SUPER_ADMIN_ONLY_ROUTES.has(item.href) && !isSuperAdmin) return false;
+    if (TENANT_ADMIN_ONLY_ROUTES.has(item.href) && isSuperAdmin) return false;
+    // Plan gating — tenant-side only. Super-admins are cross-tenant operators
+    // and keep the full nav. Only filter once plan features have loaded; null
+    // (unknown/legacy plan or still loading) shows everything (fail open).
+    if (!isSuperAdmin && planFeatures) {
+      const planKey = PLAN_GATED_ROUTES[item.href];
+      if (planKey && !planFeatures.has(planKey)) return false;
+    }
     const key = FEATURE_GATED_ROUTES[item.href];
     if (!key) return true; // ungated nav item — always show
     return featureFlags[key];

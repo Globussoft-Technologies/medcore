@@ -28,6 +28,7 @@ import { useAuthStore } from "@/lib/store";
 import { Search, Plus, Stethoscope, X } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
 import { EntityPicker } from "@/components/EntityPicker";
+import { TenantSelect } from "@/components/TenantSelect";
 import { extractFieldErrors } from "@/lib/field-errors";
 import { BulkEditDoctorsModal } from "./BulkEditDoctorsModal";
 
@@ -95,6 +96,20 @@ export default function DoctorsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [specFilter, setSpecFilter] = useState("");
   const [showForm, setShowForm] = useState(false);
+  // Super-admin tenant filter. A super-admin (actualRole SUPER_ADMIN, or the
+  // legacy tenant-less ADMIN) bypasses tenant scoping and sees every tenant's
+  // doctors; the dropdown below narrows the cross-tenant list to one tenant via
+  // `?tenantId=`. Hidden for tenant-bound admins (already scoped to their own).
+  const isSuperAdmin =
+    user?.actualRole === "SUPER_ADMIN" ||
+    (user?.role === "ADMIN" && !user?.tenantId);
+  const [tenants, setTenants] = useState<
+    Array<{ id: string; name: string; subdomain: string }>
+  >([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+  // Super-admin only: which tenant a newly-created doctor is registered under
+  // (the super-admin has no tenant context of their own).
+  const [formTenantId, setFormTenantId] = useState("");
   // Pearl §3.1 (gap row 74) — bulk-edit modal state. `bulkIds` holds the
   // doctor ids captured at the moment the admin clicked "Bulk edit" in
   // the DataTable selection bar; DataTable clears its own internal
@@ -125,7 +140,27 @@ export default function DoctorsPage() {
     if (authLoading || !user || !DOCTORS_ALLOWED.has(user.role)) return;
     loadDoctors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user]);
+  }, [authLoading, user, selectedTenantId]);
+
+  // Load the tenant list for the super-admin filter dropdown (GET /tenants is
+  // super-admin-only, so we only call it for super-admins; others 403 silently).
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; subdomain: string }>;
+        }>("/tenants");
+        if (!cancelled) setTenants(res.data || []);
+      } catch {
+        // non-super-admin / endpoint unavailable — leave the list empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
 
   async function loadDoctors() {
     setLoading(true);
@@ -135,6 +170,9 @@ export default function DoctorsPage() {
       const params = new URLSearchParams();
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (specFilter) params.set("specialization", specFilter);
+      // Super-admin only: narrow the cross-tenant view to one tenant.
+      if (isSuperAdmin && selectedTenantId)
+        params.set("tenantId", selectedTenantId);
       const qs = params.toString();
       const res = await api.get<{ data: DoctorRecord[] }>(
         `/doctors${qs ? `?${qs}` : ""}`
@@ -211,6 +249,7 @@ export default function DoctorsPage() {
       qualification: "",
       registrationNumber: "",
     });
+    setFormTenantId("");
     setFormErrors({});
     setCreateMode("new");
   }
@@ -245,6 +284,11 @@ export default function DoctorsPage() {
     if (!form.qualification.trim())
       errs.qualification = "Qualification is required";
 
+    // Super-admin must choose a target tenant (they have none of their own).
+    if (isSuperAdmin && !formTenantId) {
+      errs.tenantId = "Select a tenant to register the doctor under";
+    }
+
     setFormErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
@@ -258,13 +302,23 @@ export default function DoctorsPage() {
         // doesn't exist yet (current backend gap), the row is still
         // created with the registration defaults and the admin can edit
         // from the Doctor profile.
-        await api.post("/auth/register", {
-          name: form.name.trim(),
-          email: form.email.trim(),
-          phone: form.phone.trim(),
-          password: form.password,
-          role: "DOCTOR",
-        });
+        await api.post(
+          "/auth/register",
+          {
+            name: form.name.trim(),
+            email: form.email.trim(),
+            phone: form.phone.trim(),
+            password: form.password,
+            role: "DOCTOR",
+          },
+          // Super-admin only: target the chosen tenant via X-Tenant-Id. The
+          // server honours this header to create the doctor under that tenant.
+          // Tenant-bound admins call exactly as before (no header) and the
+          // doctor is pinned to their own tenant.
+          isSuperAdmin && formTenantId
+            ? { headers: { "X-Tenant-Id": formTenantId } }
+            : undefined,
+        );
         // Best-effort: refresh and try to patch the just-created Doctor
         // with the admin's specialization / qualification.
         try {
@@ -463,6 +517,16 @@ export default function DoctorsPage() {
             ))}
           </select>
         </div>
+        {isSuperAdmin && (
+          <TenantSelect
+            tenants={tenants}
+            value={selectedTenantId}
+            onChange={setSelectedTenantId}
+            allLabel="All tenants"
+            className="w-full sm:w-64"
+            testId="doctors-tenant-filter"
+          />
+        )}
       </div>
 
       <DataTable<DoctorRecord>
@@ -794,6 +858,37 @@ export default function DoctorsPage() {
                   className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 />
               </div>
+
+              {/* Super-admin only: target tenant for the new doctor. A super-
+                  admin has no tenant of their own, so they must choose which
+                  tenant the doctor belongs to. Tenant-bound admins never see
+                  this — the API pins the doctor to their own tenant. */}
+              {isSuperAdmin && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                    Tenant
+                  </label>
+                  <div className="mt-1">
+                    <TenantSelect
+                      tenants={tenants}
+                      value={formTenantId}
+                      onChange={setFormTenantId}
+                      placeholder="Select tenant…"
+                      error={!!formErrors.tenantId}
+                      className="w-full"
+                      testId="doctor-form-tenant"
+                    />
+                  </div>
+                  {formErrors.tenantId && (
+                    <p
+                      data-testid="error-tenant"
+                      className="mt-1 text-xs text-red-600 dark:text-red-400"
+                    >
+                      {formErrors.tenantId}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="mt-4 flex justify-end gap-2">
                 <button

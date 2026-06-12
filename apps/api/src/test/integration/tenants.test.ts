@@ -61,9 +61,14 @@ async function ensureDefaultTenant(): Promise<string> {
   return t.id;
 }
 
-async function seedSuperAdmin(tenantId: string): Promise<string> {
+async function seedSuperAdmin(
+  tenantId: string,
+  isMain = false,
+): Promise<string> {
   const prisma = await getPrisma();
-  const email = `super-admin-${Date.now()}@test.local`;
+  const email = `super-admin-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 6)}@test.local`;
   const user = await prisma.user.create({
     data: {
       email,
@@ -73,6 +78,10 @@ async function seedSuperAdmin(tenantId: string): Promise<string> {
       role: "ADMIN",
       tenantId,
       isActive: true,
+      // Tenant CREATION is gated to the main super-admin (routes/tenants.ts
+      // checks `isMainSuperAdmin`). The default-tenant super-admin used for
+      // tenant-management tests must carry this flag.
+      isMainSuperAdmin: isMain,
     },
   });
   return jwt.sign(
@@ -183,7 +192,8 @@ describeIfDB("Tenants API (integration)", () => {
       where: { subdomain: { not: "default" } },
     });
     const defaultTenantId = await ensureDefaultTenant();
-    superAdminToken = await seedSuperAdmin(defaultTenantId);
+    // Main super-admin (isMainSuperAdmin) — required to CREATE tenants.
+    superAdminToken = await seedSuperAdmin(defaultTenantId, true);
   });
 
   // ── 1. Happy path ────────────────────────────────────────

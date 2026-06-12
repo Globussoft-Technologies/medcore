@@ -78,6 +78,25 @@ test.describe("ABDM consent flow (full project)", () => {
     // Stub EVERY ABDM gateway call. Hard constraint: no live sandbox traffic.
     await page.route("**/abdm/**", (route) => {
       const url = route.request().url();
+      // 2026-06: ABHA verify is a 2-step OTP flow — auth/otp then auth/verify.
+      if (/\/abha\/auth\/otp(\?|$)/.test(url)) {
+        return route.fulfill(
+          jsonFulfill({
+            success: true,
+            data: { transactionId: "txn-stub-1234", requestId: "req-stub-1234" },
+            error: null,
+          })
+        );
+      }
+      if (/\/abha\/auth\/verify(\?|$)/.test(url)) {
+        return route.fulfill(
+          jsonFulfill({
+            success: true,
+            data: { ok: true, name: "Fresh Patient (verified)" },
+            error: null,
+          })
+        );
+      }
       if (/\/abha\/verify(\?|$)/.test(url)) {
         return route.fulfill(
           jsonFulfill({
@@ -118,13 +137,20 @@ test.describe("ABDM consent flow (full project)", () => {
     });
     await page.getByText(patientLabel).first().click();
 
-    // Confirm linkage form is on screen (Link ABHA tab is the default tab).
+    // The default landing tab is now Dashboard (2026-06 module completion);
+    // click Link ABHA to reach its form.
+    await page.getByRole("tab", { name: /link abha/i }).first().click();
     await expect(
       page.getByRole("heading", { name: /link abha to patient/i }).first()
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
 
-    // Fill ABHA address and click Link.
+    // Fill ABHA address, then run the 2-step OTP verify (Send OTP -> enter OTP
+    // -> Verify) before "Link to patient" enables.
     await page.getByPlaceholder("rahul@sbx").first().fill(FAKE_ABHA);
+    await page.getByRole("button", { name: /send otp/i }).first().click();
+    await page.getByPlaceholder("123456").first().fill("123456");
+    await page.getByRole("button", { name: /verify abha/i }).first().click();
+
     await page
       .getByRole("button", { name: /link to patient/i })
       .first()

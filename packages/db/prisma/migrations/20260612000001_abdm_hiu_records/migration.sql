@@ -10,21 +10,35 @@
 -- All three tables are created EMPTY in this migration, so the new UNIQUE/
 -- index additions carry no duplicate-collision risk. New enums are additive.
 -- No existing column is dropped or altered — purely additive, zero-data-loss.
+--
+-- IDEMPOTENT: every CREATE is guarded (enums via DO/EXCEPTION, tables/indexes
+-- via IF NOT EXISTS, FKs via NOT EXISTS lookups). A prior partial run that left
+-- some objects behind (which triggered a P3009 failed-migration state on the
+-- dev DB) can be `prisma migrate resolve --rolled-back`ed and re-applied
+-- cleanly — re-running this file never errors on already-existing objects.
 
--- ─── Enums ───────────────────────────────────────────────────────────
-CREATE TYPE "AbdmTxnType" AS ENUM (
-  'ABHA_VERIFY', 'ABHA_LINK', 'ABHA_DELINK', 'CONSENT_REQUEST', 'CONSENT_GRANT',
-  'CONSENT_REVOKE', 'CARE_CONTEXT_LINK', 'HIP_PUSH', 'HIU_REQUEST', 'HIU_RECEIVE'
-);
+-- ─── Enums (guarded) ─────────────────────────────────────────────────
+DO $$ BEGIN
+  CREATE TYPE "AbdmTxnType" AS ENUM (
+    'ABHA_VERIFY', 'ABHA_LINK', 'ABHA_DELINK', 'CONSENT_REQUEST', 'CONSENT_GRANT',
+    'CONSENT_REVOKE', 'CARE_CONTEXT_LINK', 'HIP_PUSH', 'HIU_REQUEST', 'HIU_RECEIVE'
+  );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TYPE "AbdmTxnStatus" AS ENUM ('INITIATED', 'PENDING', 'SUCCESS', 'FAILED');
+DO $$ BEGIN
+  CREATE TYPE "AbdmTxnStatus" AS ENUM ('INITIATED', 'PENDING', 'SUCCESS', 'FAILED');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TYPE "MedicalRecordSource" AS ENUM ('HIP_LOCAL', 'HIU_EXTERNAL');
+DO $$ BEGIN
+  CREATE TYPE "MedicalRecordSource" AS ENUM ('HIP_LOCAL', 'HIU_EXTERNAL');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TYPE "RecordUploadStatus" AS ENUM ('QUEUED', 'BUNDLED', 'PUSHED', 'FAILED');
+DO $$ BEGIN
+  CREATE TYPE "RecordUploadStatus" AS ENUM ('QUEUED', 'BUNDLED', 'PUSHED', 'FAILED');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- ─── abdm_transactions ───────────────────────────────────────────────
-CREATE TABLE "abdm_transactions" (
+CREATE TABLE IF NOT EXISTS "abdm_transactions" (
     "id" TEXT NOT NULL,
     "type" "AbdmTxnType" NOT NULL,
     "status" "AbdmTxnStatus" NOT NULL DEFAULT 'INITIATED',
@@ -41,21 +55,25 @@ CREATE TABLE "abdm_transactions" (
     CONSTRAINT "abdm_transactions_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "abdm_transactions_patientId_idx" ON "abdm_transactions"("patientId");
-CREATE INDEX "abdm_transactions_type_idx" ON "abdm_transactions"("type");
-CREATE INDEX "abdm_transactions_status_idx" ON "abdm_transactions"("status");
-CREATE INDEX "abdm_transactions_requestId_idx" ON "abdm_transactions"("requestId");
-CREATE INDEX "abdm_transactions_tenantId_createdAt_idx" ON "abdm_transactions"("tenantId", "createdAt" DESC);
+CREATE INDEX IF NOT EXISTS "abdm_transactions_patientId_idx" ON "abdm_transactions"("patientId");
+CREATE INDEX IF NOT EXISTS "abdm_transactions_type_idx" ON "abdm_transactions"("type");
+CREATE INDEX IF NOT EXISTS "abdm_transactions_status_idx" ON "abdm_transactions"("status");
+CREATE INDEX IF NOT EXISTS "abdm_transactions_requestId_idx" ON "abdm_transactions"("requestId");
+CREATE INDEX IF NOT EXISTS "abdm_transactions_tenantId_createdAt_idx" ON "abdm_transactions"("tenantId", "createdAt" DESC);
 
-ALTER TABLE "abdm_transactions"
-  ADD CONSTRAINT "abdm_transactions_tenantId_fkey"
-  FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "abdm_transactions"
-  ADD CONSTRAINT "abdm_transactions_patientId_fkey"
-  FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "abdm_transactions"
+    ADD CONSTRAINT "abdm_transactions_tenantId_fkey"
+    FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+  ALTER TABLE "abdm_transactions"
+    ADD CONSTRAINT "abdm_transactions_patientId_fkey"
+    FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- ─── medical_records ─────────────────────────────────────────────────
-CREATE TABLE "medical_records" (
+CREATE TABLE IF NOT EXISTS "medical_records" (
     "id" TEXT NOT NULL,
     "patientId" TEXT NOT NULL,
     "source" "MedicalRecordSource" NOT NULL DEFAULT 'HIU_EXTERNAL',
@@ -75,21 +93,25 @@ CREATE TABLE "medical_records" (
     CONSTRAINT "medical_records_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "medical_records_patientId_idx" ON "medical_records"("patientId");
-CREATE INDEX "medical_records_source_idx" ON "medical_records"("source");
-CREATE INDEX "medical_records_hiType_idx" ON "medical_records"("hiType");
-CREATE INDEX "medical_records_consentId_idx" ON "medical_records"("consentId");
-CREATE INDEX "medical_records_tenantId_idx" ON "medical_records"("tenantId");
+CREATE INDEX IF NOT EXISTS "medical_records_patientId_idx" ON "medical_records"("patientId");
+CREATE INDEX IF NOT EXISTS "medical_records_source_idx" ON "medical_records"("source");
+CREATE INDEX IF NOT EXISTS "medical_records_hiType_idx" ON "medical_records"("hiType");
+CREATE INDEX IF NOT EXISTS "medical_records_consentId_idx" ON "medical_records"("consentId");
+CREATE INDEX IF NOT EXISTS "medical_records_tenantId_idx" ON "medical_records"("tenantId");
 
-ALTER TABLE "medical_records"
-  ADD CONSTRAINT "medical_records_tenantId_fkey"
-  FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "medical_records"
-  ADD CONSTRAINT "medical_records_patientId_fkey"
-  FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "medical_records"
+    ADD CONSTRAINT "medical_records_tenantId_fkey"
+    FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+  ALTER TABLE "medical_records"
+    ADD CONSTRAINT "medical_records_patientId_fkey"
+    FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- ─── record_uploads ──────────────────────────────────────────────────
-CREATE TABLE "record_uploads" (
+CREATE TABLE IF NOT EXISTS "record_uploads" (
     "id" TEXT NOT NULL,
     "patientId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
@@ -108,16 +130,22 @@ CREATE TABLE "record_uploads" (
     CONSTRAINT "record_uploads_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "record_uploads_patientId_idx" ON "record_uploads"("patientId");
-CREATE INDEX "record_uploads_status_idx" ON "record_uploads"("status");
-CREATE INDEX "record_uploads_tenantId_idx" ON "record_uploads"("tenantId");
+CREATE INDEX IF NOT EXISTS "record_uploads_patientId_idx" ON "record_uploads"("patientId");
+CREATE INDEX IF NOT EXISTS "record_uploads_status_idx" ON "record_uploads"("status");
+CREATE INDEX IF NOT EXISTS "record_uploads_tenantId_idx" ON "record_uploads"("tenantId");
 
-ALTER TABLE "record_uploads"
-  ADD CONSTRAINT "record_uploads_tenantId_fkey"
-  FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "record_uploads"
-  ADD CONSTRAINT "record_uploads_patientId_fkey"
-  FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "record_uploads"
-  ADD CONSTRAINT "record_uploads_uploadedById_fkey"
-  FOREIGN KEY ("uploadedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$ BEGIN
+  ALTER TABLE "record_uploads"
+    ADD CONSTRAINT "record_uploads_tenantId_fkey"
+    FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+  ALTER TABLE "record_uploads"
+    ADD CONSTRAINT "record_uploads_patientId_fkey"
+    FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+  ALTER TABLE "record_uploads"
+    ADD CONSTRAINT "record_uploads_uploadedById_fkey"
+    FOREIGN KEY ("uploadedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN null; END $$;

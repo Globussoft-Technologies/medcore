@@ -168,6 +168,24 @@ fi
 ls -1t "$BACKUP_DIR"/predeploy-*.sql.gz 2>/dev/null | tail -n +15 | xargs -r rm -f
 
 echo "=== 5. Applying database migrations ==="
+# Self-heal known P3009-blocking failed-migration records. A migration that
+# fails a partial run leaves a `failed` row in `_prisma_migrations`, after
+# which `prisma migrate deploy` refuses to apply ANYTHING (P3009) until it is
+# resolved. The migrations listed below have VERIFIED-IDEMPOTENT SQL (guarded
+# enums / IF NOT EXISTS tables+indexes / NOT EXISTS FKs), so we mark a failed
+# record as rolled-back and let `migrate deploy` re-apply it cleanly.
+#
+# Safety: `migrate resolve --rolled-back` ERRORS when the migration is not in
+# a failed state, so on a DB where it already applied this is a silent no-op
+# (the `if` is false). It only ever touches the allowlisted names below — any
+# OTHER failed migration is left untouched so a genuine failure still aborts
+# the deploy at the migrate-deploy step.
+SELF_HEAL_MIGRATIONS="20260612000001_abdm_hiu_records"
+for MIG in $SELF_HEAL_MIGRATIONS; do
+    if DATABASE_URL="$DB_URL" npx prisma migrate resolve --schema "$SCHEMA_PATH" --rolled-back "$MIG" 2>/dev/null; then
+        echo "  Self-heal: cleared failed record for $MIG — will re-apply idempotently."
+    fi
+done
 # `migrate deploy` applies pending migrations only — never resets, never prompts.
 # New migrations must come from `prisma migrate dev` locally and be committed.
 # If this step or 5b fails, restore the dump above:

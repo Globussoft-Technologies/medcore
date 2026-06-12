@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -30,16 +29,22 @@ describe("AbdmPage", () => {
     apiMock.get.mockReset();
     apiMock.post.mockReset();
     routerMock.push.mockReset();
+    // The Dashboard tab (now the default landing tab for staff) fetches
+    // /abdm/dashboard on mount — give it an empty-but-valid payload so the
+    // page renders without an unhandled rejection.
+    apiMock.get.mockResolvedValue({ data: null });
     authMock.mockReturnValue({
       user: { id: "u1", name: "Dr Asha", role: "DOCTOR" },
       isLoading: false,
     });
   });
 
-  it("renders the heading and the three tabs", () => {
+  it("renders the heading and the core tabs", () => {
     // Issue #758: SANDBOX banner is no longer rendered by default — it now
     // only appears when NEXT_PUBLIC_ABDM_MODE === "sandbox" (explicit
     // opt-in). Production default is the unbannered, non-mock layout.
+    // 2026-06 module completion: the tab set expanded (Dashboard, Profile,
+    // Records, Upload, Audit added); the original three remain present.
     render(<AbdmPage />);
     expect(screen.getByRole("heading", { name: /abdm.*abha/i })).toBeInTheDocument();
     expect(screen.queryByText(/SANDBOX MODE/i)).not.toBeInTheDocument();
@@ -80,15 +85,18 @@ describe("AbdmPage", () => {
     );
   });
 
-  it("shows an error when the ABHA verify call fails", async () => {
+  it("shows an error when the ABHA send-OTP call fails", async () => {
+    // 2026-06 module completion: ABHA verify is now a 2-step OTP flow —
+    // "Send OTP" (POST /abdm/abha/auth/otp) must succeed before the OTP
+    // field + "Verify ABHA" appear. We exercise the send-OTP failure path.
     apiMock.post.mockRejectedValueOnce(new Error("Network down"));
     const user = userEvent.setup();
     render(<AbdmPage />);
-    // Issue #758: placeholder is sandbox-mode-conditional now. Default
-    // (production) renders "username@abdm"; we test that path here.
+    // Switch from the default Dashboard tab to the Link ABHA tab.
+    await user.click(screen.getByRole("tab", { name: /link abha/i }));
     const input = screen.getByPlaceholderText(/username@abdm/i);
     await user.type(input, "test@sbx");
-    await user.click(screen.getByRole("button", { name: /verify abha/i }));
+    await user.click(screen.getByRole("button", { name: /send otp/i }));
     await waitFor(() => expect(screen.getByText(/network down/i)).toBeInTheDocument());
   });
 });

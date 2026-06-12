@@ -360,6 +360,14 @@ const abhaDelinkLimit =
   process.env.NODE_ENV === "test"
     ? (_: any, __: any, n: any) => n()
     : rateLimit(20, 60_000);
+// security: HIU data-transfer + HIP record-push are gateway-hitting writes —
+// cap per-IP to blunt abuse (a tight loop could spam the ABDM gateway / our
+// storage). 20/min matches the authenticated-write posture above.
+// Closes CodeQL js/missing-rate-limiting on /hiu/fetch + /records/upload.
+const abdmWriteLimit =
+  process.env.NODE_ENV === "test"
+    ? (_: any, __: any, n: any) => n()
+    : rateLimit(20, 60_000);
 
 // ── POST /abha/otp/send (Issue #741) ─────────────────────────────────────
 //
@@ -891,6 +899,7 @@ abdmRouter.get(
 abdmRouter.post(
   "/hiu/fetch",
   authorize(Role.ADMIN, Role.DOCTOR, Role.PATIENT),
+  abdmWriteLimit,
   validate(hiuFetchSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -1015,6 +1024,7 @@ abdmRouter.get(
 abdmRouter.post(
   "/records/upload",
   authorize(Role.DOCTOR, Role.ADMIN),
+  abdmWriteLimit,
   validate(uploadRecordSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

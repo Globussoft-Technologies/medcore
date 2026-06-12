@@ -62,14 +62,15 @@ echo "── Step 1: current Prisma migration status ─────────
 npx prisma migrate status --schema "$SCHEMA" || true
 echo
 
-# ── Step 2: Resolve the failed abdm_hiu_records migration ───────
-echo "── Step 2: resolve failed migration $FAILED_MIG as rolled-back ──"
-if npx prisma migrate resolve --schema "$SCHEMA" --rolled-back "$FAILED_MIG" 2>&1; then
-  echo "  ✅ resolve completed — failed record cleared"
-else
-  rc=$?
-  echo "  ⚠ resolve exit $rc — likely already resolved (idempotent). Continuing."
-fi
+# ── Step 2: Clear the failed abdm_hiu_records record ────────────
+# `migrate resolve --rolled-back` proved unreliable here, so delete the FAILED
+# row directly (finished_at IS NULL) — the idempotent migration then re-applies
+# cleanly on the next migrate deploy. Only ever touches a failed row for this
+# exact name; a successfully-applied migration (finished_at set) is untouched.
+echo "── Step 2: clear failed record for $FAILED_MIG ──"
+printf 'DELETE FROM "_prisma_migrations" WHERE migration_name = '"'"'%s'"'"' AND finished_at IS NULL;\n' "$FAILED_MIG" \
+  | npx prisma db execute --schema "$SCHEMA" --stdin
+echo "  ✅ failed record cleared (if any)"
 echo
 
 # ── Step 3: Apply all pending migrations ────────────────────────

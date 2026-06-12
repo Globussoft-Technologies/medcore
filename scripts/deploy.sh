@@ -169,21 +169,23 @@ ls -1t "$BACKUP_DIR"/predeploy-*.sql.gz 2>/dev/null | tail -n +15 | xargs -r rm 
 
 echo "=== 5. Applying database migrations ==="
 # Self-heal known P3009-blocking failed-migration records. A migration that
-# fails a partial run leaves a `failed` row in `_prisma_migrations`, after
-# which `prisma migrate deploy` refuses to apply ANYTHING (P3009) until it is
-# resolved. The migrations listed below have VERIFIED-IDEMPOTENT SQL (guarded
-# enums / IF NOT EXISTS tables+indexes / NOT EXISTS FKs), so we mark a failed
-# record as rolled-back and let `migrate deploy` re-apply it cleanly.
+# fails a partial run leaves a row in `_prisma_migrations` with finished_at
+# NULL; `prisma migrate deploy` then refuses to apply ANYTHING (P3009) until
+# it is cleared. The migrations listed below have VERIFIED-IDEMPOTENT SQL
+# (guarded enums / IF NOT EXISTS tables+indexes / NOT EXISTS FKs), so we clear
+# the failed row and let `migrate deploy` re-apply the migration cleanly.
 #
-# Safety: `migrate resolve --rolled-back` ERRORS when the migration is not in
-# a failed state, so on a DB where it already applied this is a silent no-op
-# (the `if` is false). It only ever touches the allowlisted names below — any
-# OTHER failed migration is left untouched so a genuine failure still aborts
-# the deploy at the migrate-deploy step.
+# We DELETE the failed row directly (via `prisma db execute`) instead of
+# `migrate resolve --rolled-back`, which did not reliably clear the record on
+# this DB. Safety: the WHERE clause matches ONLY a FAILED row (finished_at IS
+# NULL) for the EXACT allowlisted name — a successfully-applied migration
+# (finished_at set) is never touched, and any OTHER failed migration still
+# aborts the deploy at the migrate-deploy step below.
 SELF_HEAL_MIGRATIONS="20260612000001_abdm_hiu_records"
 for MIG in $SELF_HEAL_MIGRATIONS; do
-    if DATABASE_URL="$DB_URL" npx prisma migrate resolve --schema "$SCHEMA_PATH" --rolled-back "$MIG" 2>/dev/null; then
-        echo "  Self-heal: cleared failed record for $MIG — will re-apply idempotently."
+    HEAL_SQL="DELETE FROM \"_prisma_migrations\" WHERE migration_name = '$MIG' AND finished_at IS NULL;"
+    if printf '%s\n' "$HEAL_SQL" | DATABASE_URL="$DB_URL" npx prisma db execute --schema "$SCHEMA_PATH" --stdin 2>/dev/null; then
+        echo "  Self-heal: cleared any failed record for $MIG — will re-apply idempotently."
     fi
 done
 # `migrate deploy` applies pending migrations only — never resets, never prompts.

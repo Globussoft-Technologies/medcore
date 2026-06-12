@@ -640,10 +640,12 @@ test.describe("AI smoke (14 newer AI routes)", () => {
     await expect(consentTab).toBeVisible();
     await expect(careTab).toBeVisible();
 
-    // Default tab shows Link ABHA form.
+    // The default landing tab is now Dashboard (2026-06 module completion);
+    // click Link ABHA to reach its form heading.
+    await linkTab.click();
     await expect(
       page.getByRole("heading", { name: /link abha to patient/i }).first()
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 10_000 });
 
     // Consents tab renders the new-request form.
     await consentTab.click();

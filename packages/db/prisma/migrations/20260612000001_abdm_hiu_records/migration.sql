@@ -64,12 +64,12 @@ CREATE INDEX IF NOT EXISTS "abdm_transactions_tenantId_createdAt_idx" ON "abdm_t
 DO $$ BEGIN
   ALTER TABLE "abdm_transactions"
     ADD CONSTRAINT "abdm_transactions_tenantId_fkey"
-    FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN
   ALTER TABLE "abdm_transactions"
     ADD CONSTRAINT "abdm_transactions_patientId_fkey"
-    FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    FOREIGN KEY ("patientId") REFERENCES "patients"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- ─── medical_records ─────────────────────────────────────────────────
@@ -102,12 +102,12 @@ CREATE INDEX IF NOT EXISTS "medical_records_tenantId_idx" ON "medical_records"("
 DO $$ BEGIN
   ALTER TABLE "medical_records"
     ADD CONSTRAINT "medical_records_tenantId_fkey"
-    FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN
   ALTER TABLE "medical_records"
     ADD CONSTRAINT "medical_records_patientId_fkey"
-    FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("patientId") REFERENCES "patients"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- ─── record_uploads ──────────────────────────────────────────────────
@@ -137,15 +137,15 @@ CREATE INDEX IF NOT EXISTS "record_uploads_tenantId_idx" ON "record_uploads"("te
 DO $$ BEGIN
   ALTER TABLE "record_uploads"
     ADD CONSTRAINT "record_uploads_tenantId_fkey"
-    FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN
   ALTER TABLE "record_uploads"
     ADD CONSTRAINT "record_uploads_patientId_fkey"
-    FOREIGN KEY ("patientId") REFERENCES "Patient"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+    FOREIGN KEY ("patientId") REFERENCES "patients"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 DO $$ BEGIN
   ALTER TABLE "record_uploads"
     ADD CONSTRAINT "record_uploads_uploadedById_fkey"
-    FOREIGN KEY ("uploadedById") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    FOREIGN KEY ("uploadedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 EXCEPTION WHEN duplicate_object THEN null; END $$;

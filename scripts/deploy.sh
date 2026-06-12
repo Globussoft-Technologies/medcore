@@ -181,7 +181,7 @@ echo "=== 5. Applying database migrations ==="
 # NULL) for the EXACT allowlisted name — a successfully-applied migration
 # (finished_at set) is never touched, and any OTHER failed migration still
 # aborts the deploy at the migrate-deploy step below.
-SELF_HEAL_MIGRATIONS="20260612000001_abdm_hiu_records"
+SELF_HEAL_MIGRATIONS="20260612000001_abdm_hiu_records 20260611000003_medicine_tenant_composite_unique"
 for MIG in $SELF_HEAL_MIGRATIONS; do
     HEAL_SQL="DELETE FROM \"_prisma_migrations\" WHERE migration_name = '$MIG' AND finished_at IS NULL;"
     if printf '%s\n' "$HEAL_SQL" | DATABASE_URL="$DB_URL" npx prisma db execute --schema "$SCHEMA_PATH" --stdin 2>/dev/null; then

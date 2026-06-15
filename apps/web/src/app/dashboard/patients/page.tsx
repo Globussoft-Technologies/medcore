@@ -188,16 +188,33 @@ export default function PatientsPage() {
         isSuperAdmin && selectedTenantId
           ? `&tenantId=${encodeURIComponent(selectedTenantId)}`
           : "";
-      const res = await api.get<{ data: PatientRecord[]; meta: { total: number } }>(
-        `/patients?limit=50${q}${tq}`
-      );
-      const flat = (res.data || []).map((p) => ({
+      // Load the FULL registry (not just the first page) so the client-side
+      // DataTable can paginate every patient. Previously a fixed `limit=50`
+      // silently dropped any patient beyond the 50th. The API caps `take` at
+      // 100, so walk the pages until we've pulled them all.
+      const PAGE_LIMIT = 100;
+      const all: PatientRecord[] = [];
+      let pageNum = 1;
+      let totalCount = 0;
+      // Guard the loop so a misbehaving meta.total can't spin forever.
+      for (let guard = 0; guard < 100; guard++) {
+        const res = await api.get<{
+          data: PatientRecord[];
+          meta: { total: number };
+        }>(`/patients?page=${pageNum}&limit=${PAGE_LIMIT}${q}${tq}`);
+        const batch = res.data || [];
+        all.push(...batch);
+        totalCount = res.meta?.total ?? all.length;
+        if (batch.length < PAGE_LIMIT || all.length >= totalCount) break;
+        pageNum++;
+      }
+      const flat = all.map((p) => ({
         ...p,
         name: p.user?.name,
         phone: p.user?.phone,
       }));
       setPatients(flat);
-      setTotal(res.meta?.total ?? 0);
+      setTotal(totalCount);
     } catch {
       // empty
     }

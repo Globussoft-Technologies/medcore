@@ -6,6 +6,20 @@
 -- 20260611000001/2 and names were globally unique under the old constraint,
 -- so (tenantId, name) is already collision-free.
 
+-- Ensure the tenant column exists (added in 20260611000002; repeated here
+-- defensively so this migration is self-sufficient even on a self-heal
+-- re-apply). IF NOT EXISTS → no-op in the normal ordered run.
+ALTER TABLE "medicines" ADD COLUMN IF NOT EXISTS "tenantId" TEXT;
+
+-- Drop the old GLOBAL unique on medicines.name. Prisma may have materialised
+-- `@unique` as either a table CONSTRAINT or a bare unique INDEX depending on
+-- the version that first created it. A constraint-backed index CANNOT be
+-- removed with DROP INDEX (Postgres errors "cannot drop index ... because
+-- constraint ... requires it"), which is exactly what made the original lone
+-- `DROP INDEX` line fail and left this migration permanently P3009-blocked on
+-- the deploy DB. Issue BOTH drops — each IF EXISTS, so whichever form does not
+-- apply is a harmless no-op.
+ALTER TABLE "medicines" DROP CONSTRAINT IF EXISTS "medicines_name_key";
 DROP INDEX IF EXISTS "medicines_name_key";
 
 -- Deduplicate any pre-existing (tenantId, name) collisions BEFORE adding the
@@ -20,7 +34,9 @@ DROP INDEX IF EXISTS "medicines_name_key";
 WITH ranked AS (
   SELECT id,
          row_number() OVER (
-           PARTITION BY "tenantId", "name"
+           -- COALESCE so rows with a NULL tenantId (Main hospital) are treated
+           -- as one group too — the composite index can then never hit 23505.
+           PARTITION BY COALESCE("tenantId", '__null_tenant__'), "name"
            ORDER BY "id"
          ) AS rn
   FROM "medicines"

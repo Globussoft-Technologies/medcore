@@ -7,7 +7,8 @@
 -- which is SAFE: the table is created empty in this same migration, so
 -- duplicate keys are impossible. [allow-unique]
 
-CREATE TABLE "SuperAdminPermission" (
+-- IF NOT EXISTS so a retried deploy after a P3009 recovery re-applies cleanly.
+CREATE TABLE IF NOT EXISTS "SuperAdminPermission" (
     "id" TEXT NOT NULL,
     "key" TEXT NOT NULL,
     "label" TEXT NOT NULL,
@@ -22,7 +23,7 @@ CREATE TABLE "SuperAdminPermission" (
 );
 
 -- [allow-unique] new empty table — no existing rows, so no duplicate keys.
-CREATE UNIQUE INDEX "SuperAdminPermission_key_key" ON "SuperAdminPermission"("key");
+CREATE UNIQUE INDEX IF NOT EXISTS "SuperAdminPermission_key_key" ON "SuperAdminPermission"("key");
 
 -- Seed the baseline grants inline so the catalog is usable the moment this
 -- migration applies (no separate reseed needed). These mirror

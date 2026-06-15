@@ -1134,7 +1134,10 @@ describe("AdmissionDetailPage (IPD admission detail — top-level wiring + tabs)
     );
     // Happy submit
     apiMock.post.mockResolvedValue({ data: { id: "lo-new" } });
-    fireEvent.click(screen.getByLabelText("CBC"));
+    // The test picker is lazy-loaded (/lab/tests fetch fires when the form
+    // opens), so await the checkbox rather than querying synchronously — the
+    // empty-selection toast above can resolve before that fetch settles.
+    fireEvent.click(await screen.findByLabelText("CBC"));
     fireEvent.click(screen.getByRole("button", { name: /Create Order/ }));
     await waitFor(() =>
       expect(apiMock.post).toHaveBeenCalledWith(

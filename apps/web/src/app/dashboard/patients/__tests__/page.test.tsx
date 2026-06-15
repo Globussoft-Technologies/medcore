@@ -6,7 +6,7 @@
  *   - Exercises apps/web/src/app/dashboard/patients/page.tsx, the staff-only
  *     patient registry + create-patient form + Recover-Phone modal. Endpoints
  *     the page hits:
- *       GET   /patients?limit=50(&search=…)      (list + debounced search)
+ *       GET   /patients?page=N&limit=100(&search=…) (full registry, paged; + debounced search)
  *       POST  /patients                          (create patient)
  *       POST  /abdm/abha/link                    (sidecar after create)
  *       POST  /patients/:id/recover-phone        (reception flow)
@@ -178,14 +178,14 @@ afterEach(() => {
 
 describe("PatientsPage", () => {
   describe("initial render and RBAC", () => {
-    it("fetches /patients on mount with limit=50 and no search filter", async () => {
+    it("fetches the full /patients registry on mount (paged) with no search filter", async () => {
       setAuth("ADMIN");
       apiMock.get.mockResolvedValue({ data: [], meta: { total: 0 } });
 
       render(<PatientsPage />);
 
       await waitFor(() => {
-        expect(apiMock.get).toHaveBeenCalledWith("/patients?limit=50");
+        expect(apiMock.get).toHaveBeenCalledWith("/patients?page=1&limit=100");
       });
       // Heading from i18n key — match the data-testid pattern by role.
       expect(
@@ -312,9 +312,9 @@ describe("PatientsPage", () => {
       await waitFor(
         () => {
           const calls = apiMock.get.mock.calls.map((c) => String(c[0]));
-          expect(calls.some((u) => u === "/patients?limit=50&search=Aa")).toBe(
-            true,
-          );
+          expect(
+            calls.some((u) => u === "/patients?page=1&limit=100&search=Aa"),
+          ).toBe(true);
         },
         { timeout: 2000 },
       );

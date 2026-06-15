@@ -85,18 +85,13 @@ describe("isFeatureEnabled — tenantId short-circuit (no DB hit)", () => {
 });
 
 describe("isFeatureEnabled — Prisma plumbing", () => {
-  it("queries Tenant by id and selects featureFlags + subdomain", async () => {
-    // subdomain is selected so the Main/Default hospital (subdomain "default")
-    // can be granted full access.
-    prismaMock.tenant.findUnique.mockResolvedValue({
-      featureFlags: null,
-      subdomain: "acme",
-    });
+  it("queries Tenant by id and selects only featureFlags", async () => {
+    prismaMock.tenant.findUnique.mockResolvedValue({ featureFlags: null });
     await isFeatureEnabled("tenant-A", "ipd");
     expect(prismaMock.tenant.findUnique).toHaveBeenCalledTimes(1);
     expect(prismaMock.tenant.findUnique).toHaveBeenCalledWith({
       where: { id: "tenant-A" },
-      select: { featureFlags: true, subdomain: true },
+      select: { featureFlags: true },
     });
   });
 
@@ -113,17 +108,6 @@ describe("isFeatureEnabled — Prisma plumbing", () => {
     expect(await isFeatureEnabled("tenant-pearl", "telemedicine")).toBe(false);
     // Sibling keys not overridden remain default-enabled.
     expect(await isFeatureEnabled("tenant-pearl", "aiFraud")).toBe(true);
-  });
-
-  it("grants the Main/Default hospital (subdomain 'default') full access regardless of flags", async () => {
-    // Even an explicit `false` override is ignored for the default house
-    // tenant — it is un-gated (MULTI_TENANT_ARCHITECTURE.md / full-access rule).
-    prismaMock.tenant.findUnique.mockResolvedValue({
-      featureFlags: { ipd: false, telemedicine: false },
-      subdomain: "default",
-    });
-    expect(await isFeatureEnabled("tenant-default", "ipd")).toBe(true);
-    expect(await isFeatureEnabled("tenant-default", "telemedicine")).toBe(true);
   });
 
   it("defaults to true when the tenant row is missing entirely", async () => {

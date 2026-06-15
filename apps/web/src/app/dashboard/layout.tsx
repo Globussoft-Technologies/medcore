@@ -525,6 +525,10 @@ export default function DashboardLayout({
   // or plan unknown/legacy → no plan gating). Drives the sidebar filter +
   // module-access route guard below.
   const [planFeatures, setPlanFeatures] = useState<Set<string> | null>(null);
+  // True when the caller's tenant is the Main/Default hospital (subdomain
+  // "default"). It has no MedCore subscription of its own, so we hide the
+  // "My Subscription" nav item for it.
+  const [isDefaultTenant, setIsDefaultTenant] = useState(false);
   // Track multi-key sequences (e.g. "g h" for go home)
   const seqRef = useRef<{ key: string; ts: number } | null>(null);
 
@@ -553,14 +557,20 @@ export default function DashboardLayout({
     if (!user?.id) return;
     let cancelled = false;
     api
-      .get<{ data: { planFeatures?: string[] | null } | null }>("/me/tenant")
+      .get<{
+        data: { planFeatures?: string[] | null; isDefault?: boolean } | null;
+      }>("/me/tenant")
       .then((res) => {
         if (cancelled) return;
         const pf = res.data?.planFeatures;
         setPlanFeatures(Array.isArray(pf) ? new Set(pf) : null);
+        setIsDefaultTenant(res.data?.isDefault === true);
       })
       .catch(() => {
-        if (!cancelled) setPlanFeatures(null);
+        if (!cancelled) {
+          setPlanFeatures(null);
+          setIsDefaultTenant(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -1120,6 +1130,10 @@ export default function DashboardLayout({
       return false;
     if (SUPER_ADMIN_ONLY_ROUTES.has(item.href) && !isSuperAdmin) return false;
     if (TENANT_ADMIN_ONLY_ROUTES.has(item.href) && isSuperAdmin) return false;
+    // The Main/Default hospital has no MedCore subscription of its own → hide
+    // "My Subscription" for it.
+    if (item.href === "/dashboard/my-subscription" && isDefaultTenant)
+      return false;
     // Plan gating — tenant-side only. Super-admins are cross-tenant operators
     // and keep the full nav. Only filter once plan features have loaded; null
     // (unknown/legacy plan or still loading) shows everything (fail open).

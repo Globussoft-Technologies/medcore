@@ -83,9 +83,13 @@ router.get("/tenant", async (req: Request, res: Response, next: NextFunction) =>
       }
     }
 
+    // `isDefault` lets the dashboard chrome treat the Main/Default hospital
+    // specially: show "Full Access" instead of a plan badge and suppress the
+    // onboarding nudge (the house tenant is already set up + un-gated).
+    const isDefault = tenant?.subdomain === "default";
     res.json({
       success: true,
-      data: tenant ? { ...tenant, planFeatures } : null,
+      data: tenant ? { ...tenant, planFeatures, isDefault } : null,
       error: null,
     });
   } catch (err) {

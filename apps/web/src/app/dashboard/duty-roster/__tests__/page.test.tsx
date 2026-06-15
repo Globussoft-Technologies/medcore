@@ -271,13 +271,17 @@ describe("DutyRosterPage", () => {
     apiMock.get.mockClear();
     mockHappyFetches();
 
+    // Use a fixed HISTORICAL date so it can never equal today's `todayKey()`
+    // initial value — otherwise setDate is a no-op and nothing refetches.
+    // (Previously hardcoded "2026-06-15", which broke once the real clock
+    // reached that date.)
     fireEvent.change(screen.getByTestId("roster-date-filter"), {
-      target: { value: "2026-06-15" },
+      target: { value: "2024-03-10" },
     });
 
     await waitFor(() =>
       expect(apiMock.get).toHaveBeenCalledWith(
-        "/shifts/roster?date=2026-06-15",
+        "/shifts/roster?date=2024-03-10",
       ),
     );
   });

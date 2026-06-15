@@ -9,32 +9,48 @@
 import { prisma } from "@medcore/db";
 import {
   type FeatureKey,
+  FEATURE_KEYS,
   isFeatureEnabled as resolveFlag,
   resolveAllFeatureFlags,
 } from "@medcore/shared";
 
+/** Every feature ON — the Main/Default hospital's full-access map. */
+function allFeaturesEnabled(): Record<FeatureKey, boolean> {
+  const out = {} as Record<FeatureKey, boolean>;
+  for (const k of FEATURE_KEYS) out[k] = true;
+  return out;
+}
+
 interface CacheEntry {
   flags: Record<string, unknown> | null;
+  // The Main/Default hospital (subdomain "default") gets FULL access — it is
+  // not a plan-limited customer tenant, so every feature is on regardless of
+  // its plan. (Mirrors the `tenantId == null` Main-hospital case.)
+  isDefault: boolean;
   expiresAt: number;
 }
 
 const TTL_MS = 60_000;
 const cache = new Map<string, CacheEntry>();
 
-async function loadFlags(tenantId: string): Promise<Record<string, unknown> | null> {
+async function loadTenant(
+  tenantId: string,
+): Promise<{ flags: Record<string, unknown> | null; isDefault: boolean }> {
   const now = Date.now();
   const cached = cache.get(tenantId);
-  if (cached && cached.expiresAt > now) return cached.flags;
+  if (cached && cached.expiresAt > now)
+    return { flags: cached.flags, isDefault: cached.isDefault };
 
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
-    select: { featureFlags: true },
+    select: { featureFlags: true, subdomain: true },
   });
   const flags = (tenant?.featureFlags ?? null) as
     | Record<string, unknown>
     | null;
-  cache.set(tenantId, { flags, expiresAt: now + TTL_MS });
-  return flags;
+  const isDefault = tenant?.subdomain === "default";
+  cache.set(tenantId, { flags, isDefault, expiresAt: now + TTL_MS });
+  return { flags, isDefault };
 }
 
 /**
@@ -51,8 +67,9 @@ export async function isFeatureEnabled(
   tenantId: string | null | undefined,
   key: FeatureKey,
 ): Promise<boolean> {
-  if (!tenantId) return true;
-  const flags = await loadFlags(tenantId);
+  if (!tenantId) return true; // Main hospital (null tenant) → full access
+  const { flags, isDefault } = await loadTenant(tenantId);
+  if (isDefault) return true; // Default/Main hospital → full access
   return resolveFlag(flags, key);
 }
 
@@ -64,8 +81,11 @@ export async function isFeatureEnabled(
 export async function getAllFeatureFlags(
   tenantId: string | null | undefined,
 ): Promise<Record<FeatureKey, boolean>> {
-  if (!tenantId) return resolveAllFeatureFlags(null);
-  const flags = await loadFlags(tenantId);
+  // Main hospital (null tenant) → full access (all features on).
+  if (!tenantId) return allFeaturesEnabled();
+  const { flags, isDefault } = await loadTenant(tenantId);
+  // Default/Main hospital → full access too.
+  if (isDefault) return allFeaturesEnabled();
   return resolveAllFeatureFlags(flags);
 }
 

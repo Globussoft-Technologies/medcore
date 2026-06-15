@@ -649,7 +649,7 @@ export default function PatientDetailPage() {
                 </p>
               </div>
               <Link
-                href={`/dashboard/ipd/${stats.currentAdmissionId}`}
+                href={`/dashboard/admissions/${stats.currentAdmissionId}?from=patient`}
                 className="rounded-lg bg-purple-600 px-3 py-1.5 text-sm text-white hover:bg-purple-700"
               >
                 View IPD

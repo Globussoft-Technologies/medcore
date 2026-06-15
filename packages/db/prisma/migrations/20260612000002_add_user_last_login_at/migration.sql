@@ -3,7 +3,9 @@
 -- "Last login" column — reliable, unlike the prior audit-log derivation (audit
 -- rows get archived and are tenant-scoped).
 
-ALTER TABLE "users" ADD COLUMN "lastLoginAt" TIMESTAMP(3);
+-- IF NOT EXISTS so a retried deploy after a P3009 recovery never errors on an
+-- already-added column.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "lastLoginAt" TIMESTAMP(3);
 
 -- Backfill from existing AUTH_LOGIN audit history so prior logins show up
 -- immediately instead of "Never" until the next sign-in.

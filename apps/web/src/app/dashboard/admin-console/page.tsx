@@ -136,6 +136,7 @@ export default function AdminConsolePage() {
     subdomain: string;
     plan: string;
     active: boolean;
+    isDefault?: boolean;
   } | null>(null);
   // Issue #746: canonical Visitors-Today KPI shared with /dashboard/visitors
   // and (future) /dashboard/reports — anchored to the hospital's local day
@@ -508,8 +509,16 @@ export default function AdminConsolePage() {
             >
               <span className="font-medium text-gray-800 dark:text-gray-200">{tenant.name}</span>{" "}
               <span className="font-mono">(#{tenant.subdomain})</span>
-              <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] uppercase tracking-wide text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                {tenant.plan}
+              {/* The Main/Default hospital is un-gated → show "Full Access"
+                  instead of a plan tier. */}
+              <span
+                className={`ml-2 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                  tenant.isDefault
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                    : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                }`}
+              >
+                {tenant.isDefault ? "Full Access" : tenant.plan}
               </span>
             </p>
           )}

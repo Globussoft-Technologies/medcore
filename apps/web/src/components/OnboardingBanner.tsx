@@ -42,6 +42,17 @@ export function OnboardingBanner() {
     let cancelled = false;
     (async () => {
       try {
+        // The Main/Default hospital is already set up + un-gated — never nag it
+        // with the onboarding checklist. Skip the banner when this tenant is
+        // the default house tenant.
+        const me = await api.get<{ data: { isDefault?: boolean } | null }>(
+          "/me/tenant",
+        );
+        if (cancelled) return;
+        if (me.data?.isDefault) {
+          setPending(0);
+          return;
+        }
         const res = await api.get<OnboardingStatusResponse>(
           `/tenants/${tenantId}/onboarding`,
         );

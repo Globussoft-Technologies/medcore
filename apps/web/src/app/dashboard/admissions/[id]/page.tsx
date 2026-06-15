@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useId, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api, openPrintEndpoint } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import {
@@ -158,6 +158,9 @@ export default function AdmissionDetailPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
+  // When the user arrived from the patient page (View IPD ?from=patient),
+  // send "Back" to that patient rather than the admissions list.
+  const cameFromPatient = useSearchParams().get("from") === "patient";
   const { user } = useAuthStore();
   const [tab, setTab] = useState<Tab>("overview");
   const [admission, setAdmission] = useState<Admission | null>(null);
@@ -220,10 +223,15 @@ export default function AdmissionDetailPage({
     <div>
       <div className="no-print">
         <Link
-          href="/dashboard/admissions"
+          href={
+            cameFromPatient
+              ? `/dashboard/patients/${admission.patient.id}`
+              : "/dashboard/admissions"
+          }
           className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white"
         >
-          <ArrowLeft size={14} /> Back to Admissions
+          <ArrowLeft size={14} />{" "}
+          {cameFromPatient ? "Back to Patient" : "Back to Admissions"}
         </Link>
       </div>
 

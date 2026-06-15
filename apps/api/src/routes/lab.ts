@@ -132,6 +132,7 @@ router.get(
     try {
       const {
         patientId,
+        admissionId,
         doctorId,
         status,
         priority,
@@ -145,6 +146,9 @@ router.get(
 
       const where: Record<string, unknown> = {};
       if (patientId) where.patientId = patientId;
+      // Scope to a single admission's chart (IPD Lab Orders tab). Without this
+      // the param was ignored and the tab leaked every patient's lab orders.
+      if (admissionId) where.admissionId = admissionId;
       if (doctorId) where.doctorId = doctorId;
       if (status) where.status = status;
       if (priority) where.priority = priority;
@@ -163,7 +167,10 @@ router.get(
       // a Doctor in OPD-3 could see another Doctor's STAT panels in OPD-1,
       // including the patient name. NURSE / LAB_TECH still see all so the
       // lab can process; ADMIN sees all for support.
-      if (req.user!.role === "DOCTOR") {
+      // ...but when viewing a specific admission's chart (admissionId set), a
+      // doctor should see ALL orders for that admission, not only their own —
+      // the #183 default is for the cross-patient global list.
+      if (req.user!.role === "DOCTOR" && !admissionId) {
         const doctor = await prisma.doctor.findUnique({
           where: { userId: req.user!.userId },
         });

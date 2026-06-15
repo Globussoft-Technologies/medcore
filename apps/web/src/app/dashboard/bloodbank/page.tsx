@@ -151,16 +151,26 @@ export default function BloodBankPage() {
   const canCreateRequest = user?.role === "DOCTOR" || user?.role === "ADMIN" || user?.role === "NURSE";
   const canApprove = user?.role === "DOCTOR" || user?.role === "ADMIN";
   const canRegisterDonor = user?.role === "NURSE" || user?.role === "DOCTOR" || user?.role === "ADMIN";
+  // The donor registry holds full donor PII; DOCTORs are intentionally excluded
+  // (backend GET /bloodbank/donors → ADMIN/NURSE/LAB_TECH only, #174/#756). Mirror
+  // that here so we don't fetch /donors for a doctor (a 403 would reject the whole
+  // load) and so the Donors tab is hidden for roles that can't view it.
+  const canViewDonors =
+    user?.role === "ADMIN" || user?.role === "NURSE" || user?.role === "LAB_TECH";
 
   async function load() {
     setLoading(true);
     try {
-      const [s, invRes, donorsRes, donationsRes, reqRes] = await Promise.all([
+      const [s, invRes, donationsRes, reqRes, donorsRes] = await Promise.all([
         api.get<{ data: InventorySummary }>("/bloodbank/inventory/summary"),
         api.get<{ data: BloodUnit[] }>("/bloodbank/inventory?limit=200"),
-        api.get<{ data: Donor[] }>(`/bloodbank/donors?limit=100${donorSearch ? `&search=${encodeURIComponent(donorSearch)}` : ""}`),
         api.get<{ data: Donation[] }>("/bloodbank/donations?limit=50"),
         api.get<{ data: BloodRequest[] }>("/bloodbank/requests?limit=50"),
+        // DOCTORs aren't authorized for the donor registry (PII) — skip the
+        // fetch for them so the page still loads instead of 403-ing the lot.
+        canViewDonors
+          ? api.get<{ data: Donor[] }>(`/bloodbank/donors?limit=100${donorSearch ? `&search=${encodeURIComponent(donorSearch)}` : ""}`)
+          : Promise.resolve({ data: [] as Donor[] }),
       ]);
       setSummary(s.data);
       setUnits(invRes.data);
@@ -323,7 +333,9 @@ export default function BloodBankPage() {
 
       {/* Tabs */}
       <div className="mb-4 flex gap-2 border-b border-gray-200 dark:border-gray-700">
-        {(["inventory", "donors", "donations", "requests"] as Tab[]).map((t) => (
+        {(["inventory", "donors", "donations", "requests"] as Tab[])
+          .filter((t) => t !== "donors" || canViewDonors)
+          .map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}

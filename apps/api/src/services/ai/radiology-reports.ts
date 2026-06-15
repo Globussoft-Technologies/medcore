@@ -121,7 +121,10 @@ async function overlayCoordinateGrid(
   try {
     // Lazy require so a missing optional dep doesn't crash module load.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const sharp = require("sharp") as typeof import("sharp");
+    // sharp 0.35+ ships an ESM `export default`, so `typeof import("sharp")`
+    // is the (non-callable) module namespace. The CJS `require` still returns
+    // the callable factory at runtime — type it as the default export.
+    const sharp = require("sharp") as typeof import("sharp").default;
     const img = sharp(bytes);
     const meta = await img.metadata();
     const width = meta.width ?? 0;

@@ -433,6 +433,59 @@ describeIfDB("Prescriptions API (integration)", () => {
     expect(res.body.error).toMatch(/forbidden/i);
   });
 
+  // ─── 2026-06: PHARMACIST may share a prescription ───────────────────
+  // The /:id/share authorize() list gained PHARMACIST (they read + dispense
+  // Rx, so re-sharing the Rx with the patient at the pharmacy counter is a
+  // legitimate staff action). A PHARMACIST is staff, so they bypass the
+  // PATIENT-only assertPatientOwnsResource() gate and reach the signed-Rx
+  // delivery path — SMS lands on the 501 "not yet available" channel stub,
+  // exactly like the DOCTOR/PATIENT path. A 403 here would mean the role
+  // was NOT added to authorize().
+  it("allows a PHARMACIST to share a prescription (2026-06 RBAC expansion)", async () => {
+    const prisma = await getPrisma();
+
+    const { doctor, token: doctorTok } = await createDoctorWithToken();
+    const pharmacistToken = await getAuthToken("PHARMACIST");
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const created = await request(app)
+      .post("/api/v1/prescriptions")
+      .set("Authorization", `Bearer ${doctorTok}`)
+      .send({
+        appointmentId: appt.id,
+        patientId: patient.id,
+        diagnosis: "Viral fever",
+        items: [
+          {
+            medicineName: "Paracetamol 500mg",
+            dosage: "500mg",
+            frequency: "TID",
+            duration: "3d",
+          },
+        ],
+      });
+    expect([200, 201]).toContain(created.status);
+    const prescriptionId = created.body.data.id;
+
+    // Sign it so we exercise the RBAC path, not the #897 unsigned-Rx gate.
+    await prisma.prescription.update({
+      where: { id: prescriptionId },
+      data: { signatureUrl: "https://example.test/sig/doc.png" },
+    });
+
+    const res = await request(app)
+      .post(`/api/v1/prescriptions/${prescriptionId}/share`)
+      .set("Authorization", `Bearer ${pharmacistToken}`)
+      .send({ channel: "SMS" });
+
+    // Passed authorize() → reached the channel-delivery stub (501), NOT 403.
+    expect(res.status).toBe(501);
+    expect(res.body.error).toMatch(/not yet available/i);
+  });
+
   // ─── Issue #897: unsigned prescriptions must not be shared ──────────
   it("rejects sharing an unsigned prescription with 409 (issue #897)", async () => {
     const { doctor, token: doctorTok } = await createDoctorWithToken();

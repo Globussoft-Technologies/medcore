@@ -65,7 +65,9 @@ type FilterField =
   | "ageMax"
   | "lastVisitDaysMin"
   | "lastVisitDaysMax"
-  | "abhaLinked";
+  | "abhaLinked"
+  | "condition" // diagnosis (ICD-10 / name) — searchable
+  | "allergy"; // allergen name — searchable
 
 interface UIFilter {
   field: FilterField;
@@ -102,6 +104,15 @@ function buildRulesPayload(filters: UIFilter[]): {
           op: "eq",
           value: f.value === "true",
         });
+        break;
+      case "condition":
+        // Diagnosis match — name or ICD-10 contains. Compiled across the
+        // chronic-condition / prescription / admission surfaces server-side.
+        out.push({ field: "condition", op: "eq", value: f.value.trim() });
+        break;
+      case "allergy":
+        // Allergen contains (case-insensitive) — PatientAllergy.allergen.
+        out.push({ field: "allergy", op: "eq", value: f.value.trim() });
         break;
     }
   }
@@ -1100,6 +1111,8 @@ export default function NewCampaignPage() {
                     Days since last visit &le;
                   </option>
                   <option value="abhaLinked">ABHA linked</option>
+                  <option value="condition">Diagnosis</option>
+                  <option value="allergy">Allergy</option>
                 </select>
 
                 {f.field === "gender" && (
@@ -1148,6 +1161,26 @@ export default function NewCampaignPage() {
                     placeholder="0"
                     aria-label="Filter numeric value"
                     className="w-24 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900"
+                  />
+                )}
+
+                {f.field === "condition" && (
+                  <DiagnosisFilterInput
+                    value={f.value}
+                    onChange={(v) => updateFilter(idx, { value: v })}
+                  />
+                )}
+
+                {f.field === "allergy" && (
+                  <input
+                    type="text"
+                    value={f.value}
+                    onChange={(e) =>
+                      updateFilter(idx, { value: e.target.value })
+                    }
+                    placeholder="e.g. penicillin"
+                    aria-label="Allergen"
+                    className="w-56 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900"
                   />
                 )}
 
@@ -1232,6 +1265,90 @@ export default function NewCampaignPage() {
           </p>
         )}
       </form>
+    </div>
+  );
+}
+
+// Searchable ICD-10 diagnosis input for the audience builder. Type to search
+// the icd10 master (GET /icd10?q=); picking a row stores its description as the
+// filter term (the server-side `condition` compiler matches name OR ICD code
+// across the chronic-condition / prescription / admission surfaces).
+function DiagnosisFilterInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [query, setQuery] = useState(value);
+  const [options, setOptions] = useState<Array<{ code: string; description: string }>>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    setQuery(value);
+  }, [value]);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setOptions([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.get<{ data: Array<{ code: string; description: string }> }>(
+          `/icd10?q=${encodeURIComponent(query)}`,
+        );
+        if (!cancelled) setOptions(r.data ?? []);
+      } catch {
+        if (!cancelled) setOptions([]);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [query]);
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder="Search diagnosis (e.g. diabetes / E11)"
+        aria-label="Diagnosis"
+        className="w-64 rounded border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-900"
+      />
+      {open && options.length > 0 && (
+        <ul className="absolute z-20 mt-1 max-h-48 w-72 overflow-y-auto rounded-lg border border-gray-200 bg-white text-sm shadow-lg dark:border-gray-700 dark:bg-gray-800">
+          {options.map((o) => (
+            <li key={o.code}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  // Store the description as the match term (human-readable +
+                  // the compiler also matches the ICD code text).
+                  onChange(o.description);
+                  setQuery(o.description);
+                  setOpen(false);
+                }}
+                className="block w-full px-3 py-1.5 text-left hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                <span className="font-mono text-xs text-indigo-600 dark:text-indigo-400">{o.code}</span>{" "}
+                {o.description}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

@@ -958,9 +958,12 @@ router.post(
 // (the /dashboard/prescriptions "Share via WhatsApp/Email" buttons). Staff
 // (DOCTOR/ADMIN) may share any; PATIENT is constrained inline below to their
 // own row.
+// 2026-06: PHARMACIST added — they read + dispense prescriptions (see the
+// list/detail/pdf routes that already include PHARMACIST), so re-sharing the
+// Rx with the patient at the pharmacy counter is a legitimate staff action.
 router.post(
   "/:id/share",
-  authorize(Role.DOCTOR, Role.ADMIN, Role.PATIENT),
+  authorize(Role.DOCTOR, Role.ADMIN, Role.PATIENT, Role.PHARMACIST),
   validate(sharePrescriptionSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

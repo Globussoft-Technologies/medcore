@@ -116,6 +116,11 @@ export const firebaseVerifyPatientSchema = z.object({
   // the login form sends the chosen name to disambiguate which chart to open.
   // Omitted for back-compat / single-account phones.
   name: z.string().trim().min(1).max(100).optional(),
+  // Selected hospital / clinic. Identity for login is keyed on
+  // (phone + name + tenant): the patient picks their hospital, and we only
+  // sign them in if a matching patient exists IN THAT tenant. Optional so
+  // the back-compat single-tenant flow (no picker) still resolves.
+  tenantId: z.string().trim().min(1).optional(),
 });
 
 export type FirebaseVerifyPatientInput = z.infer<

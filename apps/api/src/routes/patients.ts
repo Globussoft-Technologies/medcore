@@ -19,6 +19,12 @@ import { auditLog } from "../middleware/audit";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
 import { formatDoctorName } from "../lib/format-doctor-name";
 import { resolvePatientPhotoUrl, resolveFirstPhotoUrl } from "../lib/patient-photo";
+import {
+  resolveMrPrefix,
+  nextMrSeq,
+  mrCounterKey,
+  formatMrNumber,
+} from "../services/mr-number";
 
 const router = Router();
 
@@ -59,6 +65,9 @@ router.get(
                   { user: { name: { contains: search as string, mode: "insensitive" } } },
                   { user: { phone: { contains: search as string } } },
                   { user: { email: { contains: search as string, mode: "insensitive" } } },
+                  // Patient email now lives on contactEmail (not always
+                  // mirrored to the login user.email) — search it too.
+                  { contactEmail: { contains: search as string, mode: "insensitive" } },
                   { address: { contains: search as string, mode: "insensitive" } },
                   { abhaId: { contains: search as string } },
                 ],
@@ -320,13 +329,16 @@ router.post(
         }
       }
 
-      // Issue #595 (May 2026): the email column on User is `@unique` at
-      // the DB layer, but a Prisma P2002 surfacing as a generic 500 gave
-      // reception no actionable hint. Mirror the phone pre-check above:
-      // when a real email is supplied (i.e. not the auto-generated walk-in
-      // placeholder), look up an existing patient by email and surface
-      // the matching MR number with a 409 so the form can offer a "use
-      // existing patient" CTA instead of a confusing crash.
+      // Patient email duplicate pre-check — scoped to the CALLER'S TENANT.
+      //
+      // A patient's email is NOT a login credential (it lives on
+      // `Patient.contactEmail`, not the globally-unique `User.email`), so
+      // the same email may legitimately exist for a patient in another
+      // tenant, or for a staff login. We therefore only flag a duplicate
+      // when ANOTHER patient IN THIS TENANT already uses the email. The
+      // `prisma` client is tenant-scoped, so `patient.findFirst` is already
+      // limited to req.tenantId; we match on `contactEmail` (the patient's
+      // own email) rather than the login `user.email`.
       if (typeof data.email === "string" && data.email.trim().length > 0) {
         const trimmed = data.email.trim().toLowerCase();
         if (
@@ -336,7 +348,7 @@ router.post(
           const existingByEmail = await prisma.patient.findFirst({
             where: {
               mergedIntoId: null,
-              user: { email: { equals: trimmed, mode: "insensitive" } },
+              contactEmail: { equals: trimmed, mode: "insensitive" },
             },
             select: {
               id: true,
@@ -419,12 +431,33 @@ router.post(
         }
       }
 
-      // Auto-generate MR number
-      const config = await prisma.systemConfig.findUnique({
-        where: { key: "next_mr_number" },
-      });
-      const mrSeq = config ? parseInt(config.value) : 1;
-      const mrNumber = `MR${String(mrSeq).padStart(6, "0")}`;
+      // #895 defense-in-depth: explicitly pin tenantId on both writes
+      // inside the transaction. The tenantScopedPrisma $extends hook
+      // SHOULD auto-inject via $allOperations, but PRD evidence
+      // (MR000275 created with tenantId:null on staging) shows it isn't
+      // reliable inside `$transaction` interactive callbacks for this
+      // Prisma version + extension setup. Passing tenantId explicitly
+      // closes the gap regardless of whether the extension fires.
+      // Tenant-bound callers always write to their OWN tenant (req.tenantId).
+      // A super-admin/platform caller has no tenant context, so they pick the
+      // target tenant via the form (data.tenantId). The `req.tenantId ??`
+      // ordering guarantees a tenant user can NEVER override their own tenant
+      // with a body value (it's only consulted when req.tenantId is undefined).
+      // Resolved BEFORE the MR number because the MR scheme is now per-tenant.
+      const reqTenantId =
+        req.tenantId ??
+        (typeof data.tenantId === "string" && data.tenantId.trim()
+          ? data.tenantId.trim()
+          : undefined);
+
+      // Auto-generate MR number — PER-TENANT scheme `<tenant code><sequence>`
+      // (e.g. PG01000001). Shared with public self-registration via
+      // services/mr-number.ts so both surfaces produce the same format.
+      // See that module for the prefix-derivation + counter details.
+      const mrPrefix = await resolveMrPrefix(prisma, reqTenantId);
+      const counterKey = mrCounterKey(reqTenantId);
+      const formatMr = (seq: number) => formatMrNumber(mrPrefix, seq);
+      let mrSeq = await nextMrSeq(prisma, counterKey, mrPrefix);
 
       // Issue #891 (May 2026): no more placeholder email. The schema
       // is now `email String? @unique` — when reception doesn't capture
@@ -438,78 +471,117 @@ router.post(
       // reception typed — never invent one.
       const trimmedEmail =
         typeof data.email === "string" ? data.email.trim() : "";
-      // #895 defense-in-depth: explicitly pin tenantId on both writes
-      // inside the transaction. The tenantScopedPrisma $extends hook
-      // SHOULD auto-inject via $allOperations, but PRD evidence
-      // (MR000275 created with tenantId:null on staging) shows it isn't
-      // reliable inside `$transaction` interactive callbacks for this
-      // Prisma version + extension setup. Passing tenantId explicitly
-      // closes the gap regardless of whether the extension fires.
-      // Tenant-bound callers always write to their OWN tenant (req.tenantId).
-      // A super-admin/platform caller has no tenant context, so they pick the
-      // target tenant via the form (data.tenantId). The `req.tenantId ??`
-      // ordering guarantees a tenant user can NEVER override their own tenant
-      // with a body value (it's only consulted when req.tenantId is undefined).
-      const reqTenantId =
-        req.tenantId ??
-        (typeof data.tenantId === "string" && data.tenantId.trim()
-          ? data.tenantId.trim()
-          : undefined);
-      // Create user + patient in transaction
-      const result = await prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            name: data.name,
-            // #891: explicit null when no email captured. Schema is now
-            // `email String? @unique` so a multi-null insert is safe.
-            email: trimmedEmail || null,
-            phone: data.phone,
-            passwordHash: "", // walk-in patients may not need login
-            role: "PATIENT",
-            tenantId: reqTenantId,
-          },
+      // The patient's email always lands on `Patient.contactEmail`. It is
+      // ALSO mirrored to the login `User.email` only when that email is not
+      // already taken by another User globally — `User.email` is globally
+      // unique (sign-in identity), so reusing an email a staff/admin login
+      // already owns must NOT block patient registration. When it's taken,
+      // the login User.email stays null (the patient doesn't sign in by
+      // email here) and the email is still captured on contactEmail.
+      const patientContactEmail = trimmedEmail || null;
+      let loginEmail: string | null = patientContactEmail;
+      if (loginEmail) {
+        const emailOwner = await prisma.user.findUnique({
+          where: { email: loginEmail },
+          select: { id: true },
+        });
+        if (emailOwner) loginEmail = null; // globally taken → don't mirror
+      }
+      // Create user + patient in a transaction, retrying on an mrNumber
+      // collision. Each attempt bumps the sequence by one; an email/phone
+      // P2002 (a genuine duplicate) is NOT an mrNumber clash, so it
+      // re-throws to the outer handler for the proper field-level 409.
+      const MAX_MR_ATTEMPTS = 5;
+      const createWithMr = (mrNumber: string) =>
+        prisma.$transaction(async (tx) => {
+          const user = await tx.user.create({
+            data: {
+              name: data.name,
+              // Mirror to the login identity only when globally free (see
+              // loginEmail derivation above). Null otherwise — the patient
+              // email is still captured on Patient.contactEmail below.
+              email: loginEmail,
+              phone: data.phone,
+              passwordHash: "", // walk-in patients may not need login
+              role: "PATIENT",
+              tenantId: reqTenantId,
+            },
+          });
+
+          const patient = await tx.patient.create({
+            data: {
+              userId: user.id,
+              mrNumber,
+              // Patient email lives here (per-tenant), decoupled from the
+              // globally-unique login User.email. Stored lowercased to match
+              // the case-insensitive pre-check.
+              contactEmail: patientContactEmail
+                ? patientContactEmail.toLowerCase()
+                : null,
+              dateOfBirth: data.dateOfBirth
+                ? new Date(data.dateOfBirth)
+                : undefined,
+              age: data.age,
+              gender: data.gender,
+              address: data.address,
+              bloodGroup: data.bloodGroup,
+              emergencyContactName: data.emergencyContactName,
+              emergencyContactPhone: data.emergencyContactPhone,
+              insuranceProvider: data.insuranceProvider,
+              insurancePolicyNumber: data.insurancePolicyNumber,
+              // Profile photo — bare storage key from POST /uploads (empty
+              // string from the form means "no photo" → store null).
+              photoUrl: data.photoUrl ? data.photoUrl : undefined,
+              // Pearl §2.1.1 source tagging: this endpoint is the staff
+              // dashboard "Add Patient" surface, so an omitted source
+              // defaults to WEB (a staff member keying the row through the
+              // web panel). The dropdown on the form can still send WALK_IN
+              // / PHONE / REFERRAL / WHATSAPP / OTHER when reception is
+              // capturing a different attribution. The schema DEFAULT
+              // (WALK_IN) only kicks in for non-route callers (seeders,
+              // fixtures, future patient-self-registration which will pass
+              // "PWA" explicitly).
+              source: data.source ?? "WEB",
+              tenantId: reqTenantId,
+            },
+          });
+
+          await tx.systemConfig.upsert({
+            where: { key: counterKey },
+            update: { value: String(mrSeq + 1) },
+            create: { key: counterKey, value: String(mrSeq + 1) },
+          });
+
+          return { ...patient, user: { id: user.id, name: user.name, email: user.email, phone: user.phone } };
         });
 
-        const patient = await tx.patient.create({
-          data: {
-            userId: user.id,
-            mrNumber,
-            dateOfBirth: data.dateOfBirth
-              ? new Date(data.dateOfBirth)
-              : undefined,
-            age: data.age,
-            gender: data.gender,
-            address: data.address,
-            bloodGroup: data.bloodGroup,
-            emergencyContactName: data.emergencyContactName,
-            emergencyContactPhone: data.emergencyContactPhone,
-            insuranceProvider: data.insuranceProvider,
-            insurancePolicyNumber: data.insurancePolicyNumber,
-            // Profile photo — bare storage key from POST /uploads (empty
-            // string from the form means "no photo" → store null).
-            photoUrl: data.photoUrl ? data.photoUrl : undefined,
-            // Pearl §2.1.1 source tagging: this endpoint is the staff
-            // dashboard "Add Patient" surface, so an omitted source
-            // defaults to WEB (a staff member keying the row through the
-            // web panel). The dropdown on the form can still send WALK_IN
-            // / PHONE / REFERRAL / WHATSAPP / OTHER when reception is
-            // capturing a different attribution. The schema DEFAULT
-            // (WALK_IN) only kicks in for non-route callers (seeders,
-            // fixtures, future patient-self-registration which will pass
-            // "PWA" explicitly).
-            source: data.source ?? "WEB",
-            tenantId: reqTenantId,
-          },
-        });
-
-        await tx.systemConfig.upsert({
-          where: { key: "next_mr_number" },
-          update: { value: String(mrSeq + 1) },
-          create: { key: "next_mr_number", value: String(mrSeq + 1) },
-        });
-
-        return { ...patient, user: { id: user.id, name: user.name, email: user.email, phone: user.phone } };
-      });
+      let result: Awaited<ReturnType<typeof createWithMr>> | undefined;
+      for (let attempt = 0; attempt < MAX_MR_ATTEMPTS; attempt++) {
+        try {
+          result = await createWithMr(formatMr(mrSeq));
+          break;
+        } catch (err) {
+          // Only retry when the collision is on mrNumber — a stale counter
+          // racing real data. Any other P2002 (email/phone) is a real
+          // duplicate the outer catch must report as a field error.
+          const code = (err as { code?: string })?.code;
+          const target = (err as { meta?: { target?: string[] | string } })
+            ?.meta?.target;
+          const fields = Array.isArray(target)
+            ? target
+            : target
+              ? [String(target)]
+              : [];
+          const isMrClash = code === "P2002" && fields.includes("mrNumber");
+          if (!isMrClash || attempt === MAX_MR_ATTEMPTS - 1) throw err;
+          // Recompute from the live max in case several rows are stale,
+          // then advance past the number we just collided on.
+          mrSeq = Math.max(
+            await nextMrSeq(prisma, counterKey, mrPrefix),
+            mrSeq + 1,
+          );
+        }
+      }
 
       res.status(201).json({ success: true, data: result, error: null });
     } catch (err) {
@@ -864,11 +936,13 @@ router.patch(
 
       const patient = await prisma.patient.findUnique({
         where: { id: req.params.id },
+        include: { user: { select: { name: true } } },
       });
       if (!patient) {
         res.status(404).json({ success: false, data: null, error: "Patient not found" });
         return;
       }
+      const currentUser = patient.user;
 
       // Issues #595 / #596 (May 2026): the Edit Patient form let staff
       // change a patient's email or phone to one that another active
@@ -906,11 +980,27 @@ router.patch(
       }
       if (typeof phone === "string" && phone.trim().length > 0) {
         const trimmedPhone = phone.trim();
+        // Identity is keyed on (phone + name), mirroring the create-side
+        // check at the top of this file. The SAME phone with a DIFFERENT
+        // name is allowed — families routinely share one number, and a
+        // guardian's phone legitimately appears on several patient records.
+        // We only reject a true identity collision: another active patient
+        // with BOTH the same phone AND the same name. The effective name is
+        // the one being saved (if the edit changes it) or the patient's
+        // current name otherwise.
+        const effectiveName = (
+          (typeof name === "string" && name.trim().length > 0
+            ? name
+            : currentUser?.name) ?? ""
+        ).trim();
         const dupPhone = await prisma.patient.findFirst({
           where: {
             mergedIntoId: null,
             id: { not: req.params.id },
-            user: { phone: trimmedPhone },
+            user: {
+              phone: trimmedPhone,
+              name: { equals: effectiveName, mode: "insensitive" },
+            },
           },
           select: { mrNumber: true, user: { select: { name: true } } },
         });
@@ -918,11 +1008,11 @@ router.patch(
           res.status(409).json({
             success: false,
             data: null,
-            error: `Another patient with this phone is already registered (MR: ${dupPhone.mrNumber}).`,
+            error: `Another patient with this name and phone is already registered (MR: ${dupPhone.mrNumber}).`,
             details: [
               {
                 field: "phone",
-                message: `Already registered as ${dupPhone.user?.name ?? "patient"} (MR: ${dupPhone.mrNumber}).`,
+                message: `Already registered as ${dupPhone.user?.name ?? "patient"} (MR: ${dupPhone.mrNumber}). Same phone with a different name is allowed.`,
               },
             ],
           });

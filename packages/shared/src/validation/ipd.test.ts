@@ -26,6 +26,7 @@ import {
   createWardSchema,
   createBedSchema,
   updateBedStatusSchema,
+  updateBedSchema,
   ADMISSION_TYPES,
   CONDITION_AT_DISCHARGE,
   INTAKE_OUTPUT_TYPES,
@@ -178,6 +179,38 @@ describe("updateBedStatusSchema accepts/rejects bed status updates", () => {
 
   it("rejects missing status", () => {
     expect(updateBedStatusSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("updateBedSchema accepts/rejects bed edits (2026-06 CRUD)", () => {
+  it("accepts a bedNumber-only edit", () => {
+    expect(updateBedSchema.safeParse({ bedNumber: "B-12" }).success).toBe(true);
+  });
+
+  it("accepts a dailyRate-only edit", () => {
+    expect(updateBedSchema.safeParse({ dailyRate: 3455 }).success).toBe(true);
+  });
+
+  it("accepts both fields together", () => {
+    expect(
+      updateBedSchema.safeParse({ bedNumber: "B-12", dailyRate: 500 }).success,
+    ).toBe(true);
+  });
+
+  it("rejects an empty body (no field to change)", () => {
+    expect(updateBedSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("rejects an empty bed number", () => {
+    expect(updateBedSchema.safeParse({ bedNumber: "" }).success).toBe(false);
+  });
+
+  it("rejects a negative daily rate", () => {
+    expect(updateBedSchema.safeParse({ dailyRate: -1 }).success).toBe(false);
+  });
+
+  it("accepts a zero daily rate", () => {
+    expect(updateBedSchema.safeParse({ dailyRate: 0 }).success).toBe(true);
   });
 });
 

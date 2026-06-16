@@ -1161,6 +1161,7 @@ enum SendStatus {
   BOUNCED
   FAILED
   SUPPRESSED
+  UNSUBSCRIBED
 }
 
 // Pearl ERP Stage 1 §3.3 (gap item #3) — CRM lead pipeline.
@@ -1711,6 +1712,15 @@ model Patient {
   gender                       Gender
   address                      String?
   bloodGroup                   String?
+  // Patient contact email. Distinct from the login `User.email` (which is
+  // globally unique because it's the sign-in identity). A patient's email
+  // is NOT a login credential here, so it is stored on the Patient row and
+  // is unique only WITHIN a tenant — two tenants may each have a patient
+  // with the same email, and a patient may reuse an email that a staff
+  // login already uses in another tenant. The create handler mirrors this
+  // into `User.email` only when that email is still globally free, so
+  // existing login-by-email behaviour is preserved where possible.
+  contactEmail                 String?
   emergencyContactName         String?
   emergencyContactPhone        String?
   // Issue #713 (May 2026): captured at public registration time alongside
@@ -1858,6 +1868,11 @@ model Patient {
   @@index([tenantId])
   @@index([branchId])
   @@index([source])
+  // Per-tenant patient email lookup (duplicate pre-check is scoped to the
+  // caller's tenant). Not a UNIQUE constraint: uniqueness is partial
+  // (null contactEmail must be allowed many times) and is enforced at the
+  // application layer in the create/update handlers.
+  @@index([tenantId, contactEmail])
   @@map("patients")
 }
 
@@ -7039,6 +7054,16 @@ model CampaignSend {
   convertedAt    DateTime?
   convertedRefId String?
   convertedType  String?
+
+  // Pearl §5.1 — bounce + unsubscribe tracking (delivery-quality + opt-out).
+  //   bouncedAt       set when a channel callback reports a bounce (status
+  //                   also flips to BOUNCED). Distinct from failedAt (a
+  //                   send-time failure) — a bounce happens post-accept.
+  //   unsubscribedAt  set when the recipient taps the one-tap unsubscribe link
+  //                   (GET /public/campaigns/unsubscribe/:sendId). Also clears
+  //                   Patient.whatsappOptIn so future campaigns skip them.
+  bouncedAt      DateTime?
+  unsubscribedAt DateTime?
 
   // FK to the Notification row created via the existing per-channel
   // adapter (piece 2). Optional because some channels (e.g. raw SMS via

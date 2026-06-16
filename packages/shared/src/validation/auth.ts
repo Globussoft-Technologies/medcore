@@ -27,6 +27,11 @@ export const loginSchema = z.object({
   // instead of the default 7. Optional so existing callers (older web builds,
   // integration tests) keep working unchanged.
   rememberMe: z.boolean().optional(),
+  // Patient multi-hospital disambiguation: when the same email+password
+  // matches PATIENT accounts in several tenants, the first /login response
+  // carries the hospital list; the web form re-submits with the chosen
+  // tenantId to complete sign-in. Optional — normal logins omit it.
+  tenantId: z.string().trim().min(1).optional(),
 });
 
 // Issue #473 (CRITICAL, May 2026): mass-assignment privilege escalation.
@@ -68,6 +73,12 @@ export const registerSchema = z.object({
   email: z.string().email("Invalid email address"),
   phone: z.string().min(10, "Phone number must be at least 10 digits"),
   password: strongPassword,
+  // Public patient self-registration "Select Hospital / Clinic" choice. The
+  // patient picks which tenant (hospital) their account + record belongs to;
+  // the route validates it is a real, active tenant before honouring it
+  // (falls back to subdomain/header/default when absent). Optional so the
+  // staff-creation and subdomain-pinned flows keep working unchanged.
+  tenantId: z.string().trim().min(1).optional(),
   // Issue #489: bound `age` so negatives, zero, and > 150 are rejected up
   // front. Optional because the historical patient-self-register flow does
   // not send it (DOB-based path).

@@ -46,6 +46,93 @@ describeIfDB("Patients API (integration)", () => {
     expect(created?.tenantId).toBe(created?.user?.tenantId);
   });
 
+  it("issues a per-tenant MR number: <tenant prefix> + zero-padded sequence", async () => {
+    // MR scheme is per-tenant (services/mr-number.ts): the prefix is the
+    // operator-set tenant CODE (SystemConfig key `tenant:<id>:code`), else the
+    // tenant SUBDOMAIN slug, else "MR" — slugified to UPPERCASE alphanumerics
+    // (capped 12). The suffix is a zero-padded sequence counted within the
+    // tenant. So a tenant coded "PG-01" issues PG01000001, PG01000002, …;
+    // a tenant with no code/subdomain match falls back to MR000001, …
+    const prisma = await getPrisma();
+
+    const res = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "MR Scheme Patient", gender: "MALE", phone: "9000000202" });
+    expect(res.status).toBeLessThan(400);
+
+    const mr: string = res.body.data.mrNumber;
+    // Derive the expected prefix the SAME way the production helper does:
+    // tenant code → subdomain → "MR", uppercased + alphanumerics only.
+    const slug = (s: string) =>
+      s.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+    const created = await prisma.patient.findUnique({
+      where: { id: res.body.data.id },
+      select: { tenantId: true },
+    });
+    let expectedPrefix = "MR";
+    if (created?.tenantId) {
+      const codeRow = await prisma.systemConfig.findUnique({
+        where: { key: `tenant:${created.tenantId}:code` },
+      });
+      const fromCode = codeRow?.value ? slug(codeRow.value) : "";
+      if (fromCode) {
+        expectedPrefix = fromCode;
+      } else {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: created.tenantId },
+          select: { subdomain: true },
+        });
+        const fromSub = tenant?.subdomain ? slug(tenant.subdomain) : "";
+        if (fromSub) expectedPrefix = fromSub;
+      }
+    }
+
+    // Format: <prefix><6+ digits>.
+    expect(mr).toMatch(new RegExp(`^${expectedPrefix}\\d{6,}$`));
+  });
+
+  it("registers successfully even when the per-tenant counter has drifted below existing data (self-heals)", async () => {
+    // Reproduces the "A patient with this MR number already exists" 409:
+    // seeders/imports create rows without advancing the counter, so the
+    // next registration regenerates an already-taken number. The handler
+    // now derives the sequence from max(counter, real max for this prefix)
+    // and retries on a clash, so this must succeed even with a stale counter.
+    const prisma = await getPrisma();
+
+    // First registration establishes the tenant + its current sequence.
+    const first = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Drift First", gender: "MALE", phone: "9000000203" });
+    expect(first.status).toBeLessThan(400);
+    const created = await prisma.patient.findUnique({
+      where: { id: first.body.data.id },
+      select: { tenantId: true },
+    });
+    const counterKey = `next_mr_number:${created?.tenantId ?? "global"}`;
+
+    // Force the per-tenant counter BACKWARDS to simulate drift.
+    await prisma.systemConfig.upsert({
+      where: { key: counterKey },
+      update: { value: "1" },
+      create: { key: counterKey, value: "1" },
+    });
+
+    const res = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Drift Heal Patient", gender: "MALE", phone: "9000000204" });
+
+    // Must NOT 409 on a stale counter — the handler self-heals past real data.
+    expect(res.status).toBeLessThan(400);
+
+    // The counter was advanced past the row it just created.
+    const cfg = await prisma.systemConfig.findUnique({ where: { key: counterKey } });
+    const issuedSeq = parseInt(res.body.data.mrNumber.replace(/^\D+/, ""), 10);
+    expect(parseInt(cfg!.value, 10)).toBe(issuedSeq + 1);
+  });
+
   it("lists patients", async () => {
     const res = await request(app)
       .get("/api/v1/patients")
@@ -190,6 +277,50 @@ describeIfDB("Patients API (integration)", () => {
       .send({ name: "Reception Edit" });
     expect(res.status).toBe(200);
     expect(res.body.data.user.name).toBe("Reception Edit");
+  });
+
+  it("PATCH: allows editing a patient's phone to one a DIFFERENT-named patient already uses", async () => {
+    // Edit-side phone policy mirrors create: same phone + different name is a
+    // shared family/guardian number and is allowed. Seed an owner, then edit
+    // a second (differently-named) patient onto the same phone.
+    const sharedPhone = "9100000071";
+    const owner = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Shared Owner", gender: "MALE", phone: sharedPhone });
+    expect(owner.status).toBeLessThan(400);
+
+    const other = await createPatientFixture();
+    const res = await request(app)
+      .patch(`/api/v1/patients/${other.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ phone: sharedPhone });
+    expect(res.status).toBe(200);
+    expect(res.body.data.user.phone).toBe(sharedPhone);
+  });
+
+  it("PATCH: blocks editing a patient onto another patient's phone AND name (true duplicate, 409)", async () => {
+    const phone = "9100000072";
+    const original = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Twin Collision", gender: "MALE", phone });
+    expect(original.status).toBeLessThan(400);
+
+    // A second patient with the SAME name but a different phone…
+    const second = await request(app)
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Twin Collision", gender: "MALE", phone: "9100000073" });
+    expect(second.status).toBeLessThan(400);
+
+    // …editing the second onto the first's phone makes (phone+name) collide.
+    const res = await request(app)
+      .patch(`/api/v1/patients/${second.body.data.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ phone });
+    expect(res.status).toBe(409);
+    expect(res.body.details?.[0]?.field).toBe("phone");
   });
 
   it("PATCH: PATIENT role is forbidden (403)", async () => {

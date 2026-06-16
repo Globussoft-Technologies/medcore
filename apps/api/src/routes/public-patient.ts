@@ -67,3 +67,51 @@ publicPatientRouter.get(
     }
   }
 );
+
+// GET /api/v1/public/hospitals — list of active tenants for the public
+// patient-registration "Select Hospital / Clinic" dropdown. UNAUTHENTICATED
+// and DELIBERATELY MINIMAL: only the id + display name + short code are
+// returned (no plan, billing, usage, contact, or operator data). A patient
+// choosing where to register only needs to recognise their hospital by name.
+//
+// Uses the raw (non-tenant-scoped) prisma so the list spans every tenant —
+// this is the one place a public caller is allowed to see across tenants,
+// and the projection is safe by construction.
+publicPatientRouter.get(
+  "/hospitals",
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenants = await prisma.tenant.findMany({
+        where: { active: true },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      });
+      // The human-readable tenant CODE (e.g. "PG-01") lives in SystemConfig
+      // under `tenant:<id>:code`, not on the Tenant row — fetch them in one
+      // batched query and attach for display alongside the name.
+      const codeRows = await prisma.systemConfig.findMany({
+        where: {
+          key: { in: tenants.map((t) => `tenant:${t.id}:code`) },
+        },
+        select: { key: true, value: true },
+      });
+      const codeById = new Map<string, string>();
+      for (const row of codeRows) {
+        const m = row.key.match(/^tenant:([^:]+):code$/);
+        if (m) codeById.set(m[1], row.value);
+      }
+
+      res.json({
+        success: true,
+        data: tenants.map((t) => ({
+          id: t.id,
+          name: t.name,
+          code: codeById.get(t.id) ?? null,
+        })),
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);

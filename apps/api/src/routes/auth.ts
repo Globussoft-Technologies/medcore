@@ -19,6 +19,12 @@ import {
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
 import { auditLog } from "../middleware/audit";
+import {
+  resolveMrPrefix,
+  nextMrSeq,
+  mrCounterKey,
+  formatMrNumber,
+} from "../services/mr-number";
 // Issue #477 (May 2026): JWTs are set as httpOnly cookies + a non-httpOnly
 // CSRF cookie on login/register/refresh/2fa-verify. See
 // middleware/auth-cookies.ts for the locked attribute matrix.
@@ -257,7 +263,22 @@ function generateTokens(
  * been seeded yet). Callers should tolerate `null` since `User.tenantId` is
  * optional and the tenant middleware handles absent tenant as pass-through.
  */
-async function resolveRegistrationTenant(req: Request): Promise<string | null> {
+async function resolveRegistrationTenant(
+  req: Request,
+  bodyTenantId?: string,
+): Promise<string | null> {
+  // 0. Explicit patient choice from the registration form ("Select
+  //    Hospital / Clinic"). Highest priority — when a patient self-registers
+  //    they pick the tenant their account belongs to. Validated active so a
+  //    stale/forged id can't pin the account to a suspended hospital.
+  if (bodyTenantId && bodyTenantId.trim().length > 0) {
+    const t = await prisma.tenant.findUnique({
+      where: { id: bodyTenantId.trim() },
+      select: { id: true, active: true },
+    });
+    if (t?.active) return t.id;
+  }
+
   // 1. Explicit header override.
   const headerTenant = req.header("X-Tenant-Id");
   if (headerTenant && headerTenant.trim().length > 0) {
@@ -677,33 +698,55 @@ router.post(
         typeof req.body?.email === "string" ? req.body.email.trim() : "";
       const phoneRaw =
         typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
+      const nameRaw =
+        typeof req.body?.name === "string" ? req.body.name.trim() : "";
+      const bodyTenantId =
+        typeof req.body?.tenantId === "string" ? req.body.tenantId.trim() : "";
+
+      // Mirror the register handler's PER-TENANT patient uniqueness rules so
+      // the inline pre-check matches what submit actually enforces:
+      //   • email      → unique within the chosen tenant (Patient.contactEmail)
+      //   • phone      → NOT unique on its own (no phone-alone flag)
+      //   • name+phone → unique together within the chosen tenant
+      const tenantId = await resolveRegistrationTenant(req, bodyTenantId);
 
       let emailTaken = false;
-      let phoneTaken = false;
+      let namePhoneTaken = false;
 
       if (emailRaw) {
-        // Match register's own lookup (case-insensitive contains-equals so
-        // "Asha@x.com" and "asha@x.com" both hit). The register endpoint
-        // stores the email as-typed but its uniqueness is effectively
-        // case-insensitive in practice.
-        const u = await prisma.user.findFirst({
-          where: { email: { equals: emailRaw, mode: "insensitive" } },
+        const trimmed = emailRaw.toLowerCase();
+        const dup = await prisma.patient.findFirst({
+          where: {
+            tenantId,
+            mergedIntoId: null,
+            contactEmail: { equals: trimmed, mode: "insensitive" },
+          },
           select: { id: true },
         });
-        emailTaken = !!u;
+        emailTaken = !!dup;
       }
-      if (phoneRaw) {
+      if (phoneRaw && nameRaw) {
         const phone = canonicalisePhone(phoneRaw);
-        const u = await prisma.user.findFirst({
-          where: { phone },
+        const dup = await prisma.patient.findFirst({
+          where: {
+            tenantId,
+            mergedIntoId: null,
+            user: {
+              phone,
+              name: { equals: nameRaw, mode: "insensitive" },
+            },
+          },
           select: { id: true },
         });
-        phoneTaken = !!u;
+        namePhoneTaken = !!dup;
       }
 
       res.json({
         success: true,
-        data: { emailTaken, phoneTaken },
+        // `phoneTaken` is kept in the response for back-compat but is ALWAYS
+        // false now — phone alone is not a duplicate. `namePhoneTaken` is the
+        // real (name + phone + tenant) collision the form should surface.
+        data: { emailTaken, phoneTaken: false, namePhoneTaken },
         error: null,
       });
     } catch (err) {
@@ -717,10 +760,12 @@ router.post(
   validate(strictRegisterSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, phone: rawPhone, password, address, city, state, pincode, abhaId, emergencyContact, dateOfBirth, gender, age, photoUrl } = req.body as {
+      const { email, phone: rawPhone, password, address, city, state, pincode, abhaId, emergencyContact, dateOfBirth, gender, age, photoUrl, tenantId: bodyTenantId } = req.body as {
         email: string;
         phone: string;
         password: string;
+        // Public registration "Select Hospital / Clinic" choice.
+        tenantId?: string;
         address?: string;
         // SOW §2.1.1 registration address triplet + optional ABHA capture.
         city?: string;
@@ -811,61 +856,126 @@ router.post(
         }
       }
 
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing) {
-        // Issue #480: anti-enumeration. Pre-fix this branch returned
-        // `409 { success: false, error: "Email already registered" }` while
-        // the new-email branch returned `201 { success: true, error: null,
-        // tokens: ... }`. An attacker could iterate a list of emails and
-        // learn which were registered.
-        //
-        // Post-fix: same status (201), same `success: true`, same
-        // `error: null` envelope as the new-email path. The only difference
-        // is the `data` block — duplicate path returns no token, just a
-        // generic acknowledgement message. The `expectAntiEnumeration`
-        // helper compares `["status", "body.success", "body.error"]`, all
-        // of which now match. No real account is created or modified.
-        //
-        // Audit-log the duplicate server-side so ops still have a forensic
-        // trail (response is indistinguishable to clients, but our SOC can
-        // see it).
-        auditLog(req, "USER_REGISTER_DUPLICATE", "user", existing.id, {
-          email,
-        }).catch(console.error);
-        res.status(201).json({
-          success: true,
-          data: {
-            message:
-              "Registration received. If the credentials are new please log in.",
+      // Resolve the tenant the new user belongs to FIRST — the patient
+      // uniqueness rules below are scoped to the chosen hospital. Priority:
+      //   body tenantId (patient's "Select Hospital" choice)
+      //     → X-Tenant-Id header → subdomain → default.
+      const tenantId = await resolveRegistrationTenant(req, bodyTenantId);
+
+      // ── Per-tenant uniqueness for PATIENT self-registration ─────────────
+      // Rules (scoped to the SELECTED hospital/tenant):
+      //   • email  → unique within the tenant (same email may exist in
+      //              another hospital). Checked against Patient.contactEmail.
+      //   • phone  → NOT unique on its own (families share a number).
+      //   • name+phone → unique together within the tenant (a real
+      //              duplicate person at that hospital).
+      // Staff/non-PATIENT registrations keep the global User.email identity
+      // semantics (handled by the create + global mirror below).
+      if (role === "PATIENT") {
+        const trimmedEmail = email.trim().toLowerCase();
+        // Email already used by a patient in THIS tenant?
+        const emailDup = await prisma.patient.findFirst({
+          where: {
+            tenantId,
+            mergedIntoId: null,
+            contactEmail: { equals: trimmedEmail, mode: "insensitive" },
           },
-          error: null,
+          select: { id: true },
         });
-        return;
+        // Name + phone already paired on a patient in THIS tenant?
+        const namePhoneDup = await prisma.patient.findFirst({
+          where: {
+            tenantId,
+            mergedIntoId: null,
+            user: {
+              name: { equals: name.trim(), mode: "insensitive" },
+              phone: phone.trim(),
+            },
+          },
+          select: { id: true },
+        });
+        if (emailDup || namePhoneDup) {
+          // Anti-enumeration (Issue #480): respond with the SAME 201 +
+          // success envelope as a brand-new signup so an attacker can't probe
+          // which (email) or (name+phone) pairs exist in a tenant. We audit
+          // the duplicate server-side for the SOC trail; no account is made.
+          auditLog(req, "USER_REGISTER_DUPLICATE", "patient", emailDup?.id ?? namePhoneDup?.id, {
+            tenantId,
+            reason: emailDup ? "email_in_tenant" : "name_phone_in_tenant",
+          }).catch(console.error);
+          res.status(201).json({
+            success: true,
+            data: {
+              message:
+                "Registration received. If the credentials are new please log in.",
+            },
+            error: null,
+          });
+          return;
+        }
+      } else {
+        // Non-patient (staff) registration keeps the GLOBAL email identity
+        // check — staff log in by a globally-unique email.
+        const existing = await prisma.user.findUnique({ where: { email } });
+        if (existing) {
+          auditLog(req, "USER_REGISTER_DUPLICATE", "user", existing.id, {
+            email,
+          }).catch(console.error);
+          res.status(201).json({
+            success: true,
+            data: {
+              message:
+                "Registration received. If the credentials are new please log in.",
+            },
+            error: null,
+          });
+          return;
+        }
       }
 
       const passwordHash = await bcrypt.hash(password, 10);
 
-      // Resolve the tenant the new user belongs to (header → subdomain → default).
-      // Written onto the User row AT CREATE time so subsequent token mints
-      // pick it up automatically via `user.tenantId`.
-      const tenantId = await resolveRegistrationTenant(req);
+      // Mirror the patient email onto the login User.email only when it is
+      // still globally free (User.email is globally unique — the sign-in
+      // identity). When it's taken, the login email is left null and the
+      // email is captured on Patient.contactEmail below. NOTE: until the
+      // login flow is made tenant-aware, a per-tenant-duplicate email that
+      // collides globally means that patient can't sign in by email yet —
+      // a known, accepted follow-up.
+      let loginEmail: string | null = email;
+      if (role === "PATIENT") {
+        const emailOwner = await prisma.user.findUnique({
+          where: { email },
+          select: { id: true },
+        });
+        if (emailOwner) loginEmail = null;
+      }
 
       const user = await prisma.user.create({
-        data: { name, email, phone, passwordHash, role, tenantId },
+        data: { name, email: loginEmail, phone, passwordHash, role, tenantId },
       });
 
-      // If patient, create patient record with auto MR number
+      // If patient, create patient record with auto MR number.
+      // Uses the shared per-tenant MR scheme (<tenant code><sequence>, e.g.
+      // PG01000001) so self-registration matches staff-registration. Retries
+      // on an mrNumber unique-constraint clash (stale counter / concurrent
+      // signup) by recomputing the next sequence.
       if (role === "PATIENT") {
-        const config = await prisma.systemConfig.findUnique({
-          where: { key: "next_mr_number" },
-        });
-        const mrSeq = config ? parseInt(config.value) : 1;
-        const mrNumber = `MR${String(mrSeq).padStart(6, "0")}`;
+        const mrPrefix = await resolveMrPrefix(prisma, tenantId);
+        const counterKey = mrCounterKey(tenantId);
+        let mrSeq = await nextMrSeq(prisma, counterKey, mrPrefix);
 
-        await prisma.patient.create({
+        const MAX_MR_ATTEMPTS = 5;
+        for (let attempt = 0; attempt < MAX_MR_ATTEMPTS; attempt++) {
+          try {
+            await prisma.patient.create({
           data: {
             userId: user.id,
-            mrNumber,
+            mrNumber: formatMrNumber(mrPrefix, mrSeq),
+            // Patient email lives here (per-tenant), decoupled from the
+            // globally-unique login User.email. Lowercased to match the
+            // case-insensitive per-tenant duplicate pre-check above.
+            contactEmail: email.trim() ? email.trim().toLowerCase() : null,
             // Use the submitted gender when the form provided one; fall
             // back to "OTHER" only for legacy callers that don't send it.
             // Before this fix the field was hard-coded to "OTHER", so every
@@ -912,11 +1022,31 @@ router.post(
           },
         });
 
-        await prisma.systemConfig.upsert({
-          where: { key: "next_mr_number" },
-          update: { value: String(mrSeq + 1) },
-          create: { key: "next_mr_number", value: String(mrSeq + 1) },
-        });
+            await prisma.systemConfig.upsert({
+              where: { key: counterKey },
+              update: { value: String(mrSeq + 1) },
+              create: { key: counterKey, value: String(mrSeq + 1) },
+            });
+            break; // created successfully
+          } catch (err) {
+            // Retry only on an mrNumber clash; re-throw anything else
+            // (e.g. a User-side issue) so it surfaces normally.
+            const code = (err as { code?: string })?.code;
+            const target = (err as { meta?: { target?: string[] | string } })
+              ?.meta?.target;
+            const fields = Array.isArray(target)
+              ? target
+              : target
+                ? [String(target)]
+                : [];
+            const isMrClash = code === "P2002" && fields.includes("mrNumber");
+            if (!isMrClash || attempt === MAX_MR_ATTEMPTS - 1) throw err;
+            mrSeq = Math.max(
+              await nextMrSeq(prisma, counterKey, mrPrefix),
+              mrSeq + 1,
+            );
+          }
+        }
       }
 
       // Issue #205: when an admin creates a DOCTOR via the staff form,
@@ -981,16 +1111,32 @@ router.post(
 );
 
 // POST /api/v1/auth/login
+//
+// Rate limiting IS applied here via two layers that CodeQL's dataflow can't
+// trace through the lazy `loginLimiter` middleware factory + the in-handler
+// `checkLockout(ip)` IP lockout:
+//   1. `loginLimiter` — 5 requests / 60s per IP (route middleware below).
+//   2. `checkLockout` / `recordFailedLogin` — IP failed-login lockout inside
+//      the handler (see `checkLockout(ip)` near the top of the body).
+// The `js/missing-rate-limiting` alert on this authorization handler is a
+// false positive; suppress it the same way the repo already does elsewhere.
+// lgtm[js/missing-rate-limiting]
 router.post(
   "/login",
   loginLimiter,
   validate(strictLoginSchema),
+  // lgtm[js/missing-rate-limiting]
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { email, password, rememberMe } = req.body as {
+      const { email, password, rememberMe, tenantId: bodyTenantId } = req.body as {
         email: string;
         password: string;
         rememberMe?: boolean;
+        // Patient multi-hospital disambiguation: when the same email+password
+        // matches PATIENT accounts in several tenants, the first /login call
+        // returns the hospital list; the web form then re-calls /login with
+        // the chosen tenantId to complete sign-in.
+        tenantId?: string;
       };
 
       // Issue #164: IP-based failed-login lockout. Distinct from the
@@ -1029,9 +1175,54 @@ router.post(
         }
       };
 
-      const user = await prisma.user.findUnique({ where: { email } });
-      if (!user || !user.isActive) {
-        recordFailure(undefined, "user_not_found_or_inactive");
+      // ── User resolution ────────────────────────────────────────────────
+      // Email is the GLOBAL login identity for STAFF/ADMIN (`User.email` is
+      // globally unique). PATIENTS, however, can have the SAME email at
+      // multiple hospitals — their email lives on `Patient.contactEmail`
+      // (per-tenant) and the login `User.email` may be null. So we resolve in
+      // two layers:
+      //   1. The single global-email account (staff/admin, or the one patient
+      //      whose email did land on User.email).
+      //   2. ALL patient accounts whose `contactEmail` matches (across
+      //      tenants), so a multi-hospital patient can be disambiguated.
+      // We then keep only the accounts whose password actually matches, and
+      // branch on the count: 0 → fail, 1 → log in, >1 → hospital picker.
+      const globalUser = await prisma.user.findUnique({ where: { email } });
+      const patientUsers = await prisma.user.findMany({
+        where: {
+          role: "PATIENT",
+          isActive: true,
+          patient: {
+            is: {
+              mergedIntoId: null,
+              contactEmail: { equals: email.trim().toLowerCase(), mode: "insensitive" },
+            },
+          },
+        },
+      });
+
+      // Build the candidate set (dedup by id), then filter to password matches.
+      const candidatesById = new Map<string, (typeof patientUsers)[number]>();
+      if (globalUser && globalUser.isActive) {
+        candidatesById.set(globalUser.id, globalUser as (typeof patientUsers)[number]);
+      }
+      for (const pu of patientUsers) candidatesById.set(pu.id, pu);
+
+      const matched: Array<(typeof patientUsers)[number]> = [];
+      for (const cand of candidatesById.values()) {
+        // eslint-disable-next-line no-await-in-loop
+        if (await bcrypt.compare(password, cand.passwordHash)) matched.push(cand);
+      }
+
+      // If the caller already picked a hospital (2nd /login call), narrow to it.
+      const picked = bodyTenantId?.trim()
+        ? matched.filter((m) => m.tenantId === bodyTenantId.trim())
+        : matched;
+
+      if (picked.length === 0) {
+        // No credential match (or the picked tenant didn't match). Generic
+        // 401 so we never reveal whether the email/tenant exists.
+        recordFailure(globalUser?.id, "user_not_found_or_bad_password");
         res.status(401).json({
           success: false,
           data: null,
@@ -1040,19 +1231,44 @@ router.post(
         return;
       }
 
-      // Verify the password FIRST. A wrong email/password always returns the
-      // generic "Invalid email or password" (so a bad credential never reveals
-      // whether the tenant exists / is suspended).
-      const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) {
-        recordFailure(user.id, "bad_password");
-        res.status(401).json({
-          success: false,
-          data: null,
-          error: "Invalid email or password",
+      if (picked.length > 1) {
+        // Same email + password at multiple hospitals → ask which one.
+        // Return the tenant list; the web form re-submits /login with the
+        // chosen `tenantId`. No tokens issued yet.
+        const tenantIds = Array.from(
+          new Set(picked.map((m) => m.tenantId).filter((t): t is string => !!t)),
+        );
+        const tenants = await prisma.tenant.findMany({
+          where: { id: { in: tenantIds }, active: true },
+          select: { id: true, name: true },
+        });
+        const codeRows = await prisma.systemConfig.findMany({
+          where: { key: { in: tenantIds.map((id) => `tenant:${id}:code`) } },
+          select: { key: true, value: true },
+        });
+        const codeById = new Map<string, string>();
+        for (const r of codeRows) {
+          const m = r.key.match(/^tenant:([^:]+):code$/);
+          if (m) codeById.set(m[1], r.value);
+        }
+        clearFailedLogins(ip);
+        res.json({
+          success: true,
+          data: {
+            needsHospitalSelection: true,
+            hospitals: tenants.map((t) => ({
+              id: t.id,
+              name: t.name,
+              code: codeById.get(t.id) ?? null,
+            })),
+          },
+          error: null,
         });
         return;
       }
+
+      // Exactly one match → proceed as a normal login with that account.
+      const user = picked[0];
 
       // Tenant-deactivation gate — only AFTER the credentials check passes do
       // we tell a legitimate user that their hospital tenant has been

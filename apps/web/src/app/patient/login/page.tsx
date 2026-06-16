@@ -71,9 +71,20 @@ export default function PatientLoginPage() {
   // Identity is keyed on (phone + name) — duplicate phones are allowed, so we
   // collect the name to disambiguate which account to open after OTP.
   const [name, setName] = useState("");
+  // Login identity is keyed on (phone + name + hospital). The patient picks
+  // which hospital their account is at; the server only signs them in if a
+  // matching patient exists in that tenant.
+  const [tenantId, setTenantId] = useState("");
+  const [hospitals, setHospitals] = useState<
+    Array<{ id: string; name: string; code: string | null }>
+  >([]);
+  const [hospitalsLoading, setHospitalsLoading] = useState(true);
   const [otp, setOtp] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when login fails because no patient exists at the selected hospital —
+  // drives the inline "Register" call-to-action.
+  const [noAccount, setNoAccount] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   // Remember the normalised E.164 across the two steps so the verify step
   // doesn't depend on whatever the user might have typed into the phone
@@ -102,10 +113,42 @@ export default function PatientLoginPage() {
     };
   }, []);
 
+  // Load the hospital/clinic list for the "Select Hospital" dropdown from the
+  // API (GET /public/hospitals) — never hardcoded. If there's exactly one
+  // tenant, preselect it. Always clears the loading flag so the dropdown
+  // renders even on failure, and re-runs on every mount (including
+  // back-navigation from /patient/register) so the field is never missing.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; code: string | null }>;
+        }>("/public/hospitals");
+        if (cancelled) return;
+        const list = res.data ?? [];
+        setHospitals(list);
+        if (list.length === 1) setTenantId(list[0].id);
+      } catch {
+        // Non-fatal: server falls back to phone+name when no hospital sent.
+      } finally {
+        if (!cancelled) setHospitalsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function sendCode(): Promise<void> {
     if (busy) return;
     setError(null);
+    setNoAccount(false);
     setInfo(null);
+    if (hospitals.length > 0 && !tenantId) {
+      setError("Select your hospital or clinic.");
+      return;
+    }
     if (name.trim().length < 2) {
       setError("Enter the name on your account.");
       return;
@@ -119,6 +162,32 @@ export default function PatientLoginPage() {
     }
     setBusy(true);
     try {
+      // Pre-check BEFORE sending an OTP: does a patient with this
+      // (name + phone) exist at the selected hospital? No point texting a
+      // code to someone who has no account — tell them to register instead.
+      // Reuses /auth/check-availability, which returns `namePhoneTaken`
+      // (true when that name+phone already exists in the tenant).
+      try {
+        const chk = await api.post<{
+          data: { namePhoneTaken: boolean };
+        }>("/auth/check-availability", {
+          name: name.trim(),
+          phone: phone.trim(),
+          tenantId: tenantId || undefined,
+        });
+        if (chk?.data && chk.data.namePhoneTaken === false) {
+          setNoAccount(true);
+          setError(
+            "You don't have an account at the selected hospital. Please register first.",
+          );
+          return; // do NOT send the OTP
+        }
+      } catch {
+        // If the pre-check itself fails (network/rate-limit), don't block
+        // login — fall through to OTP; the verify step still enforces the
+        // (phone + name + tenant) match server-side.
+      }
+
       await sendOtp(e164);
       e164Ref.current = e164;
       setStep("otp");
@@ -150,7 +219,7 @@ export default function PatientLoginPage() {
       // bearer to the exchange endpoint.
       const res = await api.post<FirebaseVerifyResponse>(
         "/patient-auth/firebase-verify",
-        { idToken, name: name.trim() },
+        { idToken, name: name.trim(), tenantId: tenantId || undefined },
         // Opt out of the api lib's global 401 handler: a 401 here means
         // "this phone isn't registered / token rejected", NOT an expired
         // session. Without this, the generic "Your session has expired"
@@ -165,7 +234,21 @@ export default function PatientLoginPage() {
         setError(res?.error || "Couldn't sign you in. Please try again.");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't verify code");
+      // 404 NO_ACCOUNT → no patient at the selected hospital; nudge to
+      // register. Any other error surfaces its own message.
+      const e = err as Error & {
+        status?: number;
+        payload?: { code?: string; error?: string };
+      };
+      if (e?.status === 404 && e?.payload?.code === "NO_ACCOUNT") {
+        setNoAccount(true);
+        setError(
+          e.payload.error ||
+            "You don't have an account at the selected hospital. Please register first.",
+        );
+      } else {
+        setError(e instanceof Error ? e.message : "Couldn't verify code");
+      }
     } finally {
       setBusy(false);
     }
@@ -269,6 +352,36 @@ export default function PatientLoginPage() {
                   }}
                   className="space-y-5"
                 >
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="patient-login-hospital"
+                      className="block text-sm font-medium text-gray-800 dark:text-gray-200"
+                    >
+                      Hospital / Clinic
+                    </label>
+                    <select
+                      id="patient-login-hospital"
+                      data-testid="patient-login-hospital-select"
+                      value={tenantId}
+                      onChange={(e) => setTenantId(e.target.value)}
+                      disabled={busy || hospitalsLoading}
+                      className="block h-12 w-full rounded-xl border border-gray-300 bg-white px-3 text-base text-gray-900 transition focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                    >
+                      <option value="">
+                        {hospitalsLoading
+                          ? "Loading hospitals…"
+                          : hospitals.length === 0
+                            ? "No hospitals available"
+                            : "Select your hospital…"}
+                      </option>
+                      {hospitals.map((h) => (
+                        <option key={h.id} value={h.id}>
+                          {h.name}
+                          {h.code ? ` (${h.code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="space-y-1.5">
                     <label
                       htmlFor="patient-login-name"
@@ -408,13 +521,22 @@ export default function PatientLoginPage() {
             </div>
 
             {error ? (
-              <p
+              <div
                 role="alert"
                 data-testid="patient-login-error"
                 className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
               >
-                {error}
-              </p>
+                <p>{error}</p>
+                {noAccount ? (
+                  <a
+                    href="/patient/register"
+                    data-testid="patient-login-register-link"
+                    className="mt-2 inline-block font-semibold text-red-700 underline hover:text-red-900 dark:text-red-200"
+                  >
+                    Register a new account →
+                  </a>
+                ) : null}
+              </div>
             ) : null}
             {info && !error ? (
               <p

@@ -94,6 +94,11 @@ interface LoginResult {
   enrolToken?: string;
   enrolRole?: string;
   enrolEmail?: string | null;
+  // Patient multi-hospital disambiguation: the same email+password matched
+  // patient accounts in several tenants. The page shows a hospital picker and
+  // re-calls login() with the chosen tenantId.
+  needsHospitalSelection?: boolean;
+  hospitals?: Array<{ id: string; name: string; code: string | null }>;
 }
 
 interface AuthState {
@@ -126,7 +131,8 @@ interface AuthState {
   login: (
     email: string,
     password: string,
-    rememberMe?: boolean
+    rememberMe?: boolean,
+    tenantId?: string,
   ) => Promise<LoginResult>;
   verify2FA: (tempToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -223,7 +229,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: true,
   loginGeneration: 0,
 
-  login: async (email: string, password: string, rememberMe: boolean = false) => {
+  login: async (
+    email: string,
+    password: string,
+    rememberMe: boolean = false,
+    tenantId?: string,
+  ) => {
     // Issues #422 / #441: bump the generation FIRST so any /auth/me probe
     // already in flight (e.g. from a dashboard page that mounted before the
     // user navigated to /login) is invalidated and cannot write back stale
@@ -241,11 +252,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Only send `rememberMe` when true, so unchecked-box requests remain
     // byte-identical to the pre-Issue-#1 payload and existing tests/mocks
     // that assert on the exact body shape keep passing.
-    const body: { email: string; password: string; rememberMe?: boolean } = {
+    const body: {
+      email: string;
+      password: string;
+      rememberMe?: boolean;
+      tenantId?: string;
+    } = {
       email,
       password,
     };
     if (rememberMe) body.rememberMe = true;
+    // Patient multi-hospital disambiguation: pass the chosen hospital on the
+    // 2nd /login call so the server narrows the credential match to it.
+    if (tenantId) body.tenantId = tenantId;
     // Issue #484: skip the global "Your session has expired" toast for the
     // login endpoint. A 401 here means "wrong credentials" — never
     // "session expired" — because the user is by definition not yet
@@ -314,6 +333,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return {
         twoFactorRequired: true,
         tempToken: data.tempToken as string,
+      };
+    }
+    // Patient multi-hospital disambiguation: the same email+password matched
+    // accounts in several tenants. Return the list so the page shows a
+    // hospital picker; it re-calls login() with the chosen tenantId.
+    if (data.needsHospitalSelection) {
+      return {
+        needsHospitalSelection: true,
+        hospitals: (data.hospitals as Array<{
+          id: string;
+          name: string;
+          code: string | null;
+        }>) ?? [],
       };
     }
 

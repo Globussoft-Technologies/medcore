@@ -17,7 +17,7 @@ import { Autocomplete } from "@/components/Autocomplete";
 import { EntityPicker } from "@/components/EntityPicker";
 import { EmptyState } from "@/components/EmptyState";
 import { SkeletonCard } from "@/components/Skeleton";
-import { FileText, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { FileText, ChevronLeft, ChevronRight, Search, AlertTriangle } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 // Pearl ERP Stage 1 §2.1.4 (gap-doc row 49) — chip / segmented-control
 // helpers for the structured prescription row. Lives in lib/ because
@@ -406,6 +406,36 @@ export default function PrescriptionsPage() {
   const [allergyOverrideAccepted, setAllergyOverrideAccepted] = useState(false);
   const [allergyOverrideSubmitting, setAllergyOverrideSubmitting] =
     useState(false);
+
+  // SOW §2.1.4 CDSS — duplicate-drug guard. The same medicine added twice is
+  // a transcription error (and a double-dose risk), so we detect any name that
+  // appears on more than one row and surface the offending names. Matching is
+  // case-insensitive + whitespace-trimmed; blank rows are ignored. The result
+  // drives an inline warning AND disables Save/Share until resolved.
+  const duplicateMedicines = useMemo(() => {
+    const seen = new Map<string, number>();
+    for (const m of medicines) {
+      const key = m.medicineName.trim().toLowerCase();
+      if (!key) continue;
+      seen.set(key, (seen.get(key) ?? 0) + 1);
+    }
+    // Return the display names (first-seen casing) that are duplicated.
+    const dupKeys = new Set(
+      [...seen.entries()].filter(([, n]) => n > 1).map(([k]) => k),
+    );
+    if (dupKeys.size === 0) return [] as string[];
+    const out: string[] = [];
+    const added = new Set<string>();
+    for (const m of medicines) {
+      const key = m.medicineName.trim().toLowerCase();
+      if (dupKeys.has(key) && !added.has(key)) {
+        out.push(m.medicineName.trim());
+        added.add(key);
+      }
+    }
+    return out;
+  }, [medicines]);
+  const hasDuplicateMedicines = duplicateMedicines.length > 0;
 
   // Sign-before-share modal: when the doctor hits "Share via WhatsApp/Email"
   // on a prescription that has no signatureUrl yet, the API returns 409
@@ -1268,6 +1298,16 @@ export default function PrescriptionsPage() {
     const errs: Record<string, string> = {};
     const items = medicines.filter((m) => m.medicineName.trim());
 
+    // SOW §2.1.4 CDSS — hard-block duplicate medicines before anything else.
+    if (hasDuplicateMedicines) {
+      setFormErrors((p) => ({
+        ...p,
+        medicines: `Duplicate medicine: ${duplicateMedicines.join(", ")} appears more than once. Remove the duplicate row before saving.`,
+      }));
+      toast.warning("Remove the duplicate medicine before saving");
+      return;
+    }
+
     // Defense-in-depth: share the Zod schema used by the API so client-side
     // rejects bad UUIDs (Issue #17) and bad dosage shapes (Issue #9) before
     // the network round-trip. In edit mode we use updatePrescriptionSchema,
@@ -2107,6 +2147,22 @@ export default function PrescriptionsPage() {
             {formErrors.medicines && (
               <p className="mt-1 text-xs text-red-600">{formErrors.medicines}</p>
             )}
+            {/* SOW §2.1.4 CDSS — live duplicate-drug warning. Shows as soon as
+                the same medicine is on two rows; Save/Share stay disabled. */}
+            {hasDuplicateMedicines && (
+              <div
+                role="alert"
+                data-testid="rx-duplicate-warning"
+                className="mt-2 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>
+                  <strong>Duplicate medicine:</strong>{" "}
+                  {duplicateMedicines.join(", ")} {duplicateMedicines.length === 1 ? "is" : "are"} listed more than once.
+                  Remove the duplicate row — saving and sharing are blocked until then.
+                </span>
+              </div>
+            )}
           </div>
 
           {renalStatus &&
@@ -2255,7 +2311,8 @@ export default function PrescriptionsPage() {
             <button
               type="submit"
               disabled={
-                allergyConflicts.length > 0 && !allergyOverrideAccepted
+                (allergyConflicts.length > 0 && !allergyOverrideAccepted) ||
+                hasDuplicateMedicines
               }
               data-testid="rx-save-btn"
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"

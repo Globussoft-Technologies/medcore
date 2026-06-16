@@ -46,6 +46,7 @@ import {
   verifyPatientOtpSchema,
   firebaseVerifyPatientSchema,
   canonicalisePhone,
+  canonicaliseName,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
@@ -504,7 +505,9 @@ router.post(
       // out, the lookup returns null and we respond with the same generic
       // "couldn't sign you in" (no enumeration leak, and no silently logging
       // the user into the wrong chart).
-      const trimmedName = (bodyName ?? "").trim();
+      // Collapse inner whitespace + trim so "Sourav  Adak" (double space)
+      // matches the canonical "Sourav Adak" stored at registration/booking.
+      const trimmedName = canonicaliseName(bodyName ?? "");
       // Validate the selected hospital (must be a real, active tenant) so a
       // forged/stale id can't scope the lookup to a suspended org. When the
       // form sends no hospital we fall back to phone+name only (back-compat).

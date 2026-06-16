@@ -33,6 +33,11 @@ const isoDateField = z
 export const suggestDoctorsSchema = z.object({
   symptom: symptomField,
   date: isoDateField,
+  // Selected hospital. The public booking chat asks the patient which
+  // hospital they want; the chosen tenantId scopes the doctor suggestions to
+  // that hospital's panel. Optional for back-compat (subdomain/default
+  // resolution still applies when absent), but the UI always sends it.
+  tenantId: z.string().trim().min(1).optional(),
 });
 export type SuggestDoctorsInput = z.infer<typeof suggestDoctorsSchema>;
 
@@ -80,5 +85,11 @@ export const publicBookSchema = z.object({
     .email("Enter a valid email address")
     .optional()
     .or(z.literal("")),
+  // Selected hospital (same as the chat's hospital choice). Identity for
+  // booking is keyed on (phone + name + tenant): when all three match an
+  // existing patient in this hospital, the appointment is booked under that
+  // patient; otherwise a NEW patient is created in the selected hospital.
+  // Optional for back-compat — falls back to the doctor's tenant.
+  tenantId: z.string().trim().min(1).optional(),
 });
 export type PublicBookInput = z.infer<typeof publicBookSchema>;

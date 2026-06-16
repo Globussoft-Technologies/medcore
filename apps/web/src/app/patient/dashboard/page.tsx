@@ -30,6 +30,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { isAppointmentDayPast } from "@/lib/appointments";
 
 interface AppointmentRow {
   id: string;
@@ -338,10 +339,7 @@ export default function PatientDashboardPage() {
       .map((a) => {
         // `date` is UTC midnight of the calendar day; `slotStart` is IST
         // clock time. Subtract the IST offset so the composed instant is
-        // the correct UTC timestamp for the appointment. The earlier code
-        // used setUTCHours, which treated the IST string AS IF it were UTC
-        // — produced a 5h30m-offset timestamp that compared wrong against
-        // Date.now() AND rendered wrong through toLocaleTimeString.
+        // the correct UTC timestamp for the appointment.
         const base = new Date(a.date);
         if (a.slotStart) {
           const [hh, mm] = a.slotStart.split(":").map((s) => parseInt(s, 10));
@@ -352,7 +350,19 @@ export default function PatientDashboardPage() {
         }
         return { a, ts: base.getTime() };
       })
-      .filter((row) => row.ts >= now - 60 * 60 * 1000) // include rows up to 1h past so "currently checked in" still shows
+      .filter((row) => {
+        // SLOT appointments have a real slot time → compare the instant (with
+        // 1h grace so a "currently checked-in" row still shows). TOKEN/CALLING
+        // appointments have NO slot — their `date` is midnight UTC (≈5:30 AM
+        // IST), which is always earlier than "now", so an instant comparison
+        // wrongly hides TODAY's token appointment. For those, use a CALENDAR-
+        // DAY check: keep it unless its day is strictly before today (so
+        // today + future stay visible).
+        if (row.a.slotStart) {
+          return row.ts >= now - 60 * 60 * 1000;
+        }
+        return !isAppointmentDayPast(row.a.date ?? null, now);
+      })
       .sort((x, y) => x.ts - y.ts);
     return upcoming[0]?.a ?? null;
   }, [appointments]);

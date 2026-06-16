@@ -15,6 +15,7 @@ import {
   isCommonPassword,
   containsHtmlOrScript,
   canonicalisePhone,
+  canonicaliseName,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { authenticate } from "../middleware/auth";
@@ -699,7 +700,7 @@ router.post(
       const phoneRaw =
         typeof req.body?.phone === "string" ? req.body.phone.trim() : "";
       const nameRaw =
-        typeof req.body?.name === "string" ? req.body.name.trim() : "";
+        typeof req.body?.name === "string" ? canonicaliseName(req.body.name) : "";
       const bodyTenantId =
         typeof req.body?.tenantId === "string" ? req.body.tenantId.trim() : "";
 

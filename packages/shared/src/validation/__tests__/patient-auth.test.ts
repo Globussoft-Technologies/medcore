@@ -14,6 +14,7 @@ import {
   requestPatientOtpSchema,
   verifyPatientOtpSchema,
   canonicalisePhone,
+  canonicaliseName,
 } from "../patient-auth";
 
 // ───────────────────────────────────────────────────────
@@ -273,5 +274,61 @@ describe("canonicalisePhone()", () => {
     expect(canonicalisePhone("+919876543210")).toBe("9876543210");
     // Sanity: feeding the output back in should NOT strip another "91"-looking digit pair.
     expect(canonicalisePhone("9876543210")).toBe("9876543210");
+  });
+});
+
+// ───────────────────────────────────────────────────────
+// canonicaliseName()
+// ───────────────────────────────────────────────────────
+// June 2026: a public booking / login typed with extra inner spaces
+// ("Sourav  Adak") was treated as a DIFFERENT person from "Sourav Adak",
+// splitting one patient across two records. canonicaliseName collapses inner
+// whitespace + trims so the find-or-create lookup and the stored value agree.
+// Case is intentionally preserved (the DB lookups already match
+// case-insensitively, and we keep the patient's chosen capitalisation).
+
+describe("canonicaliseName()", () => {
+  it("returns a single-spaced name unchanged", () => {
+    expect(canonicaliseName("Sourav Adak")).toBe("Sourav Adak");
+  });
+  it("collapses two or more inner spaces to one", () => {
+    expect(canonicaliseName("Sourav  Adak")).toBe("Sourav Adak");
+    expect(canonicaliseName("Sourav    Adak")).toBe("Sourav Adak");
+  });
+  it("collapses tabs and mixed inner whitespace to a single space", () => {
+    expect(canonicaliseName("Sourav\tAdak")).toBe("Sourav Adak");
+    expect(canonicaliseName("Sourav \t  Adak")).toBe("Sourav Adak");
+  });
+  it("trims leading and trailing whitespace", () => {
+    expect(canonicaliseName("  Sourav Adak  ")).toBe("Sourav Adak");
+    expect(canonicaliseName("\tSourav Adak\n")).toBe("Sourav Adak");
+  });
+  it("trims AND collapses together", () => {
+    expect(canonicaliseName("  Sourav   Adak  ")).toBe("Sourav Adak");
+  });
+  it("preserves case (matching is case-insensitive elsewhere, storage keeps the user's casing)", () => {
+    expect(canonicaliseName("sourav  adak")).toBe("sourav adak");
+    expect(canonicaliseName("SOURAV  ADAK")).toBe("SOURAV ADAK");
+  });
+  it("handles a single-word name", () => {
+    expect(canonicaliseName("  Sourav  ")).toBe("Sourav");
+  });
+  it("handles three-part names", () => {
+    expect(canonicaliseName("A   B   C")).toBe("A B C");
+  });
+  it("returns empty for an all-whitespace string", () => {
+    expect(canonicaliseName("   ")).toBe("");
+    expect(canonicaliseName("")).toBe("");
+  });
+  it("is idempotent — a canonical name fixed-points", () => {
+    const once = canonicaliseName("Sourav   Adak");
+    expect(canonicaliseName(once)).toBe(once);
+    expect(once).toBe("Sourav Adak");
+  });
+  it("makes the double-space and single-space variants converge to one value", () => {
+    const variants = ["Sourav Adak", "Sourav  Adak", "  Sourav   Adak  ", "Sourav\tAdak"];
+    const canonicals = variants.map((n) => canonicaliseName(n));
+    expect(new Set(canonicals).size).toBe(1);
+    expect(canonicals[0]).toBe("Sourav Adak");
   });
 });

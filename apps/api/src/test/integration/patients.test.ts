@@ -46,10 +46,13 @@ describeIfDB("Patients API (integration)", () => {
     expect(created?.tenantId).toBe(created?.user?.tenantId);
   });
 
-  it("issues a per-tenant MR number: <tenant subdomain> + zero-padded sequence", async () => {
-    // MR scheme is per-tenant: prefix = the tenant's slugified subdomain,
-    // suffix = a zero-padded sequence counted only within that tenant. So a
-    // tenant "abbc" issues abbc000001, abbc000002, …
+  it("issues a per-tenant MR number: <tenant prefix> + zero-padded sequence", async () => {
+    // MR scheme is per-tenant (services/mr-number.ts): the prefix is the
+    // operator-set tenant CODE (SystemConfig key `tenant:<id>:code`), else the
+    // tenant SUBDOMAIN slug, else "MR" — slugified to UPPERCASE alphanumerics
+    // (capped 12). The suffix is a zero-padded sequence counted within the
+    // tenant. So a tenant coded "PG-01" issues PG01000001, PG01000002, …;
+    // a tenant with no code/subdomain match falls back to MR000001, …
     const prisma = await getPrisma();
 
     const res = await request(app)
@@ -59,21 +62,31 @@ describeIfDB("Patients API (integration)", () => {
     expect(res.status).toBeLessThan(400);
 
     const mr: string = res.body.data.mrNumber;
-    // Derive the expected prefix from the caller's tenant subdomain.
+    // Derive the expected prefix the SAME way the production helper does:
+    // tenant code → subdomain → "MR", uppercased + alphanumerics only.
+    const slug = (s: string) =>
+      s.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
     const created = await prisma.patient.findUnique({
       where: { id: res.body.data.id },
       select: { tenantId: true },
     });
-    const tenant = created?.tenantId
-      ? await prisma.tenant.findUnique({
+    let expectedPrefix = "MR";
+    if (created?.tenantId) {
+      const codeRow = await prisma.systemConfig.findUnique({
+        where: { key: `tenant:${created.tenantId}:code` },
+      });
+      const fromCode = codeRow?.value ? slug(codeRow.value) : "";
+      if (fromCode) {
+        expectedPrefix = fromCode;
+      } else {
+        const tenant = await prisma.tenant.findUnique({
           where: { id: created.tenantId },
           select: { subdomain: true },
-        })
-      : null;
-    const expectedPrefix = (tenant?.subdomain ?? "mr")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "")
-      .slice(0, 16) || "mr";
+        });
+        const fromSub = tenant?.subdomain ? slug(tenant.subdomain) : "";
+        if (fromSub) expectedPrefix = fromSub;
+      }
+    }
 
     // Format: <prefix><6+ digits>.
     expect(mr).toMatch(new RegExp(`^${expectedPrefix}\\d{6,}$`));

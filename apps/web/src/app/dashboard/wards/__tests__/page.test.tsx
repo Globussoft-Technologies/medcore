@@ -130,6 +130,7 @@ type Bed = {
   bedNumber: string;
   status: "AVAILABLE" | "OCCUPIED" | "CLEANING" | "MAINTENANCE";
   wardId: string;
+  dailyRate?: number;
 };
 
 type Ward = {
@@ -986,6 +987,230 @@ describe("WardsPage (Wards & Beds admin — full surface)", () => {
       expect(screen.queryByRole("button", { name: /^Occupied$/ })).not.toBeInTheDocument(),
     );
     expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  // ── BedCell edit / delete (admin CRUD) ─────────────────────────────────
+
+  // Helper: expand the ward and open bed A1's action menu.
+  async function openBedMenu(bedName = /A1.*Available/i) {
+    const heading = await screen.findByRole("heading", { name: /General Ward/ });
+    fireEvent.click(heading.closest("button")!);
+    const bedBtn = await screen.findByRole("button", { name: bedName });
+    fireEvent.click(bedBtn);
+    return bedBtn;
+  }
+
+  it("BedCell — admin sees Edit + Delete actions in the bed menu", async () => {
+    wireDefaultGets();
+    render(<WardsPage />);
+    await openBedMenu();
+    expect(await screen.findByTestId("edit-bed-b-a")).toBeInTheDocument();
+    expect(screen.getByTestId("delete-bed-b-a")).toBeInTheDocument();
+  });
+
+  it("BedCell — non-admin does NOT see Edit/Delete actions", async () => {
+    asDoctor();
+    wireDefaultGets();
+    render(<WardsPage />);
+    // Doctors can still open the status menu, but no edit/delete affordances.
+    await openBedMenu();
+    expect(screen.queryByTestId("edit-bed-b-a")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("delete-bed-b-a")).not.toBeInTheDocument();
+  });
+
+  it("BedCell edit — happy PATCH /beds/:id with changed number + rate, success toast, refetch", async () => {
+    wireDefaultGets({
+      wards: [
+        wardFixture({
+          beds: [
+            bedFixture({ id: "b-a", bedNumber: "A1", status: "AVAILABLE", dailyRate: 1000 }),
+          ],
+        }),
+      ],
+    });
+    apiMock.patch.mockResolvedValue({ data: { ok: true } });
+    render(<WardsPage />);
+    await openBedMenu();
+
+    fireEvent.click(await screen.findByTestId("edit-bed-b-a"));
+    const form = await screen.findByTestId("edit-bed-form-b-a");
+    const numberInput = within(form).getByLabelText("Bed number");
+    const rateInput = within(form).getByLabelText("Bed price");
+    fireEvent.change(numberInput, { target: { value: "A1-NEW" } });
+    fireEvent.change(rateInput, { target: { value: "2500" } });
+    fireEvent.submit(form);
+
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith("/beds/b-a", {
+        bedNumber: "A1-NEW",
+        dailyRate: 2500,
+      }),
+    );
+    expect(toastMock.success).toHaveBeenCalledWith("Bed updated");
+  });
+
+  it("BedCell edit — no changes → closes editor without PATCH", async () => {
+    wireDefaultGets({
+      wards: [
+        wardFixture({
+          beds: [bedFixture({ id: "b-a", bedNumber: "A1", status: "AVAILABLE", dailyRate: 1000 })],
+        }),
+      ],
+    });
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("edit-bed-b-a"));
+    const form = await screen.findByTestId("edit-bed-form-b-a");
+    // Submit with the prefilled (unchanged) values.
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(screen.queryByTestId("edit-bed-form-b-a")).not.toBeInTheDocument(),
+    );
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  it("BedCell edit — blank bed number fires guard toast, no PATCH", async () => {
+    wireDefaultGets();
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("edit-bed-b-a"));
+    const form = await screen.findByTestId("edit-bed-form-b-a");
+    fireEvent.change(within(form).getByLabelText("Bed number"), {
+      target: { value: "   " },
+    });
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("Bed number is required"),
+    );
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  it("BedCell edit — invalid (negative) rate fires guard toast, no PATCH", async () => {
+    wireDefaultGets();
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("edit-bed-b-a"));
+    const form = await screen.findByTestId("edit-bed-form-b-a");
+    fireEvent.change(within(form).getByLabelText("Bed price"), {
+      target: { value: "-5" },
+    });
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("Daily rate must be a number ≥ 0"),
+    );
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  it("BedCell edit — PATCH rejection toasts the error and keeps the editor open", async () => {
+    wireDefaultGets({
+      wards: [
+        wardFixture({
+          beds: [bedFixture({ id: "b-a", bedNumber: "A1", status: "AVAILABLE", dailyRate: 1000 })],
+        }),
+      ],
+    });
+    apiMock.patch.mockRejectedValue(new Error("Bed \"A2\" already exists in this ward."));
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("edit-bed-b-a"));
+    const form = await screen.findByTestId("edit-bed-form-b-a");
+    fireEvent.change(within(form).getByLabelText("Bed number"), {
+      target: { value: "A2" },
+    });
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith(
+        'Bed "A2" already exists in this ward.',
+      ),
+    );
+    // Editor stays open on failure.
+    expect(screen.getByTestId("edit-bed-form-b-a")).toBeInTheDocument();
+  });
+
+  it("BedCell edit — Cancel closes the editor without PATCH", async () => {
+    wireDefaultGets();
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("edit-bed-b-a"));
+    const form = await screen.findByTestId("edit-bed-form-b-a");
+    fireEvent.click(within(form).getByRole("button", { name: /^Cancel$/ }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("edit-bed-form-b-a")).not.toBeInTheDocument(),
+    );
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  it("BedCell delete — confirm yes → DELETE /beds/:id, success toast, refetch", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    wireDefaultGets();
+    apiMock.delete.mockResolvedValue({ data: { id: "b-a" } });
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("delete-bed-b-a"));
+    await waitFor(() => expect(apiMock.delete).toHaveBeenCalledWith("/beds/b-a"));
+    expect(toastMock.success).toHaveBeenCalledWith("Bed deleted");
+    confirmSpy.mockRestore();
+  });
+
+  it("BedCell delete — confirm no → no DELETE call", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    wireDefaultGets();
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("delete-bed-b-a"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("delete-bed-b-a")).not.toBeInTheDocument(),
+    );
+    expect(apiMock.delete).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it("BedCell delete — DELETE rejection surfaces toast.error(err.message)", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    wireDefaultGets();
+    apiMock.delete.mockRejectedValue(new Error("Bed \"A1\" is occupied."));
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("delete-bed-b-a"));
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith('Bed "A1" is occupied.'),
+    );
+    confirmSpy.mockRestore();
+  });
+
+  it("BedCell delete — non-Error rejection falls back to 'Failed to delete bed'", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    wireDefaultGets();
+    apiMock.delete.mockRejectedValue("boom");
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("delete-bed-b-a"));
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("Failed to delete bed"),
+    );
+    confirmSpy.mockRestore();
+  });
+
+  it("BedCell edit — non-Error PATCH rejection falls back to 'Failed to update bed'", async () => {
+    wireDefaultGets({
+      wards: [
+        wardFixture({
+          beds: [bedFixture({ id: "b-a", bedNumber: "A1", status: "AVAILABLE", dailyRate: 1000 })],
+        }),
+      ],
+    });
+    apiMock.patch.mockRejectedValue("oops");
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("edit-bed-b-a"));
+    const form = await screen.findByTestId("edit-bed-form-b-a");
+    fireEvent.change(within(form).getByLabelText("Bed number"), {
+      target: { value: "A9" },
+    });
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith("Failed to update bed"),
+    );
   });
 
   // ── Forecast tab (OccupancyForecast subcomponent) ──────────────────────

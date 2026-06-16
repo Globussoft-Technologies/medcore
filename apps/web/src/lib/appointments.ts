@@ -165,9 +165,9 @@ export function isAppointmentToday(
  * the no-slot (TOKEN / CALLING) branch of {@link displayStatusForAppointment}.
  * Compares YYYY-MM-DD strings so there's no instant/timezone drift.
  */
-function isAppointmentDayPast(
+export function isAppointmentDayPast(
   date: string | null,
-  nowMs: number
+  nowMs: number = Date.now()
 ): boolean {
   if (!date) return false;
   const ymd = String(date).slice(0, 10);

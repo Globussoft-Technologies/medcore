@@ -61,6 +61,21 @@ export function canonicalisePhone(raw: string): string {
   return s;
 }
 
+/**
+ * Canonical form of a person's name for patient-identity matching + storage.
+ * Trims the ends AND collapses any run of inner whitespace (double spaces,
+ * tabs) to a single space. Case is intentionally LEFT ALONE — the DB lookups
+ * already match case-insensitively (`mode: "insensitive"`), and we want the
+ * patient's chosen capitalisation preserved on the stored row. The purpose
+ * here is only to stop "Sourav  Adak" (two spaces) registering as a separate
+ * person from "Sourav Adak". Both the value WRITTEN to `User.name` and the
+ * value used in the find-or-create lookup must pass through this so the two
+ * always agree (June 2026: inner-whitespace variance split patient accounts).
+ */
+export function canonicaliseName(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
+}
+
 export const requestPatientOtpSchema = z.object({
   phone: z
     .string()

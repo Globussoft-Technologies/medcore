@@ -534,6 +534,40 @@ export default function QuickBookPage() {
   const [selectedDoctor, setSelectedDoctor] = useState<DoctorSuggestion | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
 
+  // Hospital selection. The AI asks which hospital once it's ready to suggest
+  // doctors; the chat shows these as clickable chips. The chosen tenantId
+  // scopes the doctor suggestions + the booking to that hospital.
+  const [hospitals, setHospitals] = useState<
+    Array<{ id: string; name: string; code: string | null }>
+  >([]);
+  const [tenantId, setTenantId] = useState("");
+  // True once the chat is ready for doctors but the patient hasn't picked a
+  // hospital yet → the chat shows the hospital chips instead of doctors.
+  const [awaitingHospital, setAwaitingHospital] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/public/hospitals`);
+        const json = await res.json();
+        if (cancelled) return;
+        const list = (json?.data ?? []) as Array<{
+          id: string;
+          name: string;
+          code: string | null;
+        }>;
+        setHospitals(list);
+        // If there's only one hospital, pick it silently — no need to ask.
+        if (list.length === 1) setTenantId(list[0].id);
+      } catch {
+        // Non-fatal: booking falls back to subdomain/default tenant.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Identity (collected FIRST). Gender + DOB required; email optional.
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -750,8 +784,18 @@ export default function QuickBookPage() {
       // Fetch doctors when: the server says we're ready, the panel is already
       // open, OR the patient just named a date (so we honour the requested day
       // right away). Use the freshly-detected date if any.
-      if (json.data?.readyForDoctors || doctors.length > 0 || detected) {
-        void loadDoctorSuggestions(next, effectiveDate);
+      const readyToSuggest =
+        json.data?.readyForDoctors || doctors.length > 0 || detected;
+      if (readyToSuggest) {
+        // Before suggesting doctors, the patient must pick a HOSPITAL (the AI
+        // asks). If there are several hospitals and none chosen yet, show the
+        // hospital chips instead of loading doctors. Once chosen (or only one
+        // hospital exists), load the doctors scoped to it.
+        if (!tenantId && hospitals.length > 1) {
+          setAwaitingHospital(true);
+        } else {
+          void loadDoctorSuggestions(next, effectiveDate);
+        }
       }
     } catch {
       setError("Network error. Please try again.");
@@ -765,9 +809,15 @@ export default function QuickBookPage() {
   // changes (the date strip stays in the chat). Does NOT change the step.
   // `dateOverride` lets a freshly-detected chat date be used immediately
   // (React's `date` state hasn't updated yet within the same handler).
+  // `tenantOverride` does the same for the hospital: when called straight from
+  // the hospital-chip click, `setTenantId(h.id)` hasn't applied yet, so the
+  // caller passes `h.id` here so suggestions are scoped to the chosen hospital
+  // (without it the request would fall back to the default tenant — the cause
+  // of "I picked Kolkata but got Default doctors / my appointment vanished").
   async function loadDoctorSuggestions(
     history?: ChatMessage[],
     dateOverride?: string,
+    tenantOverride?: string,
   ) {
     const src = history ?? messages;
     const symptomText = src
@@ -781,7 +831,13 @@ export default function QuickBookPage() {
       const res = await fetch(`${API_BASE}/public/booking/suggest-doctors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symptom: symptomText, date: dateOverride ?? date }),
+        body: JSON.stringify({
+          symptom: symptomText,
+          date: dateOverride ?? date,
+          // Scope suggestions to the chosen hospital. Prefer the explicit
+          // override (fresh chip click) over the possibly-stale state.
+          tenantId: tenantOverride || tenantId || undefined,
+        }),
       });
       const json = await res.json();
       if (res.ok && json.success) {
@@ -915,6 +971,9 @@ export default function QuickBookPage() {
           gender,
           dateOfBirth: dob,
           email: email.trim() || undefined,
+          // The chosen hospital — books into it and keys patient identity on
+          // (phone + name + this tenant).
+          tenantId: tenantId || undefined,
         }),
       });
       const json = await res.json();
@@ -1007,12 +1066,16 @@ export default function QuickBookPage() {
 
       <Container className="py-16 md:py-20">
         <div className="flex flex-col items-start gap-10 lg:flex-row lg:gap-12">
-          {/* ════ LEFT: about MedCore — HIDDEN once the chat's two-panel
-              (doctor + chat) layout is active so it doesn't overflow. ════ */}
+          {/* ════ LEFT: about MedCore — HIDDEN once the chat's side-panel
+              layout is active (the hospital picker OR the doctor suggestions)
+              so the panel has room and the chat stays readable. ════ */}
           <aside
             className={`w-full lg:sticky lg:top-24 lg:w-[38%] lg:shrink-0 mc-anim-slide-left ${
               step === "chat" &&
-              (doctors.length > 0 || doctorsLoading || doctorsSearched)
+              (awaitingHospital ||
+                doctors.length > 0 ||
+                doctorsLoading ||
+                doctorsSearched)
                 ? "hidden"
                 : ""
             }`}
@@ -1115,7 +1178,10 @@ export default function QuickBookPage() {
           <div
             className={`mx-auto w-full min-w-0 transition-all duration-500 ease-out lg:flex-1 ${
               step === "chat"
-                ? doctors.length > 0 || doctorsLoading || doctorsSearched
+                ? awaitingHospital ||
+                  doctors.length > 0 ||
+                  doctorsLoading ||
+                  doctorsSearched
                   ? "max-w-none" // full width — info column is hidden here
                   : "max-w-3xl"
                 : "max-w-2xl"
@@ -1360,10 +1426,65 @@ export default function QuickBookPage() {
                     </p>
                   </div>
                 ) : (
-                  // Two-column: chat card + an AI-suggested doctor panel that
-                  // appears on the left once the assistant has enough info.
-                  <div className="flex flex-col gap-4 lg:flex-row">
+                  // Two-column: chat card + an AI-suggested doctor/hospital
+                  // panel beside it once the assistant has enough info.
+                  // `lg:flex-wrap` lets the side panel drop below the chat when
+                  // there isn't room for both at full width — so the chat never
+                  // collapses to an unreadable sliver.
+                  <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap">
                     {/* ── Doctor panel (AI-suggested) ── */}
+                    {/* Hospital picker — the AI asks which hospital before
+                        suggesting doctors. Shown when ready-for-doctors but no
+                        hospital chosen yet. Tapping a chip scopes the
+                        suggestions + booking to that tenant. */}
+                    {awaitingHospital && (
+                      <div
+                        data-testid="quick-book-hospitals"
+                        className="flex w-full flex-col self-start overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-500/10 mc-anim-slide-left lg:order-first lg:w-[26rem] lg:shrink-0 dark:border-emerald-900/50 dark:bg-gray-800"
+                      >
+                        <div className="flex items-center gap-2 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-5 py-4 dark:border-gray-700 dark:from-emerald-950 dark:to-teal-950">
+                          <Stethoscope className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
+                          <p className="text-base font-semibold text-gray-800 dark:text-gray-100">
+                            Which hospital would you like to visit?
+                          </p>
+                        </div>
+                        <div className="flex flex-col gap-3 p-4">
+                          {hospitals.map((h) => (
+                            <button
+                              key={h.id}
+                              type="button"
+                              data-testid={`quick-book-hospital-${h.id}`}
+                              onClick={() => {
+                                setTenantId(h.id);
+                                setAwaitingHospital(false);
+                                // Pass h.id explicitly — setTenantId hasn't
+                                // applied yet this tick, so the suggestion fetch
+                                // must use the fresh id or it scopes to default.
+                                void loadDoctorSuggestions(undefined, date, h.id);
+                              }}
+                              className="group flex items-center justify-between rounded-xl border-2 border-gray-200 px-5 py-4 text-left transition hover:border-emerald-500 hover:bg-emerald-50 hover:shadow-md dark:border-gray-700 dark:hover:bg-gray-700"
+                            >
+                              <span className="flex flex-col">
+                                <span className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                                  {h.name}
+                                </span>
+                                {h.code ? (
+                                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    {h.code}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span
+                                aria-hidden
+                                className="text-lg text-gray-400 transition group-hover:translate-x-0.5 group-hover:text-emerald-600"
+                              >
+                                →
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {(doctors.length > 0 || doctorsLoading || doctorsSearched) && (
                       <div
                         data-testid="quick-book-doctors"
@@ -1560,8 +1681,11 @@ export default function QuickBookPage() {
                       </div>
                     )}
 
-                    {/* ── Chat card ── */}
-                    <div className="flex h-[34rem] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg shadow-blue-500/5 lg:h-[38rem] dark:border-gray-700 dark:bg-gray-800">
+                    {/* ── Chat card ──
+                        `lg:min-w-[22rem]` stops the chat from collapsing to a
+                        sliver (one-word-per-line wrap) when the hospital/doctor
+                        panel sits beside it on desktop. */}
+                    <div className="flex h-[34rem] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg shadow-blue-500/5 lg:h-[38rem] lg:min-w-[22rem] dark:border-gray-700 dark:bg-gray-800">
                       {/* Header */}
                       <div className="flex items-center gap-3 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 dark:border-gray-700 dark:from-blue-950 dark:to-indigo-950">
                         <div className="relative flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 shadow-md shadow-blue-600/30">

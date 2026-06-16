@@ -35,6 +35,7 @@ import {
   suggestDoctorsSchema,
   publicBookSchema,
   canonicalisePhone,
+  canonicaliseName,
 } from "@medcore/shared";
 import { validate } from "../middleware/validate";
 import { istTodayDateStr, istNowMinutes } from "../utils/ist-time";
@@ -50,6 +51,12 @@ import { onAppointmentBooked } from "../services/notification-triggers";
 // needs different env vars (WHATSAPP_API_URL/_KEY) and otherwise stubs.
 import { sendWhatsApp } from "../services/messaging/whatsapp";
 import { patientPortalLink } from "../lib/site-link";
+import {
+  resolveMrPrefix,
+  nextMrSeq,
+  mrCounterKey,
+  formatMrNumber,
+} from "../services/mr-number";
 
 export const publicBookingRouter = Router();
 
@@ -482,25 +489,36 @@ publicBookingRouter.post(
   validate(suggestDoctorsSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { symptom, date } = req.body as { symptom: string; date: string };
-      // TEMP (2026-06-03): tenant resolution disabled here so the doctor
-      // list isn't scoped — see the findMany comment below. Restore with
-      // `const tenantId = await resolveTenant(req);` when re-enabling.
-      // const tenantId = await resolveTenant(req);
+      const { symptom, date, tenantId: bodyTenantId } = req.body as {
+        symptom: string;
+        date: string;
+        tenantId?: string;
+      };
+      // The public booking chat asks the patient which HOSPITAL they want,
+      // and sends the chosen tenantId. We scope the suggested doctors to that
+      // hospital's panel so the AI only ever recommends in-house doctors.
+      // Priority: body tenantId (the patient's pick) → header → subdomain →
+      // default. Validated active inside resolveTenant when from header/sub;
+      // the body id is validated here so a stale/forged id can't scope to a
+      // suspended hospital.
+      let tenantId: string | null = null;
+      if (bodyTenantId && bodyTenantId.trim()) {
+        const t = await prisma.tenant.findUnique({
+          where: { id: bodyTenantId.trim() },
+          select: { id: true, active: true },
+        });
+        if (t?.active) tenantId = t.id;
+      }
+      if (!tenantId) tenantId = await resolveTenant(req);
 
       const specialties = await symptomToSpecialties(symptom);
 
-      // Pull active doctors in the matched specialties.
-      // Specialty match is case-insensitive contains so "General Medicine"
-      // matches a doctor stored as "General Medicine / Diabetology".
-      // TEMP (2026-06-03): tenant scoping commented out so the public
-      // booking page surfaces ALL doctors in production while the demo
-      // data lives across multiple tenants. Re-enable the
-      // `...(tenantId ? { tenantId } : {})` line below to restore
-      // per-tenant scoping once each tenant has its own doctor roster.
+      // Pull active doctors in the matched specialties, SCOPED to the chosen
+      // hospital. Specialty match is case-insensitive contains so "General
+      // Medicine" matches a doctor stored as "General Medicine / Diabetology".
       const doctors = await prisma.doctor.findMany({
         where: {
-          // ...(tenantId ? { tenantId } : {}),
+          ...(tenantId ? { tenantId } : {}),
           user: { isActive: true },
           OR: specialties.map((s) => ({
             specialization: { contains: s, mode: "insensitive" as const },
@@ -613,7 +631,7 @@ publicBookingRouter.post(
   validate(publicBookSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, doctorId, date, slotId, symptom, gender, dateOfBirth, email } = req.body as {
+      const { name, doctorId, date, slotId, symptom, gender, dateOfBirth, email, tenantId: bodyTenantId } = req.body as {
         name: string;
         phone: string;
         doctorId: string;
@@ -623,8 +641,13 @@ publicBookingRouter.post(
         gender: "MALE" | "FEMALE" | "OTHER";
         dateOfBirth: string;
         email?: string;
+        // The hospital the patient chose in the booking chat.
+        tenantId?: string;
       };
       const phone = canonicalisePhone(req.body.phone);
+      // Canonical name: trim + collapse inner whitespace so "Sourav  Adak"
+      // (double space) matches and stores identically to "Sourav Adak".
+      const cleanName = canonicaliseName(name);
       const dateObj = new Date(date);
 
       // Same-day past-slot guard (mirrors /appointments/book). IST-anchored
@@ -670,7 +693,21 @@ publicBookingRouter.post(
         return;
       }
 
-      const tenantId = doctor.tenantId ?? (await resolveTenant(req));
+      // Resolve the hospital this booking belongs to. The patient picked it in
+      // the chat (bodyTenantId); we trust the DOCTOR'S tenant as the source of
+      // truth (the doctor was already suggested from the chosen hospital), and
+      // only fall back to the body/header/default when the doctor has no
+      // tenant. This keeps the appointment + new patient in the same hospital
+      // as the doctor — never split across tenants.
+      const tenantId =
+        doctor.tenantId ??
+        (bodyTenantId?.trim()
+          ? (await prisma.tenant.findUnique({
+              where: { id: bodyTenantId.trim() },
+              select: { id: true, active: true },
+            }))?.id ?? null
+          : null) ??
+        (await resolveTenant(req));
 
       // SLOT mode requires a specific time slot; TOKEN/CALLING do not (they
       // book against the date — next token / arrival order). Enforce here now
@@ -706,19 +743,23 @@ publicBookingRouter.post(
         }
       }
 
-      // ── Auto-register the patient by (phone + name) ──
-      // Identity is now keyed on phone AND name (case-insensitive). A
-      // returning patient who books with the SAME phone + SAME name reuses
-      // their existing chart (the appointment is booked against it). A
-      // DIFFERENT name on the same phone is treated as a DIFFERENT person —
-      // a new account is created (duplicate phones are allowed). The
-      // matching mirrors patient-auth.ts firebase-verify so login resolves
-      // to the same account.
+      // ── Find-or-create the patient by (phone + name + HOSPITAL) ──
+      // Identity for a public booking is keyed on phone AND name AND the
+      // selected hospital (tenant). Only when ALL THREE match an existing
+      // patient IN THIS HOSPITAL do we book against that existing chart. If
+      // ANY of them differs — different name, different phone, or a different
+      // hospital — we create a NEW patient in the selected hospital. (Duplicate
+      // phones across hospitals/people are allowed; a patient at Hospital A is
+      // a separate record from the same person at Hospital B.)
       let user = await prisma.user.findFirst({
         where: {
           phone,
           role: Role.PATIENT,
-          name: { equals: name.trim(), mode: "insensitive" },
+          name: { equals: cleanName, mode: "insensitive" },
+          // Scope to the chosen hospital — the crux of the per-tenant rule.
+          ...(tenantId ? { tenantId } : {}),
+          // Must already have a Patient row in this tenant to be reusable.
+          patient: { is: {} },
         },
         select: { id: true, tenantId: true, patient: { select: { id: true } } },
       });
@@ -745,7 +786,7 @@ publicBookingRouter.post(
         if (!user) {
           user = await prisma.user.create({
             data: {
-              name,
+              name: cleanName,
               phone,
               email: emailToStore,
               passwordHash,
@@ -756,30 +797,47 @@ publicBookingRouter.post(
             select: { id: true, tenantId: true, patient: { select: { id: true } } },
           });
         }
-        // MR number — mirrors auth.ts registration (next_mr_number counter).
-        const cfg = await prisma.systemConfig.findUnique({
-          where: { key: "next_mr_number" },
-        });
-        const mrSeq = cfg ? parseInt(cfg.value, 10) : 1;
-        const mrNumber = `MR${String(mrSeq).padStart(6, "0")}`;
-        const patient = await prisma.patient.create({
-          data: {
-            userId: user.id,
-            mrNumber,
-            // Demographics from the booking form (gender + DOB required).
-            gender,
-            dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-            tenantId,
-            source: "WEB",
-          },
-          select: { id: true },
-        });
-        patientId = patient.id;
-        await prisma.systemConfig.upsert({
-          where: { key: "next_mr_number" },
-          update: { value: String(mrSeq + 1) },
-          create: { key: "next_mr_number", value: String(mrSeq + 1) },
-        });
+        // MR number — per-tenant scheme (<tenant code><sequence>, e.g.
+        // PG01000001) shared with staff + self-registration via
+        // services/mr-number.ts. The patient email goes on Patient.contactEmail
+        // too (per-tenant), mirroring the registration write.
+        const mrPrefix = await resolveMrPrefix(prisma, tenantId);
+        const counterKey = mrCounterKey(tenantId);
+        let mrSeq = await nextMrSeq(prisma, counterKey, mrPrefix);
+        let patient: { id: string } | undefined;
+        const MAX_MR_ATTEMPTS = 5;
+        for (let attempt = 0; attempt < MAX_MR_ATTEMPTS; attempt++) {
+          try {
+            patient = await prisma.patient.create({
+              data: {
+                userId: user.id,
+                mrNumber: formatMrNumber(mrPrefix, mrSeq),
+                contactEmail: emailToStore ? emailToStore.toLowerCase() : null,
+                // Demographics from the booking form (gender + DOB required).
+                gender,
+                dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+                tenantId,
+                source: "WEB",
+              },
+              select: { id: true },
+            });
+            await prisma.systemConfig.upsert({
+              where: { key: counterKey },
+              update: { value: String(mrSeq + 1) },
+              create: { key: counterKey, value: String(mrSeq + 1) },
+            });
+            break;
+          } catch (err) {
+            const code = (err as { code?: string })?.code;
+            const target = (err as { meta?: { target?: string[] | string } })?.meta
+              ?.target;
+            const fields = Array.isArray(target) ? target : target ? [String(target)] : [];
+            const isMrClash = code === "P2002" && fields.includes("mrNumber");
+            if (!isMrClash || attempt === MAX_MR_ATTEMPTS - 1) throw err;
+            mrSeq = Math.max(await nextMrSeq(prisma, counterKey, mrPrefix), mrSeq + 1);
+          }
+        }
+        patientId = patient!.id;
       }
 
       // ── Mode-specific token / arrival / slot assignment + create ──
@@ -811,6 +869,13 @@ publicBookingRouter.post(
               arrivalSeq,
               type: "SCHEDULED",
               status: "BOOKED",
+              // Stamp the appointment with the booking's hospital. This route
+              // uses the UNSCOPED global `prisma` (no req.tenantId on an
+              // unauthenticated caller), so the row's tenantId must be set
+              // explicitly — otherwise it lands NULL and the patient's
+              // tenant-scoped appointment list (which filters tenantId = their
+              // hospital) never returns it, making the booking invisible.
+              tenantId,
               notes: symptom ? `Self-booked (web). Reason: ${symptom}` : "Self-booked (web)",
             },
             include: {
@@ -859,7 +924,7 @@ publicBookingRouter.post(
       const timeLine = slotStartToUse ? ` at ${slotStartToUse}` : "";
       const tokenLine = displayToken ? `\nYour token: ${displayToken}` : "";
       const waMessage =
-        `Hi ${name}, your appointment with ${doctor.user.name} is confirmed for ` +
+        `Hi ${cleanName}, your appointment with ${doctor.user.name} is confirmed for ` +
         `${dateStr}${timeLine}.${tokenLine}\n\n` +
         `View your appointments and reports anytime: ${patientPortalLink(req)}\n` +
         `Just sign in with this phone number. — MedCore`;

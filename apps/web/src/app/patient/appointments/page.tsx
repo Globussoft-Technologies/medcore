@@ -36,6 +36,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { isAppointmentDayPast } from "@/lib/appointments";
 
 interface BranchLite {
   id: string;
@@ -372,16 +373,24 @@ export default function PatientAppointmentsPage() {
 
   const { upcoming, past } = useMemo(() => {
     const now = Date.now();
-    const rows = appointments.map((a) => ({ a, ts: composeWhen(a) }));
     // Anything in the past + terminal-status sets land in "past"; anything
     // upcoming OR non-terminal active goes to "upcoming". We INCLUDE active
     // CHECKED_IN/IN_CONSULTATION rows in upcoming even if their slot is a
     // few minutes ago — the patient might still be in the consult room.
     const up: AppointmentRow[] = [];
     const pa: AppointmentRow[] = [];
-    for (const { a, ts } of rows) {
+    for (const a of appointments) {
       const isTerminal = TERMINAL_STATUSES.has(a.status);
-      const isFuture = ts >= now - 60 * 60 * 1000; // grace 1h
+      // TOKEN / CALLING appointments have no slotStart — they book against the
+      // DATE (no specific time). Comparing their midnight-UTC timestamp to
+      // `now` wrongly buckets TODAY's token appointment as past (the date is
+      // 00:00 UTC ≈ 5:30 AM IST, always earlier than "now"). For those, use a
+      // CALENDAR-DAY check: only a day strictly before today is past — today
+      // is upcoming. SLOT appointments keep the precise time comparison (with
+      // a 1h grace) since they DO have a slot time.
+      const isFuture = a.slotStart
+        ? composeWhen(a) >= now - 60 * 60 * 1000 // SLOT: instant + 1h grace
+        : !isAppointmentDayPast(a.date ?? null, now); // TOKEN/CALLING: day-based
       if (!isTerminal && isFuture) up.push(a);
       else pa.push(a);
     }

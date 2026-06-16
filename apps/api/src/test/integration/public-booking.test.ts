@@ -224,6 +224,92 @@ describeIfDB("Public quick-booking API (integration)", () => {
     expect(users).toHaveLength(1);
   });
 
+  it("reuses the existing account when the name differs only by inner whitespace (same phone)", async () => {
+    // June 2026: "Sourav  Adak" (two inner spaces) must canonicalise to the
+    // same person as "Sourav Adak" — extra/odd inner spacing is not a
+    // different patient. Guards the canonicaliseName() normalisation wired
+    // into the find-or-create lookup AND the stored User.name.
+    const phone = "9123450093";
+    await request(app).post("/api/v1/public/booking/book").send({
+      name: "Ravi Verma",
+      phone,
+      doctorId,
+      date: FUTURE_ISO,
+      slotId: "11:30",
+      gender: "MALE",
+      dateOfBirth: "1992-02-02",
+    });
+    // Same name but typed with a double inner space → still the same person.
+    const res2 = await request(app).post("/api/v1/public/booking/book").send({
+      name: "Ravi  Verma",
+      phone,
+      doctorId,
+      date: FUTURE_ISO,
+      slotId: "11:45",
+      gender: "MALE",
+      dateOfBirth: "1992-02-02",
+    });
+    expect(res2.status).toBe(201);
+
+    const prisma = await getPrisma();
+    const users = await prisma.user.findMany({
+      where: { phone, role: "PATIENT" },
+    });
+    expect(users).toHaveLength(1);
+    // The stored name is canonical (single-spaced) regardless of which
+    // variant created the row first.
+    expect(users[0].name).toBe("Ravi Verma");
+  });
+
+  it("stamps the appointment's tenantId from the doctor's hospital (so the patient list can see it)", async () => {
+    // June 2026 visibility bug: public bookings created the Appointment row
+    // with a NULL tenantId. The patient's tenant-scoped appointment list
+    // (WHERE tenantId = their hospital) then never returned the row, so the
+    // booking was invisible even on the correct account. The row must carry
+    // the doctor's tenantId.
+    const prisma = await getPrisma();
+    // Give a doctor an explicit hospital so the assertion proves a REAL tenant
+    // id is copied through (not a trivial null === null).
+    const tenant = await prisma.tenant.create({
+      data: { name: "Stamp Hospital", subdomain: `stamp-${Date.now()}` },
+    });
+    const stampDoc = await createDoctorFixture({ specialization: "General Medicine" });
+    await prisma.doctor.update({
+      where: { id: stampDoc.id },
+      data: { appointmentMode: "SLOT", tenantId: tenant.id },
+    });
+    await prisma.doctorSchedule.create({
+      data: {
+        doctorId: stampDoc.id,
+        dayOfWeek: FUTURE_DOW,
+        startTime: "09:00",
+        endTime: "12:00",
+        slotDurationMinutes: 15,
+      },
+    });
+
+    const res = await request(app).post("/api/v1/public/booking/book").send({
+      name: "Tenant Stamp",
+      phone: "9123450092",
+      doctorId: stampDoc.id,
+      date: FUTURE_ISO,
+      slotId: "10:30",
+      gender: "MALE",
+      dateOfBirth: "1990-01-01",
+      tenantId: tenant.id,
+    });
+    expect(res.status).toBe(201);
+
+    const appt = await prisma.appointment.findUnique({
+      where: { id: res.body.data.appointmentId },
+      select: { tenantId: true, patient: { select: { tenantId: true } } },
+    });
+    // The appointment's tenant matches the doctor's hospital — NOT null —
+    // and the auto-created patient lands in the same hospital.
+    expect(appt?.tenantId).toBe(tenant.id);
+    expect(appt?.patient?.tenantId).toBe(tenant.id);
+  });
+
   it("rejects a double-booking of the same doctor+date+slot (409)", async () => {
     await request(app).post("/api/v1/public/booking/book").send({
       name: "First Patient",

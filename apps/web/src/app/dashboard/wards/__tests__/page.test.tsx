@@ -1191,6 +1191,48 @@ describe("WardsPage (Wards & Beds admin — full surface)", () => {
     confirmSpy.mockRestore();
   });
 
+  it("BedCell — a bed WITH a positive dailyRate shows the ₹ amount on the cell", async () => {
+    wireDefaultGets({
+      wards: [
+        wardFixture({
+          beds: [
+            bedFixture({ id: "b-a", bedNumber: "A1", status: "AVAILABLE", dailyRate: 1500 }),
+          ],
+        }),
+      ],
+    });
+    render(<WardsPage />);
+    const heading = await screen.findByRole("heading", { name: /General Ward/ });
+    fireEvent.click(heading.closest("button")!);
+    // The bed cell renders the rupee amount (line: dailyRate != null && > 0).
+    expect(await screen.findByText(/₹1500/)).toBeInTheDocument();
+  });
+
+  it("BedCell edit — opening the editor on a bed with NO rate shows 'Current: ₹0' and Cancel resets to blank", async () => {
+    wireDefaultGets({
+      wards: [
+        wardFixture({
+          // bedFixture has no dailyRate → exercises the null-fallback branches
+          // in the edit form ("Current: ₹0") and the Cancel reset ("").
+          beds: [bedFixture({ id: "b-a", bedNumber: "A1", status: "AVAILABLE" })],
+        }),
+      ],
+    });
+    render(<WardsPage />);
+    await openBedMenu();
+    fireEvent.click(await screen.findByTestId("edit-bed-b-a"));
+    const form = await screen.findByTestId("edit-bed-form-b-a");
+    // Null dailyRate → "Current: ₹0".
+    expect(within(form).getByText(/Current: ₹0/)).toBeInTheDocument();
+    // Rate input starts blank (the "" fallback).
+    expect(within(form).getByLabelText("Bed price")).toHaveValue(null);
+    // Cancel closes the editor.
+    fireEvent.click(within(form).getByRole("button", { name: /^Cancel$/ }));
+    await waitFor(() =>
+      expect(screen.queryByTestId("edit-bed-form-b-a")).not.toBeInTheDocument(),
+    );
+  });
+
   it("BedCell edit — non-Error PATCH rejection falls back to 'Failed to update bed'", async () => {
     wireDefaultGets({
       wards: [

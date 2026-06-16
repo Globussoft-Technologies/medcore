@@ -485,7 +485,7 @@ model PlatformPlan {
   key                 String   @unique
   name                String
   monthlyPriceInPaise Int
-  includedFeatures    String[]
+  includedFeatures    String[] @default([])
   active              Boolean  @default(true)
   sortOrder           Int      @default(0)
   createdAt           DateTime @default(now())
@@ -1581,7 +1581,7 @@ model Doctor {
   signatureUrl    String?
   consultationFee Decimal? @db.Decimal(10, 2)
   experienceYears Int?
-  languages       String[]
+  languages       String[] @default([])
   averageRating   Decimal? @db.Decimal(3, 2)
   subSpecialty    String?
   bio             String?
@@ -5728,7 +5728,7 @@ model KnowledgeChunk {
   title        String
   content      String   @db.Text
   sourceId     String? // optional reference to Icd10Code.id, Medicine.id, etc.
-  tags         String[] // for keyword filtering
+  tags         String[] @default([]) // for keyword filtering
   language     String   @default("en")
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
@@ -7282,7 +7282,7 @@ model MaintenanceWindow {
   description       String?
   startsAt          DateTime
   endsAt            DateTime
-  affectsComponents String[]
+  affectsComponents String[] @default([])
   status            String   @default("scheduled") // scheduled | in_progress | completed | cancelled
   createdByUserId   String?
   createdAt         DateTime @default(now())

@@ -1111,10 +1111,21 @@ router.post(
 );
 
 // POST /api/v1/auth/login
+//
+// Rate limiting IS applied here via two layers that CodeQL's dataflow can't
+// trace through the lazy `loginLimiter` middleware factory + the in-handler
+// `checkLockout(ip)` IP lockout:
+//   1. `loginLimiter` — 5 requests / 60s per IP (route middleware below).
+//   2. `checkLockout` / `recordFailedLogin` — IP failed-login lockout inside
+//      the handler (see `checkLockout(ip)` near the top of the body).
+// The `js/missing-rate-limiting` alert on this authorization handler is a
+// false positive; suppress it the same way the repo already does elsewhere.
+// lgtm[js/missing-rate-limiting]
 router.post(
   "/login",
   loginLimiter,
   validate(strictLoginSchema),
+  // lgtm[js/missing-rate-limiting]
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, password, rememberMe, tenantId: bodyTenantId } = req.body as {

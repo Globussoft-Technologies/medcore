@@ -95,6 +95,15 @@ function typeOtp(value: string): void {
 }
 
 async function advanceToOtpStep(phone = "+919876543210"): Promise<void> {
+  // Before sending the OTP, the phone step now PRE-CHECKS that an account
+  // exists at the selected hospital via POST /auth/check-availability
+  // (namePhoneTaken === true means "account exists → send the code"). Mock
+  // that response so the flow proceeds to the OTP step.
+  apiPostMock.mockResolvedValueOnce({
+    success: true,
+    data: { emailTaken: false, phoneTaken: false, namePhoneTaken: true },
+    error: null,
+  });
   sendOtpMock.mockResolvedValueOnce(undefined);
   // Identity is keyed on (phone + name) — the form now requires a name too.
   typeName("Asha Kumari");
@@ -105,6 +114,9 @@ async function advanceToOtpStep(phone = "+919876543210"): Promise<void> {
   await waitFor(() => {
     expect(screen.getByTestId("patient-login-otp-input")).toBeInTheDocument();
   });
+  // Clear the pre-check call so OTP-step assertions (e.g. "no API call on a
+  // failed verify") only see calls made AFTER reaching the OTP step.
+  apiPostMock.mockClear();
 }
 
 describe("PatientLoginPage — Firebase phone-OTP two-step flow", () => {

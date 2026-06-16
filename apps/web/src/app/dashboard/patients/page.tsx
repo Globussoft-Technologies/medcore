@@ -55,6 +55,10 @@ interface PatientRecord {
   // key; this is the display URL). Null when no photo.
   photoSignedUrl?: string | null;
   user: { id: string; name: string; email: string; phone: string };
+  // Patient's own email (per-tenant). May be set even when the login
+  // User.email is null — e.g. a self-registered patient whose email was
+  // already globally taken. The list falls back to this for the email icon.
+  contactEmail?: string | null;
   // Flattened fields for sort/filter/CSV:
   name?: string;
   phone?: string;
@@ -631,9 +635,9 @@ export default function PatientsPage() {
               </a>
             </>
           )}
-          {p.user?.email && (
+          {(p.user?.email || p.contactEmail) && (
             <a
-              href={`mailto:${p.user.email}`}
+              href={`mailto:${p.user?.email || p.contactEmail}`}
               aria-label={`Email ${p.user.name}`}
               title="Email"
               data-testid={`quickaction-email-${p.id}`}

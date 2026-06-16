@@ -12,6 +12,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { EntityPicker } from "@/components/EntityPicker";
 import { Autocomplete } from "@/components/Autocomplete";
@@ -135,6 +136,7 @@ export default function CohortDetailPage() {
   const cohortId = params?.id;
   const { user } = useAuthStore();
   const canWrite = !!user?.role && WRITE_ROLES.has(user.role);
+  const confirm = useConfirm();
 
   const [cohort, setCohort] = useState<CohortDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -267,12 +269,14 @@ export default function CohortDetailPage() {
 
   async function handleRemoveMember(patientId: string, patientName: string) {
     if (!cohortId) return;
-    if (
-      !window.confirm(
-        `Remove ${patientName} from "${cohort?.name}"? They can be re-added later.`,
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Remove patient?",
+      message: `Remove ${patientName} from "${cohort?.name}"? They can be re-added later.`,
+      confirmLabel: "Remove",
+      cancelLabel: "Cancel",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api.delete(`/cohorts/${cohortId}/members/${patientId}`);
       toast.success("Patient removed");
@@ -324,6 +328,18 @@ export default function CohortDetailPage() {
   async function handleArchiveToggle() {
     if (!cohort || !cohortId) return;
     const action = cohort.archivedAt ? "restore" : "archive";
+    // Confirm only the destructive direction (archive). Restore is a safe,
+    // reversible re-activation, so it runs without a prompt.
+    if (action === "archive") {
+      const ok = await confirm({
+        title: "Archive cohort?",
+        message: `Archive "${cohort.name}"? It will be hidden from the active list but can be restored later.`,
+        confirmLabel: "Archive",
+        cancelLabel: "Cancel",
+        danger: true,
+      });
+      if (!ok) return;
+    }
     try {
       await api.post(`/cohorts/${cohortId}/${action}`, {});
       toast.success(`Cohort ${action}d`);

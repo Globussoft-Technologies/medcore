@@ -34,6 +34,19 @@ export const updateBedStatusSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Edit a bed's identity/tariff (NOT its status — that's updateBedStatusSchema).
+// Both fields optional so the UI can PATCH just the number, just the rate, or
+// both. `.refine` rejects an empty body so a no-op PATCH surfaces a clear 400
+// rather than silently succeeding.
+export const updateBedSchema = z
+  .object({
+    bedNumber: z.string().min(1).optional(),
+    dailyRate: z.number().min(0).optional(),
+  })
+  .refine((v) => v.bedNumber !== undefined || v.dailyRate !== undefined, {
+    message: "Provide at least one of bedNumber or dailyRate",
+  });
+
 export const ADMISSION_TYPES = [
   "ELECTIVE",
   "EMERGENCY",
@@ -231,6 +244,7 @@ export const nurseRoundSchema = z.object({
 export type CreateWardInput = z.infer<typeof createWardSchema>;
 export type CreateBedInput = z.infer<typeof createBedSchema>;
 export type UpdateBedStatusInput = z.infer<typeof updateBedStatusSchema>;
+export type UpdateBedInput = z.infer<typeof updateBedSchema>;
 export type AdmitPatientInput = z.infer<typeof admitPatientSchema>;
 export type DischargeInput = z.infer<typeof dischargeSchema>;
 export type TransferBedInput = z.infer<typeof transferBedSchema>;

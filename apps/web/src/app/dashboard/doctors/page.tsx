@@ -25,7 +25,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
-import { Search, Plus, Stethoscope, X } from "lucide-react";
+import { Search, Plus, Stethoscope, X, Eye, EyeOff } from "lucide-react";
 import { DataTable, Column } from "@/components/DataTable";
 import { EntityPicker } from "@/components/EntityPicker";
 import { TenantSelect } from "@/components/TenantSelect";
@@ -237,6 +237,7 @@ export default function DoctorsPage() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   function resetForm() {
     setForm({
@@ -252,6 +253,7 @@ export default function DoctorsPage() {
     setFormTenantId("");
     setFormErrors({});
     setCreateMode("new");
+    setShowPassword(false);
   }
 
   async function handleCreateDoctor(e: React.FormEvent) {
@@ -726,21 +728,32 @@ export default function DoctorsPage() {
                     >
                       Initial Password
                     </label>
-                    <input
-                      id="doctor-form-password"
-                      type="password"
-                      data-testid="doctor-form-password"
-                      value={form.password}
-                      onChange={(e) =>
-                        setForm({ ...form, password: e.target.value })
-                      }
-                      className={
-                        "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
-                        (formErrors.password
-                          ? "border-red-500"
-                          : "border-gray-200 dark:border-gray-600")
-                      }
-                    />
+                    <div className="relative mt-1">
+                      <input
+                        id="doctor-form-password"
+                        type={showPassword ? "text" : "password"}
+                        data-testid="doctor-form-password"
+                        value={form.password}
+                        onChange={(e) =>
+                          setForm({ ...form, password: e.target.value })
+                        }
+                        className={
+                          "w-full rounded-lg border bg-white px-3 py-2 pr-10 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                          (formErrors.password
+                            ? "border-red-500"
+                            : "border-gray-200 dark:border-gray-600")
+                        }
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((s) => !s)}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                        data-testid="doctor-form-password-toggle"
+                        className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                     {formErrors.password && (
                       <p className="mt-1 text-xs text-red-600">
                         {formErrors.password}

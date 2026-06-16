@@ -7,6 +7,7 @@ import {
   Role,
   createWardSchema,
   updateBedStatusSchema,
+  updateBedSchema,
 } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
@@ -50,7 +51,13 @@ router.get("/", authorize(Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION), 
     const wards = await prisma.ward.findMany({
       include: {
         beds: {
-          select: { id: true, bedNumber: true, status: true, wardId: true },
+          select: {
+            id: true,
+            bedNumber: true,
+            status: true,
+            wardId: true,
+            dailyRate: true,
+          },
           orderBy: { bedNumber: "asc" },
         },
       },
@@ -156,6 +163,23 @@ router.post(
         return;
       }
 
+      // A (wardId, bedNumber) unique constraint guards against duplicate
+      // bed numbers within a ward. Pre-check so we can return a friendly
+      // 409 instead of letting the raw Prisma P2002 surface as a 500 (which
+      // leaked the full `prisma.bed.create()` invocation string to the UI).
+      const existing = await prisma.bed.findFirst({
+        where: { wardId, bedNumber: req.body.bedNumber },
+        select: { id: true },
+      });
+      if (existing) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Bed "${req.body.bedNumber}" already exists in this ward. Pick a different bed number.`,
+        });
+        return;
+      }
+
       const bed = await prisma.bed.create({
         data: {
           wardId,
@@ -167,6 +191,16 @@ router.post(
       auditLog(req, "BED_CREATE", "bed", bed.id, { wardId, bedNumber: bed.bedNumber }).catch(console.error);
       res.status(201).json({ success: true, data: bed, error: null });
     } catch (err) {
+      // Belt-and-suspenders: if two requests race past the pre-check, the DB
+      // unique constraint still fires — translate that P2002 to the same 409.
+      if ((err as { code?: string })?.code === "P2002") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Bed "${req.body.bedNumber}" already exists in this ward. Pick a different bed number.`,
+        });
+        return;
+      }
       next(err);
     }
   }
@@ -191,6 +225,115 @@ bedsRouter.patch(
       });
       auditLog(req, "BED_STATUS_UPDATE", "bed", bed.id, { status: req.body.status }).catch(console.error);
       res.json({ success: true, data: bed, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// PATCH /api/v1/beds/:id — edit a bed's number and/or daily rate (ADMIN only).
+// Distinct from /:id/status (which staff use for the occupancy lifecycle).
+// Re-checks the (wardId, bedNumber) uniqueness when the number changes so a
+// rename collision returns a clean 409 instead of a raw Prisma P2002.
+bedsRouter.patch(
+  "/:id",
+  authorize(Role.ADMIN),
+  validate(updateBedSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const current = await prisma.bed.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, wardId: true, bedNumber: true },
+      });
+      if (!current) {
+        res.status(404).json({ success: false, data: null, error: "Bed not found" });
+        return;
+      }
+
+      // Only collision-check when the number is actually changing.
+      if (
+        req.body.bedNumber !== undefined &&
+        req.body.bedNumber !== current.bedNumber
+      ) {
+        const clash = await prisma.bed.findFirst({
+          where: {
+            wardId: current.wardId,
+            bedNumber: req.body.bedNumber,
+            id: { not: current.id },
+          },
+          select: { id: true },
+        });
+        if (clash) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `Bed "${req.body.bedNumber}" already exists in this ward. Pick a different bed number.`,
+          });
+          return;
+        }
+      }
+
+      const bed = await prisma.bed.update({
+        where: { id: req.params.id },
+        data: {
+          ...(req.body.bedNumber !== undefined && { bedNumber: req.body.bedNumber }),
+          ...(req.body.dailyRate !== undefined && { dailyRate: req.body.dailyRate }),
+        },
+      });
+      auditLog(req, "BED_UPDATE", "bed", bed.id, {
+        bedNumber: bed.bedNumber,
+        dailyRate: bed.dailyRate,
+      }).catch(console.error);
+      res.json({ success: true, data: bed, error: null });
+    } catch (err) {
+      if ((err as { code?: string })?.code === "P2002") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Bed "${req.body.bedNumber}" already exists in this ward. Pick a different bed number.`,
+        });
+        return;
+      }
+      next(err);
+    }
+  }
+);
+
+// DELETE /api/v1/beds/:id — remove a bed (ADMIN only). Refuses to delete a
+// bed that is occupied or has an active (ADMITTED) admission — deleting it
+// would orphan an in-house patient's location. The operator must discharge
+// or transfer first. Returns 409 with an actionable message in that case.
+bedsRouter.delete(
+  "/:id",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const bed = await prisma.bed.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          bedNumber: true,
+          status: true,
+          _count: { select: { admissions: { where: { status: "ADMITTED" } } } },
+        },
+      });
+      if (!bed) {
+        res.status(404).json({ success: false, data: null, error: "Bed not found" });
+        return;
+      }
+
+      if (bed.status === "OCCUPIED" || bed._count.admissions > 0) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `Bed "${bed.bedNumber}" is occupied. Discharge or transfer the patient before deleting it.`,
+        });
+        return;
+      }
+
+      await prisma.bed.delete({ where: { id: req.params.id } });
+      auditLog(req, "BED_DELETE", "bed", bed.id, { bedNumber: bed.bedNumber }).catch(console.error);
+      res.json({ success: true, data: { id: bed.id }, error: null });
     } catch (err) {
       next(err);
     }

@@ -25,7 +25,7 @@
 import { it, expect, beforeAll, afterAll, describe } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
-import { describeIfDB, resetDB, TEST_DB_AVAILABLE } from "../setup";
+import { describeIfDB, resetDB, getPrisma, TEST_DB_AVAILABLE } from "../setup";
 import { expectAntiEnumeration } from "../helpers/security-assertions";
 
 let app: any;
@@ -305,6 +305,86 @@ describeIfDB("Auth API (integration)", () => {
     expect(fakeRes.status).toBe(201);
     expect(realRes.body?.success).toBe(true);
     expect(fakeRes.body?.success).toBe(true);
+  });
+
+  // ─── Per-tenant patient uniqueness on /register (2026-06) ───────────────
+  //
+  // Rules for PATIENT self-registration, scoped to the chosen tenant:
+  //   • email      → unique within the tenant (Patient.contactEmail)
+  //   • phone      → NOT unique on its own
+  //   • name+phone → unique together within the tenant
+  // All "duplicate" outcomes share the anti-enumeration 201 envelope so the
+  // endpoint never leaks which (email) / (name+phone) pairs exist.
+  it("treats a same-email re-registration in the tenant as a duplicate (no second patient row)", async () => {
+    const prisma = await getPrisma();
+    const pw = "MedCoreT3st-2026";
+    const email = `pt.email.dup.${Date.now()}@test.local`;
+
+    const first = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Email Dup One", email, phone: "9610000001", password: pw,
+    }));
+    expect(first.status).toBe(201);
+
+    // Same email, DIFFERENT name + phone → still a duplicate (email rule).
+    const dup = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Email Dup Two", email, phone: "9610000002", password: pw,
+    }));
+    expect(dup.status).toBe(201);
+    expect(dup.body?.success).toBe(true);
+
+    // Only ONE patient carries that contactEmail (the duplicate made no row).
+    const rows = await prisma.patient.findMany({
+      where: { contactEmail: { equals: email.toLowerCase(), mode: "insensitive" } },
+      select: { id: true },
+    });
+    expect(rows.length).toBe(1);
+  });
+
+  it("allows the SAME phone with a DIFFERENT name (phone is not unique on its own)", async () => {
+    const prisma = await getPrisma();
+    const pw = "MedCoreT3st-2026";
+    const phone = "9620000001";
+
+    const a = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Phone Share Parent", email: `pt.psh.a.${Date.now()}@test.local`, phone, password: pw,
+    }));
+    expect(a.status).toBe(201);
+
+    const b = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name: "Phone Share Child", email: `pt.psh.b.${Date.now()}@test.local`, phone, password: pw,
+    }));
+    expect(b.status).toBe(201);
+
+    // BOTH patients exist — the shared phone did not block the second.
+    const rows = await prisma.patient.findMany({
+      where: { user: { phone } },
+      select: { id: true },
+    });
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("treats same name + same phone in the tenant as a duplicate (no second row)", async () => {
+    const prisma = await getPrisma();
+    const pw = "MedCoreT3st-2026";
+    const name = "Name Phone Twin";
+    const phone = "9630000001";
+
+    const first = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name, email: `pt.np.a.${Date.now()}@test.local`, phone, password: pw,
+    }));
+    expect(first.status).toBe(201);
+
+    // Same name + same phone, DIFFERENT email → duplicate (name+phone rule).
+    const dup = await request(app).post("/api/v1/auth/register").send(patientBody({
+      name, email: `pt.np.b.${Date.now()}@test.local`, phone, password: pw,
+    }));
+    expect(dup.status).toBe(201);
+
+    const rows = await prisma.patient.findMany({
+      where: { user: { name: { equals: name, mode: "insensitive" }, phone } },
+      select: { id: true },
+    });
+    expect(rows.length).toBe(1);
   });
 
   // ─── Issue #489 (XSS in name + age bounds on /register) ─────────────────
@@ -702,7 +782,6 @@ describeIfDB("Auth API (integration)", () => {
     });
     expect(res.status).toBe(201);
 
-    const { getPrisma } = await import("../setup");
     const prisma = await getPrisma();
     const user = await prisma.user.findUnique({
       where: { email },
@@ -792,7 +871,6 @@ describeIfDB("Auth API (integration)", () => {
 
     // The reset code is persisted in the DB on the known-email branch. Pull
     // the latest unused code for this user so we can submit it.
-    const { getPrisma } = await import("../setup");
     const prisma = await getPrisma();
     const user = await prisma.user.findUnique({ where: { email } });
     expect(user).toBeTruthy();

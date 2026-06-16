@@ -35,7 +35,7 @@
 // (the patient PWA route group's bare chrome — no LanguageDropdown, no
 // BranchPicker).
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -121,12 +121,19 @@ export default function PatientRegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
+  // "Select Hospital / Clinic" — the tenant the patient registers with.
+  // Populated from GET /public/hospitals; the chosen id is sent as tenantId.
+  const [hospitals, setHospitals] = useState<
+    Array<{ id: string; name: string; code: string | null }>
+  >([]);
+
   const [form, setForm] = useState({
     name: "",
     phone: "",
     email: "",
     password: "",
     confirmPassword: "",
+    tenantId: "",
     dateOfBirth: "",
     gender: "",
     address: "",
@@ -174,8 +181,40 @@ export default function PatientRegisterPage() {
     });
   }
 
+  // Load the hospital/clinic list for the "Select Hospital" dropdown. If
+  // there's exactly one tenant, preselect it so the patient doesn't have to.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{
+          data: Array<{ id: string; name: string; code: string | null }>;
+        }>("/public/hospitals");
+        if (cancelled) return;
+        const list = res.data ?? [];
+        setHospitals(list);
+        if (list.length === 1) {
+          setForm((prev) => ({ ...prev, tenantId: list[0].id }));
+        }
+      } catch {
+        // Non-fatal: the server still resolves a tenant from subdomain/
+        // default when none is chosen, so registration can proceed.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function validateBasics(): Record<string, string> {
     const errs: Record<string, string> = {};
+    // Require a hospital/clinic only when the list actually loaded with
+    // choices. If the API returned nothing (or failed), we let the server's
+    // subdomain/default fallback handle tenant resolution rather than
+    // blocking registration on a list we couldn't fetch.
+    if (hospitals.length > 0 && !form.tenantId) {
+      errs.tenantId = "Please select your hospital or clinic";
+    }
     if (!form.name.trim()) errs.name = "Name is required";
     else if (!PATIENT_NAME_REGEX.test(form.name.trim()))
       errs.name =
@@ -254,16 +293,27 @@ export default function PatientRegisterPage() {
     setBusy(true);
     try {
       const res = await api.post<{
-        data: { emailTaken: boolean; phoneTaken: boolean };
+        data: {
+          emailTaken: boolean;
+          phoneTaken: boolean;
+          namePhoneTaken: boolean;
+        };
       }>("/auth/check-availability", {
         email: form.email.trim(),
         phone: form.phone.trim(),
+        // Identity is keyed on (email per-tenant) and (name + phone +
+        // tenant). Send name + selected hospital so the pre-check matches
+        // the per-tenant rules the submit enforces — phone ALONE is allowed.
+        name: form.name.trim(),
+        tenantId: form.tenantId || undefined,
       });
       const taken: Record<string, string> = {};
       if (res?.data?.emailTaken)
-        taken.email = "This email is already registered. Please sign in.";
-      if (res?.data?.phoneTaken)
-        taken.phone = "This phone number is already registered. Please sign in.";
+        taken.email =
+          "This email is already registered at this hospital. Please sign in.";
+      if (res?.data?.namePhoneTaken)
+        taken.phone =
+          "A patient with this name and phone already exists at this hospital. Please sign in.";
       if (Object.keys(taken).length > 0) {
         setFieldErrors(taken);
         return;
@@ -294,6 +344,9 @@ export default function PatientRegisterPage() {
         email: form.email.trim(),
         phone: form.phone.trim(),
         password: form.password,
+        // Patient's chosen hospital/clinic. Omitted when blank → the server
+        // falls back to subdomain/default tenant resolution.
+        tenantId: form.tenantId || undefined,
         gender: form.gender,
         dateOfBirth: form.dateOfBirth,
         address: form.address.trim(),
@@ -471,6 +524,42 @@ export default function PatientRegisterPage() {
                   }}
                   className="space-y-4"
                 >
+                  {hospitals.length > 0 && (
+                    <div>
+                      <label
+                        htmlFor="patient-register-hospital"
+                        className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        Select Hospital / Clinic{" "}
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        id="patient-register-hospital"
+                        data-testid="patient-register-hospital-select"
+                        value={form.tenantId}
+                        onChange={(e) => update("tenantId", e.target.value)}
+                        disabled={busy}
+                        className={`w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 ${
+                          fieldErrors.tenantId
+                            ? "border-red-500"
+                            : "border-gray-300 dark:border-gray-700"
+                        }`}
+                      >
+                        <option value="">Choose your hospital…</option>
+                        {hospitals.map((h) => (
+                          <option key={h.id} value={h.id}>
+                            {h.name}
+                            {h.code ? ` (${h.code})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      {fieldErrors.tenantId && (
+                        <p className="mt-1 text-xs text-red-600">
+                          {fieldErrors.tenantId}
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <Field
                     id="patient-register-name"
                     testid="patient-register-name-input"

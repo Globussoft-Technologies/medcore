@@ -25,6 +25,7 @@ interface Bed {
   bedNumber: string;
   status: "AVAILABLE" | "OCCUPIED" | "CLEANING" | "MAINTENANCE";
   wardId: string;
+  dailyRate?: number;
 }
 
 interface Ward {
@@ -55,6 +56,18 @@ const STATUS_LABELS: Record<string, string> = {
   MAINTENANCE: "Maintenance",
 };
 
+// Parse the Daily Rate text input into the number the API expects.
+// Returns `undefined` for blank (so the request omits it and the schema's
+// `.default(0)` applies), `null` for an invalid/negative value (caller shows
+// an error), or the parsed number otherwise.
+function parseDailyRate(raw: string): number | null | undefined {
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 const WARD_TYPES = [
   "GENERAL",
   "PRIVATE",
@@ -82,6 +95,7 @@ export default function WardsPage() {
   const [globalBedForm, setGlobalBedForm] = useState({
     wardId: "",
     bedNumber: "",
+    dailyRate: "",
   });
   const [creatingWard, setCreatingWard] = useState(false);
   const [creatingBed, setCreatingBed] = useState(false);
@@ -91,7 +105,7 @@ export default function WardsPage() {
     floor: "",
     description: "",
   });
-  const [bedForm, setBedForm] = useState({ bedNumber: "" });
+  const [bedForm, setBedForm] = useState({ bedNumber: "", dailyRate: "" });
 
   const isAdmin = user?.role === "ADMIN";
 
@@ -167,14 +181,20 @@ export default function WardsPage() {
       toast.error("Bed number is required");
       return;
     }
+    const rate = parseDailyRate(globalBedForm.dailyRate);
+    if (rate === null) {
+      toast.error("Daily rate must be a number ≥ 0");
+      return;
+    }
     setCreatingBed(true);
     try {
       await api.post(`/wards/${globalBedForm.wardId}/beds`, {
         bedNumber: globalBedForm.bedNumber,
+        ...(rate !== undefined && { dailyRate: rate }),
       });
       toast.success("Bed created");
       setShowGlobalBedModal(false);
-      setGlobalBedForm({ wardId: "", bedNumber: "" });
+      setGlobalBedForm({ wardId: "", bedNumber: "", dailyRate: "" });
       loadWards();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add bed");
@@ -189,13 +209,19 @@ export default function WardsPage() {
       toast.error("Bed number is required");
       return;
     }
+    const rate = parseDailyRate(bedForm.dailyRate);
+    if (rate === null) {
+      toast.error("Daily rate must be a number ≥ 0");
+      return;
+    }
     try {
       await api.post(`/wards/${wardId}/beds`, {
         bedNumber: bedForm.bedNumber,
+        ...(rate !== undefined && { dailyRate: rate }),
       });
       toast.success("Bed added");
       setShowBedModal(null);
-      setBedForm({ bedNumber: "" });
+      setBedForm({ bedNumber: "", dailyRate: "" });
       loadWards();
     } catch (err) {
       // Issue #36 — the old handler only showed err.message which for a 400
@@ -226,6 +252,42 @@ export default function WardsPage() {
       loadWards();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update bed");
+    }
+  }
+
+  // Edit a bed's number and/or daily rate. `patch` carries only the changed
+  // fields. Surfaces the API's friendly 409 message verbatim (duplicate bed
+  // number) instead of a generic failure.
+  async function editBed(
+    bedId: string,
+    changes: { bedNumber?: string; dailyRate?: number }
+  ) {
+    try {
+      await api.patch(`/beds/${bedId}`, changes);
+      toast.success("Bed updated");
+      loadWards();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update bed");
+      throw err; // let the caller keep the editor open on failure
+    }
+  }
+
+  // Delete a bed. The API refuses (409) if the bed is occupied; we surface
+  // that message so the admin knows to discharge/transfer first.
+  async function deleteBed(bedId: string, bedNumber: string) {
+    if (
+      !window.confirm(
+        `Delete bed "${bedNumber}"? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    try {
+      await api.delete(`/beds/${bedId}`);
+      toast.success("Bed deleted");
+      loadWards();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete bed");
     }
   }
 
@@ -409,6 +471,8 @@ export default function WardsPage() {
                             key={bed.id}
                             bed={bed}
                             onChange={updateBedStatus}
+                            onEdit={isAdmin ? editBed : undefined}
+                            onDelete={isAdmin ? deleteBed : undefined}
                           />
                         ))}
                       </div>
@@ -425,9 +489,21 @@ export default function WardsPage() {
                           placeholder="Bed Number"
                           value={bedForm.bedNumber}
                           onChange={(e) =>
-                            setBedForm({ bedNumber: e.target.value })
+                            setBedForm({ ...bedForm, bedNumber: e.target.value })
                           }
                           className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          inputMode="decimal"
+                          placeholder="Daily Rate (₹)"
+                          value={bedForm.dailyRate}
+                          onChange={(e) =>
+                            setBedForm({ ...bedForm, dailyRate: e.target.value })
+                          }
+                          className="w-36 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                         />
                         <button
                           type="submit"
@@ -511,6 +587,35 @@ export default function WardsPage() {
                   data-testid="add-bed-number"
                   className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                 />
+              </div>
+              <div>
+                <label
+                  htmlFor="add-bed-rate"
+                  className="mb-1 block text-sm font-medium"
+                >
+                  Daily Rate (₹)
+                </label>
+                <input
+                  id="add-bed-rate"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={globalBedForm.dailyRate}
+                  onChange={(e) =>
+                    setGlobalBedForm({
+                      ...globalBedForm,
+                      dailyRate: e.target.value,
+                    })
+                  }
+                  data-testid="add-bed-rate"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                />
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Per-day charge billed while this bed is occupied. Defaults to 0
+                  if left blank.
+                </p>
               </div>
             </div>
             <div className="mt-5 flex justify-end gap-2">
@@ -760,11 +865,137 @@ function OccupancyForecast() {
 function BedCell({
   bed,
   onChange,
+  onEdit,
+  onDelete,
 }: {
   bed: Bed;
   onChange: (id: string, status: string) => void;
+  // Admin-only edit/delete. When omitted (non-admin), the bed cell only
+  // offers the status menu — no rename/retariff/remove affordances.
+  onEdit?: (
+    id: string,
+    changes: { bedNumber?: string; dailyRate?: number }
+  ) => Promise<void>;
+  onDelete?: (id: string, bedNumber: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState({
+    bedNumber: bed.bedNumber,
+    dailyRate: bed.dailyRate != null ? String(bed.dailyRate) : "",
+  });
+
+  async function submitEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!onEdit) return;
+    const trimmedNumber = editForm.bedNumber.trim();
+    if (!trimmedNumber) {
+      toast.error("Bed number is required");
+      return;
+    }
+    const rate = parseDailyRate(editForm.dailyRate);
+    if (rate === null) {
+      toast.error("Daily rate must be a number ≥ 0");
+      return;
+    }
+    // Only send fields that actually changed.
+    const changes: { bedNumber?: string; dailyRate?: number } = {};
+    if (trimmedNumber !== bed.bedNumber) changes.bedNumber = trimmedNumber;
+    if (rate !== undefined && rate !== bed.dailyRate) changes.dailyRate = rate;
+    if (Object.keys(changes).length === 0) {
+      setEditing(false);
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await onEdit(bed.id, changes);
+      setEditing(false);
+    } catch {
+      // onEdit already toasted; keep the editor open so the user can fix it.
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <form
+        onSubmit={submitEdit}
+        noValidate
+        data-testid={`edit-bed-form-${bed.id}`}
+        className="flex h-auto w-full flex-col gap-1.5 rounded-lg border border-primary bg-white p-2 text-gray-900 dark:bg-gray-900 dark:text-gray-100"
+      >
+        <div>
+          <label
+            htmlFor={`edit-bed-number-${bed.id}`}
+            className="mb-0.5 block text-[10px] font-medium text-gray-600 dark:text-gray-300"
+          >
+            Bed No.
+          </label>
+          <input
+            id={`edit-bed-number-${bed.id}`}
+            value={editForm.bedNumber}
+            onChange={(e) =>
+              setEditForm({ ...editForm, bedNumber: e.target.value })
+            }
+            aria-label="Bed number"
+            className="w-full rounded border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+          />
+        </div>
+        <div>
+          <label
+            htmlFor={`edit-bed-rate-${bed.id}`}
+            className="mb-0.5 block text-[10px] font-medium text-gray-600 dark:text-gray-300"
+          >
+            Bed Price (₹/day)
+          </label>
+          <input
+            id={`edit-bed-rate-${bed.id}`}
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            value={editForm.dailyRate}
+            onChange={(e) =>
+              setEditForm({ ...editForm, dailyRate: e.target.value })
+            }
+            aria-label="Bed price"
+            placeholder="0"
+            className="w-full rounded border border-gray-300 bg-white px-1.5 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+          />
+          {/* Show the price the bed had before this edit, so the operator
+              has a reference while typing a new one. */}
+          <p className="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+            Current: ₹{bed.dailyRate != null ? bed.dailyRate : 0}
+          </p>
+        </div>
+        <div className="flex gap-1">
+          <button
+            type="submit"
+            disabled={savingEdit}
+            className="flex-1 rounded bg-primary px-1.5 py-1 text-[10px] font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+          >
+            {savingEdit ? "…" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setEditForm({
+                bedNumber: bed.bedNumber,
+                dailyRate: bed.dailyRate != null ? String(bed.dailyRate) : "",
+              });
+            }}
+            className="flex-1 rounded border border-gray-300 px-1.5 py-1 text-[10px] text-gray-700 dark:border-gray-600 dark:text-gray-200"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    );
+  }
+
   return (
     <div className="relative">
       <button
@@ -774,9 +1005,15 @@ function BedCell({
       >
         <span className="text-xs font-semibold">{bed.bedNumber}</span>
         <span className="text-[10px]">{STATUS_LABELS[bed.status]}</span>
+        {bed.dailyRate != null && bed.dailyRate > 0 && (
+          <span className="text-[10px] opacity-90">₹{bed.dailyRate}</span>
+        )}
       </button>
       {open && (
         <div className="absolute left-0 right-0 top-full z-10 mt-1 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
+          <p className="px-3 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+            Set status
+          </p>
           {Object.keys(STATUS_COLORS).map((s) => (
             <button
               key={s}
@@ -789,6 +1026,34 @@ function BedCell({
               {STATUS_LABELS[s]}
             </button>
           ))}
+          {(onEdit || onDelete) && (
+            <div className="border-t border-gray-200 dark:border-gray-700">
+              {onEdit && (
+                <button
+                  onClick={() => {
+                    setEditing(true);
+                    setOpen(false);
+                  }}
+                  data-testid={`edit-bed-${bed.id}`}
+                  className="block w-full px-3 py-1.5 text-left text-xs text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700"
+                >
+                  Edit number / rate
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  onClick={() => {
+                    onDelete(bed.id, bed.bedNumber);
+                    setOpen(false);
+                  }}
+                  data-testid={`delete-bed-${bed.id}`}
+                  className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                >
+                  Delete bed
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

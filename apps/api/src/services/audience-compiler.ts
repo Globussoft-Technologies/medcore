@@ -241,6 +241,43 @@ function compileFilter(filter: AudienceFilter): Clause {
       return perPatient.length === 1 ? perPatient[0] : { OR: perPatient };
     }
 
+    case "allergy": {
+      // Allergy match — a patient matches if they have a PatientAllergy row
+      // whose `allergen` contains ANY of the supplied terms (case-insensitive).
+      // Supports `eq` (single allergen) + `in` (any of several). Mirrors the
+      // `condition` filter's term-collection shape. Lets a campaign target (or,
+      // composed under a NOT, exclude) patients by allergy — e.g. don't send a
+      // "free penicillin-based antibiotic camp" blast to penicillin-allergics.
+      const aTerms: string[] =
+        op === "in"
+          ? Array.isArray(value)
+            ? value.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+            : []
+          : typeof value === "string" && value.trim().length > 0
+            ? [value]
+            : [];
+      if (op !== "eq" && op !== "in") {
+        console.warn(
+          `[audience-compiler] unsupported op "${op}" for field "allergy"; treating as no-op`,
+        );
+        return null;
+      }
+      if (aTerms.length === 0) {
+        console.warn(
+          `[audience-compiler] empty value for allergy ${op}; treating as no-op`,
+        );
+        return null;
+      }
+      const ciA = (t: string) => ({ contains: t.trim(), mode: "insensitive" as const });
+      return {
+        allergies: {
+          some: {
+            OR: aTerms.map((t) => ({ allergen: ciA(t) })),
+          },
+        },
+      };
+    }
+
     default: {
       console.warn(
         `[audience-compiler] unknown field "${field}"; treating as no-op`,

@@ -872,6 +872,93 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
     expect(Object.keys(stats.body.data.byVariant).length).toBe(0);
   });
 
+  it("GET /:id/stats includes bounce/unsubscribe counts + a rates rollup (Pearl §5.1)", async () => {
+    const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("rates");
+
+    const aud = await prisma.campaignAudience.create({
+      data: {
+        tenantId: isoTenantId,
+        name: "Rates test audience",
+        rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
+      },
+    });
+
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts = Date.now() + 700;
+    // 4 patients × 1 channel = 4 sends. We then hand-mark 1 bounced + 1
+    // unsubscribed directly so the rate denominators (total=4) are exact.
+    for (let i = 0; i < 4; i++) {
+      const u = await prisma.user.create({
+        data: {
+          email: `rates-${i}-${ts}@test.local`,
+          name: `Rates P ${i}`,
+          phone: `95${String(ts).slice(-7)}${i}`,
+          passwordHash,
+          role: "PATIENT",
+          tenantId: isoTenantId,
+        },
+      });
+      await prisma.patient.create({
+        data: {
+          userId: u.id,
+          mrNumber: `MR-RATE-${ts}-${i}`,
+          gender: "FEMALE",
+          tenantId: isoTenantId,
+        },
+      });
+    }
+
+    const created = await request(app)
+      .post("/api/v1/campaigns")
+      .set("Authorization", `Bearer ${isoAdminToken}`)
+      .send({ name: "Rates-campaign", channels: ["SMS"], body: "hello", audienceId: aud.id });
+    expect(created.status).toBe(201);
+
+    await request(app)
+      .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
+      .expect(200);
+
+    const sends = await prisma.campaignSend.findMany({
+      where: { campaignId: created.body.data.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(sends.length).toBe(4);
+
+    // Mark one send bounced and one unsubscribed so the counts are non-zero.
+    await prisma.campaignSend.update({
+      where: { id: sends[0].id },
+      data: { status: "BOUNCED", bouncedAt: new Date() },
+    });
+    await prisma.campaignSend.update({
+      where: { id: sends[1].id },
+      data: { status: "UNSUBSCRIBED", unsubscribedAt: new Date() },
+    });
+
+    const stats = await request(app)
+      .get(`/api/v1/campaigns/${created.body.data.id}/stats`)
+      .set("Authorization", `Bearer ${isoAdminToken}`);
+    expect(stats.status).toBe(200);
+    expect(stats.body.data.total).toBe(4);
+    expect(stats.body.data.bounced).toBe(1);
+    expect(stats.body.data.unsubscribed).toBe(1);
+
+    // Status totals carry the new UNSUBSCRIBED bucket.
+    expect(stats.body.data.byStatus.BOUNCED).toBe(1);
+    expect(stats.body.data.byStatus.UNSUBSCRIBED).toBe(1);
+
+    // Rates are fractions of total (4). bounceRate = 1/4, unsubscribeRate = 1/4.
+    expect(stats.body.data.rates).toBeTruthy();
+    expect(stats.body.data.rates.bounceRate).toBeCloseTo(0.25, 5);
+    expect(stats.body.data.rates.unsubscribeRate).toBeCloseTo(0.25, 5);
+    // All rate keys present.
+    expect(stats.body.data.rates).toHaveProperty("deliveryRate");
+    expect(stats.body.data.rates).toHaveProperty("openRate");
+    expect(stats.body.data.rates).toHaveProperty("clickRate");
+    expect(stats.body.data.rates).toHaveProperty("conversionRate");
+  });
+
   it("GET /:id/stats RBAC: RECEPTION cannot read (403)", async () => {
     const prisma = await getPrisma();
     const created = await prisma.campaign.create({
@@ -964,6 +1051,147 @@ describeIfDB("Campaigns API (Pearl §5.1 piece 1 of 4 — integration)", () => {
 
   it("GET /public/campaigns/click/:sendId 404 for unknown id", async () => {
     const res = await request(app).get("/api/v1/public/campaigns/click/does-not-exist");
+    expect(res.status).toBe(404);
+  });
+
+  // ─────────────────────────────────────────────────────────
+  // Pearl §5.1 — one-tap unsubscribe (GET /public/campaigns/unsubscribe/:sendId)
+  // ─────────────────────────────────────────────────────────
+
+  it("GET /public/campaigns/unsubscribe/:sendId records unsubscribedAt, flips status, clears whatsappOptIn", async () => {
+    const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("unsub");
+
+    const aud = await prisma.campaignAudience.create({
+      data: {
+        tenantId: isoTenantId,
+        name: "Unsub test",
+        rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
+      },
+    });
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts = Date.now() + 500;
+    const user = await prisma.user.create({
+      data: {
+        email: `unsub-${ts}@test.local`,
+        name: "Unsub P",
+        phone: `93${String(ts).slice(-7)}0`,
+        passwordHash,
+        role: "PATIENT",
+        tenantId: isoTenantId,
+      },
+    });
+    const patient = await prisma.patient.create({
+      data: {
+        userId: user.id,
+        mrNumber: `MR-UNSUB-${ts}`,
+        gender: "FEMALE",
+        tenantId: isoTenantId,
+        // Opted in so we can assert the unsubscribe flips it back to false.
+        whatsappOptIn: true,
+      },
+    });
+
+    const created = await request(app)
+      .post("/api/v1/campaigns")
+      .set("Authorization", `Bearer ${isoAdminToken}`)
+      .send({
+        name: "Unsub-campaign",
+        channels: ["SMS"],
+        body: "hello",
+        audienceId: aud.id,
+      });
+    expect(created.status).toBe(201);
+
+    await request(app)
+      .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
+      .expect(200);
+
+    const send = await prisma.campaignSend.findFirst({
+      where: { campaignId: created.body.data.id, patientId: patient.id },
+    });
+    expect(send).toBeTruthy();
+    expect(send!.unsubscribedAt).toBeNull();
+
+    // Unauthenticated GET — public unsubscribe endpoint. Returns a plain-text 200.
+    const unsub = await request(app).get(`/api/v1/public/campaigns/unsubscribe/${send!.id}`);
+    expect(unsub.status).toBe(200);
+    expect(unsub.text).toMatch(/unsubscribed/i);
+
+    // Send row: unsubscribedAt stamped + status flipped to UNSUBSCRIBED.
+    const refreshed = await prisma.campaignSend.findUnique({ where: { id: send!.id } });
+    expect(refreshed?.unsubscribedAt).toBeTruthy();
+    expect(refreshed?.status).toBe("UNSUBSCRIBED");
+
+    // Patient opted out of future marketing pushes.
+    const refreshedPatient = await prisma.patient.findUnique({ where: { id: patient.id } });
+    expect(refreshedPatient?.whatsappOptIn).toBe(false);
+  });
+
+  it("GET /public/campaigns/unsubscribe/:sendId is idempotent — a re-tap keeps the original timestamp", async () => {
+    const prisma = await getPrisma();
+    const { tenantId: isoTenantId, adminToken: isoAdminToken } = await createIsolatedTenant("unsub2");
+
+    const aud = await prisma.campaignAudience.create({
+      data: {
+        tenantId: isoTenantId,
+        name: "Unsub idempotent test",
+        rules: { filters: [{ field: "gender", op: "eq", value: "FEMALE" }] },
+      },
+    });
+    const passwordHash = await bcrypt.hash("MedCoreT3st-2026", 4);
+    const ts = Date.now() + 600;
+    const user = await prisma.user.create({
+      data: {
+        email: `unsub2-${ts}@test.local`,
+        name: "Unsub2 P",
+        phone: `94${String(ts).slice(-7)}1`,
+        passwordHash,
+        role: "PATIENT",
+        tenantId: isoTenantId,
+      },
+    });
+    const patient = await prisma.patient.create({
+      data: {
+        userId: user.id,
+        mrNumber: `MR-UNSUB2-${ts}`,
+        gender: "FEMALE",
+        tenantId: isoTenantId,
+        whatsappOptIn: true,
+      },
+    });
+
+    const created = await request(app)
+      .post("/api/v1/campaigns")
+      .set("Authorization", `Bearer ${isoAdminToken}`)
+      .send({ name: "Unsub2-campaign", channels: ["SMS"], body: "hello", audienceId: aud.id });
+    expect(created.status).toBe(201);
+
+    await request(app)
+      .post(`/api/v1/campaigns/${created.body.data.id}/dispatch`)
+      .set("Authorization", `Bearer ${isoAdminToken}`)
+      .expect(200);
+
+    const send = await prisma.campaignSend.findFirst({
+      where: { campaignId: created.body.data.id, patientId: patient.id },
+    });
+    expect(send).toBeTruthy();
+
+    // First tap.
+    await request(app).get(`/api/v1/public/campaigns/unsubscribe/${send!.id}`).expect(200);
+    const afterFirst = await prisma.campaignSend.findUnique({ where: { id: send!.id } });
+    const firstAt = afterFirst?.unsubscribedAt;
+    expect(firstAt).toBeTruthy();
+
+    // Re-tap — still 200, timestamp unchanged (no-op).
+    await request(app).get(`/api/v1/public/campaigns/unsubscribe/${send!.id}`).expect(200);
+    const afterSecond = await prisma.campaignSend.findUnique({ where: { id: send!.id } });
+    expect(afterSecond?.unsubscribedAt?.getTime()).toBe(firstAt?.getTime());
+  });
+
+  it("GET /public/campaigns/unsubscribe/:sendId 404 for unknown id", async () => {
+    const res = await request(app).get("/api/v1/public/campaigns/unsubscribe/does-not-exist");
     expect(res.status).toBe(404);
   });
 

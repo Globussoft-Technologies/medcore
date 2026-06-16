@@ -259,6 +259,9 @@ export const AUDIENCE_FILTER_FIELDS = [
   // Diagnosis / chronic-condition match (name or ICD-10 contains, ACTIVE
   // rows only). Compiled in services/audience-compiler.ts.
   "condition",
+  // Allergy match — patient has a recorded PatientAllergy whose allergen
+  // contains the term(s). Case-insensitive; eq (single) + in (any-of).
+  "allergy",
 ] as const;
 
 export const AUDIENCE_FILTER_OPS = ["eq", "gte", "lte", "in"] as const;

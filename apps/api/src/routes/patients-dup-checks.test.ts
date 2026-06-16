@@ -25,12 +25,15 @@ const { prismaMock } = vi.hoisted(() => {
     patient: {
       findUnique: vi.fn(),
       findFirst: vi.fn(),
-      findMany: vi.fn(),
+      // MR-number generation scans the highest existing MR for the prefix
+      // via findMany — default to an empty list so the sequence starts at 1.
+      findMany: vi.fn(async () => []),
       count: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
     },
     user: { create: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
+    tenant: { findUnique: vi.fn(async () => ({ subdomain: "acme" })) },
     appointment: { findMany: vi.fn(async () => []) },
     vitals: { findMany: vi.fn(async () => []) },
     prescription: { findMany: vi.fn(async () => []) },
@@ -127,6 +130,56 @@ describe("POST /patients — Issue #595 (email duplicate pre-check)", () => {
     expect(res.status).toBe(409);
     expect(res.body.details?.[0]?.field).toBe("phone");
   });
+
+  it("ALLOWS registering with an email already owned by a non-patient User (staff/admin) — stores it on contactEmail, leaves login email null", async () => {
+    // Patient email is per-tenant (Patient.contactEmail), decoupled from the
+    // globally-unique login User.email. No patient in this tenant uses the
+    // email, but a STAFF user globally does → registration must succeed, the
+    // login user.email is left null, and the email lands on contactEmail.
+    // phone / contactEmail / name+dob pre-checks all find nothing. Use a
+    // persistent mock (not chained Once) so leftover queued values can't
+    // leak into a later test under `vi.clearAllMocks()` (which clears call
+    // history but NOT queued mockResolvedValueOnce implementations).
+    prismaMock.patient.findFirst.mockResolvedValue(null);
+    // Global User.email lookup finds a staff account that owns the email.
+    prismaMock.user.findUnique.mockResolvedValue({ id: "staff-1" });
+    prismaMock.user.create.mockResolvedValueOnce({
+      id: "u-new",
+      name: "New Patient",
+      email: null,
+      phone: "9000000050",
+    });
+    prismaMock.patient.create.mockResolvedValueOnce({
+      id: "p-new",
+      mrNumber: "acme000001",
+      contactEmail: "shared@example.com",
+    });
+
+    const res = await request(buildApp())
+      .post("/api/v1/patients")
+      .set("Authorization", `Bearer ${tokenFor("RECEPTION")}`)
+      .send({
+        name: "New Patient",
+        phone: "9000000050",
+        email: "shared@example.com",
+        gender: "MALE",
+        age: 33,
+      });
+
+    expect(res.status).toBe(201);
+    // login User.email mirrored as null because it was globally taken.
+    expect(prismaMock.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ email: null }),
+      }),
+    );
+    // email captured on the patient row instead.
+    expect(prismaMock.patient.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ contactEmail: "shared@example.com" }),
+      }),
+    );
+  });
 });
 
 describe("PATCH /patients/:id — Issues #595 + #596 (edit-side dup checks)", () => {
@@ -151,15 +204,19 @@ describe("PATCH /patients/:id — Issues #595 + #596 (edit-side dup checks)", ()
     expect(prismaMock.user.update).not.toHaveBeenCalled();
   });
 
-  it("returns 409 when the new phone is in use on a DIFFERENT active patient", async () => {
+  it("returns 409 when the new phone is in use on another patient with the SAME name", async () => {
+    // Identity is keyed on (phone + name): only a same-name collision is a
+    // true duplicate. The self-patient's current name flows into the phone
+    // pre-check as `effectiveName` when the PATCH doesn't change the name.
     prismaMock.patient.findUnique.mockResolvedValueOnce({
       id: "p-self",
       userId: "u-self",
       mrNumber: "MR000010",
+      user: { name: "Phone Owner" },
     });
     prismaMock.patient.findFirst
       // email pre-check skipped (no email in body)
-      // phone pre-check returns a match
+      // phone pre-check returns a same-name match
       .mockResolvedValueOnce({
         mrNumber: "MR000098",
         user: { name: "Phone Owner" },
@@ -172,6 +229,40 @@ describe("PATCH /patients/:id — Issues #595 + #596 (edit-side dup checks)", ()
 
     expect(res.status).toBe(409);
     expect(res.body.details?.[0]?.field).toBe("phone");
+  });
+
+  it("ALLOWS the new phone when it belongs to a patient with a DIFFERENT name (family sharing)", async () => {
+    // The phone-uniqueness rule was relaxed to match the create side: the
+    // SAME phone with a DIFFERENT name is allowed (shared family number /
+    // guardian contact). The phone pre-check `findFirst` (which filters on
+    // name too) finds no same-name match → null → the update proceeds.
+    prismaMock.patient.findUnique.mockResolvedValueOnce({
+      id: "p-self",
+      userId: "u-self",
+      mrNumber: "MR000010",
+      user: { name: "Fatima Sheikh" },
+    });
+    // email pre-check skipped (no email in body); phone pre-check (name-scoped)
+    // returns no match because the only holder of this phone has another name.
+    prismaMock.patient.findFirst.mockResolvedValueOnce(null);
+    prismaMock.user.update.mockResolvedValueOnce({ id: "u-self" });
+    prismaMock.patient.update.mockResolvedValueOnce({
+      id: "p-self",
+      userId: "u-self",
+      mrNumber: "MR000010",
+    });
+
+    const res = await request(buildApp())
+      .patch("/api/v1/patients/p-self")
+      .set("Authorization", `Bearer ${tokenFor("RECEPTION")}`)
+      .send({ phone: "9876543229" });
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ phone: "9876543229" }),
+      }),
+    );
   });
 });
 

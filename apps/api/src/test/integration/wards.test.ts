@@ -37,6 +37,28 @@ describeIfDB("Wards API (integration)", () => {
     expect(typeof ward.bedStats.total).toBe("number");
   });
 
+  it("GET /wards exposes dailyRate on each bed (2026-06 — tariff surfaced in list)", async () => {
+    // The GET /wards bed-select gained `dailyRate` so the ward board can show
+    // per-bed tariff without a second round-trip. Seed a ward + a bed with a
+    // known rate via the API, then assert the list endpoint returns it.
+    const ward = await createWardFixture({ name: `W-RATE-${Date.now()}` });
+    const created = await request(app)
+      .post(`/api/v1/wards/${ward.id}/beds`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ wardId: ward.id, bedNumber: "RATE-01", dailyRate: 2750 });
+    expect([200, 201]).toContain(created.status);
+
+    const res = await request(app)
+      .get("/api/v1/wards")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    const row = res.body.data.find((w: any) => w.id === ward.id);
+    expect(row).toBeTruthy();
+    const bed = row.beds.find((b: any) => b.bedNumber === "RATE-01");
+    expect(bed).toBeTruthy();
+    expect(bed.dailyRate).toBe(2750);
+  });
+
   it("creates a ward (ADMIN happy path)", async () => {
     const res = await request(app)
       .post("/api/v1/wards")
@@ -165,5 +187,151 @@ describeIfDB("Wards API (integration)", () => {
       (d) => d.field
     );
     expect(fields).toContain("bedNumber");
+  });
+
+  // ─── 2026-06: duplicate bed number → friendly 409 (not raw Prisma 500) ──
+  it("POST /wards/:wardId/beds rejects a duplicate bed number with a clean 409", async () => {
+    const ward = await createWardFixture({ name: `WDUP-${Date.now()}` });
+    const first = await request(app)
+      .post(`/api/v1/wards/${ward.id}/beds`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ bedNumber: "DUP-1", dailyRate: 1000 });
+    expect([200, 201]).toContain(first.status);
+
+    const dup = await request(app)
+      .post(`/api/v1/wards/${ward.id}/beds`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ bedNumber: "DUP-1", dailyRate: 2000 });
+    expect(dup.status).toBe(409);
+    // Friendly, actionable message — NOT the raw "prisma.bed.create()" string.
+    expect(dup.body.error).toMatch(/already exists/i);
+    expect(dup.body.error).not.toMatch(/prisma/i);
+  });
+
+  // ─── 2026-06: PATCH /beds/:id — edit number + daily rate (CRUD) ─────────
+  it("PATCH /beds/:id updates the daily rate (ADMIN)", async () => {
+    const ward = await createWardFixture({ name: `WED-${Date.now()}` });
+    const bed = await createBedFixture({
+      wardId: ward.id,
+      overrides: { bedNumber: "ED-1", dailyRate: 1000 },
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/beds/${bed.id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ dailyRate: 3455 });
+    expect(res.status).toBe(200);
+    expect(res.body.data.dailyRate).toBe(3455);
+    expect(res.body.data.bedNumber).toBe("ED-1"); // unchanged
+  });
+
+  it("PATCH /beds/:id renames a bed (ADMIN)", async () => {
+    const ward = await createWardFixture({ name: `WREN-${Date.now()}` });
+    const bed = await createBedFixture({
+      wardId: ward.id,
+      overrides: { bedNumber: "REN-1", dailyRate: 1000 },
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/beds/${bed.id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ bedNumber: "REN-2" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.bedNumber).toBe("REN-2");
+  });
+
+  it("PATCH /beds/:id rejects renaming onto an existing bed number with 409", async () => {
+    const ward = await createWardFixture({ name: `WCOL-${Date.now()}` });
+    await createBedFixture({
+      wardId: ward.id,
+      overrides: { bedNumber: "COL-A" },
+    });
+    const bedB = await createBedFixture({
+      wardId: ward.id,
+      overrides: { bedNumber: "COL-B" },
+    });
+
+    const res = await request(app)
+      .patch(`/api/v1/beds/${bedB.id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ bedNumber: "COL-A" });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/already exists/i);
+  });
+
+  it("PATCH /beds/:id rejects an empty body (400)", async () => {
+    const ward = await createWardFixture({ name: `WEMP-${Date.now()}` });
+    const bed = await createBedFixture({ wardId: ward.id });
+    const res = await request(app)
+      .patch(`/api/v1/beds/${bed.id}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it("PATCH /beds/:id 404 for an unknown bed", async () => {
+    const res = await request(app)
+      .patch("/api/v1/beds/550e8400-e29b-41d4-a716-446655440000")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ dailyRate: 500 });
+    expect(res.status).toBe(404);
+  });
+
+  it("PATCH /beds/:id forbidden for NURSE (403 — ADMIN-only edit)", async () => {
+    const ward = await createWardFixture({ name: `WNUR-${Date.now()}` });
+    const bed = await createBedFixture({ wardId: ward.id });
+    const res = await request(app)
+      .patch(`/api/v1/beds/${bed.id}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ dailyRate: 500 });
+    expect(res.status).toBe(403);
+  });
+
+  // ─── 2026-06: DELETE /beds/:id — remove a bed (CRUD) ────────────────────
+  it("DELETE /beds/:id removes an AVAILABLE bed (ADMIN)", async () => {
+    const prisma = await getPrisma();
+    const ward = await createWardFixture({ name: `WDEL-${Date.now()}` });
+    const bed = await createBedFixture({
+      wardId: ward.id,
+      overrides: { status: "AVAILABLE" },
+    });
+
+    const res = await request(app)
+      .delete(`/api/v1/beds/${bed.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+
+    const gone = await prisma.bed.findUnique({ where: { id: bed.id } });
+    expect(gone).toBeNull();
+  });
+
+  it("DELETE /beds/:id refuses to delete an OCCUPIED bed (409)", async () => {
+    const ward = await createWardFixture({ name: `WOCC-${Date.now()}` });
+    const bed = await createBedFixture({
+      wardId: ward.id,
+      overrides: { bedNumber: "OCC-1", status: "OCCUPIED" },
+    });
+
+    const res = await request(app)
+      .delete(`/api/v1/beds/${bed.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatch(/occupied/i);
+  });
+
+  it("DELETE /beds/:id 404 for an unknown bed", async () => {
+    const res = await request(app)
+      .delete("/api/v1/beds/550e8400-e29b-41d4-a716-446655440000")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("DELETE /beds/:id forbidden for NURSE (403 — ADMIN-only delete)", async () => {
+    const ward = await createWardFixture({ name: `WDN-${Date.now()}` });
+    const bed = await createBedFixture({ wardId: ward.id });
+    const res = await request(app)
+      .delete(`/api/v1/beds/${bed.id}`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(res.status).toBe(403);
   });
 });

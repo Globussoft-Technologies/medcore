@@ -452,9 +452,11 @@ router.post(
   firebaseVerifyLimiter,
   validate(firebaseVerifyPatientSchema),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const { idToken, name: bodyName } = req.body as {
+    const { idToken, name: bodyName, tenantId: bodyTenantId } = req.body as {
       idToken: string;
       name?: string;
+      // Selected hospital — login identity is keyed on (phone + name + tenant).
+      tenantId?: string;
     };
     try {
       // 1. Verify the token with Firebase Admin. Throws on any failure.
@@ -503,12 +505,26 @@ router.post(
       // "couldn't sign you in" (no enumeration leak, and no silently logging
       // the user into the wrong chart).
       const trimmedName = (bodyName ?? "").trim();
+      // Validate the selected hospital (must be a real, active tenant) so a
+      // forged/stale id can't scope the lookup to a suspended org. When the
+      // form sends no hospital we fall back to phone+name only (back-compat).
+      let scopedTenantId: string | null = null;
+      if (bodyTenantId && bodyTenantId.trim()) {
+        const t = await prisma.tenant.findUnique({
+          where: { id: bodyTenantId.trim() },
+          select: { id: true, active: true },
+        });
+        if (t?.active) scopedTenantId = t.id;
+      }
+      // Login identity is keyed on (phone + name + tenant). The patient must
+      // already exist IN THE SELECTED hospital — no auto-create on login.
       const baseWhere = {
         phone: { in: phoneCandidates },
         role: Role.PATIENT,
         ...(trimmedName
           ? { name: { equals: trimmedName, mode: "insensitive" as const } }
           : {}),
+        ...(scopedTenantId ? { tenantId: scopedTenantId } : {}),
       };
       const matches = await prisma.user.findMany({
         where: baseWhere,
@@ -529,86 +545,34 @@ router.post(
       // pinning to a single value).
       const phone = canonical;
 
-      // Identity rule: (phone + name) match → log into THAT account; no match →
-      // CREATE a new PATIENT account (the phone is already Firebase-verified)
-      // and log into it. Login doubles as self-registration. We only auto-
-      // create when a NAME was supplied (so the new chart has one) AND the
-      // lookup was unambiguous-zero (matchCount === 0). An ambiguous case
-      // (multiple same-phone accounts, no name to disambiguate) is NOT a
-      // create — we can't pick a name — so it stays a generic failure.
+      // Identity rule (2026-06): (phone + name + selected hospital) must
+      // already match an EXISTING patient — login no longer auto-creates an
+      // account. When nothing matches we tell the user explicitly to
+      // register. NOTE: this is a deliberate trade-off — the message reveals
+      // whether a (phone+name) is registered at the chosen hospital, chosen
+      // over the prior generic anti-enumeration response for clearer UX.
       if (!user) {
-        if (trimmedName && matches.length === 0) {
-          // Resolve the tenant the same way the public booking flow does so
-          // the new patient lands in the right org (defaults to "default").
-          const headerTenant = req.header("X-Tenant-Id")?.trim();
-          let tenantId: string | null = null;
-          if (headerTenant) {
-            const t = await prisma.tenant.findUnique({
-              where: { id: headerTenant },
-              select: { id: true, active: true },
-            });
-            if (t?.active) tenantId = t.id;
-          }
-          if (!tenantId) {
-            const fallback = await prisma.tenant.findUnique({
-              where: { subdomain: "default" },
-              select: { id: true, active: true },
-            });
-            tenantId = fallback?.active ? fallback.id : null;
-          }
-
-          // Create User + Patient (random password — login is OTP-only).
-          const passwordHash = await bcrypt.hash(crypto.randomUUID(), 10);
-          const created = await prisma.user.create({
-            data: {
-              name: trimmedName,
-              phone,
-              email: null,
-              passwordHash,
-              role: Role.PATIENT,
-              isActive: true,
-              ...(tenantId ? { tenantId } : {}),
-            },
-            select: {
-              id: true,
-              email: true,
-              name: true,
-              role: true,
-              tenantId: true,
-            },
-          });
-          // MR number — mirrors the booking / registration write site.
-          const cfg = await prisma.systemConfig.findUnique({
-            where: { key: "next_mr_number" },
-          });
-          const mrSeq = cfg ? parseInt(cfg.value, 10) : 1;
-          const mrNumber = `MR${String(mrSeq).padStart(6, "0")}`;
-          await prisma.patient.create({
-            data: {
-              userId: created.id,
-              mrNumber,
-              gender: "OTHER", // not collected at login; staff can edit
-              source: "WEB",
-              ...(tenantId ? { tenantId } : {}),
-            },
-            select: { id: true },
-          });
-          await prisma.systemConfig.upsert({
-            where: { key: "next_mr_number" },
-            update: { value: String(mrSeq + 1) },
-            create: { key: "next_mr_number", value: String(mrSeq + 1) },
-          });
-          user = created;
-        } else {
-          // No name to create with, or an ambiguous multi-account phone.
-          // Generic failure — parity with the enumeration defence.
-          res.status(401).json({
-            success: false,
-            data: null,
-            error: "Couldn't sign you in. Please try again.",
-          });
-          return;
-        }
+        await auditLog(
+          req,
+          "PATIENT_LOGIN_NO_ACCOUNT",
+          "patient-auth",
+          undefined,
+          {
+            phoneSuffix: phone.slice(-4),
+            tenantId: scopedTenantId,
+            ambiguous: matches.length > 1,
+          },
+        );
+        // 404 = "no such account here". The web form surfaces this message
+        // inline with a link to /patient/register.
+        res.status(404).json({
+          success: false,
+          data: null,
+          error:
+            "You don't have an account at the selected hospital. Please register first.",
+          code: "NO_ACCOUNT",
+        });
+        return;
       }
 
       // 3. Honour the deactivated-tenant gate the otp-verify route uses.

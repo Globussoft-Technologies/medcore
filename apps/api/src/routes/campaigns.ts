@@ -658,7 +658,7 @@ router.get(
       // CampaignSend table; the byVariant matrix is augmented with
       // per-variant clicks + conversions so the operator can compare
       // variant performance end-to-end (impressions → clicks → conv).
-      const [byStatus, byChannelStatus, byVariant, clicked, converted, clickedByVariant, convertedByVariant] = await Promise.all([
+      const [byStatus, byChannelStatus, byVariant, clicked, converted, clickedByVariant, convertedByVariant, bounced, unsubscribed] = await Promise.all([
         prisma.campaignSend.groupBy({
           by: ["status"],
           where: { campaignId: campaign.id, tenantId },
@@ -690,11 +690,18 @@ router.get(
           where: { campaignId: campaign.id, tenantId, variantId: { not: null }, convertedAt: { not: null } },
           _count: { _all: true },
         }),
+        // Pearl §5.1 — bounce + unsubscribe counts for the rate rollup.
+        prisma.campaignSend.count({
+          where: { campaignId: campaign.id, tenantId, bouncedAt: { not: null } },
+        }),
+        prisma.campaignSend.count({
+          where: { campaignId: campaign.id, tenantId, unsubscribedAt: { not: null } },
+        }),
       ]);
 
       const statusTotals: Record<string, number> = {
         QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
-        BOUNCED: 0, FAILED: 0, SUPPRESSED: 0,
+        BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, UNSUBSCRIBED: 0,
       };
       let total = 0;
       for (const row of byStatus) {
@@ -709,7 +716,7 @@ router.get(
         if (!channelMatrix[row.channel]) {
           channelMatrix[row.channel] = {
             QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
-            BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, total: 0,
+            BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, UNSUBSCRIBED: 0, total: 0,
           };
         }
         channelMatrix[row.channel][row.status] = row._count._all;
@@ -722,7 +729,7 @@ router.get(
         if (!variantMatrix[row.variantId]) {
           variantMatrix[row.variantId] = {
             QUEUED: 0, SENT: 0, DELIVERED: 0, READ: 0,
-            BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, total: 0,
+            BOUNCED: 0, FAILED: 0, SUPPRESSED: 0, UNSUBSCRIBED: 0, total: 0,
             clicked: 0, converted: 0,
           };
         }
@@ -740,6 +747,22 @@ router.get(
         }
       }
 
+      // Pearl §5.1 — per-campaign rates (as fractions 0..1; round in the UI).
+      // Denominator is total sends; a 0-send campaign yields all-zero rates
+      // (no divide-by-zero). delivered counts DELIVERED+READ (read implies
+      // delivered); read = READ; open is the email-equivalent of read.
+      const delivered = (statusTotals.DELIVERED ?? 0) + (statusTotals.READ ?? 0);
+      const readCount = statusTotals.READ ?? 0;
+      const rate = (n: number) => (total > 0 ? n / total : 0);
+      const rates = {
+        deliveryRate: rate(delivered),
+        openRate: rate(readCount), // open/read receipt
+        clickRate: rate(clicked),
+        conversionRate: rate(converted),
+        bounceRate: rate(bounced),
+        unsubscribeRate: rate(unsubscribed),
+      };
+
       res.json({
         success: true,
         data: {
@@ -752,6 +775,9 @@ router.get(
           byVariant: variantMatrix,
           clicked,
           converted,
+          bounced,
+          unsubscribed,
+          rates,
         },
         error: null,
       });
@@ -809,6 +835,48 @@ publicRouter.get(
         return;
       }
       res.status(200).type("text/plain").send("Click recorded. Thank you.");
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /campaigns/unsubscribe/:sendId — Pearl §5.1 one-tap opt-out ──
+//
+// Recipients tap the unsubscribe link the dispatcher mints into every
+// campaign message footer. UNAUTHENTICATED (same obscurity-of-cuid posture
+// as the click tracker). Records unsubscribedAt + flips the send status to
+// UNSUBSCRIBED, and clears the patient's whatsappOptIn so future campaigns
+// suppress them. Idempotent — a re-tap is a no-op.
+publicRouter.get(
+  "/campaigns/unsubscribe/:sendId",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const send = await rawPrisma.campaignSend.findUnique({
+        where: { id: req.params.sendId },
+        select: { id: true, patientId: true, unsubscribedAt: true },
+      });
+      if (!send) {
+        res.status(404).type("text/plain").send("Not found");
+        return;
+      }
+      if (!send.unsubscribedAt) {
+        await rawPrisma.$transaction([
+          rawPrisma.campaignSend.update({
+            where: { id: send.id },
+            data: { unsubscribedAt: new Date(), status: "UNSUBSCRIBED" },
+          }),
+          // Opt the patient out of future marketing pushes (best-effort).
+          rawPrisma.patient.update({
+            where: { id: send.patientId },
+            data: { whatsappOptIn: false },
+          }),
+        ]);
+      }
+      res
+        .status(200)
+        .type("text/plain")
+        .send("You have been unsubscribed. You will no longer receive campaign messages.");
     } catch (err) {
       next(err);
     }

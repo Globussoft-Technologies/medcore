@@ -300,4 +300,37 @@ describe("compileAudience — Pearl §5.1 piece 2a", () => {
     expect(where).toEqual({});
     expect(warnSpy).toHaveBeenCalled();
   });
+
+  it("allergy eq 'penicillin' → allergies.some.OR allergen contains", () => {
+    const where = compileAudience({
+      filters: [{ field: "allergy", op: "eq", value: "penicillin" }],
+    }) as { allergies?: { some?: { OR?: Array<Record<string, unknown>> } } };
+    expect(where.allergies?.some?.OR).toBeDefined();
+    const ors = where.allergies!.some!.OR!;
+    expect(ors).toHaveLength(1);
+    expect(ors[0]).toEqual({ allergen: { contains: "penicillin", mode: "insensitive" } });
+  });
+
+  it("allergy in ['penicillin','sulfa'] → allergies.some.OR with both terms", () => {
+    const where = compileAudience({
+      filters: [{ field: "allergy", op: "in", value: ["penicillin", "sulfa"] }],
+    }) as { allergies?: { some?: { OR?: unknown[] } } };
+    expect(where.allergies?.some?.OR).toHaveLength(2);
+  });
+
+  it("allergy with an empty value → no-op + warn", () => {
+    const where = compileAudience({
+      filters: [{ field: "allergy", op: "eq", value: "" }],
+    });
+    expect(where).toEqual({});
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("allergy with an unsupported op (gte) → no-op + warn", () => {
+    const where = compileAudience({
+      filters: [{ field: "allergy", op: "gte", value: "penicillin" }],
+    });
+    expect(where).toEqual({});
+    expect(warnSpy).toHaveBeenCalled();
+  });
 });

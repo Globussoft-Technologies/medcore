@@ -96,6 +96,8 @@ describe("audience DSL constants", () => {
       "optedOut",
       // 2026-06: diagnosis / chronic-condition match (cohort Add-by-rule).
       "condition",
+      // 2026-06: allergy match (PatientAllergy.allergen contains).
+      "allergy",
     ]);
   });
   it("AUDIENCE_FILTER_OPS is the v1 documented operator set", () => {

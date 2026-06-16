@@ -126,6 +126,14 @@ function LoginPageInner() {
   const [twoFAStep, setTwoFAStep] = useState(false);
   const [tempToken, setTempToken] = useState("");
   const [twoFACode, setTwoFACode] = useState("");
+  // Patient multi-hospital disambiguation: when the same email+password
+  // matches accounts in several hospitals, we show a picker (step 2) and
+  // re-submit login with the chosen tenant.
+  const [hospitalChoices, setHospitalChoices] = useState<Array<{
+    id: string;
+    name: string;
+    code: string | null;
+  }> | null>(null);
   // Pearl §8.2 — banner shown after the operator finishes mandatory
   // TOTP enrolment on /auth/enrol-totp. The enrolment page drops a
   // single-shot message into sessionStorage before bouncing back to
@@ -180,6 +188,12 @@ function LoginPageInner() {
         setTwoFAStep(true);
         return;
       }
+      // Patient multi-hospital: same email+password at several hospitals →
+      // show the picker. The user selects one, then we re-call login with it.
+      if (result.needsHospitalSelection && result.hospitals?.length) {
+        setHospitalChoices(result.hospitals);
+        return;
+      }
       // Pearl §8.2 mandatory-TOTP enrolment: the account has the
       // require-two-factor flag on but hasn't enrolled. The store
       // already caught the 412 + cached the one-shot enrolToken;
@@ -217,6 +231,35 @@ function LoginPageInner() {
       // Issue #15: distinguish 429 (rate-limit) from 401/403 (bad creds) so
       // users never see "Invalid email or password" when they're simply
       // throttled. `lib/api.ts` attaches `.status` to the thrown Error.
+      const msg = messageForAuthError(err, t);
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Step 2 of the patient multi-hospital flow: the user picked a hospital;
+  // re-call login scoped to that tenant to complete sign-in.
+  async function completeLoginWithHospital(tenantId: string) {
+    setError("");
+    setLoading(true);
+    try {
+      const result = await login(email.trim(), password, rememberMe, tenantId);
+      if (result.twoFactorRequired && result.tempToken) {
+        setTempToken(result.tempToken);
+        setTwoFAStep(true);
+        setHospitalChoices(null);
+        return;
+      }
+      toast.success(t("login.welcome"));
+      const role = useAuthStore.getState().user?.role;
+      const dest =
+        !hasExplicitRedirect && role === "PATIENT"
+          ? "/patient/dashboard"
+          : redirectTo;
+      router.push(dest);
+    } catch (err) {
       const msg = messageForAuthError(err, t);
       setError(msg);
       toast.error(msg);
@@ -348,7 +391,46 @@ function LoginPageInner() {
               </p>
             </div>
 
-            {twoFAStep ? (
+            {hospitalChoices ? (
+              <div className="space-y-4" data-testid="login-hospital-picker">
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  Your account exists at more than one hospital. Choose where
+                  you want to sign in.
+                </p>
+                <div className="space-y-2">
+                  {hospitalChoices.map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => completeLoginWithHospital(h.id)}
+                      data-testid={`login-hospital-${h.id}`}
+                      className="flex w-full items-center justify-between rounded-xl border border-gray-300 bg-white px-4 py-3 text-left text-sm font-medium text-gray-900 transition hover:border-blue-500 hover:bg-blue-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+                    >
+                      <span>
+                        {h.name}
+                        {h.code ? (
+                          <span className="ml-1 text-xs text-gray-500">
+                            ({h.code})
+                          </span>
+                        ) : null}
+                      </span>
+                      <span aria-hidden>→</span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHospitalChoices(null);
+                    setError("");
+                  }}
+                  className="text-sm text-gray-500 underline hover:text-gray-700 dark:text-gray-400"
+                >
+                  Back
+                </button>
+              </div>
+            ) : twoFAStep ? (
               <form
                 onSubmit={handle2FA}
                 // Issue #709: same noValidate convention as the email/password

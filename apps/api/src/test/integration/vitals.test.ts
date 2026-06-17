@@ -157,8 +157,13 @@ describeIfDB("Vitals API (integration)", () => {
   });
 
   it("GET /vitals lists recorded vitals and respects ?limit", async () => {
-    const { patient, appt } = await setupContext();
-    // Record two readings.
+    const { patient, doctor, appt } = await setupContext();
+    // Vitals.appointmentId is @unique (one snapshot per appointment), so two
+    // separate readings need two separate appointments to land as two rows.
+    const appt2 = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
     await request(app)
       .post(`/api/v1/patients/${patient.id}/vitals`)
       .set("Authorization", `Bearer ${nurseToken}`)
@@ -166,7 +171,7 @@ describeIfDB("Vitals API (integration)", () => {
     await request(app)
       .post(`/api/v1/patients/${patient.id}/vitals`)
       .set("Authorization", `Bearer ${nurseToken}`)
-      .send({ patientId: patient.id, appointmentId: appt.id, pulseRate: 80 });
+      .send({ patientId: patient.id, appointmentId: appt2.id, pulseRate: 80 });
 
     const all = await request(app)
       .get(`/api/v1/patients/${patient.id}/vitals`)

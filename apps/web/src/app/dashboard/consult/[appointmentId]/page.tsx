@@ -22,12 +22,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { VITALS_RANGES } from "@medcore/shared";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
-import { ConsultRightRail } from "@/components/ConsultRightRail";
+import { ConsultRightRail, VisitDetail, type Visit } from "@/components/ConsultRightRail";
 import { Skeleton, SkeletonText } from "@/components/Skeleton";
 import { PatientAvatar } from "@/components/PatientAvatar";
-import { Pill, FlaskConical } from "lucide-react";
+import { Pill, FlaskConical, Check, Plus } from "lucide-react";
 
 interface AppointmentDetail {
   id: string;
@@ -149,15 +150,15 @@ const SOAP_STRUCTURE: Record<SoapTab, SoapField[]> = {
       label: "Past Medical History",
       placeholder:
         "Chronic conditions, prior surgeries, hospitalizations, allergies",
-      rows: 3,
+      rows: 6,
     },
   ],
   O: [
     {
       key: "vitals",
       label: "Vitals",
-      placeholder: "BP, pulse, temp, SpO2, RR, weight, height (free-text)",
-      rows: 2,
+      placeholder: "BP, pulse, temp, SpO2, RR, weight, height",
+      rows: 3,
     },
     {
       key: "examinationFindings",
@@ -172,10 +173,17 @@ const SOAP_STRUCTURE: Record<SoapTab, SoapField[]> = {
       key: "impression",
       label: "Clinical Impression / Diagnosis",
       placeholder: "Primary diagnosis and severity",
-      rows: 4,
+      rows: 10,
     },
   ],
   P: [
+    {
+      key: "medications",
+      label: "Medications",
+      placeholder:
+        "Drug name, strength/form, dose, frequency, duration — one per line",
+      rows: 4,
+    },
     {
       key: "investigations",
       label: "Investigations Ordered",
@@ -293,6 +301,12 @@ export default function ConsultPage() {
   const [medications, setMedications] = useState<MedicationItem[]>([]);
   const [lastVitals, setLastVitals] = useState<LastVitals | null>(null);
   const [activeTab, setActiveTab] = useState<SoapTab>("S");
+  // When set, the main panel shows this past visit's full detail (in place of
+  // the SOAP editor) instead of a popup; "Back to consult" clears it.
+  const [viewingVisit, setViewingVisit] = useState<Visit | null>(null);
+  // After Sign & Finalize, swap the editor for a read-only review of the signed
+  // note with a "Complete" button that returns to the appointments list.
+  const [signedSummary, setSignedSummary] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [signing, setSigning] = useState(false);
@@ -359,6 +373,9 @@ export default function ConsultPage() {
         );
         if (cancelled) return;
         setConsultation(consultRes.data);
+        // Already signed (e.g. after a page refresh) → land on the read-only
+        // review screen, not the editor, so the state survives a reload.
+        if (consultRes.data.status === "SIGNED") setSignedSummary(true);
         setSoapSections({
           S: parseSoapSections(consultRes.data.subjective, SOAP_STRUCTURE.S),
           O: parseSoapSections(consultRes.data.objective, SOAP_STRUCTURE.O),
@@ -491,39 +508,82 @@ export default function ConsultPage() {
     queueSave({ snomedCodes: next });
   }
 
+  // "Sign & Finalize" signs the note immediately (flush draft → POST /sign), so
+  // the header flips to the "✓ Signed · <time>" badge, then opens the read-only
+  // review screen with Back-to-edit / Complete.
   async function handleSign() {
     if (!consultation) return;
-    if (consultation.status === "SIGNED") return;
+    if (consultation.status === "SIGNED") {
+      setSignedSummary(true);
+      return;
+    }
     setSigning(true);
     try {
-      // Flush any in-flight debounced save first. Serialize each
-      // tab's sub-field map into its single on-wire column.
+      // Flush any in-flight debounced save first so we sign the latest content.
       if (saveTimer.current) {
         clearTimeout(saveTimer.current);
         await api.patch(`/consultations/${consultation.id}`, {
-          subjective: serializeSoapSections(
-            soapSections.S,
-            SOAP_STRUCTURE.S,
-          ),
+          subjective: serializeSoapSections(soapSections.S, SOAP_STRUCTURE.S),
           objective: serializeSoapSections(soapSections.O, SOAP_STRUCTURE.O),
-          assessment: serializeSoapSections(
-            soapSections.A,
-            SOAP_STRUCTURE.A,
-          ),
+          assessment: serializeSoapSections(soapSections.A, SOAP_STRUCTURE.A),
           plan: serializeSoapSections(soapSections.P, SOAP_STRUCTURE.P),
           icd10Codes: icd10,
           snomedCodes: snomed,
         });
       }
+      // Sign only finalizes the NOTE — do NOT auto-complete the appointment
+      // here. The appointment is marked COMPLETED separately when the doctor
+      // clicks "Complete" on the review screen.
       const res = await api.post<{ data: ConsultationRow }>(
         `/consultations/${consultation.id}/sign`,
-        {},
+        { advanceAppointment: false },
       );
       setConsultation(res.data);
-      toast.success("Consultation signed");
+      setSignedSummary(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Sign failed");
     } finally {
+      setSigning(false);
+    }
+  }
+
+  // "Back to edit" on the review screen — unsigns (SIGNED → DRAFT), reverting
+  // the header to the "Sign & Finalize" button, and drops back into the editor.
+  async function handleUnsign() {
+    if (!consultation) return;
+    setSigning(true);
+    try {
+      const res = await api.post<{ data: ConsultationRow }>(
+        `/consultations/${consultation.id}/unsign`,
+        {},
+      );
+      setConsultation(res.data);
+      setSignedSummary(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not reopen");
+    } finally {
+      setSigning(false);
+    }
+  }
+
+  // "Complete" — THIS is what finishes the encounter: mark the appointment
+  // COMPLETED (which also fires the consult-fee invoice, idempotently), then
+  // return to the appointments list. The note was already signed on finalize.
+  async function handleComplete() {
+    const apptId = appointment?.id ?? consultation?.appointmentId;
+    if (!apptId) {
+      router.push("/dashboard/appointments");
+      return;
+    }
+    setSigning(true);
+    try {
+      await api.patch(`/appointments/${apptId}/status`, {
+        status: "COMPLETED",
+      });
+      toast.success("Consultation completed");
+      router.push("/dashboard/appointments");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not complete");
       setSigning(false);
     }
   }
@@ -537,6 +597,11 @@ export default function ConsultPage() {
       setActiveTab("A");
       setSoapSections((prev) => {
         const existing = prev.A.impression ?? "";
+        // No duplicates — skip if this exact diagnosis line is already listed.
+        const alreadyListed = existing
+          .split("\n")
+          .some((l) => l.trim().toLowerCase() === value.trim().toLowerCase());
+        if (alreadyListed) return prev;
         const nextValue = existing ? `${existing}\n${value}` : value;
         const nextTab = { ...prev.A, impression: nextValue };
         queueSave({
@@ -559,12 +624,17 @@ export default function ConsultPage() {
         .join(" • ");
       setActiveTab("P");
       setSoapSections((prev) => {
-        // Medicines paste into Patient Instructions — the natural
-        // sub-field that holds prose-formatted Rx in the manual page
-        // (the AI scribe stores structured medications elsewhere).
-        const existing = prev.P.patientInstructions ?? "";
+        // Medicines paste into the dedicated Medications field in the Plan
+        // section (one drug per line) — the field a doctor uses to give
+        // medicine to the patient.
+        const existing = prev.P.medications ?? "";
+        // No duplicates — skip if this exact medicine line is already listed.
+        const alreadyListed = existing
+          .split("\n")
+          .some((l) => l.trim().toLowerCase() === line.toLowerCase());
+        if (alreadyListed) return prev;
         const nextValue = existing ? `${existing}\n${line}` : line;
-        const nextTab = { ...prev.P, patientInstructions: nextValue };
+        const nextTab = { ...prev.P, medications: nextValue };
         queueSave({
           plan: serializeSoapSections(nextTab, SOAP_STRUCTURE.P),
         });
@@ -665,7 +735,7 @@ export default function ConsultPage() {
               Consult · {patientName}
             </h1>
             <p className="mt-0.5 truncate text-xs text-gray-500 dark:text-gray-400">
-              MR {appointment.patient.mrNumber}
+              {appointment.patient.mrNumber}
               <span className="mx-2 text-gray-300 dark:text-gray-600">|</span>
               {appointment.doctor.user.name}
               <span className="mx-2 text-gray-300 dark:text-gray-600">|</span>
@@ -796,42 +866,74 @@ export default function ConsultPage() {
           </Section>
 
           <Section title="Last vitals">
-            {!lastVitals ? (
-              <p className="text-xs text-gray-500 dark:text-gray-400">No vitals</p>
-            ) : (
-              <dl className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-                {lastVitals.bloodPressureSystolic !== null && (
-                  <Stat
-                    label="BP"
-                    value={`${lastVitals.bloodPressureSystolic}/${lastVitals.bloodPressureDiastolic ?? "—"}`}
-                  />
-                )}
-                {lastVitals.pulseRate !== null && (
-                  <Stat label="Pulse" value={`${lastVitals.pulseRate}`} />
-                )}
-                {lastVitals.temperature !== null && (
-                  <Stat
-                    label="Temp"
-                    value={`${lastVitals.temperature}°`}
-                  />
-                )}
-                {lastVitals.spO2 !== null && (
-                  <Stat label="SpO2" value={`${lastVitals.spO2}%`} />
-                )}
-                {lastVitals.respiratoryRate !== null && (
-                  <Stat label="RR" value={`${lastVitals.respiratoryRate}`} />
-                )}
-                {lastVitals.weight !== null && (
-                  <Stat label="Wt" value={`${lastVitals.weight}kg`} />
-                )}
-              </dl>
+            {/* Always show the key vital fields — fall back to "—" when a value
+                (or the whole record) is missing, instead of an empty section. */}
+            <dl className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+              <Stat
+                label="BP"
+                value={
+                  lastVitals?.bloodPressureSystolic != null
+                    ? `${lastVitals.bloodPressureSystolic}/${lastVitals.bloodPressureDiastolic ?? "—"}`
+                    : "—"
+                }
+              />
+              <Stat
+                label="Pulse"
+                value={lastVitals?.pulseRate != null ? `${lastVitals.pulseRate}` : "—"}
+              />
+              <Stat
+                label="Temp"
+                value={
+                  lastVitals?.temperature != null ? `${lastVitals.temperature}°` : "—"
+                }
+              />
+              <Stat
+                label="SpO2"
+                value={lastVitals?.spO2 != null ? `${lastVitals.spO2}%` : "—"}
+              />
+              <Stat
+                label="RR"
+                value={
+                  lastVitals?.respiratoryRate != null
+                    ? `${lastVitals.respiratoryRate}`
+                    : "—"
+                }
+              />
+              <Stat
+                label="Wt"
+                value={lastVitals?.weight != null ? `${lastVitals.weight}kg` : "—"}
+              />
+            </dl>
+            {!lastVitals && (
+              <p className="mt-1.5 text-[11px] italic text-gray-400 dark:text-gray-500">
+                No vitals recorded yet
+              </p>
             )}
           </Section>
           </div>
         </aside>
 
         {/* CENTRE — SOAP tabs */}
-        <main className="flex w-full flex-1 min-w-0 flex-col bg-gray-50 dark:bg-gray-900">
+        <main className="flex w-full flex-1 min-h-0 min-w-0 flex-col bg-gray-50 dark:bg-gray-900">
+          {signedSummary ? (
+            <div className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <SignedSummary
+                soapSections={soapSections}
+                icd10={icd10}
+                saving={signing}
+                onBackToEdit={handleUnsign}
+                onComplete={handleComplete}
+              />
+            </div>
+          ) : viewingVisit ? (
+            <div className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <VisitDetail
+                visit={viewingVisit}
+                onBack={() => setViewingVisit(null)}
+              />
+            </div>
+          ) : (
+          <>
           <div className="flex items-center justify-between gap-2 border-b border-gray-200 bg-white px-3 dark:border-gray-700 dark:bg-gray-800 sm:px-6">
             <div className="flex flex-1 min-w-0 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {SOAP_TABS.map((tab) => (
@@ -874,15 +976,6 @@ export default function ConsultPage() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {activeTab === "O" && (
-              <VitalsInline
-                appointmentId={appointment.id}
-                patientId={appointment.patient.id}
-                disabled={isReadOnly}
-                onRecorded={(v) => setLastVitals(v)}
-              />
-            )}
-
             {activeTab === "A" && (
               <DiagnosisCoding
                 icd10={icd10}
@@ -892,6 +985,16 @@ export default function ConsultPage() {
                 onRemoveIcd10={removeIcd10}
                 onAddSnomed={addSnomed}
                 onRemoveSnomed={removeSnomed}
+              />
+            )}
+
+            {/* Vitals capture is its own collapsible card above the Objective note. */}
+            {activeTab === "O" && (
+              <VitalsInline
+                appointmentId={appointment.id}
+                patientId={appointment.patient.id}
+                disabled={isReadOnly}
+                onRecorded={(v) => setLastVitals(v)}
               />
             )}
 
@@ -911,21 +1014,33 @@ export default function ConsultPage() {
                     <label className="mb-1.5 block text-xs font-semibold text-gray-700 dark:text-gray-300">
                       {field.label}
                     </label>
-                    <textarea
-                      value={soapSections[activeTab][field.key] ?? ""}
-                      onChange={(e) =>
-                        updateSoapField(activeTab, field.key, e.target.value)
-                      }
-                      disabled={isReadOnly}
-                      placeholder={field.placeholder}
-                      rows={field.rows}
-                      className="w-full resize-y rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-relaxed text-gray-900 placeholder-gray-400 transition focus:border-gray-400 focus:bg-white focus:outline-none focus:ring-0 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-gray-500 dark:focus:bg-gray-900 disabled:bg-gray-100 dark:disabled:bg-gray-800"
-                    />
+                    {activeTab === "P" && field.key === "medications" ? (
+                      <MedicationsEditor
+                        value={soapSections.P.medications ?? ""}
+                        disabled={isReadOnly}
+                        onChange={(v) =>
+                          updateSoapField("P", "medications", v)
+                        }
+                      />
+                    ) : (
+                      <textarea
+                        value={soapSections[activeTab][field.key] ?? ""}
+                        onChange={(e) =>
+                          updateSoapField(activeTab, field.key, e.target.value)
+                        }
+                        disabled={isReadOnly}
+                        placeholder={field.placeholder}
+                        rows={field.rows}
+                        className="w-full resize-y rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-relaxed text-gray-900 placeholder-gray-400 transition focus:border-gray-400 focus:bg-white focus:outline-none focus:ring-0 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-gray-500 dark:focus:bg-gray-900 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+                      />
+                    )}
                   </div>
                 ))}
               </div>
             </div>
           </div>
+          </>
+          )}
         </main>
 
         {/* RIGHT RAIL — favourites + last 3 visits. The inner
@@ -947,6 +1062,7 @@ export default function ConsultPage() {
             token={token}
             onPasteDiagnosis={handlePasteDiagnosis}
             onPasteMedicine={handlePasteMedicine}
+            onSelectVisit={setViewingVisit}
             horizontal
           />
         </div>
@@ -959,6 +1075,7 @@ export default function ConsultPage() {
             token={token}
             onPasteDiagnosis={handlePasteDiagnosis}
             onPasteMedicine={handlePasteMedicine}
+            onSelectVisit={setViewingVisit}
           />
         </div>
       </div>
@@ -993,11 +1110,330 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Structured medications editor (Plan tab) — one row of fields per drug with
+// an "Add medicine" button, instead of a single free-text box. Each medicine
+// serializes to one line "<name> • <strength> • <dose> • <frequency> •
+// <duration>" (non-empty parts only), matching the favourites click-to-paste
+// format, so the value still round-trips through the plan column and shows
+// cleanly in the review / past-visit screens.
+// ─────────────────────────────────────────────────────────────────────
+interface MedRow {
+  name: string;
+  strength: string;
+  dose: string;
+  frequency: string;
+  duration: string;
+}
+const EMPTY_MED_ROW: MedRow = {
+  name: "",
+  strength: "",
+  dose: "",
+  frequency: "",
+  duration: "",
+};
+const MED_SEP = " • ";
+
+function parseMedicationRows(value: string): MedRow[] {
+  const lines = value
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return [{ ...EMPTY_MED_ROW }];
+  return lines.map((line) => {
+    const parts = line.split(MED_SEP.trim()).map((p) => p.trim());
+    return {
+      name: parts[0] ?? "",
+      strength: parts[1] ?? "",
+      dose: parts[2] ?? "",
+      frequency: parts[3] ?? "",
+      duration: parts[4] ?? "",
+    };
+  });
+}
+
+function serializeMedicationRows(rows: MedRow[]): string {
+  return rows
+    .map((r) =>
+      [r.name, r.strength, r.dose, r.frequency, r.duration]
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .join(MED_SEP),
+    )
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
+function MedicationsEditor({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (v: string) => void;
+}) {
+  const [rows, setRows] = useState<MedRow[]>(() => parseMedicationRows(value));
+  // Track the last string WE emitted so external changes (loading a note,
+  // favourites click-to-paste) re-parse into rows, while our own keystrokes
+  // don't bounce back and steal input focus.
+  const lastEmitted = useRef(value);
+  useEffect(() => {
+    if (value !== lastEmitted.current) {
+      setRows(parseMedicationRows(value));
+      lastEmitted.current = value;
+    }
+  }, [value]);
+
+  function commit(next: MedRow[]) {
+    setRows(next);
+    const serialized = serializeMedicationRows(next);
+    lastEmitted.current = serialized;
+    onChange(serialized);
+  }
+  const setField = (i: number, key: keyof MedRow, v: string) =>
+    commit(rows.map((r, idx) => (idx === i ? { ...r, [key]: v } : r)));
+  const addRow = () => commit([...rows, { ...EMPTY_MED_ROW }]);
+  const removeRow = (i: number) =>
+    commit(
+      rows.length > 1 ? rows.filter((_, idx) => idx !== i) : [{ ...EMPTY_MED_ROW }],
+    );
+
+  const inputCls =
+    "w-full rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-gray-400 focus:bg-white focus:outline-none dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-100 dark:placeholder-gray-500 dark:focus:border-gray-500 dark:focus:bg-gray-900 disabled:bg-gray-100 dark:disabled:bg-gray-800";
+
+  return (
+    <div className="space-y-3">
+      {rows.map((row, i) => (
+        <div
+          key={i}
+          className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              Medicine {i + 1}
+            </span>
+            {!disabled && (
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                className="text-xs font-medium text-red-500 hover:underline"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <input
+              type="text"
+              value={row.name}
+              disabled={disabled}
+              onChange={(e) => setField(i, "name", e.target.value)}
+              placeholder="Drug name"
+              className={`sm:col-span-2 ${inputCls}`}
+            />
+            <input
+              type="text"
+              value={row.strength}
+              disabled={disabled}
+              onChange={(e) => setField(i, "strength", e.target.value)}
+              placeholder="Strength / form"
+              className={inputCls}
+            />
+            <input
+              type="text"
+              value={row.dose}
+              disabled={disabled}
+              onChange={(e) => setField(i, "dose", e.target.value)}
+              placeholder="Dose"
+              className={inputCls}
+            />
+            <input
+              type="text"
+              value={row.frequency}
+              disabled={disabled}
+              onChange={(e) => setField(i, "frequency", e.target.value)}
+              placeholder="Frequency"
+              className={inputCls}
+            />
+            <input
+              type="text"
+              value={row.duration}
+              disabled={disabled}
+              onChange={(e) => setField(i, "duration", e.target.value)}
+              placeholder="Duration"
+              className={inputCls}
+            />
+          </div>
+        </div>
+      ))}
+      {!disabled && (
+        <button
+          type="button"
+          onClick={addRow}
+          className="flex items-center gap-1.5 rounded-md border border-dashed border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:border-indigo-400 hover:text-indigo-600 dark:border-gray-600 dark:text-gray-300 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add medicine
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Review screen — shown after "Sign & Finalize". Renders the note read-only
+// (straight from the in-memory SOAP field maps, so it matches exactly what's
+// about to be saved). "Back to edit" returns to the editor without any API
+// call; "Complete" is what actually signs + saves and leaves the page.
+// ─────────────────────────────────────────────────────────────────────
+function SignedSummary({
+  soapSections,
+  icd10,
+  saving,
+  onBackToEdit,
+  onComplete,
+}: {
+  soapSections: Record<SoapTab, Record<string, string>>;
+  icd10: DiagnosisCode[];
+  saving: boolean;
+  onBackToEdit: () => void;
+  onComplete: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+      <div className="mb-5 flex items-start justify-between gap-3 border-b border-gray-100 pb-4 dark:border-gray-700">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-gray-100">
+            <Check className="h-5 w-5 text-emerald-600" />
+            Consultation Signed
+          </h3>
+          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
+            Complete to finish, or Unsign to edit to reopen the note.
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBackToEdit}
+            disabled={saving}
+            data-testid="consult-back-to-edit"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
+          >
+            {saving ? "Unsigning…" : "Unsign to edit"}
+          </button>
+          <button
+            type="button"
+            onClick={onComplete}
+            disabled={saving}
+            data-testid="consult-complete"
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? "Completing…" : "Complete"}
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-5">
+        {SOAP_TABS.map((tab) => {
+          const fields = SOAP_STRUCTURE[tab].filter(
+            (f) => (soapSections[tab][f.key] ?? "").trim() !== "",
+          );
+          const showIcd = tab === "A" && icd10.length > 0;
+          if (fields.length === 0 && !showIcd) return null;
+          return (
+            <section
+              key={tab}
+              className="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40"
+            >
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                {TAB_LABEL[tab]}
+              </p>
+              <div className="space-y-3">
+                {fields.map((f) => (
+                  <div key={f.key}>
+                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                      {f.label}
+                    </p>
+                    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-gray-600 dark:text-gray-300">
+                      {soapSections[tab][f.key]}
+                    </p>
+                  </div>
+                ))}
+                {showIcd && (
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                      ICD-10 Codes
+                    </p>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {icd10.map((c) => (
+                        <span
+                          key={c.code}
+                          className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800 dark:bg-blue-900/40 dark:text-blue-200"
+                        >
+                          {c.code} — {c.description}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Inline vitals capture (sits atop the Objective tab per Pearl §2.1.3).
 // Writes to POST /patients/:id/vitals — same endpoint the nurse station
 // uses. The doctor recording vitals themselves is a valid flow (small
 // clinic, single-room setups).
 // ─────────────────────────────────────────────────────────────────────
+
+// Per-field label + valid range for client-side vitals validation. Ranges are
+// the SAME VITALS_RANGES the server's recordVitalsSchema enforces, so the form
+// rejects exactly what the API would (issue #1090). Temperature maps to the °F
+// range to match the field's unit.
+const VITAL_FIELD_META: Record<
+  string,
+  { label: string; range: { min: number; max: number }; unit: string }
+> = {
+  bloodPressureSystolic: {
+    label: "BP Systolic",
+    range: VITALS_RANGES.bloodPressureSystolic,
+    unit: "mmHg",
+  },
+  bloodPressureDiastolic: {
+    label: "BP Diastolic",
+    range: VITALS_RANGES.bloodPressureDiastolic,
+    unit: "mmHg",
+  },
+  pulseRate: { label: "Pulse", range: VITALS_RANGES.pulseRate, unit: "bpm" },
+  temperature: {
+    label: "Temp (°F)",
+    range: VITALS_RANGES.temperatureF,
+    unit: "°F",
+  },
+  spO2: { label: "SpO2 (%)", range: VITALS_RANGES.spO2, unit: "%" },
+  respiratoryRate: {
+    label: "RR",
+    range: VITALS_RANGES.respiratoryRate,
+    unit: "/min",
+  },
+  weight: { label: "Weight (kg)", range: VITALS_RANGES.weight, unit: "kg" },
+  height: { label: "Height (cm)", range: VITALS_RANGES.height, unit: "cm" },
+};
+const EMPTY_VITALS = {
+  bloodPressureSystolic: "",
+  bloodPressureDiastolic: "",
+  pulseRate: "",
+  temperature: "",
+  spO2: "",
+  respiratoryRate: "",
+  weight: "",
+  height: "",
+};
 function VitalsInline({
   appointmentId,
   patientId,
@@ -1009,58 +1445,72 @@ function VitalsInline({
   disabled: boolean;
   onRecorded: (v: LastVitals) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    bloodPressureSystolic: "",
-    bloodPressureDiastolic: "",
-    pulseRate: "",
-    temperature: "",
-    spO2: "",
-    respiratoryRate: "",
-    weight: "",
-    height: "",
-  });
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ ...EMPTY_VITALS });
 
   async function submit() {
+    if (disabled) return;
+    // Issue #1090 (BUG-005): validate numerically + against the SAME ranges the
+    // server enforces (VITALS_RANGES) so impossible values (letters, negatives,
+    // out-of-range) are rejected up front with a clear message instead of being
+    // silently dropped or bounced by a 400 with no feedback.
     const body: Record<string, number> = {};
     for (const [k, v] of Object.entries(form)) {
       const trimmed = v.trim();
-      if (trimmed.length > 0) {
-        const n = Number(trimmed);
-        if (!Number.isNaN(n)) body[k] = n;
+      if (trimmed.length === 0) continue;
+      const meta = VITAL_FIELD_META[k];
+      const n = Number(trimmed);
+      if (!Number.isFinite(n)) {
+        toast.error(`${meta?.label ?? k} must be a number.`);
+        return;
       }
+      if (meta && (n < meta.range.min || n > meta.range.max)) {
+        toast.error(
+          `${meta.label} must be between ${meta.range.min} and ${meta.range.max}.`,
+        );
+        return;
+      }
+      body[k] = n;
     }
-    if (Object.keys(body).length < 2) {
-      toast.error("Enter at least 2 vitals before recording.");
-      return;
-    }
+    // Runs on Sign & Finalize (via flush()). Incomplete entries (fewer than 2
+    // vitals, or only one half of the BP pair) are silently skipped — no error
+    // toast — so a note with no/partial vitals still signs without nagging.
+    if (Object.keys(body).length < 2) return;
     if (
       ("bloodPressureSystolic" in body) !==
       ("bloodPressureDiastolic" in body)
     ) {
-      toast.error("Both BP systolic and diastolic are required together.");
+      return;
+    }
+    if (
+      "bloodPressureSystolic" in body &&
+      "bloodPressureDiastolic" in body &&
+      body.bloodPressureDiastolic >= body.bloodPressureSystolic
+    ) {
+      toast.error("Diastolic must be lower than systolic.");
       return;
     }
     setSaving(true);
     try {
       const res = await api.post<{ data: LastVitals }>(
         `/patients/${patientId}/vitals`,
-        { ...body, appointmentId },
+        {
+          ...body,
+          // recordVitalsSchema requires patientId in the body too (not just the
+          // URL) — omitting it 400s with "patientId: expected string, received
+          // undefined". Send it explicitly alongside the appointment link.
+          patientId,
+          // Temperature is captured in °F (per the field label); pin the unit
+          // so the server validates against the °F range, not the °C default.
+          ...("temperature" in body ? { temperatureUnit: "F" } : {}),
+          appointmentId,
+        },
       );
       onRecorded(res.data);
       toast.success("Vitals recorded");
+      setForm({ ...EMPTY_VITALS });
       setOpen(false);
-      setForm({
-        bloodPressureSystolic: "",
-        bloodPressureDiastolic: "",
-        pulseRate: "",
-        temperature: "",
-        spO2: "",
-        respiratoryRate: "",
-        weight: "",
-        height: "",
-      });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Vitals save failed");
     } finally {
@@ -1068,25 +1518,90 @@ function VitalsInline({
     }
   }
 
+  // Live per-field validation (issue #1090) — surfaced inline under each input
+  // as the doctor types, instead of only as toasts on Save. Same ranges the
+  // server enforces (VITALS_RANGES), so the UI rejects exactly what the API would.
+  const errors: Record<string, string> = {};
+  for (const [k, v] of Object.entries(form)) {
+    const trimmed = v.trim();
+    if (trimmed.length === 0) continue;
+    const meta = VITAL_FIELD_META[k];
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) {
+      errors[k] = "Enter a number";
+    } else if (meta && (n < meta.range.min || n > meta.range.max)) {
+      errors[k] = `Must be ${meta.range.min}–${meta.range.max}${
+        meta.unit ? " " + meta.unit : ""
+      }`;
+    }
+  }
+  // Cross-field: diastolic must be lower than systolic (when both are valid).
+  const sys = Number(form.bloodPressureSystolic.trim());
+  const dia = Number(form.bloodPressureDiastolic.trim());
+  if (
+    !errors.bloodPressureSystolic &&
+    !errors.bloodPressureDiastolic &&
+    form.bloodPressureSystolic.trim() &&
+    form.bloodPressureDiastolic.trim() &&
+    dia >= sys
+  ) {
+    errors.bloodPressureDiastolic = "Diastolic must be lower than systolic";
+  }
+  // BP is a pair — recording only one half is clinically incomplete. Attach the
+  // "required" error to the EMPTY side so the doctor knows which input to fill.
+  const sysFilled = form.bloodPressureSystolic.trim() !== "";
+  const diaFilled = form.bloodPressureDiastolic.trim() !== "";
+  if (sysFilled && !diaFilled && !errors.bloodPressureDiastolic) {
+    errors.bloodPressureDiastolic = "Required when BP Systolic is filled";
+  }
+  if (diaFilled && !sysFilled && !errors.bloodPressureSystolic) {
+    errors.bloodPressureSystolic = "Required when BP Diastolic is filled";
+  }
+  const hasErrors = Object.keys(errors).length > 0;
+
+  // Require at least 2 vital values before allowing save — a single isolated
+  // reading is rarely useful; 2+ catches the common BP-pair / BP+pulse combos.
+  const MIN_VITALS = 2;
+  const filledVitalCount = Object.values(form).filter(
+    (v) => v.trim() !== "",
+  ).length;
+  const hasMinimumVitals = filledVitalCount >= MIN_VITALS;
+
   return (
-    <div className="mb-4 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+    <div className="mb-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           Vitals capture
         </p>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          disabled={disabled}
-          className="text-xs text-primary underline disabled:opacity-50"
-        >
-          {open ? "Cancel" : "Record vitals"}
-        </button>
+        {open ? (
+          <button
+            type="button"
+            onClick={() => {
+              setForm({ ...EMPTY_VITALS });
+              setOpen(false);
+            }}
+            className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Cancel
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            disabled={disabled}
+            className="text-xs font-medium text-indigo-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-400"
+          >
+            Record vitals
+          </button>
+        )}
       </div>
       {open && (
-        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+        <>
+      <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           <Input
             label="BP Systolic"
             value={form.bloodPressureSystolic}
+            error={errors.bloodPressureSystolic}
             onChange={(v) =>
               setForm((p) => ({ ...p, bloodPressureSystolic: v }))
             }
@@ -1094,6 +1609,7 @@ function VitalsInline({
           <Input
             label="BP Diastolic"
             value={form.bloodPressureDiastolic}
+            error={errors.bloodPressureDiastolic}
             onChange={(v) =>
               setForm((p) => ({ ...p, bloodPressureDiastolic: v }))
             }
@@ -1101,21 +1617,25 @@ function VitalsInline({
           <Input
             label="Pulse"
             value={form.pulseRate}
+            error={errors.pulseRate}
             onChange={(v) => setForm((p) => ({ ...p, pulseRate: v }))}
           />
           <Input
             label="Temp (°F)"
             value={form.temperature}
+            error={errors.temperature}
             onChange={(v) => setForm((p) => ({ ...p, temperature: v }))}
           />
           <Input
             label="SpO2 (%)"
             value={form.spO2}
+            error={errors.spO2}
             onChange={(v) => setForm((p) => ({ ...p, spO2: v }))}
           />
           <Input
             label="RR"
             value={form.respiratoryRate}
+            error={errors.respiratoryRate}
             onChange={(v) =>
               setForm((p) => ({ ...p, respiratoryRate: v }))
             }
@@ -1123,23 +1643,35 @@ function VitalsInline({
           <Input
             label="Weight (kg)"
             value={form.weight}
+            error={errors.weight}
             onChange={(v) => setForm((p) => ({ ...p, weight: v }))}
           />
           <Input
             label="Height (cm)"
             value={form.height}
+            error={errors.height}
             onChange={(v) => setForm((p) => ({ ...p, height: v }))}
           />
-          <div className="col-span-2 flex items-end md:col-span-4">
+        </div>
+          <div className="mt-3 flex items-center gap-3">
             <button
+              type="button"
               onClick={submit}
-              disabled={saving}
-              className="rounded bg-primary px-4 py-1.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
+              disabled={disabled || saving || hasErrors || !hasMinimumVitals}
+              className="rounded-md bg-indigo-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving…" : "Save vitals"}
             </button>
+            {!hasMinimumVitals && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                Enter at least {MIN_VITALS} vital values to save
+                {filledVitalCount > 0
+                  ? ` (${filledVitalCount}/${MIN_VITALS})`
+                  : ""}
+              </span>
+            )}
           </div>
-        </div>
+        </>
       )}
     </div>
   );
@@ -1149,10 +1681,12 @@ function Input({
   label,
   value,
   onChange,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  error?: string | null;
 }) {
   return (
     <label className="block">
@@ -1160,11 +1694,23 @@ function Input({
         {label}
       </span>
       <input
+        type="number"
+        step="any"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         inputMode="decimal"
-        className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 text-sm focus:border-primary focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+        aria-invalid={error ? true : undefined}
+        className={`mt-1 w-full rounded border bg-white px-2 py-1 text-sm focus:outline-none dark:bg-gray-800 dark:text-gray-100 ${
+          error
+            ? "border-red-400 focus:border-red-500 dark:border-red-500"
+            : "border-gray-300 focus:border-primary dark:border-gray-600"
+        }`}
       />
+      {error && (
+        <span className="mt-0.5 block text-[10px] font-medium text-red-500">
+          {error}
+        </span>
+      )}
     </label>
   );
 }

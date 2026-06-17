@@ -181,6 +181,8 @@ router.get(
             appointmentId: true,
             createdAt: true,
             signedAt: true,
+            subjective: true,
+            objective: true,
             assessment: true,
             plan: true,
             icd10Codes: true,
@@ -221,6 +223,9 @@ router.get(
             id: c.id,
             createdAt: (c.signedAt ?? c.createdAt).toISOString(),
             diagnosis,
+            subjective: c.subjective,
+            objective: c.objective,
+            assessment: c.assessment,
             advice: c.plan,
             followUpDate: null,
             items: [] as Array<{
@@ -238,6 +243,11 @@ router.get(
           id: p.id,
           createdAt: p.createdAt.toISOString(),
           diagnosis: p.diagnosis,
+          // Prescriptions have no SOAP sections — keep the shape consistent
+          // with consultation visits so the merged array is homogeneous.
+          subjective: null as string | null,
+          objective: null as string | null,
+          assessment: null as string | null,
           advice: p.advice,
           followUpDate: p.followUpDate
             ? p.followUpDate.toISOString()

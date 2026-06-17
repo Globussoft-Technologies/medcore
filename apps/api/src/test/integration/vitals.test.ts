@@ -155,4 +155,81 @@ describeIfDB("Vitals API (integration)", () => {
       .set("Authorization", `Bearer ${nurseToken}`);
     expect(res.status).toBe(200);
   });
+
+  it("GET /vitals lists recorded vitals and respects ?limit", async () => {
+    const { patient, appt } = await setupContext();
+    // Record two readings.
+    await request(app)
+      .post(`/api/v1/patients/${patient.id}/vitals`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ patientId: patient.id, appointmentId: appt.id, pulseRate: 60 });
+    await request(app)
+      .post(`/api/v1/patients/${patient.id}/vitals`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ patientId: patient.id, appointmentId: appt.id, pulseRate: 80 });
+
+    const all = await request(app)
+      .get(`/api/v1/patients/${patient.id}/vitals`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(all.status).toBe(200);
+    expect(Array.isArray(all.body.data)).toBe(true);
+    expect(all.body.data.length).toBeGreaterThanOrEqual(2);
+
+    const limited = await request(app)
+      .get(`/api/v1/patients/${patient.id}/vitals?limit=1`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(limited.status).toBe(200);
+    expect(limited.body.data).toHaveLength(1);
+  });
+
+  it("GET /vitals returns an empty list for a patient with no vitals", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app)
+      .get(`/api/v1/patients/${patient.id}/vitals`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+  });
+
+  it("re-recording for the same appointment UPDATES (no P2002 duplicate)", async () => {
+    const { patient, appt } = await setupContext();
+    const first = await request(app)
+      .post(`/api/v1/patients/${patient.id}/vitals`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId: patient.id,
+        appointmentId: appt.id,
+        pulseRate: 70,
+        spO2: 98,
+      });
+    expect([200, 201]).toContain(first.status);
+
+    // Second save for the SAME appointment — Vitals.appointmentId is @unique,
+    // so this must update the existing row, not 400 with a unique violation.
+    const second = await request(app)
+      .post(`/api/v1/patients/${patient.id}/vitals`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId: patient.id,
+        appointmentId: appt.id,
+        pulseRate: 88,
+        spO2: 99,
+      });
+    expect([200, 201]).toContain(second.status);
+    expect(second.body.data?.pulseRate).toBe(88);
+
+    // Exactly one vitals row for this appointment.
+    const prisma = await getPrisma();
+    const rows = await prisma.vitals.findMany({
+      where: { appointmentId: appt.id },
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].pulseRate).toBe(88);
+  });
+
+  it("GET /vitals 401 without token", async () => {
+    const patient = await createPatientFixture();
+    const res = await request(app).get(`/api/v1/patients/${patient.id}/vitals`);
+    expect(res.status).toBe(401);
+  });
 });

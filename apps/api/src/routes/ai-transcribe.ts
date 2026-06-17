@@ -72,11 +72,13 @@ router.post(
         language = "en-IN",
         provider: requestedProvider,
         diarize,
+        translate,
       } = req.body as {
         audioBase64?: string;
         language?: string;
         provider?: string;
         diarize?: boolean;
+        translate?: boolean;
       };
 
       if (!audioBase64 || typeof audioBase64 !== "string") {
@@ -123,7 +125,7 @@ router.post(
       try {
         const result = await callWithASRFallback(
           audioBuffer,
-          { language, diarize, doctorFirst: true },
+          { language, diarize, doctorFirst: true, translate },
           {
             providers,
             feature: "asr-sarvam",

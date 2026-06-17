@@ -1009,7 +1009,16 @@ export async function checkDrugSafety(
     eGFR?: number;
     hepaticImpairment?: "mild" | "moderate" | "severe" | null;
     pregnancyWeeks?: number;
-  } = {}
+  } = {},
+  options?: {
+    /**
+     * Skip the Layer-2 LLM interaction pass (an extra model round-trip). The
+     * fast deterministic checks (allergy, known interactions, contraindications,
+     * pediatric/renal/hepatic dosing) still run. Live scribe drafting sets this
+     * for a snappy response; finalize/explicit checks leave it off.
+     */
+    skipLLM?: boolean;
+  }
 ): Promise<DrugSafetyReport> {
   const medNames = proposedMeds.map((m) => m.name);
 
@@ -1080,7 +1089,7 @@ export async function checkDrugSafety(
 
   // Layer 2 — LLM (only if API key is present; non-fatal if it fails)
   let llmAlerts: DrugInteractionAlert[] = [];
-  if (process.env.SARVAM_API_KEY && proposedMeds.length > 0) {
+  if (!options?.skipLLM && process.env.SARVAM_API_KEY && proposedMeds.length > 0) {
     try {
       const raw = await checkWithAI(
         proposedMeds,

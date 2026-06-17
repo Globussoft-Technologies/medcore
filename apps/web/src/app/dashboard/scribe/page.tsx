@@ -12,7 +12,7 @@ import type { SOAPNote } from "@medcore/shared";
 import { parseVoiceCommand, type VoiceAction } from "./voice-commands";
 // Pearl ERP Stage 1 §2.1.3 (gap row 46) — right rail with derived
 // favourites + last 3 visits, click-to-paste into the active SOAP draft.
-import { ConsultRightRail } from "@/components/ConsultRightRail";
+import { ConsultRightRail, VisitDetail, type Visit } from "@/components/ConsultRightRail";
 import { SkeletonText } from "@/components/Skeleton";
 // PRD §3.5.1 Phase 2 — 8-language picker + BCP-47 conversion. The scribe
 // page exposes the selected language as the `language_code` the ASR client
@@ -191,10 +191,10 @@ function applyTextToSection(section: SectionKey, text: string, base: SOAPNote): 
 // ─── Status Badge ─────────────────────────────────────────
 
 const STATUS_BADGE: Record<SectionStatus, { label: string; cls: string }> = {
-  pending:  { label: "Pending",  cls: "bg-gray-100 text-gray-500" },
-  accepted: { label: "Accepted", cls: "bg-green-100 text-green-700" },
-  edited:   { label: "Edited",   cls: "bg-blue-100 text-blue-700" },
-  rejected: { label: "Rejected", cls: "bg-red-100 text-red-700" },
+  pending:  { label: "Pending",  cls: "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300" },
+  accepted: { label: "Accepted", cls: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" },
+  edited:   { label: "Edited",   cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
+  rejected: { label: "Rejected", cls: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
 };
 
 function StatusBadge({ status }: { status: SectionStatus }) {
@@ -210,8 +210,8 @@ function ReadRow({ label, value }: { label: string; value?: string }) {
   return (
     <div className="space-y-0.5">
       <p className="text-xs font-medium text-gray-500 uppercase tracking-wide dark:text-gray-400">{label}</p>
-      <p className="text-sm text-gray-800 bg-gray-50 rounded-lg px-3 py-2 min-h-[2rem]">
-        {value || <span className="text-gray-400 italic">Not captured</span>}
+      <p className="text-sm text-gray-800 bg-gray-50 rounded-lg px-3 py-2 min-h-[2rem] dark:bg-gray-900/40 dark:text-gray-100">
+        {value || <span className="text-gray-400 italic dark:text-gray-500">Not captured</span>}
       </p>
     </div>
   );
@@ -256,18 +256,18 @@ function SectionReadView({ sectionKey, soap }: { sectionKey: SectionKey; soap: S
                 {a.icd10Codes.map((code, i) => (
                   <div
                     key={i}
-                    className="flex items-start gap-2 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2"
+                    className="flex items-start gap-2 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 dark:bg-orange-900/20 dark:border-orange-800"
                   >
-                    <span className="text-xs font-mono font-bold text-orange-700">{code.code}</span>
+                    <span className="text-xs font-mono font-bold text-orange-700 dark:text-orange-300">{code.code}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-gray-700 dark:text-gray-200">{code.description}</p>
                       {code.evidenceSpan && (
-                        <p className="text-xs text-gray-400 italic mt-0.5">
+                        <p className="text-xs text-gray-400 italic mt-0.5 dark:text-gray-400">
                           &ldquo;{code.evidenceSpan}&rdquo;
                         </p>
                       )}
                     </div>
-                    <span className="text-xs text-orange-600">{Math.round(code.confidence * 100)}%</span>
+                    <span className="text-xs text-orange-600 dark:text-orange-300">{Math.round(code.confidence * 100)}%</span>
                   </div>
                 ))}
               </div>
@@ -287,12 +287,12 @@ function SectionReadView({ sectionKey, soap }: { sectionKey: SectionKey; soap: S
               </p>
               <div className="space-y-1.5">
                 {p.medications.map((med, i) => (
-                  <div key={i} className="bg-green-50 border border-green-100 rounded-lg px-3 py-2">
-                    <p className="text-sm font-medium text-gray-800">{med.name}</p>
+                  <div key={i} className="bg-green-50 border border-green-100 rounded-lg px-3 py-2 dark:bg-green-900/20 dark:border-green-800">
+                    <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{med.name}</p>
                     <p className="text-xs text-gray-600 dark:text-gray-300">
                       {med.dose} · {med.frequency} · {med.duration}
                     </p>
-                    {med.notes && <p className="text-xs text-gray-400 mt-0.5">{med.notes}</p>}
+                    {med.notes && <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-400">{med.notes}</p>}
                   </div>
                 ))}
               </div>
@@ -393,14 +393,14 @@ function EditField({ label, value, onChange, multiline = false }: {
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={3}
-          className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none dark:border-blue-700 dark:bg-gray-900 dark:text-gray-100"
         />
       ) : (
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-blue-700 dark:bg-gray-900 dark:text-gray-100"
         />
       )}
     </div>
@@ -651,11 +651,11 @@ function EditableField({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={3}
-          className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-blue-700 dark:bg-gray-900 dark:text-gray-100"
         />
       ) : (
         <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2 min-h-[2.5rem] dark:bg-gray-900/50 dark:text-gray-200">
-          {value || <span className="text-gray-400 italic">Not captured</span>}
+          {value || <span className="text-gray-400 italic dark:text-gray-500">Not captured</span>}
         </p>
       )}
     </div>
@@ -831,7 +831,7 @@ function InlineDiff({ previous, current }: { previous: string; current: string }
           return (
             <span
               key={i}
-              className="bg-red-100 text-red-800 line-through px-0.5 rounded"
+              className="bg-red-100 text-red-800 line-through px-0.5 rounded dark:bg-red-900/40 dark:text-red-300"
             >
               {op.text}
             </span>
@@ -839,7 +839,7 @@ function InlineDiff({ previous, current }: { previous: string; current: string }
         return (
           <span
             key={i}
-            className="bg-green-100 text-green-800 px-0.5 rounded"
+            className="bg-green-100 text-green-800 px-0.5 rounded dark:bg-green-900/40 dark:text-green-300"
           >
             {op.text}
           </span>
@@ -919,6 +919,17 @@ export default function ScribePage() {
   const [apptRetryNonce, setApptRetryNonce] = useState(0);
   const [selectedAppointment, setSelectedAppointment] = useState<any>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  // Live refs so the long-lived recording handlers can recover a dead session
+  // (start a fresh one for the current appointment) without stale closures.
+  const selectedAppointmentRef = useRef<any>(null);
+  selectedAppointmentRef.current = selectedAppointment;
+  const startScribeRef = useRef<
+    ((appt: any, opts?: { silent?: boolean }) => Promise<void>) | null
+  >(null);
+  // Guards the once-per-mount auto-resume of an active session after a page
+  // refresh (sessionId lives only in React state, so a reload would otherwise
+  // drop back to the picker and lose the live transcript/draft).
+  const scribeResumeAttempted = useRef(false);
   // PRD §4.5.5: surface the patient's preferred language so the doctor can see
   // what the post-visit summary will be sent in BEFORE they sign off.
   const [patientPreferredLanguage, setPatientPreferredLanguage] = useState<string | null>(null);
@@ -967,6 +978,9 @@ export default function ScribePage() {
   // so it does NOT run during ambient consultation capture. Pure parsing
   // happens in ./voice-commands.ts.
   const [voiceListening, setVoiceListening] = useState(false);
+  // When set, the main SOAP panel shows this past visit's full detail (same as
+  // the manual consult screen) instead of the live draft.
+  const [viewingVisit, setViewingVisit] = useState<Visit | null>(null);
   const [lastVoiceCommand, setLastVoiceCommand] = useState("");
   const [voiceLegendOpen, setVoiceLegendOpen] = useState(false);
   // Per-section free-text notes the doctor builds via "add note <text>".
@@ -979,6 +993,16 @@ export default function ScribePage() {
   const dosageInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
 
   const [useServerASR, setUseServerASR] = useState(false);
+  // Spoken language for ASR — drives BOTH Browser STT (recognition.lang) and
+  // Sarvam (language_code). Default English; pick Hindi/regional so the patient
+  // isn't transcribed through an en-IN model that garbles non-English speech.
+  const [asrLanguage, setAsrLanguage] = useState<string>("en");
+  // Mirror in a ref so the long-lived SpeechRecognition handlers read the
+  // current language at the moment recording starts.
+  const asrLanguageRef = useRef(asrLanguage);
+  useEffect(() => {
+    asrLanguageRef.current = asrLanguage;
+  }, [asrLanguage]);
   // Acoustic diarization is currently disabled product-wide — the only
   // providers that supported it (AssemblyAI / Deepgram) were removed on
   // 2026-04-25 due to non-India data residency. The flag is kept as a
@@ -1003,6 +1027,9 @@ export default function ScribePage() {
   const liveDisplayRecognitionRef = useRef<any>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const stopServerASRResolveRef = useRef<(() => void) | null>(null);
+  // Show the "microphone denied" toast at most once per attempt instead of
+  // flooding the screen when the mic is blocked / busy. Reset on a clean start.
+  const micDeniedToastRef = useRef(false);
   // Set to true when a transcript POST just triggered a SOAP regen so the
   // stop-time forceRegen call can be skipped (avoids a redundant round-trip).
   const soapJustUpdatedRef = useRef(false);
@@ -1051,6 +1078,30 @@ export default function ScribePage() {
             setAutoStartedFromUrl(true);
           }
         }
+
+        // Auto-resume after a page refresh: sessionId lives only in React
+        // state, so a reload would drop back to the picker. We stored the
+        // active appointment in sessionStorage on start — re-open it (POST
+        // /start resumes the existing session and rehydrates transcript +
+        // SOAP). Runs at most once per mount and never overrides a URL target.
+        if (
+          !scribeResumeAttempted.current &&
+          !sessionId &&
+          !urlAppointmentId &&
+          !urlPatientId
+        ) {
+          scribeResumeAttempted.current = true;
+          let storedApptId: string | null = null;
+          try {
+            storedApptId = sessionStorage.getItem("medcore-scribe-active-appt");
+          } catch {
+            storedApptId = null;
+          }
+          const resumeTarget = storedApptId
+            ? list.find((a: any) => a.id === storedApptId)
+            : null;
+          if (resumeTarget) void startScribe(resumeTarget, { silent: true });
+        }
       } catch (err: any) {
         // Issue #62: do NOT silently degrade — clear stale list and store the
         // error so the UI can render a banner with Retry.
@@ -1090,7 +1141,7 @@ export default function ScribePage() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [recording, sessionId, token]);
 
-  const startScribe = async (appointment: any) => {
+  const startScribe = async (appointment: any, opts?: { silent?: boolean }) => {
     setLoading(true);
     try {
       // Issue #193: `api.post` already returns the parsed JSON envelope
@@ -1114,6 +1165,14 @@ export default function ScribePage() {
       setIsEditMode(false);
       setSessionId(sid);
       setSelectedAppointment(appointment);
+      // Remember the active appointment so a page refresh can auto-resume this
+      // session (rehydrating transcript + SOAP) instead of dropping to the
+      // picker. Cleared on withdraw/finalize.
+      try {
+        sessionStorage.setItem("medcore-scribe-active-appt", appointment.id);
+      } catch {
+        /* sessionStorage unavailable (private mode) — resume just won't fire */
+      }
       setTranscriptEntries([]);
       setTranscriptLength(0);
       setSoapDraft(null);
@@ -1137,7 +1196,8 @@ export default function ScribePage() {
           setTranscriptLength(soapRes.data.transcript.length);
         }
       } catch { /* non-fatal — UI degrades gracefully */ }
-      toast.success("Scribe session started");
+      // Silent on auto-resume (page refresh) — only toast on an explicit start.
+      if (!opts?.silent) toast.success("Scribe session started");
     } catch (err: any) {
       // Surface the API's actual error message (fetch-style payload, not
       // axios `response`) so the user sees the real cause.
@@ -1146,16 +1206,24 @@ export default function ScribePage() {
       setLoading(false);
     }
   };
+  // Keep a live reference so dead-session recovery can re-start without a
+  // stale closure (startScribe isn't memoized, so this re-points each render).
+  startScribeRef.current = startScribe;
 
   // Shared handler: push a final transcript string into the scribe session.
   // Accepts ATTENDANT as well so diarization-driven flushes can emit family
   // members' utterances without losing the acoustic label.
   const handleFinalTranscript = useCallback(
     async (text: string, speaker: "DOCTOR" | "PATIENT" | "ATTENDANT") => {
-      if (!text.trim() || !sessionId) return;
+      // Build a schema-valid entry: non-empty trimmed text (addTranscriptChunk
+      // requires text.min(1)), a real ISO timestamp, and confidence clamped to
+      // [0,1]. A malformed entry was 400ing the whole append and the failure
+      // was swallowed, so the SOAP silently stopped updating.
+      const cleanText = text.trim();
+      if (!cleanText || !sessionId) return;
       const newEntry = {
         speaker,
-        text,
+        text: cleanText,
         timestamp: new Date().toISOString(),
         confidence: 0.9,
       };
@@ -1177,8 +1245,60 @@ export default function ScribePage() {
           setRxSafetyReport(res.data.rxSafetyReport);
           setAlertsAcknowledged(false);
         }
-      } catch {
-        /* silent */
+        // The append succeeded but the AI couldn't draft the note — surface why
+        // (e.g. provider/key error) instead of leaving a silently-blank draft.
+        if (res.data.soapError) {
+          toast.error(`AI draft failed: ${res.data.soapError}`);
+        }
+      } catch (err: any) {
+        // Surface the real cause instead of silently dropping the entry —
+        // a swallowed 400 here is exactly what made "data stops on the 2nd
+        // exchange" impossible to diagnose. Log the FULL payload (status +
+        // validation details / error) to the console so the exact reason is
+        // visible, then toast a short version.
+        console.error("[scribe] transcript append failed:", {
+          status: err?.status,
+          payload: err?.payload,
+          sentEntry: newEntry,
+        });
+        const serverMsg: string =
+          err?.payload?.error || err?.message || "";
+        // The session is dead (consent withdrawn or not found) — posting just
+        // 400s on every chunk. Halt the stale recording loop, then transparently
+        // spin up a FRESH session for the same appointment so the doctor can
+        // keep going by tapping Start Recording again (no lost workflow).
+        if (
+          err?.status === 404 ||
+          /consent has been withdrawn|session not found/i.test(serverMsg)
+        ) {
+          serverASRActiveRef.current = false;
+          try {
+            recognitionRef.current?.stop();
+          } catch {
+            /* ignore */
+          }
+          recognitionRef.current = null;
+          setRecording(false);
+          setSessionId(null);
+          const appt = selectedAppointmentRef.current;
+          if (appt && startScribeRef.current) {
+            try {
+              await startScribeRef.current(appt, { silent: true });
+              toast.info("Scribe session refreshed — tap Start Recording to continue.");
+            } catch {
+              toast.error("Scribe session ended — please start a new one.");
+            }
+          } else {
+            toast.error("Scribe session ended — please start a new one.");
+          }
+          return;
+        }
+        const detail =
+          err?.payload?.details?.[0]?.message ||
+          err?.payload?.error ||
+          err?.message ||
+          "please try again";
+        toast.error(`Couldn't capture that line: ${detail}`);
       }
     },
     [sessionId, token]
@@ -1252,7 +1372,14 @@ export default function ScribePage() {
         const base64 = btoa(binary);
         const res = await api.post<any>(
           "/ai/transcribe",
-          { audioBase64: base64, language: "en-IN" },
+          {
+            audioBase64: base64,
+            language: toSarvamLanguageCode(asrLanguageRef.current),
+            // Keep the spoken language (Sarvam's native STT + auto-detect)
+            // rather than the translate model — more reliable per language,
+            // and the SOAP step translates to English anyway.
+            translate: false,
+          },
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const transcript: string = res.data?.transcript ?? "";
@@ -1275,6 +1402,7 @@ export default function ScribePage() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         micStreamRef.current = stream;
         serverASRActiveRef.current = true;
+        micDeniedToastRef.current = false;
 
         const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
@@ -1301,10 +1429,14 @@ export default function ScribePage() {
           recorder.start();
           mediaRecorderRef.current = recorder;
 
-          // Stop after 8 s to produce a clean file, then onstop rotates
+          // Rotate the recorder every 12 s, then onstop ships the clean file.
+          // 8 s was too short — a normal sentence often spanned the boundary,
+          // so the first half landed in one chunk and the tail (e.g. just
+          // "Yes") in the next, losing the complaint. 12 s fits most single
+          // utterances while live interim (browser STT) keeps it feeling real-time.
           asrIntervalRef.current = setTimeout(() => {
             if (recorder.state !== "inactive") recorder.stop();
-          }, 8_000);
+          }, 12_000);
         };
 
         startChunk();
@@ -1318,7 +1450,7 @@ export default function ScribePage() {
           const liveRec = new SpeechRecognition();
           liveRec.continuous = true;
           liveRec.interimResults = true;
-          liveRec.lang = "en-IN";
+          liveRec.lang = toSarvamLanguageCode(asrLanguageRef.current);
           liveRec.onresult = (e: any) => {
             let interim = "";
             for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -1335,7 +1467,23 @@ export default function ScribePage() {
           setLiveText("🎤 Listening...");
         }
       } catch {
-        toast.error("Microphone access denied");
+        // Mic blocked / busy — fully stop so the loop can't retry, and toast
+        // only once (a denied mic otherwise spams one toast per attempt).
+        serverASRActiveRef.current = false;
+        try {
+          liveDisplayRecognitionRef.current?.stop();
+        } catch {
+          /* ignore */
+        }
+        liveDisplayRecognitionRef.current = null;
+        setRecording(false);
+        setLiveText("");
+        if (!micDeniedToastRef.current) {
+          micDeniedToastRef.current = true;
+          toast.error(
+            "Microphone access denied — allow mic access in your browser, then tap Start Recording.",
+          );
+        }
       }
     },
     [sendAudioToSarvam]
@@ -1381,7 +1529,7 @@ export default function ScribePage() {
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = "en-IN";
+    recognition.lang = toSarvamLanguageCode(asrLanguageRef.current);
 
     finalBufferRef.current = [];
     userStoppedRef.current = false;
@@ -1414,7 +1562,24 @@ export default function ScribePage() {
       setLiveText(interim);
     };
 
-    recognition.onerror = async () => { await flushBuffer(); };
+    recognition.onstart = () => {
+      // Mic granted — re-arm the denied-toast for a future genuine denial.
+      micDeniedToastRef.current = false;
+    };
+    recognition.onerror = async (e: any) => {
+      await flushBuffer();
+      // A denied/blocked mic must STOP, not auto-restart — otherwise onend
+      // restarts it and it errors again in a tight loop. Toast once.
+      if (e?.error === "not-allowed" || e?.error === "service-not-allowed") {
+        userStoppedRef.current = true;
+        if (!micDeniedToastRef.current) {
+          micDeniedToastRef.current = true;
+          toast.error(
+            "Microphone access denied — allow mic access in your browser, then tap Start Recording.",
+          );
+        }
+      }
+    };
     recognition.onend = async () => {
       // Clear the pending flush timer first to prevent double-send
       if (flushTimerRef.current) { clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
@@ -1432,32 +1597,12 @@ export default function ScribePage() {
   }, [sessionId, token, activeSpeaker, useServerASR, startServerASR, handleFinalTranscript]);
 
   const stopRecording = useCallback(async () => {
-    // Shared: force SOAP generation immediately after all audio is flushed
-    const doForceRegen = async () => {
-      if (!sessionId || !token) return;
-      // Skip if the last transcript POST already triggered a SOAP regen —
-      // calling again immediately would be a redundant round-trip.
-      if (soapJustUpdatedRef.current) {
-        soapJustUpdatedRef.current = false;
-        return;
-      }
-      soapJustUpdatedRef.current = false;
-      try {
-        const res = await api.post<any>(
-          `/ai/scribe/${sessionId}/transcript`,
-          { entries: [], forceRegen: true },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (res.data?.soapDraft) {
-          setSoapDraft(res.data.soapDraft);
-          setEditedSOAP(res.data.soapDraft);
-        }
-      } catch { /* silent */ }
-    };
-
+    // No separate "force regen" POST on stop: every transcript append already
+    // triggers a live SOAP regen, and the final utterance is flushed below
+    // before we stop — so the draft is already current. The old empty-`entries`
+    // forceRegen call was redundant and was the source of the 400 on stop.
     if (useServerASR) {
       await stopServerASR();
-      await doForceRegen();
       return;
     }
 
@@ -1478,8 +1623,7 @@ export default function ScribePage() {
     recognitionRef.current = null;
     setRecording(false);
     setLiveText("");
-    await doForceRegen();
-  }, [useServerASR, activeSpeaker, stopServerASR, handleFinalTranscript, sessionId, token]);
+  }, [useServerASR, activeSpeaker, stopServerASR, handleFinalTranscript]);
 
   const updateSOAPField = (path: string[], value: string) => {
     setEditedSOAP((prev) => {
@@ -1694,7 +1838,7 @@ export default function ScribePage() {
     const recognition = new SpeechRecognitionImpl();
     recognition.continuous = true;
     recognition.interimResults = false;
-    recognition.lang = "en-IN";
+    recognition.lang = toSarvamLanguageCode(asrLanguageRef.current);
 
     recognition.onresult = (event: any) => {
       let transcript = "";
@@ -1753,6 +1897,22 @@ export default function ScribePage() {
   const signOffBlockedByDrug = !!(rxSafetyReport?.hasContraindicated && !alertsAcknowledged);
   const canSignOff = allResolved && !signOffBlockedByDrug;
 
+  // Does the live draft actually have content yet? Key fields = chief complaint
+  // and medications. While both are empty the AI hasn't captured anything (or
+  // returned the placeholder), so the main panel shows the "Auto-updating"
+  // spinner — and the backend retry re-asks the AI with the same transcript.
+  const soapHasContent = (() => {
+    if (!editedSOAP) return false;
+    const cc = String(editedSOAP.subjective?.chiefComplaint ?? "")
+      .trim()
+      .toLowerCase();
+    const ccReal = cc !== "" && cc !== "no clinical complaint stated yet";
+    const medCount = Array.isArray(editedSOAP.plan?.medications)
+      ? editedSOAP.plan.medications.length
+      : 0;
+    return ccReal || medCount > 0;
+  })();
+
   const signOffDisabledReason: string | null = signOffBlockedByDrug
     ? "Acknowledge the CONTRAINDICATED drug alert before signing."
     : hasRejected
@@ -1776,6 +1936,11 @@ export default function ScribePage() {
       setReviewMode(false);
       setIsCompletedSession(true);
       setSignedOff(true);
+      try {
+        sessionStorage.removeItem("medcore-scribe-active-appt");
+      } catch {
+        /* ignore */
+      }
       toast.success("SOAP note signed and saved to EHR");
     } catch (err: any) {
       toast.error(err?.response?.data?.error || "Failed to sign off");
@@ -1802,6 +1967,11 @@ export default function ScribePage() {
       setIsCompletedSession(false);
       setIsEditMode(false);
       setApptRetryNonce((n) => n + 1);
+      try {
+        sessionStorage.removeItem("medcore-scribe-active-appt");
+      } catch {
+        /* ignore */
+      }
       toast.info("Consent withdrawn — transcript purged");
     } catch { /* silent */ }
   };
@@ -1860,7 +2030,7 @@ export default function ScribePage() {
       const recognition = new SpeechRecognitionImpl();
       recognition.continuous = true;
       recognition.interimResults = false;
-      recognition.lang = "en-IN";
+      recognition.lang = toSarvamLanguageCode(asrLanguageRef.current);
 
       recognition.onresult = (event: any) => {
         let transcript = "";
@@ -1919,13 +2089,13 @@ export default function ScribePage() {
                 visit summary will be sent in BEFORE they hit Sign & Save. */}
             <span
               data-testid="scribe-summary-language-badge"
-              className="text-xs px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700"
+              className="text-xs px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-300"
               title="Auto-generated patient visit summary will be sent in this language"
             >
               Sending summary in: {(LANGUAGE_DISPLAY as any)[patientPreferredLanguage ?? "en"]?.englishName ?? "English"}
             </span>
             {signOffDisabledReason && (
-              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 max-w-xs">
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 max-w-xs dark:text-amber-300 dark:bg-amber-900/20 dark:border-amber-700">
                 {signOffDisabledReason}
               </p>
             )}
@@ -2040,7 +2210,7 @@ export default function ScribePage() {
                   No prior completed consultation found for this patient.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-x divide-gray-200">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-0 divide-x divide-gray-200 dark:divide-gray-700">
                   <div className="p-4 space-y-1 min-h-[120px]">
                     <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide dark:text-gray-400">
                       Previous visit notes
@@ -2099,7 +2269,7 @@ export default function ScribePage() {
               <div className="px-4 py-3 space-y-2">
                 {reviewSoap.plan.medications.map((med, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm">
-                    <span className="font-medium text-gray-800 min-w-[8rem]">{med.name}</span>
+                    <span className="font-medium text-gray-800 min-w-[8rem] dark:text-gray-100">{med.name}</span>
                     <input
                       type="text"
                       data-testid={`review-rx-dose-${i}`}
@@ -2298,12 +2468,12 @@ export default function ScribePage() {
                       disabled={!!sessionId || loading}
                       className={`w-full text-left px-3 py-2 rounded-xl border text-sm transition-all ${
                         selectedAppointment?.id === appt.id
-                          ? "border-blue-500 bg-blue-50"
-                          : "border-gray-200 hover:border-blue-200 disabled:opacity-50"
+                          ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30"
+                          : "border-gray-200 hover:border-blue-200 disabled:opacity-50 dark:border-gray-700 dark:hover:border-blue-700"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-1">
-                        <p className="font-medium text-gray-800 truncate">{appt.patient?.user?.name}</p>
+                        <p className="font-medium text-gray-800 truncate dark:text-gray-100">{appt.patient?.user?.name}</p>
                         {isCompleted && (
                           <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
                             Completed
@@ -2346,8 +2516,17 @@ export default function ScribePage() {
               </div>
 
               {liveText && (
-                <div ref={liveTextRef} className="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-xs text-gray-600 italic h-10 overflow-y-auto scrollbar-hide break-words dark:bg-yellow-900/20 dark:border-yellow-700/50 dark:text-gray-300">
-                  {liveText}
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-700/50 dark:bg-emerald-900/20">
+                  <p className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                    Hearing now
+                  </p>
+                  <div
+                    ref={liveTextRef}
+                    className="max-h-24 overflow-y-auto scrollbar-hide break-words text-sm text-gray-700 dark:text-gray-200"
+                  >
+                    {liveText}
+                  </div>
                 </div>
               )}
 
@@ -2359,7 +2538,7 @@ export default function ScribePage() {
                     className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       activeSpeaker === "DOCTOR"
                         ? "bg-blue-600 text-white"
-                        : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                        : "border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                     }`}
                   >
                     Doctor
@@ -2369,7 +2548,7 @@ export default function ScribePage() {
                     className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
                       activeSpeaker === "PATIENT"
                         ? "bg-emerald-600 text-white"
-                        : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                        : "border border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                     }`}
                   >
                     Patient
@@ -2387,7 +2566,7 @@ export default function ScribePage() {
                       className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
                         !useServerASR
                           ? "bg-blue-600 text-white"
-                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                       }`}
                     >
                       Browser STT
@@ -2398,11 +2577,31 @@ export default function ScribePage() {
                       className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
                         useServerASR
                           ? "bg-indigo-600 text-white"
-                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                          : "border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
                       }`}
                     >
                       Sarvam ASR
                     </button>
+                  </div>
+                  {/* Spoken language — drives both Browser STT and Sarvam so
+                      Hindi/regional speech isn't transcribed through en-IN. */}
+                  <div className="pt-1">
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      Language
+                    </p>
+                    <select
+                      value={asrLanguage}
+                      disabled={recording}
+                      onChange={(e) => setAsrLanguage(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 focus:border-blue-400 focus:outline-none disabled:opacity-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+                    >
+                      {TRIAGE_LANGUAGE_CODES.map((code) => (
+                        <option key={code} value={code}>
+                          {LANGUAGE_DISPLAY[code].englishName} (
+                          {LANGUAGE_DISPLAY[code].nativeName})
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               )}
@@ -2451,19 +2650,19 @@ export default function ScribePage() {
                     const isPatient = entry.speaker === "PATIENT";
                     const isAttendant = entry.speaker === "ATTENDANT";
                     const bubbleBg = isDoctor
-                      ? "bg-blue-50 border-blue-200"
+                      ? "bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800"
                       : isPatient
-                      ? "bg-emerald-50 border-emerald-200"
+                      ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800"
                       : isAttendant
-                      ? "bg-purple-50 border-purple-200"
-                      : "bg-gray-50 border-gray-200";
+                      ? "bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-800"
+                      : "bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-700";
                     const badgeColor = isDoctor
-                      ? "bg-blue-100 text-blue-700"
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200"
                       : isPatient
-                      ? "bg-emerald-100 text-emerald-700"
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200"
                       : isAttendant
-                      ? "bg-purple-100 text-purple-700"
-                      : "bg-gray-100 text-gray-600";
+                      ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-200"
+                      : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-200";
                     return (
                       <div
                         key={i}
@@ -2491,6 +2690,19 @@ export default function ScribePage() {
                       </div>
                     );
                   })}
+                {/* Live interim — shows what's being spoken right now, in real
+                    time, before it's finalized into an entry above. */}
+                {liveText && liveText !== "🎤 Listening..." && (
+                  <div className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/60 p-2.5 dark:border-emerald-700/60 dark:bg-emerald-900/15">
+                    <span className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+                      Speaking now
+                    </span>
+                    <p className="text-xs italic leading-relaxed break-words text-gray-600 dark:text-gray-300">
+                      {liveText}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2506,7 +2718,7 @@ export default function ScribePage() {
                 <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full dark:bg-green-900/40 dark:text-green-300">
                   Completed
                 </span>
-              ) : soapDraft ? (
+              ) : sessionId && !viewingVisit ? (
                 <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full dark:bg-blue-900/40 dark:text-blue-300">
                   Auto-updating
                 </span>
@@ -2549,7 +2761,14 @@ export default function ScribePage() {
             </div>
           </div>
 
-          {!sessionId ? (
+          {viewingVisit ? (
+            <div className="flex-1 overflow-y-auto p-4">
+              <VisitDetail
+                visit={viewingVisit}
+                onBack={() => setViewingVisit(null)}
+              />
+            </div>
+          ) : !sessionId ? (
             <div className="flex-1 flex items-center justify-center text-gray-400">
               <div className="text-center space-y-2">
                 <Clipboard className="w-12 h-12 mx-auto opacity-30" />
@@ -2558,12 +2777,16 @@ export default function ScribePage() {
                 </p>
               </div>
             </div>
-          ) : !editedSOAP ? (
+          ) : !soapHasContent && !isCompletedSession ? (
             <div className="flex-1 flex items-center justify-center text-gray-400">
-              <div className="text-center space-y-2">
+              <div className="max-w-xs text-center space-y-2">
                 <Loader2 className="w-8 h-8 mx-auto animate-spin text-blue-400" />
-                <p className="text-sm">
-                  Listening&hellip; SOAP draft will appear after a few exchanges
+                <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                  Listening to the consultation&hellip;
+                </p>
+                <p className="text-xs text-gray-400">
+                  Your SOAP note drafts live and keeps updating as you and the
+                  patient speak — just keep talking.
                 </p>
               </div>
             </div>
@@ -2633,20 +2856,20 @@ export default function ScribePage() {
                           {editedSOAP.assessment.icd10Codes.map((code, i) => (
                             <div
                               key={i}
-                              className="flex items-start gap-2 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2"
+                              className="flex items-start gap-2 bg-orange-50 border border-orange-100 rounded-lg px-3 py-2 dark:bg-orange-900/20 dark:border-orange-800"
                             >
-                              <span className="text-xs font-mono font-bold text-orange-700">
+                              <span className="text-xs font-mono font-bold text-orange-700 dark:text-orange-300">
                                 {code.code}
                               </span>
                               <div className="flex-1">
                                 <p className="text-xs text-gray-700 dark:text-gray-200">{code.description}</p>
                                 {code.evidenceSpan && (
-                                  <p className="text-xs text-gray-400 italic mt-0.5">
+                                  <p className="text-xs text-gray-400 italic mt-0.5 dark:text-gray-400">
                                     &ldquo;{code.evidenceSpan}&rdquo;
                                   </p>
                                 )}
                               </div>
-                              <span className="text-xs text-orange-600">
+                              <span className="text-xs text-orange-600 dark:text-orange-300">
                                 {Math.round(code.confidence * 100)}%
                               </span>
                             </div>
@@ -2677,14 +2900,14 @@ export default function ScribePage() {
                           {editedSOAP.plan.medications.map((med, i) => (
                             <div
                               key={i}
-                              className="bg-green-50 border border-green-100 rounded-lg px-3 py-2"
+                              className="bg-green-50 border border-green-100 rounded-lg px-3 py-2 dark:bg-green-900/20 dark:border-green-800"
                             >
-                              <p className="text-sm font-medium text-gray-800">{med.name}</p>
+                              <p className="text-sm font-medium text-gray-800 dark:text-gray-100">{med.name}</p>
                               <p className="text-xs text-gray-600 dark:text-gray-300">
                                 {med.dose} · {med.frequency} · {med.duration}
                               </p>
                               {med.notes && (
-                                <p className="text-xs text-gray-400 mt-0.5">{med.notes}</p>
+                                <p className="text-xs text-gray-400 mt-0.5 dark:text-gray-400">{med.notes}</p>
                               )}
                             </div>
                           ))}
@@ -2726,7 +2949,7 @@ export default function ScribePage() {
               next to an empty SOAP placeholder, which looked broken. Now it
               shows up once the doctor actually starts the consult. */}
         {sessionId && (
-          <div className="hidden lg:flex">
+          <div className="hidden lg:flex lg:w-80 lg:shrink-0 lg:flex-col lg:overflow-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <ConsultRightRail
               doctorId={selectedAppointment?.doctorId ?? null}
               patientId={selectedAppointment?.patientId ?? null}
@@ -2737,6 +2960,25 @@ export default function ScribePage() {
               // aren't part of that workflow. Hide the card; keep the
               // Last-3-visits panel which is still useful context.
               hideFavourites
+              // Scribe has no left-rail patient panel, so surface the patient
+              // identity + last vitals here, above Last 3 visits.
+              showLastVitals
+              patient={
+                selectedAppointment?.patient
+                  ? {
+                      name: selectedAppointment.patient.user?.name,
+                      age: selectedAppointment.patient.age,
+                      gender: selectedAppointment.patient.gender,
+                      bloodGroup: selectedAppointment.patient.bloodGroup,
+                      phone: selectedAppointment.patient.user?.phone,
+                    }
+                  : null
+              }
+              // Clicking a past visit opens its full detail in the main panel.
+              onSelectVisit={setViewingVisit}
+              // Full-height column: let Last 3 visits fill the leftover space
+              // (scrolling its list) so the right-side cards stay fixed-height.
+              fillLastVisits
             />
           </div>
         )}

@@ -1101,17 +1101,31 @@ router.post(
       // Detect sudden changes vs last 24h
       const suddenChanges = await detectSuddenChanges(req.params.id, req.body);
 
-      const vitals = await prisma.vitals.create({
-        data: {
-          ...req.body,
-          patientId: req.params.id,
-          nurseId: req.user!.userId,
-          bmi: analysis.bmi,
-          isAbnormal: analysis.isAbnormal,
-          abnormalFlags:
-            analysis.flags.length > 0 ? analysis.flags.join(",") : null,
-        },
-      });
+      const vitalsData = {
+        ...req.body,
+        patientId: req.params.id,
+        nurseId: req.user!.userId,
+        bmi: analysis.bmi,
+        isAbnormal: analysis.isAbnormal,
+        abnormalFlags:
+          analysis.flags.length > 0 ? analysis.flags.join(",") : null,
+      };
+      // Vitals.appointmentId is @unique — one vitals snapshot per appointment.
+      // Re-recording for the same appointment (e.g. correcting a reading on the
+      // consult screen) must UPDATE that row, not create a duplicate that 400s
+      // with a P2002 unique-constraint error.
+      const existingForAppt = req.body.appointmentId
+        ? await prisma.vitals.findFirst({
+            where: { appointmentId: req.body.appointmentId },
+            select: { id: true },
+          })
+        : null;
+      const vitals = existingForAppt
+        ? await prisma.vitals.update({
+            where: { id: existingForAppt.id },
+            data: vitalsData,
+          })
+        : await prisma.vitals.create({ data: vitalsData });
 
       // If critical, push a notification to the doctor for the appointment
       if (analysis.isCritical && req.body.appointmentId) {
@@ -1227,6 +1241,32 @@ router.post(
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// GET /api/v1/patients/:id/vitals?limit=N — recent vitals for a patient,
+// newest first. Backs the consult screen's "Last vitals" panel (and any other
+// surface wanting the latest readings) — previously the client called this and
+// silently fell back to "No vitals" because the route didn't exist. Tenant-
+// scoped via the prisma wrapper. limit defaults to 10, capped at 50.
+router.get(
+  "/:id/vitals",
+  authorize(Role.DOCTOR, Role.NURSE, Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rawLimit = parseInt(String(req.query.limit ?? ""), 10);
+      const limit = Number.isFinite(rawLimit)
+        ? Math.min(Math.max(rawLimit, 1), 50)
+        : 10;
+      const vitals = await prisma.vitals.findMany({
+        where: { patientId: req.params.id },
+        orderBy: { recordedAt: "desc" },
+        take: limit,
+      });
+      res.json({ success: true, data: vitals, error: null });
     } catch (err) {
       next(err);
     }

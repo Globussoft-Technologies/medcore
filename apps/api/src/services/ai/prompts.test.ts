@@ -173,18 +173,18 @@ describe("services/ai/prompts", () => {
       expect(prompt).toMatch(/MedCore's AI Medical Scribe/);
     });
 
-    it("defines the SOAP extraction contract", () => {
-      expect(prompt).toMatch(/SOAP EXTRACTION RULES/);
-      expect(prompt).toMatch(/Subjective, Objective, and Assessment/);
+    it("defines the SOAP note extraction contract grounded in the transcript", () => {
+      expect(prompt).toMatch(/structured SOAP note/);
+      expect(prompt).toMatch(/GROUNDING/);
     });
 
     it("requires a confidence score and an evidenceSpan per SOAP section", () => {
-      expect(prompt).toMatch(/confidence score \(0-1\)/);
+      expect(prompt).toMatch(/confidence 0-1/);
       expect(prompt).toMatch(/evidenceSpan/);
     });
 
-    it("requires drug-interaction flagging", () => {
-      expect(prompt).toMatch(/Flag drug interactions/);
+    it("requires clinically-appropriate medicine matching for the condition", () => {
+      expect(prompt).toMatch(/CLINICAL MATCH/);
     });
 
     it("requires ICD-10 suggestions with confidence + justification", () => {
@@ -192,8 +192,8 @@ describe("services/ai/prompts", () => {
       expect(prompt).toMatch(/justification/);
     });
 
-    it("mandates the PLAN section is always populated", () => {
-      expect(prompt).toMatch(/PLAN — ALWAYS POPULATE/);
+    it("mandates a treatment PLAN built for the diagnosis when a complaint exists", () => {
+      expect(prompt).toMatch(/PLAN \(when a complaint exists\)/);
     });
 
     it("enumerates the four required PLAN sub-fields", () => {
@@ -210,7 +210,7 @@ describe("services/ai/prompts", () => {
 
     it("requires structured JSON output with no extraneous prose/markdown", () => {
       expect(prompt).toMatch(/structured JSON only/);
-      expect(prompt).toMatch(/no prose, no markdown/);
+      expect(prompt).toMatch(/no markdown outside field values/);
     });
 
     it("requires doctor review + sign-off before EHR commit (compliance gate)", () => {
@@ -218,14 +218,14 @@ describe("services/ai/prompts", () => {
       expect(prompt).toMatch(/EHR/);
     });
 
-    it("states suggestions are advisory only (liability disclaimer)", () => {
-      expect(prompt).toMatch(/advisory only/);
-      expect(prompt).toMatch(/not a prescriber/);
+    it("states the note is advisory and requires doctor sign-off (liability disclaimer)", () => {
+      expect(prompt).toMatch(/advisory/);
+      expect(prompt).toMatch(/requires doctor review and sign-off/);
     });
 
-    it("uses generic names + standard Indian dosages for medication suggestions", () => {
-      expect(prompt).toMatch(/generic names/);
-      expect(prompt).toMatch(/standard Indian dosages/);
+    it("uses generic names + standard Indian dosing for medication suggestions", () => {
+      expect(prompt).toMatch(/generic name/);
+      expect(prompt).toMatch(/standard Indian dosing/);
     });
   });
 

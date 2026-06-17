@@ -245,6 +245,38 @@ async function computeOpenSlots(
   return Array.from(new Set(slots)).sort();
 }
 
+// ── Working-day availability (TOKEN / CALLING modes) ───────────────────────
+// TOKEN and CALLING doctors do NOT run a time grid — a patient gets the next
+// token / arrival number, not a picked slot. So their availability is simply
+// "is the doctor working that day?" — a schedule exists for the weekday, the
+// day isn't blocked by an override, the doctor isn't on confirmed leave, and
+// the date isn't in the past. Using computeOpenSlots() for these modes was a
+// bug: a busy TOKEN doctor whose every notional slot is already booked/elapsed
+// returned [] and vanished from the picker, even though they can still take
+// more token patients (June 2026 — "I added a doctor but No doctors available").
+async function isDoctorWorkingOn(
+  doctorId: string,
+  date: string,
+): Promise<boolean> {
+  const dateObj = new Date(date);
+  const dayOfWeek = dateObj.getDay();
+
+  // Past date → not bookable.
+  if (date < istTodayDateStr()) return false;
+
+  const override = await prisma.scheduleOverride.findUnique({
+    where: { doctorId_date: { doctorId, date: dateObj } },
+  });
+  if (override?.isBlocked) return false;
+
+  if (await isDoctorOnConfirmedLeave(doctorId, dateObj)) return false;
+
+  const scheduleCount = await prisma.doctorSchedule.count({
+    where: { doctorId, dayOfWeek },
+  });
+  return scheduleCount > 0;
+}
+
 // Map a free-text symptom to candidate specialties via the AI triage
 // extractor. A single user turn is enough for a coarse mapping; we always
 // append the General-Physician fallbacks so a generic input ("general
@@ -573,14 +605,22 @@ publicBookingRouter.post(
         if (suggestions.length >= 3) break;
         const mode = d.appointmentMode as "SLOT" | "TOKEN" | "CALLING";
 
-        // Availability differs by mode. SLOT needs at least one open time
-        // slot. TOKEN/CALLING don't run a time grid — they just need the
-        // doctor to be working that day (a schedule exists, not on leave,
-        // date not in the past), which computeOpenSlots already encodes via
-        // its non-empty return. So we use the same availability signal for
-        // all three but only SLOT surfaces the actual times.
-        const slots = await computeOpenSlots(d.id, date);
-        if (slots.length === 0) continue; // not working / no availability that day
+        // Availability differs by mode:
+        //   SLOT    → needs at least one OPEN time slot (booked/elapsed times
+        //             are removed; an empty grid means genuinely full).
+        //   TOKEN /
+        //   CALLING → no time grid; available as long as the doctor is WORKING
+        //             that day. A busy TOKEN doctor (every notional slot taken)
+        //             can still issue the next token, so we must NOT gate them
+        //             on the slot grid being non-empty.
+        let slots: string[] = [];
+        if (mode === "SLOT") {
+          slots = await computeOpenSlots(d.id, date);
+          if (slots.length === 0) continue; // genuinely full / not working
+        } else {
+          const working = await isDoctorWorkingOn(d.id, date);
+          if (!working) continue; // not working that day / on leave / past date
+        }
 
         let nextToken: number | null = null;
         if (mode === "TOKEN") {

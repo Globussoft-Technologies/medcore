@@ -8,7 +8,7 @@ import type {
 import { PROMPTS, type PromptKey } from "./prompts";
 import { retrieveContext } from "./rag";
 import { sanitizeUserInput } from "./prompt-safety";
-import { getChatClient } from "./model-router";
+import { getChatClient, type ModelProvider } from "./model-router";
 import { getActivePrompt } from "./prompt-registry";
 import { logAICall } from "./sarvam-logging";
 import { withSpan } from "./tracing";
@@ -25,6 +25,22 @@ const MODEL =
     : (process.env.SARVAM_MODEL ?? "sarvam-105b");
 
 console.log(`[sarvam] AI_PROVIDER=${process.env.AI_PROVIDER} MODEL=${MODEL}`);
+
+// Resolve the chat client + model name for an optional per-request provider
+// override. The scribe links the LLM provider to the ASR engine the doctor
+// picked (Browser STT → OpenAI, Sarvam ASR → Sarvam). With no provider we fall
+// back to the module-level default so every other call site is untouched.
+function resolveLLM(provider?: ModelProvider): {
+  client: ReturnType<typeof getChatClient>;
+  model: string;
+} {
+  if (!provider) return { client: sarvam, model: MODEL };
+  const model =
+    provider === "openai"
+      ? (process.env.OPENAI_MODEL ?? "gpt-5.5")
+      : (process.env.SARVAM_MODEL ?? "sarvam-105b");
+  return { client: getChatClient(provider), model };
+}
 
 // Re-export so existing callers that `import { logAICall } from ".../sarvam"`
 // keep working after the logging split into sarvam-logging.ts.
@@ -903,7 +919,56 @@ export async function generateSOAPNote(
     age?: number;
     gender?: string;
   },
+  options?: {
+    /** LLM provider for this draft — linked to the doctor's ASR engine
+     *  (Browser STT → "openai", Sarvam ASR → "sarvam"). Omitted → AI_PROVIDER default. */
+    provider?: ModelProvider;
+    /** Run the second-pass hallucination verifier (extra LLM round-trip).
+     *  Defaults to true. Live drafting passes false for a single, fast call. */
+    verifyHallucinations?: boolean;
+    /** Medicines already in the current draft — the model is told to KEEP these
+     *  unchanged and only APPEND new ones, so prescriptions stay stable across regens. */
+    existingMedications?: {
+      name?: string;
+      dose?: string;
+      frequency?: string;
+      duration?: string;
+      notes?: string;
+    }[];
+    /** Complaints already captured in the current draft — the model is told to
+     *  PRESERVE these and only ADD newly-mentioned ones, so a multi-complaint
+     *  visit accumulates instead of the draft snapping to a single complaint. */
+    existingComplaints?: { chiefComplaint?: string; hpi?: string };
+  },
 ): Promise<SOAPNote> {
+  const { client, model } = resolveLLM(options?.provider);
+  // Build the "keep these unchanged" block from the existing plan (if any) so
+  // earlier prescriptions don't get swapped/re-ordered as the transcript grows.
+  const existingMeds = (options?.existingMedications ?? []).filter(
+    (m) => m && (m.name ?? "").trim().length > 0,
+  );
+  const medStability = existingMeds.length
+    ? `\n\nALREADY-PRESCRIBED MEDICINES — KEEP THESE EXACTLY:\n${existingMeds
+        .map(
+          (m) =>
+            `- ${m.name}${m.dose ? " " + m.dose : ""}${m.frequency ? " " + m.frequency : ""}${m.duration ? " " + m.duration : ""}`,
+        )
+        .join(
+          "\n",
+        )}\nReturn every one of the above medicines UNCHANGED in plan.medications (same name and dosing). Do NOT replace, remove, re-pick, or re-order them. Then, ONLY IF the transcript now mentions a NEW symptom or condition not already covered, APPEND additional medicine(s) for the new finding.`
+    : "";
+  // Complaint stability — preserve complaints already captured in earlier
+  // regens and only ADD new ones, so a visit with several complaints (often
+  // across mixed languages) accumulates instead of collapsing to one.
+  const existingCC = (options?.existingComplaints?.chiefComplaint ?? "").trim();
+  const existingHpi = (options?.existingComplaints?.hpi ?? "").trim();
+  const ccIsPlaceholder =
+    existingCC.toLowerCase() === "no clinical complaint stated yet";
+  const complaintStability =
+    existingCC && !ccIsPlaceholder
+      ? `\n\nALREADY-CAPTURED COMPLAINTS — KEEP AND BUILD ON THESE (never drop them):\n- Chief complaint so far: ${existingCC}${existingHpi ? `\n- HPI so far: ${existingHpi}` : ""}\nThe chiefComplaint you return MUST still include every complaint listed above, PLUS any NEW complaint mentioned anywhere in the transcript (translate non-English complaints to English). Never replace the earlier complaints with only the most recent one, and address each in the assessment + plan.`
+      : "";
+  const stabilityInstruction = medStability + complaintStability;
   const transcriptText = transcript
     .map((e) => `[${e.speaker}]: ${e.text}`)
     .join("\n");
@@ -1028,15 +1093,24 @@ Patient Context:
               "Generate a structured SOAP note from the consultation transcript",
               soapParameters,
             );
-          return sarvam.chat.completions.create({
-            model: MODEL,
-            max_tokens: 4096,
+          return client.chat.completions.create({
+            model,
+            // sarvam-105b is a REASONING model: it emits a `<think>...</think>`
+            // chain (stripped by parseSarvamJson) BEFORE the JSON, and those
+            // tokens count against max_tokens. A full multi-section SOAP note
+            // PLUS the think block can blow past 4096 → the JSON truncates →
+            // parseSarvamJson returns null → "Failed to generate SOAP note" →
+            // an EMPTY draft ("no proper data"). Give ample headroom so the
+            // think block AND the JSON both complete. This is a CEILING, not a
+            // target — the model stops at the natural end, so concise notes are
+            // unaffected in latency.
+            max_tokens: 8192,
             response_format: { type: "json_object" },
             messages: [
               { role: "system", content: systemPromptWithSchema },
               {
                 role: "user",
-                content: `${contextText}${ragContext ? "\n\n" + ragContext + "\n" : ""}\n\nConsultation Transcript:\n${transcriptText}\n\nGenerate the SOAP note. Only include information explicitly stated in the transcript.\n\nSPEAKER-ROLE GUIDANCE (GAP-S4):\n- The Subjective section should be drawn primarily from [PATIENT] speech — symptom narrative, history, what the patient reports.\n- The Objective, Assessment and Plan sections should be drawn primarily from [DOCTOR] speech — exam findings, impressions and treatment decisions.\n- [ATTENDANT] utterances (family members, caregivers) may supplement either section but should never be the sole source for Assessment or Plan.`,
+                content: `${contextText}${ragContext ? "\n\n" + ragContext + "\n" : ""}\n\nConsultation Transcript:\n${transcriptText}\n\nGenerate the SOAP note. Only include information explicitly stated in the transcript.\n\nSPEAKER-ROLE GUIDANCE (GAP-S4):\n- The Subjective section should be drawn primarily from [PATIENT] speech — symptom narrative, history, what the patient reports.\n- The Objective, Assessment and Plan sections should be drawn primarily from [DOCTOR] speech — exam findings, impressions and treatment decisions.\n- [ATTENDANT] utterances (family members, caregivers) may supplement either section but should never be the sole source for Assessment or Plan.${stabilityInstruction}`,
               },
             ],
           });
@@ -1068,5 +1142,10 @@ Patient Context:
     throw new Error("Failed to generate SOAP note");
   }
 
+  // Live drafting passes verifyHallucinations:false for a single, fast call —
+  // the SCRIBE_SYSTEM prompt already grounds the note and every draft still
+  // goes through mandatory doctor Review & Sign-Off. Default (true) keeps the
+  // verbatim-vs-transcript verifier for explicit/final generations.
+  if (options?.verifyHallucinations === false) return raw;
   return validateSOAPHallucinations(raw, transcriptText);
 }

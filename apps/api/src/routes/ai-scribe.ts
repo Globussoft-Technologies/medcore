@@ -77,6 +77,23 @@ function soapFinalToNotes(soapFinal: unknown): string {
 
 const router = Router();
 router.use(authenticate);
+
+// A SOAP draft is "empty" when the model returned the no-complaint placeholder
+// (or nothing meaningful) — chief complaint blank/placeholder and no HPI,
+// impression, ICD-10 codes or medications. Used to (a) avoid wiping a good
+// draft with an empty regen, and (b) trigger a one-shot retry.
+function isEmptySoapDraft(s: any): boolean {
+  if (!s || typeof s !== "object") return true;
+  const cc = String(s.subjective?.chiefComplaint ?? "").trim().toLowerCase();
+  const ccEmpty = cc === "" || cc === "no clinical complaint stated yet";
+  const hpi = String(s.subjective?.hpi ?? "").trim();
+  const impression = String(s.assessment?.impression ?? "").trim();
+  const icd = Array.isArray(s.assessment?.icd10Codes)
+    ? s.assessment.icd10Codes.length
+    : 0;
+  const meds = Array.isArray(s.plan?.medications) ? s.plan.medications.length : 0;
+  return ccEmpty && !hpi && !impression && icd === 0 && meds === 0;
+}
 // Pearl §6 + §18 (gap item #9 — audit fix-up #3, 2026-05-25): Voice-Rx
 // (AI scribe + ASR + SOAP drafting) is a Stage-2 paid feature. Pearl-branded
 // tenants set `voiceRx=false` and every scribe route 404s before authorize.
@@ -268,7 +285,12 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { sessionId } = req.params;
-      const { entries, forceRegen } = req.body;
+      const { entries, forceRegen, asrEngine } = req.body;
+      // The ASR engine the doctor picked selects the LLM provider for the SOAP
+      // draft: Browser STT → OpenAI, Sarvam ASR → Sarvam. Undefined leaves the
+      // server's AI_PROVIDER default in force.
+      const llmProvider: "openai" | "sarvam" | undefined =
+        asrEngine === "browser" ? "openai" : asrEngine === "sarvam" ? "sarvam" : undefined;
 
       const session = await prisma.aIScribeSession.findUnique({ where: { id: sessionId } });
       if (!session) {
@@ -318,6 +340,9 @@ router.post(
 
       let soapDraft: any = session.soapDraft;
       let rxSafetyReport = (session.rxDraft as any) || null;
+      // Surface a generation failure to the client (otherwise it's only in the
+      // server log and the doctor just sees a blank, never-updating draft).
+      let soapError: string | null = null;
 
       // GAP-S8: Time-based SOAP flush. PRD §4.8 wants 30–60s freshness, not
       // per-utterance regeneration. Keep the updatedTranscript.length >= 3
@@ -341,23 +366,76 @@ router.post(
       const newEntriesSinceLastRegen = updatedTranscript.length - entriesAtLastRegen;
       const timeSinceLastRegenMs = lastRegenAt != null ? now - lastRegenAt : Number.POSITIVE_INFINITY;
 
-     const minEntries = forceRegen === true ? 1 : 3;
+      // Generate from the very first entry (was 3) so the draft appears within
+      // seconds of the first spoken sentence, and refresh on every new entry so
+      // a quickly-spoken second utterance/condition isn't stuck behind a timer.
+      const minEntries = 1;
       const shouldRegen = updatedTranscript.length >= minEntries && (
         forceRegen === true
           || lastRegenAt == null
-          || newEntriesSinceLastRegen >= 5
+          || newEntriesSinceLastRegen >= 1
           || timeSinceLastRegenMs >= 10_000
       );
 
       if (shouldRegen) {
         try {
-          const fresh: any = await generateSOAPNote(updatedTranscript, patientContext);
+          // Medication stability: pass the medicines already in the current
+          // draft so the model PRESERVES them and only APPENDS new ones for
+          // newly-mentioned symptoms — existing prescriptions must stay stable
+          // as the transcript grows. verifyHallucinations:false keeps the live
+          // draft to a single fast model call (the prompt already grounds it,
+          // and the doctor still reviews + signs off before any EHR commit).
+          const existingMedications = Array.isArray((soapDraft as any)?.plan?.medications)
+            ? (soapDraft as any).plan.medications
+            : [];
+          // NOTE: we deliberately do NOT anchor the complaints. The full
+          // transcript is sent every regen and SCRIBE_SYSTEM already says
+          // "capture EVERY complaint", so the note re-derives all complaints
+          // freely and the draft UPDATES as new exchanges arrive. (An earlier
+          // "keep these complaints unchanged" instruction froze the draft on
+          // the first complaint and stopped the UI updating.)
+          // Provider stays tied to the chosen ASR engine — Browser STT → OpenAI,
+          // Sarvam ASR → Sarvam. No cross-engine fallback: the two are kept
+          // separate. If the chosen provider fails, soapError surfaces why.
+          let fresh: any = await generateSOAPNote(updatedTranscript, patientContext, {
+            provider: llmProvider,
+            verifyHallucinations: false,
+            existingMedications,
+          });
+          // Retry-on-empty: the model intermittently returns the no-complaint
+          // placeholder for a transcript that clearly has content (e.g. a
+          // truncated reasoning chain). When we got nothing useful, resend the
+          // SAME transcript once more before giving up so a missed exchange
+          // still produces a draft.
+          if (isEmptySoapDraft(fresh)) {
+            try {
+              const retry: any = await generateSOAPNote(
+                updatedTranscript,
+                patientContext,
+                {
+                  provider: llmProvider,
+                  verifyHallucinations: false,
+                  existingMedications,
+                },
+              );
+              if (!isEmptySoapDraft(retry)) fresh = retry;
+            } catch (retryErr) {
+              console.error(
+                "[ai-scribe] SOAP retry failed:",
+                retryErr instanceof Error ? retryErr.message : retryErr,
+              );
+            }
+          }
           if (fresh && typeof fresh === "object") {
-            // Clone so we don't mutate the returned object (matters for tests
-            // that reuse a shared mock across calls), then stamp our regen
-            // metadata. Preserve any prior _meta keys.
+            // Guard against a regen that comes back EMPTY (the model
+            // intermittently returns the "No clinical complaint stated yet"
+            // placeholder for a transcript that clearly has complaints). When
+            // that happens but we already have a non-empty draft, KEEP the
+            // good draft instead of wiping it back to "Not captured" — only
+            // bump the regen metadata. Otherwise adopt the fresh draft.
+            const keepPrior = isEmptySoapDraft(fresh) && !isEmptySoapDraft(soapDraft);
             soapDraft = {
-              ...fresh,
+              ...(keepPrior ? (soapDraft as any) : fresh),
               _meta: {
                 ...(prevMeta ?? {}),
                 lastRegenAt: new Date(now).toISOString(),
@@ -368,23 +446,34 @@ router.post(
             soapDraft = fresh;
           }
         }catch (soapErr) {
-          console.error("[ai-scribe] generateSOAPNote failed:", soapErr instanceof Error ? soapErr.message : soapErr);
+          soapError = soapErr instanceof Error ? soapErr.message : String(soapErr);
+          console.error("[ai-scribe] generateSOAPNote failed:", soapError);
         }
 
         // Run drug safety checks whenever we have a fresh SOAP draft with medications
         const proposedMeds = (soapDraft as any)?.plan?.medications ?? [];
         if (proposedMeds.length > 0) {
           try {
+            // Perf: deterministic-only on live drafts (skip the Layer-2 LLM
+            // interaction pass) so the SOAP response isn't gated on a second
+            // model round-trip. Allergy / known-interaction / contraindication
+            // / dosing checks still run instantly.
             rxSafetyReport = await checkDrugSafety(
               proposedMeds,
               patientContext.currentMedications,
               patientContext.allergies,
               patientContext.chronicConditions,
-              { age: patientContext.age, gender: patientContext.gender }
+              { age: patientContext.age, gender: patientContext.gender },
+              { skipLLM: true }
             );
           } catch {
             // Non-fatal — continue without safety report
           }
+        } else {
+          // The fresh draft has no medications — clear any stale safety report
+          // from a previous regen so we never show an alert for a drug that is
+          // no longer in the plan.
+          rxSafetyReport = null;
         }
       }
 
@@ -404,6 +493,7 @@ router.post(
           soapDraftUpdated: !!soapDraft,
           soapDraft,
           rxSafetyReport,
+          soapError,
         },
         error: null,
       });

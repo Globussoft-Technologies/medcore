@@ -182,6 +182,109 @@ describeIfDB("Consultation invoice auto-generation (integration)", () => {
     expect(invoice?.items[0].category).toBe("CONSULTATION");
   });
 
+  it("does NOT complete the appointment or bill when signed with advanceAppointment=false", async () => {
+    // The consult screen's two-step flow signs the NOTE only; the appointment
+    // is completed separately on "Complete". advanceAppointment=false must skip
+    // the auto-completion + auto-invoice entirely.
+    const prisma = await getPrisma();
+    const adminToken = await getAuthToken("ADMIN");
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { consultationFee: 600 },
+    });
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { status: "CHECKED_IN" },
+    });
+
+    const draft = await request(app)
+      .get(`/api/v1/consultations/by-appointment/${appt.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    const consultId = draft.body.data.id;
+
+    const signed = await request(app)
+      .post(`/api/v1/consultations/${consultId}/sign`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ advanceAppointment: false });
+    expect(signed.status).toBe(200);
+    expect(signed.body.data.status).toBe("SIGNED");
+
+    // Appointment left untouched + no invoice raised.
+    const refreshed = await prisma.appointment.findUnique({
+      where: { id: appt.id },
+      select: { status: true },
+    });
+    expect(refreshed?.status).toBe("CHECKED_IN");
+    const invoice = await prisma.invoice.findUnique({
+      where: { appointmentId: appt.id },
+    });
+    expect(invoice).toBeNull();
+  });
+
+  it("unsign reverts a signed consult to DRAFT and reopens the appointment", async () => {
+    const prisma = await getPrisma();
+    const adminToken = await getAuthToken("ADMIN");
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { status: "CHECKED_IN" },
+    });
+
+    const draft = await request(app)
+      .get(`/api/v1/consultations/by-appointment/${appt.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    const consultId = draft.body.data.id;
+
+    // Sign (default advanceAppointment → COMPLETED).
+    await request(app)
+      .post(`/api/v1/consultations/${consultId}/sign`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    let appointment = await prisma.appointment.findUnique({
+      where: { id: appt.id },
+      select: { status: true },
+    });
+    expect(appointment?.status).toBe("COMPLETED");
+
+    // Unsign → DRAFT, signedAt cleared, appointment reopened.
+    const unsigned = await request(app)
+      .post(`/api/v1/consultations/${consultId}/unsign`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(unsigned.status).toBe(200);
+    expect(unsigned.body.data.status).toBe("DRAFT");
+    expect(unsigned.body.data.signedAt).toBeNull();
+
+    appointment = await prisma.appointment.findUnique({
+      where: { id: appt.id },
+      select: { status: true },
+    });
+    expect(appointment?.status).toBe("IN_CONSULTATION");
+  });
+
+  it("unsign is idempotent on a draft consult (no-op, still 200)", async () => {
+    const adminToken = await getAuthToken("ADMIN");
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const draft = await request(app)
+      .get(`/api/v1/consultations/by-appointment/${appt.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    const consultId = draft.body.data.id;
+
+    const unsigned = await request(app)
+      .post(`/api/v1/consultations/${consultId}/unsign`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(unsigned.status).toBe(200);
+    expect(unsigned.body.data.status).toBe("DRAFT");
+  });
+
   it("raises a GST-free consult invoice (no tax line)", async () => {
     const prisma = await getPrisma();
     const patient = await createPatientFixture();

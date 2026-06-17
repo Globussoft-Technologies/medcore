@@ -61,6 +61,12 @@ export const addTranscriptChunkSchema = z.object({
     })
   ).min(0),
   forceRegen: z.boolean().optional(),
+  /**
+   * ASR engine the doctor selected in the scribe UI. Drives which LLM provider
+   * drafts the SOAP note: "browser" (Browser STT) → OpenAI, "sarvam" (Sarvam
+   * ASR) → Sarvam. Omitted falls back to the server's AI_PROVIDER default.
+   */
+  asrEngine: z.enum(["browser", "sarvam"]).optional(),
 });
 
 /** Validates the doctor's sign-off payload that finalises a scribe session and optionally approves the AI-generated prescription. */

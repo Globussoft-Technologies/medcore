@@ -343,7 +343,13 @@ router.post(
         "CHECKED_IN",
         "IN_CONSULTATION",
       ]);
+      // Callers can opt out of auto-completing the appointment by passing
+      // { advanceAppointment: false } — used by the consult screen's two-step
+      // flow where signing only finalizes the NOTE and a separate "Complete"
+      // action marks the appointment COMPLETED. Defaults to true so every
+      // existing caller keeps the original sign-completes-the-visit behavior.
       const shouldAdvanceAppointment =
+        req.body?.advanceAppointment !== false &&
         !!existing.appointment &&
         ADVANCEABLE.has(existing.appointment.status);
 
@@ -393,6 +399,74 @@ router.post(
       }
 
       res.json({ success: true, data: signed, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /api/v1/consultations/:id/unsign — reopen a signed note for editing
+// ("Back to edit"). Mirror of /sign: flips SIGNED → DRAFT, clears signedAt,
+// and reverts the appointment COMPLETED → IN_CONSULTATION so the encounter
+// shows as active again. The auto-created consult invoice is left untouched —
+// re-signing is idempotent on billing (Invoice.appointmentId is @unique), so
+// reopening + re-signing never double-bills.
+router.post(
+  "/:id/unsign",
+  authorize(Role.DOCTOR, Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const existing = await prisma.consultation.findUnique({
+        where: { id: req.params.id },
+        select: {
+          id: true,
+          status: true,
+          appointmentId: true,
+          appointment: { select: { status: true } },
+        },
+      });
+      if (!existing) {
+        res.status(404).json({
+          success: false,
+          data: null,
+          error: "Consultation not found",
+        });
+        return;
+      }
+      if (existing.status !== "SIGNED") {
+        // Idempotent — already editable. Return the full row.
+        const fresh = await prisma.consultation.findUnique({
+          where: { id: req.params.id },
+        });
+        res.json({ success: true, data: fresh, error: null });
+        return;
+      }
+
+      // Only reopen the appointment if signing is what completed it; never
+      // touch terminal states the doctor didn't cause here (CANCELLED/NO_SHOW).
+      const shouldReopenAppointment =
+        !!existing.appointment &&
+        existing.appointment.status === "COMPLETED";
+
+      const [unsigned] = await prisma.$transaction([
+        prisma.consultation.update({
+          where: { id: req.params.id },
+          data: { status: "DRAFT", signedAt: null },
+        }),
+        ...(shouldReopenAppointment
+          ? [
+              prisma.appointment.update({
+                where: { id: existing.appointmentId },
+                data: {
+                  status: "IN_CONSULTATION",
+                  consultationEndedAt: null,
+                },
+              }),
+            ]
+          : []),
+      ]);
+
+      res.json({ success: true, data: unsigned, error: null });
     } catch (err) {
       next(err);
     }

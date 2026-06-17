@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { ZodSchema } from "zod";
+import { ZodError, ZodSchema } from "zod";
 
 /**
  * Express middleware factory that parses and validates `req.body` against a
@@ -15,6 +15,14 @@ export function validate(schema: ZodSchema) {
       req.body = schema.parse(req.body);
       next();
     } catch (err) {
+      // Log the exact failing field(s) + endpoint so a 400 isn't a black box
+      // during debugging (the client only sees a generic "Bad Request").
+      if (err instanceof ZodError) {
+        console.error(
+          `[validate] ${req.method} ${req.originalUrl} → 400:`,
+          err.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`),
+        );
+      }
       next(err);
     }
   };

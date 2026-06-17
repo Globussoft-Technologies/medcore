@@ -1111,4 +1111,53 @@ describe("PatientsPage", () => {
       );
     });
   });
+
+  // The email quick-action renders a mailto: link when the patient has ANY
+  // reachable email. A patient may have no login User.email (it's globally
+  // unique, so a self-registered patient whose email was already taken stores
+  // null there) but a per-tenant Patient.contactEmail instead — the list must
+  // still surface the email icon, falling back to contactEmail. (June 2026.)
+  describe("quick-action: Email link (user.email OR contactEmail fallback)", () => {
+    it("renders mailto: from user.email when present", async () => {
+      setAuth("ADMIN");
+      const row = patient({
+        id: "pat-e1",
+        user: { id: "u-1", name: "Aarav", phone: "+919999999999", email: "aarav@example.com" },
+      });
+      apiMock.get.mockResolvedValue({ data: [row], meta: { total: 1 } });
+      render(<PatientsPage />);
+      const links = await screen.findAllByTestId("quickaction-email-pat-e1");
+      expect(links[0]).toHaveAttribute("href", "mailto:aarav@example.com");
+    });
+
+    it("falls back to contactEmail when user.email is null", async () => {
+      setAuth("ADMIN");
+      const row = patient({
+        id: "pat-e2",
+        user: { id: "u-2", name: "Riya", phone: "+918888888888", email: null },
+        contactEmail: "riya.contact@example.com",
+      });
+      apiMock.get.mockResolvedValue({ data: [row], meta: { total: 1 } });
+      render(<PatientsPage />);
+      const links = await screen.findAllByTestId("quickaction-email-pat-e2");
+      expect(links[0]).toHaveAttribute("href", "mailto:riya.contact@example.com");
+    });
+
+    it("renders NO email icon when both user.email and contactEmail are empty", async () => {
+      setAuth("ADMIN");
+      const row = patient({
+        id: "pat-e3",
+        user: { id: "u-3", name: "NoEmail", phone: "+917777777777", email: null },
+        contactEmail: null,
+      });
+      apiMock.get.mockResolvedValue({ data: [row], meta: { total: 1 } });
+      render(<PatientsPage />);
+      // Wait for the row to render via a stable testid, then assert the email
+      // link is absent.
+      await screen.findAllByTestId("quickaction-add-to-lead-pat-e3");
+      expect(
+        screen.queryByTestId("quickaction-email-pat-e3"),
+      ).not.toBeInTheDocument();
+    });
+  });
 });

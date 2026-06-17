@@ -654,6 +654,103 @@ describeIfDB("Auth API (integration)", () => {
     expect(res.body?.data?.user?.role).toBe("DOCTOR");
   });
 
+  // ─── Doctor created via /register is BOOKABLE out of the box ───────────
+  // June 2026: an admin-created doctor had no DoctorSchedule, so it had no
+  // working hours and never appeared in the public-booking / walk-in /
+  // appointment pickers ("I added a doctor but No doctors available"). The
+  // register flow now auto-seeds a default Mon–Sat 09:00–17:00 schedule.
+  it("auto-seeds a default weekly schedule for a DOCTOR created via /register", async () => {
+    const adminLogin = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
+    const adminBearer = adminLogin.body?.data?.tokens?.accessToken;
+
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminBearer}`)
+      .send({
+        name: "Scheduled Doctor",
+        email: "scheduled.doctor@test.local",
+        phone: "9123461010",
+        password: "MedCoreT3st-2026",
+        role: "DOCTOR",
+      });
+    expect(res.status).toBe(201);
+
+    const prisma = await getPrisma();
+    const user = await prisma.user.findUnique({
+      where: { email: "scheduled.doctor@test.local" },
+      include: { doctor: { include: { schedules: true } } },
+    });
+    // A Doctor row exists AND it has weekday schedules (Mon=1 .. Sat=6).
+    expect(user?.doctor).toBeTruthy();
+    const dows = (user!.doctor!.schedules ?? [])
+      .map((s: { dayOfWeek: number }) => s.dayOfWeek)
+      .sort((a: number, b: number) => a - b);
+    expect(dows).toEqual([1, 2, 3, 4, 5, 6]);
+    // Every seeded row carries usable working hours.
+    for (const s of user!.doctor!.schedules) {
+      expect(s.startTime).toBe("09:00");
+      expect(s.endTime).toBe("17:00");
+    }
+  });
+
+  // ─── Admin-created staff inherit the CREATING admin's tenant ───────────
+  // June 2026: resolveRegistrationTenant fell through to the `default` tenant
+  // on a bare host (no subdomain / body tenantId), so an admin in tenant X
+  // created doctors that silently landed in `default` and never appeared in
+  // that admin's tenant-scoped Doctors list. The new user must inherit the
+  // authenticated admin's tenant.
+  it("creates a DOCTOR in the creating ADMIN's tenant (not the default tenant)", async () => {
+    const prisma = await getPrisma();
+    // A dedicated tenant + a tenant-bound ADMIN to create staff under.
+    const tenant = await prisma.tenant.create({
+      data: { name: "Staff Tenant", subdomain: `staff-${Date.now()}` },
+    });
+    const bcrypt = await import("bcryptjs");
+    const tenantAdmin = await prisma.user.create({
+      data: {
+        email: "tenant.admin@test.local",
+        name: "Tenant Admin",
+        phone: "9123461020",
+        passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
+        role: "ADMIN",
+        tenantId: tenant.id,
+        isActive: true,
+      },
+    });
+    const adminBearer = jwt.sign(
+      {
+        userId: tenantAdmin.id,
+        email: tenantAdmin.email,
+        role: "ADMIN",
+        tenantId: tenant.id,
+      },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" },
+    );
+
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminBearer}`)
+      .send({
+        name: "Tenant Bound Doctor",
+        email: "tenant.bound.doctor@test.local",
+        phone: "9123461021",
+        password: "MedCoreT3st-2026",
+        role: "DOCTOR",
+      });
+    expect(res.status).toBe(201);
+
+    const created = await prisma.user.findUnique({
+      where: { email: "tenant.bound.doctor@test.local" },
+      include: { doctor: true },
+    });
+    // Both the User and its Doctor row belong to the admin's tenant — NOT default.
+    expect(created?.tenantId).toBe(tenant.id);
+    expect(created?.doctor?.tenantId).toBe(tenant.id);
+  });
+
   it("#668 admin staff-create on /register rejects denylisted 'password123'", async () => {
     const adminLogin = await request(app)
       .post("/api/v1/auth/login")

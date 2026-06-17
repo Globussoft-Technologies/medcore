@@ -379,6 +379,66 @@ describeIfDB("Public quick-booking API (integration)", () => {
     expect(typeof found.nextToken).toBe("number");
   });
 
+  it("still suggests a TOKEN doctor whose every slot-time is already booked (working-day availability, not slot-grid)", async () => {
+    // June 2026: suggest-doctors used computeOpenSlots() for ALL modes, so a
+    // busy TOKEN doctor (every notional slot taken) returned [] open slots and
+    // vanished from the picker — even though a TOKEN doctor can always issue
+    // the next token. TOKEN/CALLING availability is now "is the doctor working
+    // that day?", independent of the slot grid.
+    const prisma = await getPrisma();
+    const busyDoc = await createDoctorFixture({ specialization: "General Medicine" });
+    await prisma.doctor.update({
+      where: { id: busyDoc.id },
+      data: { appointmentMode: "TOKEN" },
+    });
+    // A short 09:00–09:30 window = two 15-min notional slots: 09:00, 09:15.
+    await prisma.doctorSchedule.create({
+      data: {
+        doctorId: busyDoc.id,
+        dayOfWeek: FUTURE_DOW,
+        startTime: "09:00",
+        endTime: "09:30",
+        slotDurationMinutes: 15,
+      },
+    });
+    // Book BOTH notional slot times so computeOpenSlots() would return [].
+    for (const slotStart of ["09:00", "09:15"]) {
+      const u = await prisma.user.create({
+        data: {
+          name: `Filler ${slotStart}`,
+          phone: `90000${slotStart.replace(":", "")}`,
+          passwordHash: "x",
+          role: "PATIENT",
+        },
+      });
+      const pat = await prisma.patient.create({
+        data: { userId: u.id, mrNumber: `MR-BUSY-${slotStart}`, gender: "MALE" },
+      });
+      await prisma.appointment.create({
+        data: {
+          patientId: pat.id,
+          doctorId: busyDoc.id,
+          date: new Date(FUTURE_ISO),
+          slotStart,
+          status: "BOOKED",
+          type: "SCHEDULED",
+        },
+      });
+    }
+
+    const res = await request(app)
+      .post("/api/v1/public/booking/suggest-doctors")
+      .send({ symptom: "fever", date: FUTURE_ISO });
+    expect(res.status).toBe(200);
+    const found = res.body.data.doctors.find(
+      (d: any) => d.doctorId === busyDoc.id,
+    );
+    // The busy TOKEN doctor is STILL suggested (slot grid empty, but working).
+    expect(found).toBeTruthy();
+    expect(found.appointmentMode).toBe("TOKEN");
+    expect(typeof found.nextToken).toBe("number");
+  });
+
   it("books a TOKEN doctor with NO slotId (date + token only)", async () => {
     const prisma = await getPrisma();
     const tokenDoc = await createDoctorFixture({ specialization: "Pediatrics" });

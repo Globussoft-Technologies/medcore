@@ -268,10 +268,27 @@ async function resolveRegistrationTenant(
   req: Request,
   bodyTenantId?: string,
 ): Promise<string | null> {
-  // 0. Explicit patient choice from the registration form ("Select
-  //    Hospital / Clinic"). Highest priority — when a patient self-registers
-  //    they pick the tenant their account belongs to. Validated active so a
-  //    stale/forged id can't pin the account to a suspended hospital.
+  // 0a. Authenticated ADMIN staff-creation: the new user belongs to the
+  //     CREATING admin's own tenant — authoritative, above everything else.
+  //     Only returns non-null for a logged-in ADMIN, so the public patient
+  //     self-registration flow (no admin token) falls straight through to the
+  //     body-choice logic below. Fixes doctors/staff silently landing in the
+  //     `default` tenant when an admin on a bare host (localhost, no subdomain)
+  //     creates them (June 2026).
+  const staffTenantId = authenticatedStaffTenantId(req);
+  if (staffTenantId) {
+    const t = await prisma.tenant.findUnique({
+      where: { id: staffTenantId },
+      select: { id: true, active: true },
+    });
+    if (t?.active) return t.id;
+  }
+
+  // 0b. Explicit patient choice from the registration form ("Select
+  //    Hospital / Clinic"). Highest priority for SELF-registration — when a
+  //    patient self-registers they pick the tenant their account belongs to.
+  //    Validated active so a stale/forged id can't pin the account to a
+  //    suspended hospital.
   if (bodyTenantId && bodyTenantId.trim().length > 0) {
     const t = await prisma.tenant.findUnique({
       where: { id: bodyTenantId.trim() },
@@ -382,6 +399,40 @@ function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
     // Fall through.
   }
   return PUBLIC_DEFAULT;
+}
+
+/**
+ * When an authenticated ADMIN creates a staff member (DOCTOR / NURSE /
+ * RECEPTION / …) from the dashboard, the new user MUST belong to the creating
+ * admin's OWN tenant. Without this, `resolveRegistrationTenant` fell through to
+ * the seeded `default` tenant on a bare host (no subdomain, no body tenantId),
+ * so an admin in "applo kolkata" would create doctors that silently landed in
+ * "MedCore Default" — and then never appeared in that admin's tenant-scoped
+ * Doctors list (June 2026). Returns the admin's tenantId, or null when the
+ * caller isn't an authenticated ADMIN (the public patient flow).
+ *
+ * Reads the same cookie/header token pair as `resolveRegistrationRole`.
+ */
+function authenticatedStaffTenantId(req: Request): string | null {
+  const cookieToken = (req as Request & { cookies?: Record<string, string> })
+    .cookies?.medcore_at;
+  const header = req.headers.authorization;
+  const headerToken = header?.startsWith("Bearer ")
+    ? header.split(" ")[1]
+    : undefined;
+  const token = cookieToken || headerToken;
+  if (!token) return null;
+  try {
+    const decoded = verifyAccessToken<{ role?: string; tenantId?: string | null }>(
+      token,
+    );
+    if (decoded.role === "ADMIN" && decoded.tenantId) {
+      return decoded.tenantId;
+    }
+  } catch {
+    // Invalid/expired token → treat as no staff context.
+  }
+  return null;
 }
 
 // ─── Hardening schemas (Issues #706, #707, #708, #712, #713) ──────────────
@@ -1061,13 +1112,32 @@ router.post(
           where: { userId: user.id },
         });
         if (!existing) {
-          await prisma.doctor.create({
+          const newDoctor = await prisma.doctor.create({
             data: {
               userId: user.id,
               specialization: "General Medicine",
               qualification: "MBBS",
               tenantId,
             },
+            select: { id: true },
+          });
+          // Seed a default weekly availability (Mon–Sat 09:00–17:00, 15-min
+          // slots) so the doctor is BOOKABLE the moment they're created. A
+          // doctor with no DoctorSchedule rows has no working hours, so
+          // computeOpenSlots() returns [] and they never appear in the
+          // public-booking / walk-in / appointment pickers — the exact
+          // "I added a doctor but No doctors available" symptom (June 2026).
+          // The admin can refine these hours later from the doctor profile.
+          await prisma.doctorSchedule.createMany({
+            data: [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+              doctorId: newDoctor.id,
+              dayOfWeek,
+              startTime: "09:00",
+              endTime: "17:00",
+              slotDurationMinutes: 15,
+              tenantId,
+            })),
+            skipDuplicates: true,
           });
         }
       }

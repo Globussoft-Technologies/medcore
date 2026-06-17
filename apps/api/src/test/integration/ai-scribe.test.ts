@@ -221,7 +221,10 @@ describeIfDB("AI Scribe API (integration)", () => {
     expect(vi.mocked(generateSOAPNote)).toHaveBeenCalledOnce();
   });
 
-  it("does not call Claude when fewer than 3 transcript entries", async () => {
+  it("drafts the SOAP note from the very first transcript entry (live updating)", async () => {
+    // The scribe now regenerates on every new entry (minEntries = 1) so the
+    // draft appears within seconds of the first spoken sentence — it no longer
+    // waits for 3 entries to accumulate.
     const { generateSOAPNote } = await import("../../services/ai/sarvam");
     vi.mocked(generateSOAPNote).mockClear();
 
@@ -244,7 +247,7 @@ describeIfDB("AI Scribe API (integration)", () => {
         ],
       });
 
-    expect(vi.mocked(generateSOAPNote)).not.toHaveBeenCalled();
+    expect(vi.mocked(generateSOAPNote)).toHaveBeenCalledOnce();
   });
 
   it("returns 400 when adding transcript to a non-active session", async () => {

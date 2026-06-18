@@ -250,6 +250,35 @@ function generateTokens(
 }
 
 /**
+ * The tenant id of an authenticated, tenant-bound ADMIN making the request,
+ * or null. Used by resolveRegistrationTenant so a tenant-scoped admin's new
+ * staff land in the admin's OWN tenant (not the `default` tenant) even on a
+ * bare host with no subdomain. SUPER_ADMIN (tenantId=null) returns null and
+ * falls through to the explicit body/header tenant choice.
+ */
+function authenticatedStaffTenantId(req: Request): string | null {
+  const cookieToken = (req as Request & { cookies?: Record<string, string> })
+    .cookies?.medcore_at;
+  const header = req.headers.authorization;
+  const headerToken = header?.startsWith("Bearer ")
+    ? header.split(" ")[1]
+    : undefined;
+  const token = cookieToken || headerToken;
+  if (!token) return null;
+  try {
+    const decoded = verifyAccessToken<{ role?: string; tenantId?: string | null }>(
+      token,
+    );
+    if (decoded.role === "ADMIN" && decoded.tenantId) {
+      return decoded.tenantId;
+    }
+  } catch {
+    // Invalid/expired token → treat as no staff context.
+  }
+  return null;
+}
+
+/**
  * Resolve the tenant a new registration should be scoped to.
  *
  * Priority:
@@ -394,7 +423,9 @@ function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
   try {
     // Issue #482: algorithm-agnostic — services/jwt.ts.
     const decoded = verifyAccessToken<{ role?: string }>(token);
-    if (decoded.role === "ADMIN") return resolved;
+    if (decoded.role === "ADMIN" || decoded.role === "SUPER_ADMIN") {
+      return resolved;
+    }
   } catch {
     // Fall through.
   }
@@ -402,18 +433,17 @@ function resolveRegistrationRole(req: Request, requestedRole: unknown): Role {
 }
 
 /**
- * When an authenticated ADMIN creates a staff member (DOCTOR / NURSE /
- * RECEPTION / …) from the dashboard, the new user MUST belong to the creating
- * admin's OWN tenant. Without this, `resolveRegistrationTenant` fell through to
- * the seeded `default` tenant on a bare host (no subdomain, no body tenantId),
- * so an admin in "applo kolkata" would create doctors that silently landed in
- * "MedCore Default" — and then never appeared in that admin's tenant-scoped
- * Doctors list (June 2026). Returns the admin's tenantId, or null when the
- * caller isn't an authenticated ADMIN (the public patient flow).
+ * True when the request carries a valid access token for an ADMIN or
+ * SUPER_ADMIN. Used by /register to tell an admin CREATING an account on
+ * someone else's behalf (must keep the admin's OWN session) apart from
+ * public self-registration (where the brand-new user should be logged in).
  *
- * Reads the same cookie/header token pair as `resolveRegistrationRole`.
+ * Without this gate, /register set the new user's session cookies on the
+ * response — so a super-admin who created a doctor was silently "logged in"
+ * as that doctor on the next refresh, and the staff list then rendered as
+ * the doctor (blank rows / wrong account).
  */
-function authenticatedStaffTenantId(req: Request): string | null {
+function callerIsAuthenticatedAdmin(req: Request): boolean {
   const cookieToken = (req as Request & { cookies?: Record<string, string> })
     .cookies?.medcore_at;
   const header = req.headers.authorization;
@@ -421,18 +451,13 @@ function authenticatedStaffTenantId(req: Request): string | null {
     ? header.split(" ")[1]
     : undefined;
   const token = cookieToken || headerToken;
-  if (!token) return null;
+  if (!token) return false;
   try {
-    const decoded = verifyAccessToken<{ role?: string; tenantId?: string | null }>(
-      token,
-    );
-    if (decoded.role === "ADMIN" && decoded.tenantId) {
-      return decoded.tenantId;
-    }
+    const decoded = verifyAccessToken<{ role?: string }>(token);
+    return decoded.role === "ADMIN" || decoded.role === "SUPER_ADMIN";
   } catch {
-    // Invalid/expired token → treat as no staff context.
+    return false;
   }
-  return null;
 }
 
 // ─── Hardening schemas (Issues #706, #707, #708, #712, #713) ──────────────
@@ -908,6 +933,34 @@ router.post(
         }
       }
 
+      // Guard: when the caller EXPLICITLY chose a tenant — either the
+      // registration form's "Select Hospital" pick (body tenantId) or an
+      // admin's X-Tenant-Id header — and that tenant exists but is
+      // SUSPENDED, fail loudly. Previously resolveRegistrationTenant just
+      // skipped an inactive tenant (`if (t?.active)`) and silently fell
+      // through to the default tenant, so an admin adding staff to a
+      // suspended hospital got a "success" toast while the user was
+      // misfiled into the default tenant — invisible until someone noticed
+      // the row was missing. A clear 400 here is the correct behaviour.
+      const explicitTenantId =
+        (bodyTenantId && bodyTenantId.trim()) ||
+        (req.header("X-Tenant-Id") || "").trim();
+      if (explicitTenantId) {
+        const chosen = await prisma.tenant.findUnique({
+          where: { id: explicitTenantId },
+          select: { active: true, name: true },
+        });
+        if (chosen && !chosen.active) {
+          res.status(400).json({
+            success: false,
+            data: null,
+            error: `"${chosen.name}" is suspended — reactivate the tenant before adding users, or choose an active tenant.`,
+            details: [{ field: "tenantId", message: "Tenant is suspended" }],
+          });
+          return;
+        }
+      }
+
       // Resolve the tenant the new user belongs to FIRST — the patient
       // uniqueness rules below are scoped to the chosen hospital. Priority:
       //   body tenantId (patient's "Select Hospital" choice)
@@ -1142,6 +1195,30 @@ router.post(
         }
       }
 
+      auditLog(req, "USER_REGISTER", "user", user.id, { email: user.email, role: user.role }).catch(console.error);
+
+      // When an authenticated admin/super-admin created this account on
+      // someone else's behalf, DO NOT issue a session. Setting the new
+      // user's cookies here would overwrite the admin's own session in the
+      // browser — the admin would be silently logged in as the freshly
+      // created staff member on the next refresh. Return just the created
+      // user; the admin's existing cookies stay untouched.
+      if (callerIsAuthenticatedAdmin(req)) {
+        res.status(201).json({
+          success: true,
+          data: {
+            user: {
+              id: user.id,
+              email: user.email,
+              name: user.name,
+              role: user.role,
+            },
+          },
+          error: null,
+        });
+        return;
+      }
+
       const tokens = generateTokens(user.id, user.email, user.role, user.tenantId);
 
       // Store refresh token
@@ -1152,8 +1229,6 @@ router.post(
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
       });
-
-      auditLog(req, "USER_REGISTER", "user", user.id, { email: user.email, role: user.role }).catch(console.error);
 
       // Issue #477: set the access + refresh + csrf cookies. Tokens stay in
       // the response body for the brief migration window — the e2e

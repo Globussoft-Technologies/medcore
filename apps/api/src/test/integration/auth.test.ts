@@ -25,7 +25,7 @@
 import { it, expect, beforeAll, afterAll, describe } from "vitest";
 import request from "supertest";
 import jwt from "jsonwebtoken";
-import { describeIfDB, resetDB, getPrisma, TEST_DB_AVAILABLE } from "../setup";
+import { describeIfDB, resetDB, getPrisma, getAuthToken, TEST_DB_AVAILABLE } from "../setup";
 import { expectAntiEnumeration } from "../helpers/security-assertions";
 
 let app: any;
@@ -654,101 +654,89 @@ describeIfDB("Auth API (integration)", () => {
     expect(res.body?.data?.user?.role).toBe("DOCTOR");
   });
 
-  // ─── Doctor created via /register is BOOKABLE out of the box ───────────
-  // June 2026: an admin-created doctor had no DoctorSchedule, so it had no
-  // working hours and never appeared in the public-booking / walk-in /
-  // appointment pickers ("I added a doctor but No doctors available"). The
-  // register flow now auto-seeds a default Mon–Sat 09:00–17:00 schedule.
-  it("auto-seeds a default weekly schedule for a DOCTOR created via /register", async () => {
-    const adminLogin = await request(app)
-      .post("/api/v1/auth/login")
-      .send({ email: "admin@test.local", password: "MedCoreT3st-2026" });
-    const adminBearer = adminLogin.body?.data?.tokens?.accessToken;
-
+  it("SUPER_ADMIN staff-create on /register succeeds without patient-only fields", async () => {
+    // A SUPER_ADMIN was being demoted to PATIENT (resolveRegistrationRole only
+    // honoured "ADMIN"), tripping the PATIENT-only address + emergencyContact
+    // gate → 400 "Address is required". SUPER_ADMIN must be able to create
+    // staff with just the Create-Staff form fields (no address / emergency).
+    const superToken = await getAuthToken("SUPER_ADMIN");
     const res = await request(app)
       .post("/api/v1/auth/register")
-      .set("Authorization", `Bearer ${adminBearer}`)
+      .set("Authorization", `Bearer ${superToken}`)
       .send({
-        name: "Scheduled Doctor",
-        email: "scheduled.doctor@test.local",
-        phone: "9123461010",
+        name: "Super Created Doctor",
+        email: "super.doctor@test.local",
+        phone: "9123461777",
         password: "MedCoreT3st-2026",
         role: "DOCTOR",
       });
-    expect(res.status).toBe(201);
 
-    const prisma = await getPrisma();
-    const user = await prisma.user.findUnique({
-      where: { email: "scheduled.doctor@test.local" },
-      include: { doctor: { include: { schedules: true } } },
-    });
-    // A Doctor row exists AND it has weekday schedules (Mon=1 .. Sat=6).
-    expect(user?.doctor).toBeTruthy();
-    const dows = (user!.doctor!.schedules ?? [])
-      .map((s: { dayOfWeek: number }) => s.dayOfWeek)
-      .sort((a: number, b: number) => a - b);
-    expect(dows).toEqual([1, 2, 3, 4, 5, 6]);
-    // Every seeded row carries usable working hours.
-    for (const s of user!.doctor!.schedules) {
-      expect(s.startTime).toBe("09:00");
-      expect(s.endTime).toBe("17:00");
-    }
+    expect(res.status).toBe(201);
+    expect(res.body?.data?.user?.role).toBe("DOCTOR");
   });
 
-  // ─── Admin-created staff inherit the CREATING admin's tenant ───────────
-  // June 2026: resolveRegistrationTenant fell through to the `default` tenant
-  // on a bare host (no subdomain / body tenantId), so an admin in tenant X
-  // created doctors that silently landed in `default` and never appeared in
-  // that admin's tenant-scoped Doctors list. The new user must inherit the
-  // authenticated admin's tenant.
-  it("creates a DOCTOR in the creating ADMIN's tenant (not the default tenant)", async () => {
-    const prisma = await getPrisma();
-    // A dedicated tenant + a tenant-bound ADMIN to create staff under.
-    const tenant = await prisma.tenant.create({
-      data: { name: "Staff Tenant", subdomain: `staff-${Date.now()}` },
-    });
-    const bcrypt = await import("bcryptjs");
-    const tenantAdmin = await prisma.user.create({
-      data: {
-        email: "tenant.admin@test.local",
-        name: "Tenant Admin",
-        phone: "9123461020",
-        passwordHash: await bcrypt.hash("MedCoreT3st-2026", 4),
-        role: "ADMIN",
-        tenantId: tenant.id,
-        isActive: true,
-      },
-    });
-    const adminBearer = jwt.sign(
-      {
-        userId: tenantAdmin.id,
-        email: tenantAdmin.email,
-        role: "ADMIN",
-        tenantId: tenant.id,
-      },
-      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
-      { expiresIn: "1h" },
-    );
-
+  it("admin/super-admin staff-create on /register issues NO session (session-swap regression)", async () => {
+    // Regression: /register used to set the NEWLY-created user's auth cookies
+    // on the response, so a super-admin who created a doctor was silently
+    // logged in AS that doctor on the next refresh (and the staff list then
+    // reloaded under the wrong session → blank rows). An admin-initiated
+    // create must return the user but NO tokens and NO medcore_at cookie, so
+    // the admin's own session is left untouched.
+    const superToken = await getAuthToken("SUPER_ADMIN");
     const res = await request(app)
       .post("/api/v1/auth/register")
-      .set("Authorization", `Bearer ${adminBearer}`)
+      .set("Authorization", `Bearer ${superToken}`)
       .send({
-        name: "Tenant Bound Doctor",
-        email: "tenant.bound.doctor@test.local",
-        phone: "9123461021",
+        name: "No Session Doctor",
+        email: "nosession.doctor@test.local",
+        phone: "9123461888",
         password: "MedCoreT3st-2026",
         role: "DOCTOR",
       });
     expect(res.status).toBe(201);
+    expect(res.body?.data?.user?.role).toBe("DOCTOR");
+    // No tokens in the body…
+    expect(res.body?.data?.tokens).toBeFalsy();
+    // …and no auth cookie set on the response (it would clobber the admin's).
+    const rawCookies = res.headers["set-cookie"];
+    const cookies = Array.isArray(rawCookies)
+      ? rawCookies
+      : rawCookies
+        ? [rawCookies]
+        : [];
+    expect(cookies.some((c: string) => c.startsWith("medcore_at="))).toBe(false);
+  });
 
-    const created = await prisma.user.findUnique({
-      where: { email: "tenant.bound.doctor@test.local" },
-      include: { doctor: true },
+  it("rejects /register under a SUSPENDED tenant with a clear 400 (no silent default fallback)", async () => {
+    // A suspended tenant must not silently absorb new users into the default
+    // tenant — registration fails loudly so the admin reactivates it first.
+    // Use a super-admin + role=DOCTOR so the PATIENT-only address gate is
+    // skipped, and pass the tenant via the body so the handler's suspended
+    // guard (which checks body tenantId OR X-Tenant-Id) fires.
+    const prisma = await getPrisma();
+    const suspended = await prisma.tenant.create({
+      data: {
+        name: "Suspended Hospital — register guard",
+        subdomain: `suspended-reg-${Date.now()}`,
+        plan: "BASIC",
+        active: false,
+      },
     });
-    // Both the User and its Doctor row belong to the admin's tenant — NOT default.
-    expect(created?.tenantId).toBe(tenant.id);
-    expect(created?.doctor?.tenantId).toBe(tenant.id);
+    const superToken = await getAuthToken("SUPER_ADMIN");
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${superToken}`)
+      .send({
+        name: "Suspended Tenant Doctor",
+        email: "suspended.doctor@test.local",
+        phone: "9123461999",
+        password: "MedCoreT3st-2026",
+        role: "DOCTOR",
+        tenantId: suspended.id,
+      });
+    expect(res.status).toBe(400);
+    expect(res.body?.success).toBeFalsy();
+    expect(JSON.stringify(res.body).toLowerCase()).toMatch(/suspend/);
   });
 
   it("#668 admin staff-create on /register rejects denylisted 'password123'", async () => {

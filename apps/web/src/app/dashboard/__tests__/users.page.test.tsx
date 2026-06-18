@@ -120,6 +120,88 @@ describe("UsersPage", () => {
     expect(screen.getByPlaceholderText(/full name/i)).toBeInTheDocument();
   });
 
+  it("super-admin must pick a tenant before creating staff (tenant gating)", async () => {
+    const tenants = [
+      { id: "t1", name: "Active Hospital", subdomain: "active", active: true },
+      { id: "t2", name: "Suspended Hospital", subdomain: "susp", active: false },
+    ];
+    authMock.mockReturnValue({
+      user: {
+        id: "sa",
+        name: "Super",
+        email: "s@x.com",
+        role: "SUPER_ADMIN",
+        tenantId: null,
+      },
+    });
+    apiMock.get.mockImplementation((url: string) =>
+      url.startsWith("/tenants")
+        ? Promise.resolve({ data: tenants })
+        : Promise.resolve({ data: [] }),
+    );
+    const user = userEvent.setup();
+    render(<UsersPage />);
+    await waitFor(() =>
+      screen.getByRole("button", { name: /add staff user/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /add staff user/i }));
+
+    // Super-admin sees the Tenant picker in the create form.
+    expect(screen.getByTestId("label-staff-tenant")).toBeInTheDocument();
+
+    // Fill the required fields but leave the tenant unset.
+    await user.type(screen.getByTestId("staff-name-input"), "New Staff");
+    await user.type(screen.getByTestId("staff-email-input"), "newstaff@x.com");
+    await user.type(screen.getByTestId("staff-phone-input"), "9876500000");
+    await user.type(
+      screen.getByTestId("staff-password-input"),
+      "MedCoreT3st-2026",
+    );
+    await user.click(screen.getByRole("button", { name: /create user/i }));
+
+    // Validation blocks the request and surfaces the tenant error; no POST.
+    await waitFor(() =>
+      expect(screen.getByTestId("error-staff-tenant")).toBeInTheDocument(),
+    );
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
+  it("super-admin: cancel resets and closes the create form", async () => {
+    authMock.mockReturnValue({
+      user: {
+        id: "sa",
+        name: "Super",
+        email: "s@x.com",
+        role: "SUPER_ADMIN",
+        tenantId: null,
+      },
+    });
+    apiMock.get.mockImplementation((url: string) =>
+      url.startsWith("/tenants")
+        ? Promise.resolve({
+            data: [
+              { id: "t1", name: "Active Hospital", subdomain: "active", active: true },
+            ],
+          })
+        : Promise.resolve({ data: [] }),
+    );
+    const user = userEvent.setup();
+    render(<UsersPage />);
+    await waitFor(() =>
+      screen.getByRole("button", { name: /add staff user/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /add staff user/i }));
+    expect(
+      screen.getByRole("heading", { name: /create staff account/i }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: /create staff account/i }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("shows loading placeholder while fetching", async () => {
     let resolveFn: (v: any) => void = () => {};
     apiMock.get.mockImplementation(

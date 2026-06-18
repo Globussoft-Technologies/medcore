@@ -386,10 +386,25 @@ describeIfDB("Public quick-booking API (integration)", () => {
     // the next token. TOKEN/CALLING availability is now "is the doctor working
     // that day?", independent of the slot grid.
     const prisma = await getPrisma();
+    // Isolate this doctor in its OWN hospital so the assertion is
+    // deterministic. suggest-doctors caps the candidate pool (take: 12, no
+    // ordering) and only surfaces the top 3 available — with the seed + other
+    // fixtures in this file there are >12 "General Medicine" doctors, so a
+    // shared-tenant busyDoc gets dropped from the pool nondeterministically.
+    // Scoping to a fresh tenant (the patient's "which hospital" pick, exactly
+    // how the real booking chat calls this) makes busyDoc the sole candidate.
+    const busyTenant = await prisma.tenant.create({
+      data: {
+        name: "Busy TOKEN Hospital",
+        subdomain: `busy-token-${Date.now()}`,
+        plan: "BASIC",
+        active: true,
+      },
+    });
     const busyDoc = await createDoctorFixture({ specialization: "General Medicine" });
     await prisma.doctor.update({
       where: { id: busyDoc.id },
-      data: { appointmentMode: "TOKEN" },
+      data: { appointmentMode: "TOKEN", tenantId: busyTenant.id },
     });
     // A short 09:00–09:30 window = two 15-min notional slots: 09:00, 09:15.
     await prisma.doctorSchedule.create({
@@ -428,7 +443,7 @@ describeIfDB("Public quick-booking API (integration)", () => {
 
     const res = await request(app)
       .post("/api/v1/public/booking/suggest-doctors")
-      .send({ symptom: "fever", date: FUTURE_ISO });
+      .send({ symptom: "fever", date: FUTURE_ISO, tenantId: busyTenant.id });
     expect(res.status).toBe(200);
     const found = res.body.data.doctors.find(
       (d: any) => d.doctorId === busyDoc.id,

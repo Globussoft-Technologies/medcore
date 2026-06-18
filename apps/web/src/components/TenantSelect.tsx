@@ -21,6 +21,9 @@ export interface TenantOption {
   id: string;
   name: string;
   subdomain: string;
+  /** Whether the tenant is active. Callers may filter suspended tenants
+      out of create/assign flows; the field is optional for back-compat. */
+  active?: boolean;
 }
 
 interface TenantSelectProps {
@@ -36,6 +39,12 @@ interface TenantSelectProps {
   /** Wrapper classes (width etc.). */
   className?: string;
   testId?: string;
+  /** When true, tenants with `active === false` are still shown but rendered
+      disabled (greyed, "Suspended" tag, non-selectable). Used in create/assign
+      forms so a suspended tenant is visible but can't receive new records.
+      Leave false for list-filter pickers where you DO want to select a
+      suspended tenant to view its existing rows. */
+  disableSuspended?: boolean;
 }
 
 interface MenuPos {
@@ -59,6 +68,7 @@ export function TenantSelect({
   error,
   className = "",
   testId,
+  disableSuspended = false,
 }: TenantSelectProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<MenuPos | null>(null);
@@ -170,31 +180,48 @@ export function TenantSelect({
             {options.map((tn) => {
               const isDefault = tn.subdomain === "default";
               const isSelected = value === tn.id;
+              // A suspended tenant is shown but locked out of create/assign
+              // flows — selecting it would misfile the new record.
+              const isSuspended = disableSuspended && tn.active === false;
               return (
                 <li key={tn.id || "__all__"}>
                   <button
                     type="button"
                     role="option"
                     aria-selected={isSelected}
+                    aria-disabled={isSuspended}
+                    disabled={isSuspended}
+                    title={isSuspended ? "Tenant is suspended" : undefined}
                     onClick={() => {
+                      if (isSuspended) return;
                       onChange(tn.id);
                       setOpen(false);
                     }}
-                    className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                      isSelected ? "font-medium" : ""
-                    } ${
-                      isDefault
-                        ? "text-amber-700 dark:text-amber-400"
-                        : isSelected
-                          ? "text-primary"
-                          : "text-gray-700 dark:text-gray-200"
+                    className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
+                      isSuspended
+                        ? "cursor-not-allowed text-gray-400 dark:text-gray-500"
+                        : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                    } ${isSelected ? "font-medium" : ""} ${
+                      isSuspended
+                        ? ""
+                        : isDefault
+                          ? "text-amber-700 dark:text-amber-400"
+                          : isSelected
+                            ? "text-primary"
+                            : "text-gray-700 dark:text-gray-200"
                     }`}
                   >
                     <span className="truncate">{tn.name}</span>
-                    {isDefault && (
-                      <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                        Default
+                    {isSuspended ? (
+                      <span className="shrink-0 rounded-full bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-600 dark:text-gray-300">
+                        Suspended
                       </span>
+                    ) : (
+                      isDefault && (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+                          Default
+                        </span>
+                      )
                     )}
                   </button>
                 </li>

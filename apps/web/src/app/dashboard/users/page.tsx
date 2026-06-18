@@ -109,7 +109,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<StaffUser[]>([]);
   // Super-admin Staff-tab tenant filter.
   const [tenants, setTenants] = useState<
-    Array<{ id: string; name: string; subdomain: string }>
+    Array<{ id: string; name: string; subdomain: string; active?: boolean }>
   >([]);
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -137,6 +137,12 @@ export default function UsersPage() {
     emergencyContactPhone: "",
     emergencyContactRelationship: "",
   });
+  // Super-admin only: which tenant a newly-created staff user is registered
+  // under. A super-admin has no tenant context of their own, so they must
+  // pick one; the chosen id is sent as X-Tenant-Id on /register. Separate
+  // from `selectedTenantId` (the list filter) so filtering the list doesn't
+  // silently change where a new user lands.
+  const [formTenantId, setFormTenantId] = useState("");
   // Pearl §8.2 — super-admin roster. Only fetched when the current
   // viewer is themselves a super-admin (Role.ADMIN, tenantId=null).
   // Tenant-bound ADMINs never load this data — the API gate would 403
@@ -249,6 +255,13 @@ export default function UsersPage() {
       else if (!/^\+?\d{10,15}$/.test(ecPhone))
         errs.emergencyContactPhone = "Emergency phone must be 10–15 digits (optional + prefix)";
       if (!ecRel) errs.emergencyContactRelationship = "Required when any emergency-contact field is filled";
+    }
+
+    // Super-admin must choose a target tenant (they have no tenant of their
+    // own). Tenant-bound admins skip this — the API pins the new user to the
+    // admin's own tenant.
+    if (isSuperAdmin && !formTenantId) {
+      errs.tenantId = "Select a tenant to register the user under";
     }
 
     return errs;
@@ -414,7 +427,17 @@ export default function UsersPage() {
           relationship: ecRel,
         };
       }
-      await api.post("/auth/register", payload);
+      // Super-admin only: target the chosen tenant via X-Tenant-Id. The
+      // server honours this header to create the staff user under that
+      // tenant. Tenant-bound admins call without it and the user is pinned
+      // to their own tenant.
+      await api.post(
+        "/auth/register",
+        payload,
+        isSuperAdmin && formTenantId
+          ? { headers: { "X-Tenant-Id": formTenantId } }
+          : undefined,
+      );
       toast.success("User created");
       setShowForm(false);
       setForm({
@@ -428,6 +451,7 @@ export default function UsersPage() {
         emergencyContactPhone: "",
         emergencyContactRelationship: "",
       });
+      setFormTenantId("");
       loadUsers();
       if (isSuperAdmin) void loadSuperAdmins();
     } catch (err) {
@@ -851,6 +875,42 @@ export default function UsersPage() {
                 ))}
               </select>
             </div>
+            {/* Super-admin only: target tenant for the new staff user. A
+                super-admin has no tenant of their own, so they pick which
+                tenant the user belongs to. Tenant-bound admins never see
+                this — the API pins the user to their own tenant. */}
+            {isSuperAdmin && (
+              <div>
+                <label
+                  htmlFor="staff-tenant"
+                  className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300"
+                  data-testid="label-staff-tenant"
+                >
+                  Tenant
+                </label>
+                <TenantSelect
+                  // Show every tenant but lock out suspended ones — a
+                  // suspended tenant would silently misfile the user into the
+                  // default tenant (the API also rejects it with a message).
+                  tenants={tenants}
+                  value={formTenantId}
+                  onChange={setFormTenantId}
+                  placeholder="Select tenant…"
+                  error={!!fieldErrors.tenantId}
+                  className="w-full"
+                  testId="staff-tenant"
+                  disableSuspended
+                />
+                {fieldErrors.tenantId && (
+                  <p
+                    data-testid="error-staff-tenant"
+                    className="mt-1 text-xs text-red-600 dark:text-red-400"
+                  >
+                    {fieldErrors.tenantId}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Issue #991 (UI follow-up): optional Address + Emergency Contact.
@@ -1011,7 +1071,11 @@ export default function UsersPage() {
             </button>
             <button
               type="button"
-              onClick={() => setShowForm(false)}
+              onClick={() => {
+                setShowForm(false);
+                setFormTenantId("");
+                setFieldErrors({});
+              }}
               className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               Cancel

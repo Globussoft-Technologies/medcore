@@ -104,7 +104,7 @@ export default function DoctorsPage() {
     user?.actualRole === "SUPER_ADMIN" ||
     (user?.role === "ADMIN" && !user?.tenantId);
   const [tenants, setTenants] = useState<
-    Array<{ id: string; name: string; subdomain: string }>
+    Array<{ id: string; name: string; subdomain: string; active?: boolean }>
   >([]);
   const [selectedTenantId, setSelectedTenantId] = useState("");
   // Super-admin only: which tenant a newly-created doctor is registered under
@@ -234,6 +234,14 @@ export default function DoctorsPage() {
     specialization: "General Medicine",
     qualification: "",
     registrationNumber: "",
+    // Optional postal + next-of-kin details (create-new-user only). Both are
+    // .optional() on /register for non-PATIENT roles; emergency contact is
+    // all-or-nothing client-side because the wire schema needs name + phone +
+    // relationship together.
+    address: "",
+    emergencyContactName: "",
+    emergencyContactPhone: "",
+    emergencyContactRelationship: "",
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -249,6 +257,10 @@ export default function DoctorsPage() {
       specialization: "General Medicine",
       qualification: "",
       registrationNumber: "",
+      address: "",
+      emergencyContactName: "",
+      emergencyContactPhone: "",
+      emergencyContactRelationship: "",
     });
     setFormTenantId("");
     setFormErrors({});
@@ -278,6 +290,30 @@ export default function DoctorsPage() {
         errs.password = "Password must be at least 8 characters";
       else if (!/[A-Za-z]/.test(form.password) || !/\d/.test(form.password))
         errs.password = "Password must contain a letter and a digit";
+
+      // Optional postal + next-of-kin. Address is optional but, if provided,
+      // must match the /register schema's 5–500 char rule. Emergency contact
+      // is all-or-nothing: filling any one field requires all three (the wire
+      // emergencyContact schema needs name + phone + relationship together).
+      const addrTrim = form.address.trim();
+      if (addrTrim.length > 0 && addrTrim.length < 5)
+        errs.address = "Address must be at least 5 characters";
+      else if (addrTrim.length > 500)
+        errs.address = "Address must be at most 500 characters";
+
+      const ecName = form.emergencyContactName.trim();
+      const ecPhone = form.emergencyContactPhone.trim();
+      const ecRel = form.emergencyContactRelationship.trim();
+      if (ecName || ecPhone || ecRel) {
+        if (!ecName)
+          errs.emergencyContactName = "Required when any emergency-contact field is filled";
+        if (!ecPhone)
+          errs.emergencyContactPhone = "Required when any emergency-contact field is filled";
+        else if (!/^\+?\d{10,15}$/.test(ecPhone))
+          errs.emergencyContactPhone = "Emergency phone must be 10–15 digits, optional leading +";
+        if (!ecRel)
+          errs.emergencyContactRelationship = "Required when any emergency-contact field is filled";
+      }
     } else {
       if (!form.userId) errs.userId = "Pick an existing user to elevate";
     }
@@ -304,15 +340,32 @@ export default function DoctorsPage() {
         // doesn't exist yet (current backend gap), the row is still
         // created with the registration defaults and the admin can edit
         // from the Doctor profile.
+        // Include address + emergencyContact in the wire body only when
+        // populated — both are optional on /register for non-PATIENT roles.
+        // The all-or-nothing validator above guarantees we never send a
+        // partially-filled emergencyContact (which the server would 400).
+        const addrTrim = form.address.trim();
+        const ecName = form.emergencyContactName.trim();
+        const ecPhone = form.emergencyContactPhone.trim();
+        const ecRel = form.emergencyContactRelationship.trim();
+        const registerBody: Record<string, unknown> = {
+          name: form.name.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
+          password: form.password,
+          role: "DOCTOR",
+        };
+        if (addrTrim.length >= 5) registerBody.address = addrTrim;
+        if (ecName && ecPhone && ecRel) {
+          registerBody.emergencyContact = {
+            name: ecName,
+            phone: ecPhone,
+            relationship: ecRel,
+          };
+        }
         await api.post(
           "/auth/register",
-          {
-            name: form.name.trim(),
-            email: form.email.trim(),
-            phone: form.phone.trim(),
-            password: form.password,
-            role: "DOCTOR",
-          },
+          registerBody,
           // Super-admin only: target the chosen tenant via X-Tenant-Id. The
           // server honours this header to create the doctor under that tenant.
           // Tenant-bound admins call exactly as before (no header) and the
@@ -582,7 +635,10 @@ export default function DoctorsPage() {
           aria-labelledby="doctor-add-modal-title"
           data-testid="doctor-add-modal"
         >
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
+          <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl bg-white shadow-xl dark:bg-gray-800">
+            {/* Fixed header — the title and the Create/Elevate mode toggle
+                stay pinned; only the form fields below scroll. */}
+            <div className="shrink-0 border-b border-gray-200 px-6 pt-6 pb-4 dark:border-gray-700">
             <div className="mb-4 flex items-center justify-between">
               <h2
                 id="doctor-add-modal-title"
@@ -633,8 +689,14 @@ export default function DoctorsPage() {
                 Elevate existing user
               </button>
             </div>
+            </div>
 
-            <form onSubmit={handleCreateDoctor} noValidate className="space-y-3">
+            <form
+              onSubmit={handleCreateDoctor}
+              noValidate
+              autoComplete="off"
+              className="flex-1 space-y-3 overflow-y-auto px-6 py-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
               {createMode === "new" ? (
                 <>
                   <div>
@@ -675,6 +737,11 @@ export default function DoctorsPage() {
                       <input
                         id="doctor-form-email"
                         type="email"
+                        // Stop the browser/password-manager from autofilling
+                        // the logged-in admin's own email into the new-doctor
+                        // field. The field is bound to empty form state; the
+                        // value shown without this is purely browser autofill.
+                        autoComplete="off"
                         data-testid="doctor-form-email"
                         value={form.email}
                         onChange={(e) =>
@@ -732,6 +799,10 @@ export default function DoctorsPage() {
                       <input
                         id="doctor-form-password"
                         type={showPassword ? "text" : "password"}
+                        // "new-password" tells the browser/password-manager
+                        // this is a fresh credential to set, not the admin's
+                        // saved login — prevents it pre-filling the dots.
+                        autoComplete="new-password"
                         data-testid="doctor-form-password"
                         value={form.password}
                         onChange={(e) =>
@@ -872,6 +943,159 @@ export default function DoctorsPage() {
                 />
               </div>
 
+              {/* Optional postal + next-of-kin details — only relevant when
+                  creating a brand-new user (elevating an existing user reuses
+                  their stored profile). Both fields are optional on the
+                  /register schema for the DOCTOR role. */}
+              {createMode === "new" && (
+                <div className="rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                    Optional details
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    Capture postal + next-of-kin information now, or skip and
+                    add it later via Edit.
+                  </p>
+
+                  <div className="mt-3">
+                    <label
+                      htmlFor="doctor-form-address"
+                      className="block text-xs font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      Address <span className="text-gray-400">(optional)</span>
+                    </label>
+                    <textarea
+                      id="doctor-form-address"
+                      data-testid="doctor-form-address"
+                      rows={2}
+                      value={form.address}
+                      onChange={(e) =>
+                        setForm({ ...form, address: e.target.value })
+                      }
+                      placeholder="Street, area, city, PIN"
+                      className={
+                        "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                        (formErrors.address
+                          ? "border-red-500"
+                          : "border-gray-200 dark:border-gray-600")
+                      }
+                    />
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      If provided, must be 5–500 characters.
+                    </p>
+                    {formErrors.address && (
+                      <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                        {formErrors.address}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-3">
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                      Emergency contact{" "}
+                      <span className="text-gray-400">
+                        (optional — all three fields required if any is filled)
+                      </span>
+                    </p>
+                    <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <div>
+                        <label
+                          htmlFor="doctor-form-ec-name"
+                          className="block text-xs text-gray-600 dark:text-gray-400"
+                        >
+                          Name
+                        </label>
+                        <input
+                          id="doctor-form-ec-name"
+                          data-testid="doctor-form-ec-name"
+                          value={form.emergencyContactName}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              emergencyContactName: e.target.value,
+                            })
+                          }
+                          placeholder="Contact name"
+                          className={
+                            "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                            (formErrors.emergencyContactName
+                              ? "border-red-500"
+                              : "border-gray-200 dark:border-gray-600")
+                          }
+                        />
+                        {formErrors.emergencyContactName && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                            {formErrors.emergencyContactName}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="doctor-form-ec-phone"
+                          className="block text-xs text-gray-600 dark:text-gray-400"
+                        >
+                          Phone
+                        </label>
+                        <input
+                          id="doctor-form-ec-phone"
+                          data-testid="doctor-form-ec-phone"
+                          value={form.emergencyContactPhone}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              emergencyContactPhone: e.target.value,
+                            })
+                          }
+                          placeholder="10–15 digits"
+                          className={
+                            "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                            (formErrors.emergencyContactPhone
+                              ? "border-red-500"
+                              : "border-gray-200 dark:border-gray-600")
+                          }
+                        />
+                        {formErrors.emergencyContactPhone && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                            {formErrors.emergencyContactPhone}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="doctor-form-ec-rel"
+                          className="block text-xs text-gray-600 dark:text-gray-400"
+                        >
+                          Relationship
+                        </label>
+                        <input
+                          id="doctor-form-ec-rel"
+                          data-testid="doctor-form-ec-rel"
+                          value={form.emergencyContactRelationship}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              emergencyContactRelationship: e.target.value,
+                            })
+                          }
+                          placeholder="e.g. Spouse, Parent"
+                          className={
+                            "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
+                            (formErrors.emergencyContactRelationship
+                              ? "border-red-500"
+                              : "border-gray-200 dark:border-gray-600")
+                          }
+                        />
+                        {formErrors.emergencyContactRelationship && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                            {formErrors.emergencyContactRelationship}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Super-admin only: target tenant for the new doctor. A super-
                   admin has no tenant of their own, so they must choose which
                   tenant the doctor belongs to. Tenant-bound admins never see
@@ -883,6 +1107,9 @@ export default function DoctorsPage() {
                   </label>
                   <div className="mt-1">
                     <TenantSelect
+                      // Show every tenant but lock out suspended ones — a
+                      // suspended tenant would silently misfile the doctor
+                      // into the default tenant (the API also rejects it).
                       tenants={tenants}
                       value={formTenantId}
                       onChange={setFormTenantId}
@@ -890,6 +1117,7 @@ export default function DoctorsPage() {
                       error={!!formErrors.tenantId}
                       className="w-full"
                       testId="doctor-form-tenant"
+                      disableSuspended
                     />
                   </div>
                   {formErrors.tenantId && (

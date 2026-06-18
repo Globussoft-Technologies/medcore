@@ -72,6 +72,9 @@ export async function resetDB() {
 
 export type TestRole =
   | "ADMIN"
+  // Tenant-less platform super admin (schema Role.SUPER_ADMIN). May create
+  // staff via /auth/register the same as ADMIN.
+  | "SUPER_ADMIN"
   | "DOCTOR"
   | "RECEPTION"
   | "NURSE"

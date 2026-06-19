@@ -34,6 +34,58 @@ function safeAudit(
   });
 }
 
+// Specialty synonym normalisation. The triage LLM emits canonical specialty
+// names (e.g. "General Physician", "Orthopedic") but a hospital's Doctor rows
+// may be tagged with a clinically-equivalent variant ("General Medicine",
+// "Orthopedics"). An exact `specialization IN (...)` match silently drops these,
+// producing a "No doctors available" card even when a suitable doctor exists in
+// the tenant. We expand each suggested specialty to its known synonyms before
+// querying, and match case-insensitively.
+const SPECIALTY_SYNONYMS: Record<string, string[]> = {
+  "general physician": ["general physician", "general medicine", "family physician", "family medicine", "gp", "general practitioner", "internal medicine", "physician"],
+  "general practitioner": ["general practitioner", "general physician", "general medicine", "family physician", "gp"],
+  "cardiologist": ["cardiologist", "cardiology"],
+  "pulmonologist": ["pulmonologist", "pulmonology", "chest physician", "respiratory medicine"],
+  "gastroenterologist": ["gastroenterologist", "gastroenterology"],
+  "neurologist": ["neurologist", "neurology"],
+  "orthopedic": ["orthopedic", "orthopaedic", "orthopedics", "orthopaedics", "orthopedic surgeon"],
+  "dermatologist": ["dermatologist", "dermatology", "skin specialist"],
+  "ent": ["ent", "otolaryngologist", "otolaryngology", "ear nose throat"],
+  "ophthalmologist": ["ophthalmologist", "ophthalmology", "eye specialist"],
+  "gynecologist": ["gynecologist", "gynaecologist", "gynecology", "gynaecology", "obstetrician", "obg", "obstetrics & gynaecology"],
+  "pediatrician": ["pediatrician", "paediatrician", "pediatrics", "paediatrics", "child specialist"],
+  "urologist": ["urologist", "urology"],
+  "endocrinologist": ["endocrinologist", "endocrinology", "diabetologist"],
+  "psychiatrist": ["psychiatrist", "psychiatry"],
+  "oncologist": ["oncologist", "oncology", "medical oncologist"],
+  "nephrologist": ["nephrologist", "nephrology"],
+  "rheumatologist": ["rheumatologist", "rheumatology"],
+  "dentist": ["dentist", "dental", "dentistry"],
+  "physiotherapist": ["physiotherapist", "physiotherapy", "physical therapist"],
+};
+
+/**
+ * Expand a list of LLM-suggested specialty names into the full set of
+ * clinically-equivalent variants (lower-cased) used for tenant-scoped doctor
+ * lookup. Unknown specialties pass through as their own single-element set so
+ * matching never gets narrower than the exact name.
+ */
+function expandSpecialties(specialties: string[]): string[] {
+  const out = new Set<string>();
+  for (const raw of specialties) {
+    if (typeof raw !== "string") continue;
+    const key = raw.trim().toLowerCase();
+    if (!key) continue;
+    const variants = SPECIALTY_SYNONYMS[key] ?? [key];
+    for (const v of variants) out.add(v);
+  }
+  return [...out];
+}
+
+// Lower-cased synonym set for any GP-equivalent specialty — used by the
+// last-resort fallback when nothing else in the tenant matches.
+const GP_SYNONYMS = SPECIALTY_SYNONYMS["general physician"];
+
 const router = Router();
 // #511 audit (file-level, 2026-05-09): no router-level `router.use(authenticate)`
 // — each handler applies `authenticate` individually (and `authorize` where the
@@ -195,11 +247,22 @@ router.post(
       // message. Catch defensively and return a graceful fallback so
       // the chat keeps working; we still log the original error.
       const lang = langOverride || session.language;
+      // In-hospital routing constraint: the patient is already inside their
+      // hospital's portal, so the assistant must NEVER ask for the patient's
+      // city/location, and must NEVER name external hospitals or third-party
+      // booking sites (Practo, Lybrate, Apollo, AMRI, Google Maps, etc). It
+      // routes only to doctors available within this hospital — the suggestion
+      // cards are populated from the tenant's own (already tenant-scoped)
+      // doctor roster. See issue: AI booking asking for location.
+      const IN_HOSPITAL_SUFFIX =
+        lang === "hi"
+          ? "महत्वपूर्ण: मरीज़ पहले से ही अपने अस्पताल के पोर्टल में लॉग-इन है। उनसे उनका शहर, क्षेत्र या स्थान कभी न पूछें। किसी बाहरी अस्पताल, क्लिनिक या वेबसाइट (जैसे Practo, Lybrate, Apollo, AMRI, Google) का नाम न लें। केवल लक्षणों के आधार पर सही विशेषज्ञता (specialty) सुझाएँ — डॉक्टर की सूची इसी अस्पताल से अपने आप दिखाई जाएगी।"
+          : "IMPORTANT: The patient is ALREADY logged in to their own hospital's portal. NEVER ask the patient for their city, area, or location. NEVER name or suggest any external hospital, clinic, or third-party booking website (e.g. Practo, Lybrate, Apollo, AMRI, Fortis, Google Maps) — you route ONLY to doctors within this hospital. Based on the symptoms, just recommend the right medical specialty; the matching in-hospital doctors are surfaced automatically as suggestion cards. Do not tell the patient to search elsewhere.";
       let reply = "";
       let isEmergency = false;
       let emergencyReason: string | undefined;
       try {
-        const turn = await runTriageTurn(claudeMessages, lang);
+        const turn = await runTriageTurn(claudeMessages, lang, IN_HOSPITAL_SUFFIX);
         reply = turn.reply;
         isEmergency = turn.isEmergency;
         emergencyReason = turn.emergencyReason;
@@ -305,12 +368,18 @@ router.post(
           )?.specialty;
           if (topSpecialty && !hasGP(candidateSpecialties)) {
             try {
-              const matchingCount = await prisma.doctor.count({
-                where: {
-                  specialization: topSpecialty,
-                  user: { isActive: true },
-                },
+              // Count via the same synonym-expanded, case-insensitive match the
+              // GET handler uses, so "General Medicine" counts toward a suggested
+              // "General Physician" instead of reading 0 and over-triggering the
+              // GP prepend.
+              const wantedTop = new Set(expandSpecialties([topSpecialty]));
+              const activeForCount = await prisma.doctor.findMany({
+                where: { user: { isActive: true } },
+                select: { specialization: true },
               });
+              const matchingCount = activeForCount.filter(
+                (d) => !!d.specialization && wantedTop.has(d.specialization.trim().toLowerCase()),
+              ).length;
               if (matchingCount < 2) {
                 candidateSpecialties = [gpEntry, ...candidateSpecialties];
               }
@@ -382,22 +451,48 @@ router.get(
       let doctorSuggestions: any[] = [];
       if (session.suggestedSpecialties) {
         const specialties = (session.suggestedSpecialties as any[]).map((s: any) => s.specialty);
-        const doctors = await prisma.doctor.findMany({
-          where: {
-            specialization: { in: specialties },
-            user: { isActive: true },
-          },
+        // Expand the suggested specialties to their clinical synonyms and match
+        // case-insensitively. Prisma's `in` is case-sensitive and would miss
+        // "General Medicine" for a suggested "General Physician", so we pull the
+        // tenant's active doctors (the client is already tenant-scoped) and
+        // filter in JS against the expanded synonym set.
+        const wanted = new Set(expandSpecialties(specialties));
+        const activeDoctors = await prisma.doctor.findMany({
+          where: { user: { isActive: true } },
           include: {
             user: { select: { id: true, name: true, photoUrl: true, preferredLanguage: true } },
             schedules: true,
           },
-          take: 6,
         });
+        const matches = (spec: string | null | undefined) =>
+          !!spec && wanted.has(spec.trim().toLowerCase());
+
+        let doctors = activeDoctors.filter((d) => matches(d.specialization)).slice(0, 6);
+
+        // GP fallback: if no doctor in this hospital matches the suggested
+        // specialty, surface any General-Physician-equivalent doctor in the
+        // tenant so the patient still gets a starting point instead of an empty
+        // list. Tagged isGPFallback below so the UI can badge it.
+        let isFallbackPool = false;
+        if (doctors.length === 0) {
+          const gpSet = new Set(GP_SYNONYMS);
+          const gpDoctors = activeDoctors.filter(
+            (d) => !!d.specialization && gpSet.has(d.specialization.trim().toLowerCase()),
+          );
+          if (gpDoctors.length > 0) {
+            doctors = gpDoctors.slice(0, 6);
+            isFallbackPool = true;
+          }
+        }
 
         doctorSuggestions = doctors.map((d) => {
+          // Match the suggestion metadata case-insensitively too, so the
+          // reasoning/confidence from the LLM still attaches to a doctor whose
+          // specialization is a synonym (not a byte-for-byte match).
           const specialty = (session.suggestedSpecialties as any[]).find(
-            (s: any) => s.specialty === d.specialization
-          );
+            (s: any) => typeof s?.specialty === "string"
+              && s.specialty.trim().toLowerCase() === (d.specialization ?? "").trim().toLowerCase()
+          ) ?? (session.suggestedSpecialties as any[])[0];
           return {
             doctorId: d.id,
             name: d.user.name,
@@ -410,12 +505,17 @@ router.get(
             rating: d.averageRating ? Number(d.averageRating) : null,
             consultationFee: d.consultationFee ? Number(d.consultationFee) : null,
             consultationMode: "in-person",          // default; extend later
+            // Surface the doctor's booking mode (TOKEN / SLOT / CALLING) so the
+            // AI-booking cards can badge it and the booking step picks the right
+            // shape. All three modes are suggested — no mode is filtered out.
+            appointmentMode: d.appointmentMode,
             reasoning: specialty?.reasoning || `Specialist in ${d.specialization}`,
             confidence: specialty?.confidence || 0.7,
             // GAP-T8: flag GP cards so the UI can surface a "GP recommended
             // first" badge when Claude's confidence was low or the suggested
-            // specialty pool is thin.
-            isGPFallback: !!specialty?.isGPFallback,
+            // specialty pool is thin. Also flagged when this card came from the
+            // tenant-wide GP fallback pool (no exact-specialty doctor existed).
+            isGPFallback: !!specialty?.isGPFallback || isFallbackPool,
           };
         });
         // Ensure GP-fallback cards appear first so patients see them prominently.

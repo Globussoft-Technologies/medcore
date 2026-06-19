@@ -243,6 +243,9 @@ describeIfDB("AI Triage API (integration)", () => {
     );
     expect(found).toBeTruthy();
     expect(found.specialty).toBe("Neurology");
+    // The suggestion surfaces the doctor's booking mode so the card can badge
+    // it (TOKEN / SLOT / CALLING). No mode is filtered out of suggestions.
+    expect(["TOKEN", "SLOT", "CALLING"]).toContain(found.appointmentMode);
   });
 
   it("returns 404 for GET on unknown session", async () => {

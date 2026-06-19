@@ -9,15 +9,27 @@
 // (cookie issuance, audit log, tenant scoping) is our existing machinery —
 // Firebase is just the OTP transport.
 //
-// Credentials: a Firebase service-account JSON file path supplied via
-//   FIREBASE_ADMIN_CREDENTIALS_PATH   (e.g. /etc/medcore/firebase-sa.json)
-// AND
-//   FIREBASE_PROJECT_ID               (must match the client-side project
-//                                      so the audience/issuer check passes)
+// Credentials: the Firebase service-account JSON is supplied EITHER as raw
+// JSON in an env var (preferred for production / containers / serverless,
+// where a fixed filesystem path is unreliable), OR as a path to a JSON file
+// on disk (convenient for local dev). Resolution order:
+//   1. FIREBASE_ADMIN_CREDENTIALS_JSON  — the full service-account JSON,
+//      inline. Travels with the deploy; no filesystem dependency. Use this
+//      in live. The value may be the raw JSON, or base64-encoded JSON (some
+//      hosts mangle multi-line secrets — base64 sidesteps that).
+//   2. FIREBASE_ADMIN_CREDENTIALS_PATH  — absolute path to the JSON file.
+//      Fine locally; will NOT work in live if the path doesn't exist on the
+//      server (it usually doesn't), so prefer (1) for deployed environments.
+// AND, in both cases:
+//   FIREBASE_PROJECT_ID                 — must match the client-side project
+//                                         (NEXT_PUBLIC_FIREBASE_PROJECT_ID) so
+//                                         the ID-token audience/issuer check
+//                                         passes. If omitted, we fall back to
+//                                         the project_id inside the JSON.
 //
-// Both env vars are mandatory; missing them throws at first call so a
-// misconfigured deploy fails the FIRST patient sign-in cleanly rather than
-// 5xx-ing somewhere deeper in the route handler.
+// At least one credential source is mandatory; missing both throws at first
+// call so a misconfigured deploy fails the FIRST patient sign-in cleanly
+// rather than 5xx-ing somewhere deeper in the route handler.
 
 import { existsSync, readFileSync } from "node:fs";
 import {
@@ -32,33 +44,65 @@ import { getAuth, type Auth } from "firebase-admin/auth";
 let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
 
-function loadServiceAccount(): ServiceAccount {
+/**
+ * Read the service-account JSON STRING from whichever source is configured.
+ * Prefers the inline env var (production-safe); falls back to the file path
+ * (local-dev convenience). Returns the raw JSON text.
+ */
+function readServiceAccountRaw(): string {
+  // 1. Inline JSON env var — preferred for live. Accept raw JSON or base64.
+  const inline = process.env.FIREBASE_ADMIN_CREDENTIALS_JSON;
+  if (inline && inline.trim()) {
+    const trimmed = inline.trim();
+    // Heuristic: a JSON object starts with "{". If it doesn't, assume the
+    // value was base64-encoded (common when a host won't accept multi-line
+    // secrets) and decode it.
+    if (trimmed.startsWith("{")) return trimmed;
+    try {
+      const decoded = Buffer.from(trimmed, "base64").toString("utf8");
+      if (decoded.trim().startsWith("{")) return decoded;
+    } catch {
+      // fall through to the error below
+    }
+    throw new Error(
+      "FIREBASE_ADMIN_CREDENTIALS_JSON is set but is neither raw JSON " +
+        "(starting with '{') nor valid base64-encoded JSON.",
+    );
+  }
+
+  // 2. File path — local-dev fallback. Will NOT work in live if the path
+  //    doesn't exist on the server, hence the inline var is preferred there.
   const path = process.env.FIREBASE_ADMIN_CREDENTIALS_PATH;
   if (!path) {
     throw new Error(
-      "FIREBASE_ADMIN_CREDENTIALS_PATH is not set. " +
-        "Drop the Firebase service-account JSON outside the repo and point this env var at it.",
+      "No Firebase credentials configured. Set FIREBASE_ADMIN_CREDENTIALS_JSON " +
+        "(inline service-account JSON — preferred for production) OR " +
+        "FIREBASE_ADMIN_CREDENTIALS_PATH (path to the JSON file — local dev).",
     );
   }
   if (!existsSync(path)) {
     throw new Error(
-      `FIREBASE_ADMIN_CREDENTIALS_PATH points at "${path}" but that file does not exist.`,
+      `FIREBASE_ADMIN_CREDENTIALS_PATH points at "${path}" but that file does not exist. ` +
+        "On a deployed server this path usually won't exist — use FIREBASE_ADMIN_CREDENTIALS_JSON instead.",
     );
   }
-  let raw: string;
   try {
-    raw = readFileSync(path, "utf8");
+    return readFileSync(path, "utf8");
   } catch (err) {
     throw new Error(
       `Could not read FIREBASE_ADMIN_CREDENTIALS_PATH at "${path}": ${(err as Error).message}`,
     );
   }
+}
+
+function loadServiceAccount(): ServiceAccount {
+  const raw = readServiceAccountRaw();
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
     throw new Error(
-      `FIREBASE_ADMIN_CREDENTIALS_PATH file is not valid JSON: ${(err as Error).message}`,
+      `Firebase service-account credentials are not valid JSON: ${(err as Error).message}`,
     );
   }
   const sa = parsed as ServiceAccount & { project_id?: string };
@@ -80,10 +124,18 @@ function getFirebaseAdminApp(): App {
     return cachedApp;
   }
   const serviceAccount = loadServiceAccount();
-  const projectId = process.env.FIREBASE_PROJECT_ID;
+  // Prefer an explicit FIREBASE_PROJECT_ID, but fall back to the project_id
+  // baked into the service-account JSON. Using the JSON's own project_id
+  // removes the most common misconfig — a project mismatch between the env
+  // var and the credentials — which surfaces as a silent "Couldn't sign you
+  // in" because the ID-token audience/issuer check fails.
+  const projectId =
+    process.env.FIREBASE_PROJECT_ID || serviceAccount.projectId;
   if (!projectId) {
     throw new Error(
-      "FIREBASE_PROJECT_ID is not set. It must match the NEXT_PUBLIC_FIREBASE_PROJECT_ID used by the web client so ID-token audience/issuer checks pass.",
+      "Could not determine the Firebase project id. Set FIREBASE_PROJECT_ID " +
+        "(must match NEXT_PUBLIC_FIREBASE_PROJECT_ID on the web client) or ensure " +
+        "the service-account JSON includes project_id.",
     );
   }
   cachedApp = initializeApp({

@@ -144,6 +144,17 @@ export default function TenantConfigPage() {
     }
   }
 
+  // Keep the "Feature flags saved." banner visible for a few minutes after a
+  // save, then auto-dismiss it (instead of lingering until the next save).
+  // Re-running on each save resets the timer; cleanup clears it on unmount or
+  // before the next save so we never fire a stale setState.
+  useEffect(() => {
+    if (!savedAt) return;
+    const SHOW_FOR_MS = 3 * 60 * 1000; // 3 minutes
+    const timer = setTimeout(() => setSavedAt(null), SHOW_FOR_MS);
+    return () => clearTimeout(timer);
+  }, [savedAt]);
+
   function resetToDefaults() {
     setOverrides({});
     setDirty(true);

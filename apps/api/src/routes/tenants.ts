@@ -237,6 +237,8 @@ async function loadTenantStats(tenantId: string): Promise<TenantUsageStats> {
     monthlyOpdVolume,
     subscription,
     lastLogin,
+    appointmentTotal,
+    invoiceTotal,
   ] = await Promise.all([
     prisma.user.count({ where: { tenantId } }),
     prisma.patient.count({ where: { tenantId } }),
@@ -246,6 +248,7 @@ async function loadTenantStats(tenantId: string): Promise<TenantUsageStats> {
     prisma.patientDocument.aggregate({
       where: { tenantId },
       _sum: { fileSize: true },
+      _count: true,
     }),
     // Monthly OPD volume: appointments created since the first of the
     // current calendar month with type=OPD. Falls back to count of all
@@ -269,6 +272,9 @@ async function loadTenantStats(tenantId: string): Promise<TenantUsageStats> {
       where: { tenantId },
       _max: { lastLoginAt: true },
     }),
+    // All-time counts for this tenant — feed the storage-footprint estimate.
+    prisma.appointment.count({ where: { tenantId } }),
+    prisma.invoice.count({ where: { tenantId } }),
   ]);
 
   // MRR derivation: prefer custom price; otherwise lookup the plan's
@@ -299,11 +305,26 @@ async function loadTenantStats(tenantId: string): Promise<TenantUsageStats> {
       billingHealth = "suspended";
   }
 
+  // Storage footprint for THIS tenant (scoped by tenantId), summed from the
+  // backend DB. Two parts:
+  //   1. Real uploaded-file bytes — the exact sum of PatientDocument.fileSize.
+  //   2. Relational data — estimated from the tenant's actual row counts across
+  //      its principal tables × an average on-disk row size (Postgres tuple
+  //      overhead + typical text/FK columns + index entries ≈ 1.5 KB/row).
+  // We estimate (2) rather than summing pg_column_size across the 190+ mapped
+  // tables, which would be a fragile, very heavy per-request raw query.
+  const AVG_ROW_BYTES = 1536;
+  const documentBytes = documents._sum.fileSize ?? 0;
+  const documentRows = documents._count ?? 0;
+  const relationalRows =
+    userCount + patientCount + appointmentTotal + invoiceTotal + documentRows;
+  const storageBytes = documentBytes + relationalRows * AVG_ROW_BYTES;
+
   return {
     userCount,
     patientCount,
     invoicesLast30Days,
-    storageBytes: documents._sum.fileSize ?? 0,
+    storageBytes,
     monthlyOpdVolume,
     mrrInPaise,
     billingHealth,

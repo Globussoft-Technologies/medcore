@@ -685,6 +685,30 @@ export default function PlatformBillingPage() {
       setPlanFormFeatures(normalizePlanSelection(current.filter((k) => k !== key)));
     }
   }
+  // Category header "select all" — check/uncheck every GATEABLE feature in the
+  // group at once. Common modules are always-on and ignored. On select-all the
+  // selection is re-normalized so transitive dependencies are pulled in; on
+  // deselect, any feature still required by a selection elsewhere is re-added
+  // by normalization (and renders locked).
+  function toggleCategory(
+    features: typeof PLAN_FEATURE_CATALOG,
+    checked: boolean,
+  ): void {
+    const gateableKeys = features
+      .filter((f) => f.common !== true)
+      .map((f) => f.key);
+    if (gateableKeys.length === 0) return; // all-common category — nothing to toggle
+    if (checked) {
+      setPlanFormFeatures(
+        normalizePlanSelection([...planFormFeatures, ...gateableKeys]),
+      );
+    } else {
+      const drop = new Set(gateableKeys);
+      setPlanFormFeatures(
+        normalizePlanSelection(planFormFeatures.filter((k) => !drop.has(k))),
+      );
+    }
+  }
   async function submitPlanForm(): Promise<void> {
     if (planEditing == null) return;
     const name = planFormName.trim();
@@ -2045,11 +2069,57 @@ export default function PlatformBillingPage() {
                 data-testid="platform-billing-plan-feature-catalog"
                 className="mt-1.5 min-h-0 flex-1 space-y-4 overflow-y-auto rounded-md border border-slate-200 bg-slate-50/50 p-3 dark:border-gray-700 dark:bg-gray-800/50"
               >
-                {PLAN_FEATURE_GROUPS.map((group) => (
+                {PLAN_FEATURE_GROUPS.map((group) => {
+                  // Category "select all": reflects/toggles the GATEABLE
+                  // features in this group. All-common groups render a
+                  // disabled, always-checked box (nothing to toggle).
+                  const gateableKeys = group.features
+                    .filter((f) => f.common !== true)
+                    .map((f) => f.key);
+                  const noGateable = gateableKeys.length === 0;
+                  const selectedSet = new Set(planFormFeatures);
+                  const allOn =
+                    !noGateable && gateableKeys.every((k) => selectedSet.has(k));
+                  const someOn = gateableKeys.some((k) => selectedSet.has(k));
+                  const selectedInCategory = gateableKeys.filter((k) =>
+                    selectedSet.has(k),
+                  ).length;
+                  return (
                   <div key={group.category}>
-                    <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      {group.category}
-                    </h3>
+                    <label
+                      className={`mb-1.5 flex items-center justify-between gap-2 rounded-md px-1 py-1 ${
+                        noGateable
+                          ? "cursor-default"
+                          : "cursor-pointer hover:bg-white dark:hover:bg-gray-800"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        {group.category}
+                        {!noGateable ? (
+                          <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-slate-600 dark:bg-gray-700 dark:text-slate-300">
+                            {selectedInCategory} / {gateableKeys.length}
+                          </span>
+                        ) : null}
+                      </span>
+                      {/* Right-aligned "select all" toggle for this category.
+                          Greyed + checked for all-common groups (nothing to
+                          toggle); indeterminate when only some are selected. */}
+                      <input
+                        type="checkbox"
+                        aria-label={`Select all ${group.category} features`}
+                        title={`Select all ${group.category} features`}
+                        data-testid={`platform-billing-plan-category-${group.category}`}
+                        checked={noGateable || allOn}
+                        disabled={noGateable}
+                        ref={(el) => {
+                          if (el) el.indeterminate = !noGateable && someOn && !allOn;
+                        }}
+                        onChange={(e) =>
+                          toggleCategory(group.features, e.target.checked)
+                        }
+                        className="ml-auto h-4 w-4 shrink-0 rounded border-slate-300 disabled:opacity-60 dark:border-gray-600"
+                      />
+                    </label>
                     <div className="space-y-1">
                       {group.features.map((f) => {
                         const isCommon = f.common === true;
@@ -2116,7 +2186,8 @@ export default function PlatformBillingPage() {
                       })}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

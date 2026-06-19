@@ -256,12 +256,18 @@ jobs:
           # bumped without a breaking major (undici reaches us via
           # expo-server-sdk; tracked for a future dependency-bump PR). New
           # high/critical CVEs introduced by a change still fail the gate.
-          ALLOWLIST="GHSA-vmh5-mc38-953g GHSA-pr7r-676h-xcf6"
           npm audit --workspace=apps/api --workspace=apps/web \
             --omit=dev --json > audit.json || true
           node -e '
             const fs = require("fs");
-            const allow = new Set(process.env.ALLOWLIST.split(" ").filter(Boolean));
+            // Allowlist of advisory IDs triaged as inherited-from-main
+            // transitive deps (undici via expo-server-sdk) that cannot be
+            // bumped without a breaking major. Hardcoded here (not read from
+            // an env var) so the gate has no external dependency.
+            const allow = new Set([
+              "GHSA-vmh5-mc38-953g",
+              "GHSA-pr7r-676h-xcf6",
+            ]);
             const j = JSON.parse(fs.readFileSync("audit.json", "utf8"));
             const vulns = Object.values(j.vulnerabilities || {});
             const offenders = [];

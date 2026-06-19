@@ -567,6 +567,83 @@ describe("AI Booking dashboard page", () => {
     expect(screen.getByText(/High confidence/i)).toBeInTheDocument();
   });
 
+  it("badges each doctor card with its booking mode (TOKEN / SLOT / CALLING)", async () => {
+    // Drive the same chat→summary→doctors flow as reachDoctorsScreen(), but
+    // supply three doctors whose appointmentMode covers every branch of
+    // modeBadgeText/modeBadgeClass: SLOT, CALLING, and TOKEN (default).
+    apiMock.post.mockResolvedValueOnce({
+      data: { sessionId: "sess-modes", message: "Hi" },
+    });
+    render(<AIBookingPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Start AI Consultation/i }));
+    await screen.findByText("Hi");
+
+    apiMock.post.mockResolvedValueOnce({
+      data: { message: "Got it.", readyForDoctorSuggestion: true, confidence: 0.82 },
+    });
+    const modeDoctors = [
+      doctorSuggestion({ doctorId: "doc-slot", name: "Dr. Slot Mode", appointmentMode: "SLOT" }),
+      doctorSuggestion({ doctorId: "doc-call", name: "Dr. Calling Mode", appointmentMode: "CALLING" }),
+      doctorSuggestion({ doctorId: "doc-token", name: "Dr. Token Mode", appointmentMode: "TOKEN" }),
+    ];
+    apiMock.get.mockResolvedValueOnce({
+      data: {
+        session: {
+          symptoms: { chiefComplaint: "Sore throat", onset: "Yesterday", duration: "1 day", severity: 4 },
+        },
+        doctorSuggestions: modeDoctors,
+      },
+    });
+    const textarea = screen.getByPlaceholderText(/.+/) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "sore throat" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    await screen.findByText(/Here's what I understood/i);
+
+    apiMock.get.mockResolvedValueOnce({ data: { doctorSuggestions: modeDoctors } });
+    fireEvent.click(screen.getByRole("button", { name: /Show me doctors/i }));
+    await screen.findByText(/Recommended Doctors/i);
+
+    // Each card renders the human-readable mode label via its testid.
+    expect(screen.getByTestId("ai-booking-doctor-doc-slot-mode")).toHaveTextContent("Slot");
+    expect(screen.getByTestId("ai-booking-doctor-doc-call-mode")).toHaveTextContent("Calling");
+    expect(screen.getByTestId("ai-booking-doctor-doc-token-mode")).toHaveTextContent("Token");
+  });
+
+  it("falls back to the Token badge when a doctor has no appointmentMode", async () => {
+    // Covers the modeBadgeText/modeBadgeClass default branch (undefined/null
+    // mode → "Token") so the card never renders an empty badge.
+    apiMock.post.mockResolvedValueOnce({
+      data: { sessionId: "sess-nomode", message: "Hi" },
+    });
+    render(<AIBookingPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Start AI Consultation/i }));
+    await screen.findByText("Hi");
+
+    apiMock.post.mockResolvedValueOnce({
+      data: { message: "Got it.", readyForDoctorSuggestion: true, confidence: 0.82 },
+    });
+    // appointmentMode omitted entirely → default branch.
+    const noModeDoctor = doctorSuggestion({ doctorId: "doc-none", name: "Dr. No Mode" });
+    apiMock.get.mockResolvedValueOnce({
+      data: {
+        session: {
+          symptoms: { chiefComplaint: "Sore throat", onset: "Yesterday", duration: "1 day", severity: 4 },
+        },
+        doctorSuggestions: [noModeDoctor],
+      },
+    });
+    const textarea = screen.getByPlaceholderText(/.+/) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "sore throat" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    await screen.findByText(/Here's what I understood/i);
+
+    apiMock.get.mockResolvedValueOnce({ data: { doctorSuggestions: [noModeDoctor] } });
+    fireEvent.click(screen.getByRole("button", { name: /Show me doctors/i }));
+    await screen.findByText(/Recommended Doctors/i);
+
+    expect(screen.getByTestId("ai-booking-doctor-doc-none-mode")).toHaveTextContent("Token");
+  });
+
   it("transitions to booking screen on doctor click and fetches slots for tomorrow's date", async () => {
     await reachDoctorsScreen();
     apiMock.get.mockResolvedValueOnce({

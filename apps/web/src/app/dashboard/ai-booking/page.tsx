@@ -61,9 +61,26 @@ interface DoctorSuggestion {
   photoUrl?: string;
   reasoning: string;
   confidence: number;
+  // The doctor's booking mode — TOKEN / SLOT / CALLING. Surfaced so the card
+  // can badge it; all three modes are suggested (none filtered out).
+  appointmentMode?: "TOKEN" | "SLOT" | "CALLING" | null;
   // GAP-T8: present when this card was prepended because Claude's confidence
   // was low OR because the suggested specialty is thinly staffed.
   isGPFallback?: boolean;
+}
+
+// Human-readable booking-mode badge text + colour.
+function modeBadgeText(mode: DoctorSuggestion["appointmentMode"]): string {
+  if (mode === "SLOT") return "Slot";
+  if (mode === "CALLING") return "Calling";
+  return "Token"; // TOKEN + default
+}
+function modeBadgeClass(mode: DoctorSuggestion["appointmentMode"]): string {
+  if (mode === "SLOT")
+    return "bg-violet-100 dark:bg-violet-900/40 text-violet-900 dark:text-violet-200";
+  if (mode === "CALLING")
+    return "bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200";
+  return "bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200";
 }
 
 interface Slot {
@@ -971,6 +988,13 @@ export default function AIBookingPage() {
                     <div>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <p className="font-medium text-sm text-gray-800 dark:text-gray-100">{doc.name}</p>
+                        {/* Booking-mode badge — TOKEN / SLOT / CALLING. */}
+                        <span
+                          data-testid={`ai-booking-doctor-${doc.doctorId}-mode`}
+                          className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${modeBadgeClass(doc.appointmentMode)}`}
+                        >
+                          {modeBadgeText(doc.appointmentMode)}
+                        </span>
                         {/* GAP-T8: GP-first badge */}
                         {doc.isGPFallback && (
                           <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-200 dark:border-amber-800">

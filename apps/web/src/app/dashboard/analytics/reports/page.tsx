@@ -646,6 +646,9 @@ export default function ReportsPage() {
               id="report-builder-from"
               type="date"
               value={from}
+              // Can't start the range after it ends, or in the future — the
+              // native picker greys out invalid days.
+              max={to || today()}
               onChange={(e) => setFrom(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />
@@ -656,6 +659,9 @@ export default function ReportsPage() {
               id="report-builder-to"
               type="date"
               value={to}
+              // Can't end the range before it starts, or in the future.
+              min={from}
+              max={today()}
               onChange={(e) => setTo(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             />

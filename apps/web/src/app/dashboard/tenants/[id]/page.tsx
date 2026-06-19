@@ -110,7 +110,9 @@ const WIZARD_STEPS = [
   { key: "abdm", label: "ABDM HFR / HPR" },
   { key: "whatsapp", label: "WhatsApp Business" },
   { key: "payment_gateway", label: "Payment gateway" },
-  { key: "go_live", label: "Go-live" },
+  // "Go-live" (SOW §8 step 8) is deferred — the onboarding wizard has no
+  // go_live step to complete it (see onboarding/page.tsx header), so it would
+  // always read "Not started". Omitted from the checklist until implemented.
 ];
 
 function formatINR(paise: number | null | undefined): string {
@@ -118,6 +120,24 @@ function formatINR(paise: number | null | undefined): string {
   return `₹${(paise / 100).toLocaleString("en-IN", {
     maximumFractionDigits: 0,
   })}`;
+}
+
+// Human-readable storage: scales the raw byte total to B / KB / MB / GB / TB so
+// small tenants don't all read "0 MB". Picks the largest unit that keeps the
+// value >= 1, with one decimal for KB and up (bytes show as a whole number).
+function formatStorage(bytes: number | null | undefined): string {
+  const b = Number(bytes);
+  if (!Number.isFinite(b) || b <= 0) return "0 KB";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = b;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  // Bytes: whole number; KB and up: up to 1 decimal (trimmed if .0).
+  const rounded = i === 0 ? Math.round(v) : Math.round(v * 10) / 10;
+  return `${rounded} ${units[i]}`;
 }
 
 function formatDate(iso: string | null | undefined): string {
@@ -489,7 +509,7 @@ export default function DashboardTenantDetailPage() {
         />
         <Stat
           label="Storage"
-          value={`${Math.round(tenant.stats.storageBytes / 1024 / 1024)} MB`}
+          value={formatStorage(tenant.stats.storageBytes)}
         />
         <Stat label="Billing" value={tenant.stats.billingHealth ?? "—"} />
         <Stat

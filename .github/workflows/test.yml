@@ -248,8 +248,41 @@ jobs:
         # CVEs. Tooling vulnerabilities (test runners etc.) surface via
         # Dependabot/CodeQL instead.
         run: |
+          # npm core `audit` has no per-advisory ignore (`--exclude` is not a
+          # real flag), so we run audit in JSON mode and fail only when a
+          # high/critical advisory OTHER than the allowlisted, inherited-from-
+          # main ones is present. The allowlist below pins the exact advisory
+          # IDs we have triaged as pre-existing transitive deps that can't be
+          # bumped without a breaking major (undici reaches us via
+          # expo-server-sdk; tracked for a future dependency-bump PR). New
+          # high/critical CVEs introduced by a change still fail the gate.
+          ALLOWLIST="GHSA-vmh5-mc38-953g GHSA-pr7r-676h-xcf6"
           npm audit --workspace=apps/api --workspace=apps/web \
-            --audit-level=high --omit=dev
+            --omit=dev --json > audit.json || true
+          node -e '
+            const fs = require("fs");
+            const allow = new Set(process.env.ALLOWLIST.split(" ").filter(Boolean));
+            const j = JSON.parse(fs.readFileSync("audit.json", "utf8"));
+            const vulns = Object.values(j.vulnerabilities || {});
+            const offenders = [];
+            for (const v of vulns) {
+              if (!["high", "critical"].includes(v.severity)) continue;
+              // Each advisory id lives on the object entries of `via`.
+              const ids = (v.via || [])
+                .filter((x) => typeof x === "object" && x.url)
+                .map((x) => x.url.split("/").pop());
+              const unallowed = ids.filter((id) => !allow.has(id));
+              if (unallowed.length > 0) {
+                offenders.push(`${v.name} (${v.severity}): ${unallowed.join(", ")}`);
+              }
+            }
+            if (offenders.length > 0) {
+              console.error("High/critical advisories NOT on the allowlist:");
+              for (const o of offenders) console.error("  - " + o);
+              process.exit(1);
+            }
+            console.log("npm audit clean (allowlisted inherited advisories ignored).");
+          '
 
   web-bundle:
     # Builds apps/web and prints the size of the static chunks directory

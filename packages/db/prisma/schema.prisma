@@ -2821,7 +2821,11 @@ enum TaskRunStatus {
 
 model Ward {
   id          String   @id @default(uuid())
-  name        String   @unique
+  // Ward names are unique PER TENANT (see @@unique below), not globally — each
+  // hospital has its own ward namespace, so two tenants can both have a
+  // "Ward 1". A global @unique here previously blocked any tenant from
+  // creating a name another tenant (or a tenant-less seed row) already used.
+  name        String
   type        WardType
   floor       String?
   description String?
@@ -2832,6 +2836,7 @@ model Ward {
 
   beds Bed[]
 
+  @@unique([tenantId, name])
   @@index([tenantId])
   @@map("wards")
 }

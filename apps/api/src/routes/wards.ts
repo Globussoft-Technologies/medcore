@@ -144,6 +144,17 @@ router.post(
       auditLog(req, "WARD_CREATE", "ward", ward.id, { name: ward.name }).catch(console.error);
       res.status(201).json({ success: true, data: ward, error: null });
     } catch (err) {
+      // Ward name is unique per tenant (@@unique([tenantId, name])). Translate
+      // the P2002 collision into a friendly 409 instead of leaking the raw
+      // `prisma.ward.create()` invocation string to the UI as a 500.
+      if ((err as { code?: string })?.code === "P2002") {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error: `A ward named "${req.body.name}" already exists. Pick a different name.`,
+        });
+        return;
+      }
       next(err);
     }
   }

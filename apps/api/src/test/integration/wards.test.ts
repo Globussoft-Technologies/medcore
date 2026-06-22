@@ -1,8 +1,24 @@
 // Integration tests for the wards + beds routers.
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
+import jwt from "jsonwebtoken";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import { createWardFixture, createBedFixture } from "../factories";
+
+const JWT_SECRET = process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod";
+
+// Sign an ADMIN token bound to a SPECIFIC tenant. The seed ADMIN from resetDB()
+// is tenant-less (tenantId=null), and the ward unique is @@unique([tenantId,
+// name]) — Postgres treats NULL tenantId as distinct, so the per-tenant
+// duplicate-409 path only fires for a REAL tenant. Tests that exercise it mint
+// a token with a real tenantId so tenantScopedPrisma stamps that tenant.
+function signTenantAdmin(userId: string, email: string, tenantId: string) {
+  return jwt.sign(
+    { userId, email, role: "ADMIN", tenantId },
+    JWT_SECRET,
+    { expiresIn: "1h" },
+  );
+}
 
 let app: any;
 let adminToken: string;
@@ -66,6 +82,91 @@ describeIfDB("Wards API (integration)", () => {
       .send({ name: `W-${Date.now()}`, type: "ICU", floor: "3" });
     expect([200, 201]).toContain(res.status);
     expect(res.body.data?.type).toBe("ICU");
+  });
+
+  // ─── 2026-06: ward name is unique PER TENANT — duplicate within the SAME
+  // tenant returns a clean 409 (not the raw prisma.ward.create() 500), while a
+  // name another tenant uses no longer blocks creation. The unique constraint
+  // is @@unique([tenantId, name]). NB: this must run against a REAL tenant —
+  // the seed admin is tenant-less and NULL tenantIds don't collide. ─────────
+  it("rejects a duplicate ward name within the same tenant with a clean 409", async () => {
+    const prisma = await getPrisma();
+    const tenant = await prisma.tenant.create({
+      data: {
+        name: "Ward-Unique Tenant",
+        subdomain: `ward-unique-${Date.now()}`,
+        plan: "BASIC",
+        active: true,
+      },
+    });
+    const tenantAdmin = await prisma.user.create({
+      data: {
+        email: `ward-admin-${Date.now()}@test.local`,
+        phone: `9${Date.now().toString().slice(-9)}`,
+        name: "Ward Tenant Admin",
+        passwordHash: "x",
+        role: "ADMIN",
+        tenantId: tenant.id,
+      },
+    });
+    const token = signTenantAdmin(tenantAdmin.id, tenantAdmin.email!, tenant.id);
+
+    const name = `WDUPNAME-${Date.now()}`;
+    const first = await request(app)
+      .post("/api/v1/wards")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name, type: "GENERAL", floor: "1" });
+    expect([200, 201]).toContain(first.status);
+
+    const dup = await request(app)
+      .post("/api/v1/wards")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name, type: "ICU", floor: "2" });
+    expect(dup.status).toBe(409);
+    // Friendly, actionable message — NOT the raw "prisma.ward.create()" string.
+    expect(dup.body.error).toMatch(/already exists/i);
+    expect(dup.body.error).not.toMatch(/prisma/i);
+  });
+
+  it("allows the same ward name in a DIFFERENT tenant (per-tenant uniqueness)", async () => {
+    const prisma = await getPrisma();
+    const sharedName = `WSHARED-${Date.now()}`;
+    const mk = async (suffix: string) => {
+      const t = await prisma.tenant.create({
+        data: {
+          name: `Ward-Shared ${suffix}`,
+          subdomain: `ward-shared-${suffix}-${Date.now()}`,
+          plan: "BASIC",
+          active: true,
+        },
+      });
+      const u = await prisma.user.create({
+        data: {
+          email: `ward-shared-${suffix}-${Date.now()}@test.local`,
+          phone: `9${Date.now().toString().slice(-9)}`,
+          name: `Admin ${suffix}`,
+          passwordHash: "x",
+          role: "ADMIN",
+          tenantId: t.id,
+        },
+      });
+      return signTenantAdmin(u.id, u.email!, t.id);
+    };
+    const tokenA = await mk("A");
+    const tokenB = await mk("B");
+
+    const a = await request(app)
+      .post("/api/v1/wards")
+      .set("Authorization", `Bearer ${tokenA}`)
+      .send({ name: sharedName, type: "GENERAL", floor: "1" });
+    expect([200, 201]).toContain(a.status);
+
+    // Same name, different tenant → MUST succeed (no global collision).
+    const b = await request(app)
+      .post("/api/v1/wards")
+      .set("Authorization", `Bearer ${tokenB}`)
+      .send({ name: sharedName, type: "GENERAL", floor: "1" });
+    expect([200, 201]).toContain(b.status);
   });
 
   it("rejects ward creation with malformed payload (400)", async () => {

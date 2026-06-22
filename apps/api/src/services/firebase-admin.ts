@@ -165,6 +165,52 @@ export function logFirebaseAdminDiagnostics(): void {
   }
 }
 
+/**
+ * Non-secret, browser-safe snapshot of the Firebase Admin config — backs the
+ * `/patient-auth/_debug/firebase` endpoint so the cause of a prod 401 can be
+ * read straight from the browser console. NEVER includes the private key or
+ * the raw JSON; only presence booleans, lengths, and the (public) project id.
+ */
+export function getFirebaseAdminStatus(): {
+  credentialsJsonSet: boolean;
+  credentialsJsonLength: number;
+  legacyPathStillSet: boolean;
+  projectIdEnv: string | null;
+  serviceAccountProjectId: string | null;
+  effectiveProjectId: string | null;
+  projectMismatch: boolean;
+  sdkInitialises: boolean;
+  error: string | null;
+} {
+  const jsonVar = process.env.FIREBASE_ADMIN_CREDENTIALS_JSON;
+  const projectEnv = process.env.FIREBASE_PROJECT_ID ?? null;
+  const status = {
+    credentialsJsonSet: !!(jsonVar && jsonVar.trim()),
+    credentialsJsonLength: jsonVar ? jsonVar.trim().length : 0,
+    legacyPathStillSet: !!process.env.FIREBASE_ADMIN_CREDENTIALS_PATH,
+    projectIdEnv: projectEnv,
+    serviceAccountProjectId: null as string | null,
+    effectiveProjectId: null as string | null,
+    projectMismatch: false,
+    sdkInitialises: false,
+    error: null as string | null,
+  };
+  try {
+    const sa = loadServiceAccount() as ServiceAccount & { project_id?: string };
+    status.serviceAccountProjectId = sa.projectId ?? sa.project_id ?? null;
+    status.effectiveProjectId = projectEnv || status.serviceAccountProjectId;
+    status.projectMismatch =
+      !!projectEnv &&
+      !!status.serviceAccountProjectId &&
+      projectEnv !== status.serviceAccountProjectId;
+    getFirebaseAdminAuth();
+    status.sdkInitialises = true;
+  } catch (err) {
+    status.error = (err as Error).message;
+  }
+  return status;
+}
+
 export interface VerifiedFirebasePhoneToken {
   uid: string;
   phoneNumber: string; // E.164, e.g. "+919876543210"

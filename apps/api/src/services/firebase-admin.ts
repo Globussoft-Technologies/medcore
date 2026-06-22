@@ -128,6 +128,43 @@ export function getFirebaseAdminAuth(): Auth {
   return cachedAuth;
 }
 
+/**
+ * Boot-time, NEVER-secret diagnostic for the Firebase Admin config. Logs the
+ * shape of the credential env (present? raw vs base64? which project?) and
+ * eagerly tries to initialise the SDK so a misconfigured deploy is obvious in
+ * the server log at startup — instead of only surfacing as a generic 401 the
+ * first time a patient tries to sign in. NEVER logs the private key or the raw
+ * JSON; only booleans, lengths, and the (non-secret) project id / client email.
+ */
+export function logFirebaseAdminDiagnostics(): void {
+  const tag = "[firebase-admin][diag]";
+  const jsonVar = process.env.FIREBASE_ADMIN_CREDENTIALS_JSON;
+  const pathVar = process.env.FIREBASE_ADMIN_CREDENTIALS_PATH;
+  const projectEnv = process.env.FIREBASE_PROJECT_ID;
+
+  console.log(`${tag} FIREBASE_ADMIN_CREDENTIALS_JSON set: ${!!(jsonVar && jsonVar.trim())} (length: ${jsonVar ? jsonVar.trim().length : 0})`);
+  if (pathVar) {
+    console.warn(`${tag} FIREBASE_ADMIN_CREDENTIALS_PATH is still set ("${pathVar}") but is NO LONGER read — the code requires FIREBASE_ADMIN_CREDENTIALS_JSON. Remove PATH and set JSON.`);
+  }
+  console.log(`${tag} FIREBASE_PROJECT_ID env: ${projectEnv ?? "(unset — will fall back to JSON project_id)"}`);
+
+  try {
+    const sa = loadServiceAccount() as ServiceAccount & { project_id?: string };
+    const saProject = sa.projectId ?? sa.project_id ?? "(none)";
+    console.log(`${tag} service-account parsed OK — project_id: ${saProject}, client_email: ${sa.clientEmail ?? (sa as { client_email?: string }).client_email ?? "(none)"}`);
+    const effectiveProject = projectEnv || sa.projectId;
+    console.log(`${tag} effective projectId used for token verification: ${effectiveProject}`);
+    if (projectEnv && sa.projectId && projectEnv !== sa.projectId) {
+      console.error(`${tag} ⚠️ MISMATCH: FIREBASE_PROJECT_ID (${projectEnv}) !== service-account project_id (${sa.projectId}). Token verification WILL fail unless these match the web client's NEXT_PUBLIC_FIREBASE_PROJECT_ID.`);
+    }
+    // Eagerly init the SDK so a bad credential surfaces NOW, at boot.
+    getFirebaseAdminAuth();
+    console.log(`${tag} ✅ Firebase Admin SDK initialised successfully.`);
+  } catch (err) {
+    console.error(`${tag} ❌ Firebase Admin is NOT usable — patient OTP login will return 401. Reason: ${(err as Error).message}`);
+  }
+}
+
 export interface VerifiedFirebasePhoneToken {
   uid: string;
   phoneNumber: string; // E.164, e.g. "+919876543210"
@@ -151,7 +188,22 @@ export async function verifyPhoneIdToken(
   // Firebase user has been disabled or whose refresh tokens have been
   // revoked since the token was minted — cheap defence vs. a stolen token
   // replay after the patient signs out.
-  const decoded = await auth.verifyIdToken(idToken, /* checkRevoked */ true);
+  let decoded;
+  try {
+    decoded = await auth.verifyIdToken(idToken, /* checkRevoked */ true);
+  } catch (err) {
+    // Surface the SPECIFIC Firebase Admin failure (code + message) so a prod
+    // 401 can be diagnosed from the server log without guessing. The route's
+    // user-facing copy stays generic; this is server-side detail only.
+    const code = (err as { code?: string })?.code;
+    console.error(
+      `[firebase-admin] verifyIdToken FAILED — code: ${code ?? "(none)"} | message: ${(err as Error).message} | ` +
+        `effectiveProject: ${process.env.FIREBASE_PROJECT_ID || "(from JSON)"}. ` +
+        `Common causes: (a) prod FIREBASE_ADMIN_CREDENTIALS_JSON is for a DIFFERENT project than the web client's ` +
+        `NEXT_PUBLIC_FIREBASE_PROJECT_ID (issuer/audience mismatch), (b) token expired/clock skew, (c) credentials missing.`,
+    );
+    throw err;
+  }
   // Firebase phone-auth populates `phone_number` on the decoded token; if
   // it's missing, the token came from a different sign-in method (e.g.
   // anonymous or email) and we refuse to honour it as a patient login.

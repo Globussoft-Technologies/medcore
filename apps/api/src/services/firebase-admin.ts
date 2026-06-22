@@ -9,29 +9,21 @@
 // (cookie issuance, audit log, tenant scoping) is our existing machinery —
 // Firebase is just the OTP transport.
 //
-// Credentials: the Firebase service-account JSON is supplied EITHER as raw
-// JSON in an env var (preferred for production / containers / serverless,
-// where a fixed filesystem path is unreliable), OR as a path to a JSON file
-// on disk (convenient for local dev). Resolution order:
-//   1. FIREBASE_ADMIN_CREDENTIALS_JSON  — the full service-account JSON,
-//      inline. Travels with the deploy; no filesystem dependency. Use this
-//      in live. The value may be the raw JSON, or base64-encoded JSON (some
-//      hosts mangle multi-line secrets — base64 sidesteps that).
-//   2. FIREBASE_ADMIN_CREDENTIALS_PATH  — absolute path to the JSON file.
-//      Fine locally; will NOT work in live if the path doesn't exist on the
-//      server (it usually doesn't), so prefer (1) for deployed environments.
-// AND, in both cases:
-//   FIREBASE_PROJECT_ID                 — must match the client-side project
-//                                         (NEXT_PUBLIC_FIREBASE_PROJECT_ID) so
-//                                         the ID-token audience/issuer check
-//                                         passes. If omitted, we fall back to
-//                                         the project_id inside the JSON.
+// Credentials: the Firebase service-account JSON is supplied INLINE via an env
+// var so it travels with the deploy — no filesystem dependency, which is what
+// production / containers / serverless need (a fixed file path is unreliable
+// there and won't exist on the server):
+//   FIREBASE_ADMIN_CREDENTIALS_JSON  — the full service-account JSON, inline.
+//      The value may be raw JSON, or base64-encoded JSON (some hosts mangle
+//      multi-line secrets — base64 sidesteps that).
+//   FIREBASE_PROJECT_ID              — must match the client-side project
+//      (NEXT_PUBLIC_FIREBASE_PROJECT_ID) so the ID-token audience/issuer check
+//      passes. If omitted, we fall back to the project_id inside the JSON.
 //
-// At least one credential source is mandatory; missing both throws at first
-// call so a misconfigured deploy fails the FIRST patient sign-in cleanly
-// rather than 5xx-ing somewhere deeper in the route handler.
+// FIREBASE_ADMIN_CREDENTIALS_JSON is mandatory; missing it throws at first call
+// so a misconfigured deploy fails the FIRST patient sign-in cleanly rather than
+// 5xx-ing somewhere deeper in the route handler.
 
-import { existsSync, readFileSync } from "node:fs";
 import {
   cert,
   getApps,
@@ -45,57 +37,41 @@ let cachedApp: App | null = null;
 let cachedAuth: Auth | null = null;
 
 /**
- * Read the service-account JSON STRING from whichever source is configured.
- * Prefers the inline env var (production-safe); falls back to the file path
- * (local-dev convenience). Returns the raw JSON text.
+ * Read the service-account JSON STRING from the inline env var. Accepts raw
+ * JSON or base64-encoded JSON (some hosts mangle multi-line secrets). Returns
+ * the raw JSON text; throws if the var is missing or malformed.
+ *
+ * Exported for unit tests — this is the prod-critical credential-resolution
+ * path, so its raw/base64/missing/malformed branches are pinned by tests.
  */
-function readServiceAccountRaw(): string {
-  // 1. Inline JSON env var — preferred for live. Accept raw JSON or base64.
+export function readServiceAccountRaw(): string {
   const inline = process.env.FIREBASE_ADMIN_CREDENTIALS_JSON;
-  if (inline && inline.trim()) {
-    const trimmed = inline.trim();
-    // Heuristic: a JSON object starts with "{". If it doesn't, assume the
-    // value was base64-encoded (common when a host won't accept multi-line
-    // secrets) and decode it.
-    if (trimmed.startsWith("{")) return trimmed;
-    try {
-      const decoded = Buffer.from(trimmed, "base64").toString("utf8");
-      if (decoded.trim().startsWith("{")) return decoded;
-    } catch {
-      // fall through to the error below
-    }
+  if (!inline || !inline.trim()) {
     throw new Error(
-      "FIREBASE_ADMIN_CREDENTIALS_JSON is set but is neither raw JSON " +
-        "(starting with '{') nor valid base64-encoded JSON.",
+      "FIREBASE_ADMIN_CREDENTIALS_JSON is not set. Provide the Firebase " +
+        "service-account JSON inline (raw or base64-encoded) — it travels " +
+        "with the deploy so it works on local, containers and serverless alike.",
     );
   }
-
-  // 2. File path — local-dev fallback. Will NOT work in live if the path
-  //    doesn't exist on the server, hence the inline var is preferred there.
-  const path = process.env.FIREBASE_ADMIN_CREDENTIALS_PATH;
-  if (!path) {
-    throw new Error(
-      "No Firebase credentials configured. Set FIREBASE_ADMIN_CREDENTIALS_JSON " +
-        "(inline service-account JSON — preferred for production) OR " +
-        "FIREBASE_ADMIN_CREDENTIALS_PATH (path to the JSON file — local dev).",
-    );
-  }
-  if (!existsSync(path)) {
-    throw new Error(
-      `FIREBASE_ADMIN_CREDENTIALS_PATH points at "${path}" but that file does not exist. ` +
-        "On a deployed server this path usually won't exist — use FIREBASE_ADMIN_CREDENTIALS_JSON instead.",
-    );
-  }
+  const trimmed = inline.trim();
+  // Heuristic: a JSON object starts with "{". If it doesn't, assume the value
+  // was base64-encoded (common when a host won't accept multi-line secrets)
+  // and decode it.
+  if (trimmed.startsWith("{")) return trimmed;
   try {
-    return readFileSync(path, "utf8");
-  } catch (err) {
-    throw new Error(
-      `Could not read FIREBASE_ADMIN_CREDENTIALS_PATH at "${path}": ${(err as Error).message}`,
-    );
+    const decoded = Buffer.from(trimmed, "base64").toString("utf8");
+    if (decoded.trim().startsWith("{")) return decoded;
+  } catch {
+    // fall through to the error below
   }
+  throw new Error(
+    "FIREBASE_ADMIN_CREDENTIALS_JSON is set but is neither raw JSON " +
+      "(starting with '{') nor valid base64-encoded JSON.",
+  );
 }
 
-function loadServiceAccount(): ServiceAccount {
+/** Exported for unit tests; see {@link readServiceAccountRaw}. */
+export function loadServiceAccount(): ServiceAccount {
   const raw = readServiceAccountRaw();
   let parsed: unknown;
   try {

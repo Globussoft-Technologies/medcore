@@ -7,11 +7,12 @@ dist/
 .env.*.local
 local.env
 
-# Local secrets folder — Firebase service-account JSONs and other
-# server-side credentials. NEVER commit. The path is referenced from
-# apps/api/.env (FIREBASE_ADMIN_CREDENTIALS_PATH). If you delete this
-# rule by accident, every file inside becomes git-trackable on the
-# next `git add .` — extremely bad for private keys.
+# Local secrets folder — somewhere to keep raw Firebase service-account JSONs
+# and other downloaded credentials on disk. NEVER commit. (The app reads the
+# service account from FIREBASE_ADMIN_CREDENTIALS_JSON inline, not from a file,
+# but this folder stays ignored so a stray downloaded key can't be committed.)
+# If you delete this rule by accident, every file inside becomes git-trackable
+# on the next `git add .` — extremely bad for private keys.
 secrets/
 **/secrets/
 deploy.py

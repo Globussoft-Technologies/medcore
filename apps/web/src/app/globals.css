@@ -299,6 +299,95 @@ select {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   Token Display Board — "tarakta bharakta" flashy upgrade.
+   Animated gradient title, glowing active cards, shimmer sweep,
+   and a soft pulse. All pure-CSS so the unattended TV needs no JS.
+   ───────────────────────────────────────────────────────────── */
+
+/* Animated multi-colour gradient title (the hospital name). */
+@keyframes mc-title-shine {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+.mc-title-glow {
+  background-image: linear-gradient(
+    90deg,
+    #60a5fa,
+    #a78bfa,
+    #22d3ee,
+    #60a5fa
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: mc-title-shine 6s linear infinite;
+  text-shadow: 0 0 38px rgba(96, 165, 250, 0.35);
+}
+
+/* Breathing glow ring for an ACTIVE doctor card (someone being served). */
+@keyframes mc-card-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 28px rgba(16, 185, 129, 0.28),
+      0 0 0 1px rgba(16, 185, 129, 0.35) inset;
+  }
+  50% {
+    box-shadow:
+      0 0 60px rgba(16, 185, 129, 0.55),
+      0 0 0 1px rgba(16, 185, 129, 0.6) inset;
+  }
+}
+.mc-card-active {
+  animation: mc-card-pulse 2.6s ease-in-out infinite;
+}
+
+/* Diagonal shimmer sweep that glides across active cards. */
+@keyframes mc-shimmer {
+  0% {
+    transform: translateX(-160%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(260%) skewX(-18deg);
+  }
+}
+.mc-shimmer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 45%;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(255, 255, 255, 0.12),
+    transparent
+  );
+  animation: mc-shimmer 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Gentle float so idle cards still feel alive. */
+@keyframes mc-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.mc-float {
+  animation: mc-float 5s ease-in-out infinite;
+}
+
+/* ─────────────────────────────────────────────────────────────
    Booking-flow animation toolkit (June 2026). Pure-CSS, no JS.
    Used by /(marketing)/book. Reusable site-wide.
    ───────────────────────────────────────────────────────────── */

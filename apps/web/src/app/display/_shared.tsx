@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { api } from "@/lib/api";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
@@ -76,7 +77,16 @@ export function displayActivity(d: DoctorQueue): number {
 // All the live-board state: queue data (with offline cache fallback), the
 // clock, socket connection status. Polls every 10s (30s offline) and also
 // refreshes on queue/token socket events.
-export function useDisplayData() {
+//
+// `scoped` controls WHICH board the hook fetches:
+//   - false (default): the PUBLIC, unauthenticated /queue/display endpoint —
+//     correct for an unattended lobby-TV that has no login. Runs unscoped on
+//     the server, so on a multi-tenant deploy it shows every tenant's doctors.
+//   - true: the AUTHENTICATED, tenant-scoped /queue endpoint via the `api`
+//     helper (which attaches X-Tenant-Id from the logged-in user). Used when a
+//     staff member (e.g. a receptionist) opens the board from the dashboard —
+//     they only ever see their own hospital's doctors.
+export function useDisplayData(scoped = false) {
   const [doctors, setDoctors] = useState<DoctorQueue[]>([]);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [connected, setConnected] = useState(false);
@@ -87,16 +97,23 @@ export function useDisplayData() {
 
   const fetchQueue = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/queue/display`);
-      const json = await res.json();
-      if (json.success && json.data) {
-        setDoctors(json.data);
-        setOffline(false);
-        setLastUpdate(Date.now());
-        writeCache(json.data);
+      let data: DoctorQueue[];
+      if (scoped) {
+        // Authenticated, tenant-scoped board. `api.get` returns the unwrapped
+        // envelope ({ data, ... }); X-Tenant-Id is added by the api helper.
+        const json = await api.get<{ data: DoctorQueue[] }>("/queue");
+        if (!json?.data) throw new Error("Invalid response");
+        data = json.data;
       } else {
-        throw new Error("Invalid response");
+        const res = await fetch(`${API_BASE}/queue/display`);
+        const json = await res.json();
+        if (!json.success || !json.data) throw new Error("Invalid response");
+        data = json.data;
       }
+      setDoctors(data);
+      setOffline(false);
+      setLastUpdate(Date.now());
+      writeCache(data);
     } catch {
       const cached = readCache();
       if (cached) {
@@ -105,7 +122,7 @@ export function useDisplayData() {
       }
       setOffline(true);
     }
-  }, []);
+  }, [scoped]);
 
   // Cached data immediately on mount so we never show blank on reload.
   useEffect(() => {
@@ -204,20 +221,19 @@ export function DisplayHeader({
           Offline — showing last update at {lastUpdateStr}. Retrying every 30s.
         </div>
       )}
-      <header className="mb-8 text-center">
-        <h1
-          className="text-5xl font-bold tracking-tight"
-          style={{ color: "#2563eb" }}
-        >
+      <header className="mb-10 text-center">
+        <h1 className="mc-title-glow text-6xl font-black tracking-tight md:text-7xl">
           MedCore Hospital
         </h1>
-        <div className="mt-3 flex items-center justify-center gap-6 text-xl text-slate-400">
+        <div className="mt-4 flex items-center justify-center gap-8 text-2xl text-slate-400">
           <span>{dateStr}</span>
-          <span className="text-3xl font-semibold text-white">{timeStr}</span>
+          <span className="rounded-xl bg-slate-900/70 px-4 py-1 font-mono text-4xl font-bold tracking-wider text-white shadow-[0_0_24px_rgba(96,165,250,0.25)]">
+            {timeStr}
+          </span>
         </div>
         {connected && !offline && (
-          <div className="mt-2 inline-flex items-center gap-1.5 text-xs text-emerald-400">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+          <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-950/40 px-3 py-1 text-sm font-semibold uppercase tracking-widest text-emerald-400">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.9)]" />
             Live
           </div>
         )}
@@ -242,10 +258,10 @@ function callingNameSize(name: string): string {
 // card taller than its row-mates.
 function doctorNameSize(name: string): string {
   const len = name.trim().length;
-  if (len <= 14) return "text-2xl";
-  if (len <= 20) return "text-xl";
-  if (len <= 28) return "text-lg";
-  return "text-base";
+  if (len <= 14) return "text-3xl";
+  if (len <= 20) return "text-2xl";
+  if (len <= 28) return "text-xl";
+  return "text-lg";
 }
 
 // "Now Calling" names with a directional transition: when the called patient
@@ -305,61 +321,81 @@ export function DoctorCard({ doc }: { doc: DoctorQueue }) {
   return (
     <div
       data-testid={`display-card-${mode.toLowerCase()}`}
-      className={`flex h-full flex-col rounded-2xl border-2 p-6 transition-all ${
+      className={`relative flex h-full flex-col overflow-hidden rounded-3xl border-2 p-8 transition-all duration-500 ${
         isActive
-          ? "border-emerald-400/70 bg-gradient-to-br from-emerald-900/50 via-emerald-950/40 to-slate-900 shadow-[0_0_34px_rgba(16,185,129,0.22)]"
-          : "border-slate-700 bg-slate-900/60"
+          ? "mc-card-active mc-shimmer border-emerald-400/80 bg-gradient-to-br from-emerald-900/60 via-emerald-950/40 to-slate-900"
+          : "mc-float border-slate-700/80 bg-gradient-to-br from-slate-900/80 to-slate-950/70 shadow-[0_0_24px_rgba(2,6,23,0.6)]"
       }`}
     >
-      <div className="mb-4 flex items-start justify-between gap-2">
+      {/* Top accent bar — emerald when active, cool blue/violet when idle. */}
+      <div
+        className={`absolute inset-x-0 top-0 h-1.5 ${
+          isActive
+            ? "bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-400"
+            : "bg-gradient-to-r from-blue-500/60 via-violet-500/60 to-cyan-500/60"
+        }`}
+      />
+      <div className="mb-5 flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h2
-            className={`font-bold leading-tight ${doctorNameSize(
+            className={`font-extrabold leading-tight ${doctorNameSize(
               formatDoctorName(doc.doctorName),
-            )} ${isActive ? "text-white" : "text-slate-400"}`}
+            )} ${isActive ? "text-white drop-shadow-[0_0_12px_rgba(16,185,129,0.5)]" : "text-slate-200"}`}
           >
             {formatDoctorName(doc.doctorName)}
           </h2>
           {doc.specialization && (
-            <p className="mt-1 text-sm text-slate-500">{doc.specialization}</p>
+            <p className="mt-1.5 text-base font-medium text-slate-400">
+              {doc.specialization}
+            </p>
           )}
         </div>
-        <span className="shrink-0 rounded-full bg-slate-800/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-widest ${
+            isActive
+              ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-400/40"
+              : "bg-slate-800/80 text-slate-400 ring-1 ring-slate-700"
+          }`}
+        >
           {mode}
         </span>
       </div>
 
       {mode === "TOKEN" && (
         <>
-          <div className="mb-3 text-center">
+          <div className="mb-4 text-center">
             <p
-              className={`text-xs font-semibold uppercase tracking-widest ${
+              className={`text-sm font-bold uppercase tracking-[0.2em] ${
                 isActive ? "text-emerald-400" : "text-slate-600"
               }`}
             >
               {isActive ? "Now Serving" : "No Patient"}
             </p>
             <p
-              className={`mt-1 font-mono font-black leading-none ${
-                isActive ? "text-7xl text-emerald-400" : "text-6xl text-slate-700"
+              className={`mt-2 font-mono font-black leading-none ${
+                isActive
+                  ? "text-8xl text-emerald-400 drop-shadow-[0_0_24px_rgba(16,185,129,0.6)]"
+                  : "text-7xl text-slate-700"
               }`}
             >
               {isActive ? doc.currentToken : "--"}
             </p>
           </div>
           {doc.nextToken != null && (
-            <div className="mb-3 text-center">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            <div className="mb-4 text-center">
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
                 Next
               </p>
-              <p className="mt-0.5 font-mono text-3xl font-bold text-slate-300">
+              <p className="mt-1 font-mono text-4xl font-bold text-slate-300">
                 {doc.nextToken}
               </p>
             </div>
           )}
           <div
-            className={`mt-auto rounded-lg px-3 py-2 text-center text-sm font-medium ${
-              isActive ? "bg-emerald-900/50 text-emerald-300" : "bg-slate-800 text-slate-500"
+            className={`mt-auto rounded-xl px-4 py-3 text-center text-base font-semibold ${
+              isActive
+                ? "bg-emerald-900/50 text-emerald-300 ring-1 ring-emerald-500/30"
+                : "bg-slate-800/80 text-slate-500"
             }`}
           >
             {doc.waitingCount > 0
@@ -372,25 +408,27 @@ export function DoctorCard({ doc }: { doc: DoctorQueue }) {
       {mode === "CALLING" && (
         <>
           {doc.callingNow && doc.callingNow.length > 0 ? (
-            <div className="mb-3 p-1 text-center">
-              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-400">
+            <div className="mb-4 p-1 text-center">
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-400">
                 Now Calling
               </p>
               <CallingNames names={doc.callingNow} />
             </div>
           ) : (
-            <div className="mb-3 text-center">
-              <p className="text-xs font-semibold uppercase tracking-widest text-slate-600">
+            <div className="mb-4 text-center">
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-slate-600">
                 Arrival Queue
               </p>
-              <p className="mt-1 font-mono text-6xl font-black leading-none text-slate-700">
+              <p className="mt-2 font-mono text-7xl font-black leading-none text-slate-700">
                 --
               </p>
             </div>
           )}
           <div
-            className={`mt-auto rounded-lg px-3 py-2 text-center text-sm font-medium ${
-              isActive ? "bg-emerald-900/50 text-emerald-300" : "bg-slate-800 text-slate-500"
+            className={`mt-auto rounded-xl px-4 py-3 text-center text-base font-semibold ${
+              isActive
+                ? "bg-emerald-900/50 text-emerald-300 ring-1 ring-emerald-500/30"
+                : "bg-slate-800/80 text-slate-500"
             }`}
           >
             {doc.waitingCount > 0
@@ -402,26 +440,33 @@ export function DoctorCard({ doc }: { doc: DoctorQueue }) {
 
       {mode === "SLOT" && (
         <>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-slate-500">
             Next 3 Slots
           </p>
           {!doc.upcomingSlots || doc.upcomingSlots.length === 0 ? (
-            <p className="rounded-lg bg-slate-800 px-3 py-3 text-center text-sm text-slate-500">
+            <p className="rounded-xl bg-slate-800/80 px-4 py-4 text-center text-base text-slate-500">
               No upcoming slots today
             </p>
           ) : (
-            <ul className="space-y-1.5" data-testid="display-slot-strip">
+            <ul className="space-y-2.5" data-testid="display-slot-strip">
               {doc.upcomingSlots.map((s, i) => (
                 <li
                   key={`${s.slotStart}-${i}`}
-                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm ${
+                  className={`grid grid-cols-[1fr_auto_1fr] items-center rounded-xl px-4 py-3 text-lg ${
                     i === 0
-                      ? "bg-emerald-900/50 text-emerald-200"
+                      ? "bg-emerald-900/50 text-emerald-200 ring-1 ring-emerald-500/30"
                       : "bg-slate-800/70 text-slate-300"
                   }`}
                 >
-                  <span className="font-mono font-semibold">{s.slotStart}</span>
-                  <span className="text-xs text-slate-400">{s.patientLabel}</span>
+                  <span className="justify-self-start font-mono text-xl font-bold">
+                    {s.slotStart}
+                  </span>
+                  {/* Patient name centred in the row. */}
+                  <span className="justify-self-center text-center text-2xl font-semibold text-slate-100">
+                    {s.patientLabel}
+                  </span>
+                  {/* Spacer to balance the grid so the name stays truly centred. */}
+                  <span aria-hidden="true" />
                 </li>
               ))}
             </ul>

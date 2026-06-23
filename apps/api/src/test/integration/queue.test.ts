@@ -363,7 +363,7 @@ describeIfDB("Queue API (integration)", () => {
     expect(row.currentArrivalSeq).toBe(3);
   });
 
-  it("display board tags SLOT doctor and redacts upcoming patient names", async () => {
+  it("authed staff board tags SLOT doctor and shows the FULL upcoming patient name", async () => {
     const prisma = await getPrisma();
     const doctor = await createDoctorFixture();
     await prisma.doctor.update({
@@ -389,6 +389,30 @@ describeIfDB("Queue API (integration)", () => {
     expect(row.upcomingSlots.length).toBeGreaterThan(0);
     const slot = row.upcomingSlots[0];
     expect(slot.slotStart).toBe("10:30");
+    // Authenticated staff board shows the full patient name (reception needs it).
+    expect(slot.patientLabel).toBe("Priya Sharma");
+  });
+
+  it("PUBLIC display board still REDACTS the upcoming patient name to First L.", async () => {
+    const prisma = await getPrisma();
+    const doctor = await createDoctorFixture();
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { appointmentMode: "SLOT" },
+    });
+    const patient = await createPatientFixture({ name: "Priya Sharma" });
+    await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      overrides: { slotStart: "11:30", status: "BOOKED" },
+    });
+    // No auth — the public lobby-TV board.
+    const res = await request(app).get("/api/v1/queue/display");
+    expect(res.status).toBe(200);
+    const row = res.body.data.find((d: any) => d.doctorId === doctor.id);
+    expect(row).toBeDefined();
+    const slot = row.upcomingSlots.find((s: any) => s.slotStart === "11:30");
+    expect(slot).toBeDefined();
     // First name + last initial — never the full surname on a public board.
     expect(slot.patientLabel).toBe("Priya S.");
     expect(slot.patientLabel).not.toContain("Sharma");

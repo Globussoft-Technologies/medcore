@@ -111,6 +111,39 @@ export const registerSchema = z.object({
   // strips it and every self-registered patient lands as OTHER in the DB,
   // which then surfaces on the Rx PDF "Age / Gender" line.
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+  // Doctor profile fields (June 2026): when an admin creates a DOCTOR via the
+  // staff form, the chosen specialization / qualification / registration
+  // number must reach the Doctor row at creation time. Previously the page
+  // tried a follow-up PATCH to a non-existent /doctors/:id route, the error
+  // was swallowed, and every doctor landed as "General Medicine / MBBS". These
+  // are optional so every non-DOCTOR register flow is unaffected; the handler
+  // only reads them when role === "DOCTOR" and falls back to the defaults.
+  specialization: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100, "Specialization must be at most 100 characters")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Specialization contains characters that aren't allowed",
+    })
+    .optional(),
+  qualification: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100, "Qualification must be at most 100 characters")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Qualification contains characters that aren't allowed",
+    })
+    .optional(),
+  registrationNumber: z
+    .string()
+    .trim()
+    .max(100, "Registration number must be at most 100 characters")
+    .refine((v) => !containsHtmlOrScript(v), {
+      message: "Registration number contains characters that aren't allowed",
+    })
+    .optional(),
 });
 
 export const changePasswordSchema = z.object({

@@ -1165,11 +1165,35 @@ router.post(
           where: { userId: user.id },
         });
         if (!existing) {
+          // June 2026: honour the specialization / qualification / registration
+          // number the admin chose on the Add-Doctor form. These arrive on the
+          // validated register body (registerSchema, all optional). When absent
+          // (legacy callers, patient self-register) we keep the historical
+          // defaults so the row is always bookable.
+          const docSpecialization =
+            typeof req.body.specialization === "string" &&
+            req.body.specialization.trim()
+              ? req.body.specialization.trim()
+              : "General Medicine";
+          const docQualification =
+            typeof req.body.qualification === "string" &&
+            req.body.qualification.trim()
+              ? req.body.qualification.trim()
+              : "MBBS";
+          // The Doctor model stores the registration number as `nmcRegNumber`
+          // (National Medical Commission). The form labels it "Registration
+          // Number" and posts it as `registrationNumber`, so map it here.
+          const docRegNumber =
+            typeof req.body.registrationNumber === "string" &&
+            req.body.registrationNumber.trim()
+              ? req.body.registrationNumber.trim()
+              : undefined;
           const newDoctor = await prisma.doctor.create({
             data: {
               userId: user.id,
-              specialization: "General Medicine",
-              qualification: "MBBS",
+              specialization: docSpecialization,
+              qualification: docQualification,
+              ...(docRegNumber ? { nmcRegNumber: docRegNumber } : {}),
               tenantId,
             },
             select: { id: true },

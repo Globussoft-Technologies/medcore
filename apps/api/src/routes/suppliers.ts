@@ -71,9 +71,11 @@ router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST), async
 });
 
 // POST /api/v1/suppliers
+// PHARMACIST manages procurement in the pharmacy module, so they may create +
+// edit suppliers and record payments alongside ADMIN (June 2026).
 router.post(
   "/",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(createSupplierSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -95,7 +97,7 @@ router.post(
 // PATCH /api/v1/suppliers/:id
 router.patch(
   "/:id",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(updateSupplierSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -125,7 +127,7 @@ router.patch(
 // Issue #174: payment history is finance-only PII.
 router.get(
   "/:id/payments",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const [supplier, payments] = await Promise.all([
@@ -159,7 +161,7 @@ router.get(
 // POST /api/v1/suppliers/:id/payments
 router.post(
   "/:id/payments",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   validate(supplierPaymentSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -274,7 +276,7 @@ router.get(
 // POST /api/v1/suppliers/:id/catalog
 router.post(
   "/:id/catalog",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.PHARMACIST),
   validate(supplierCatalogItemSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -294,7 +296,7 @@ router.post(
 // GET /api/v1/suppliers/contracts/expiring?days=60
 router.get(
   "/contracts/expiring",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const days = parseInt((req.query.days as string) || "60", 10);

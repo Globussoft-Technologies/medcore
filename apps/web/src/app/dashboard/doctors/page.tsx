@@ -333,13 +333,14 @@ export default function DoctorsPage() {
     setSubmitting(true);
     try {
       if (createMode === "new") {
-        // POST /auth/register with role=DOCTOR auto-creates the Doctor
-        // row server-side (auth.ts ref Issue #205). We then PATCH the
-        // Doctor record with the admin-supplied specialization /
-        // qualification / registrationNumber. If the PATCH endpoint
-        // doesn't exist yet (current backend gap), the row is still
-        // created with the registration defaults and the admin can edit
-        // from the Doctor profile.
+        // POST /auth/register with role=DOCTOR auto-creates the Doctor row
+        // server-side (auth.ts ref Issue #205). The admin-supplied
+        // specialization / qualification / registrationNumber now ride ON the
+        // register body and the server applies them when it creates the Doctor
+        // row — so the chosen specialization persists immediately. (Previously
+        // the page tried a follow-up PATCH to a non-existent /doctors/:id route
+        // whose error was swallowed, so every doctor landed as "General
+        // Medicine".)
         // Include address + emergencyContact in the wire body only when
         // populated — both are optional on /register for non-PATIENT roles.
         // The all-or-nothing validator above guarantees we never send a
@@ -354,7 +355,11 @@ export default function DoctorsPage() {
           phone: form.phone.trim(),
           password: form.password,
           role: "DOCTOR",
+          specialization: form.specialization,
+          qualification: form.qualification.trim(),
         };
+        const regNum = form.registrationNumber.trim();
+        if (regNum) registerBody.registrationNumber = regNum;
         if (addrTrim.length >= 5) registerBody.address = addrTrim;
         if (ecName && ecPhone && ecRel) {
           registerBody.emergencyContact = {
@@ -374,28 +379,6 @@ export default function DoctorsPage() {
             ? { headers: { "X-Tenant-Id": formTenantId } }
             : undefined,
         );
-        // Best-effort: refresh and try to patch the just-created Doctor
-        // with the admin's specialization / qualification.
-        try {
-          const refreshed = await api.get<{ data: DoctorRecord[] }>("/doctors");
-          const created = (refreshed.data || []).find(
-            (d) => d.user?.email === form.email.trim()
-          );
-          if (created) {
-            await api
-              .patch(`/doctors/${created.id}`, {
-                specialization: form.specialization,
-                qualification: form.qualification.trim(),
-                registrationNumber: form.registrationNumber.trim() || undefined,
-              })
-              .catch(() => {
-                // PATCH /doctors/:id is not implemented yet — the row
-                // still exists with default specialization / qualification.
-              });
-          }
-        } catch {
-          // tolerate refresh failure
-        }
         toast.success("Doctor added.");
       } else {
         // Elevate an existing user. PATCH /users/:id only flips the
@@ -711,7 +694,7 @@ export default function DoctorsPage() {
                       data-testid="doctor-form-name"
                       value={form.name}
                       onChange={(e) =>
-                        setForm({ ...form, name: e.target.value })
+                        setForm((prev) => ({ ...prev, name: e.target.value }))
                       }
                       className={
                         "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -745,7 +728,7 @@ export default function DoctorsPage() {
                         data-testid="doctor-form-email"
                         value={form.email}
                         onChange={(e) =>
-                          setForm({ ...form, email: e.target.value })
+                          setForm((prev) => ({ ...prev, email: e.target.value }))
                         }
                         className={
                           "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -772,7 +755,7 @@ export default function DoctorsPage() {
                         data-testid="doctor-form-phone"
                         value={form.phone}
                         onChange={(e) =>
-                          setForm({ ...form, phone: e.target.value })
+                          setForm((prev) => ({ ...prev, phone: e.target.value }))
                         }
                         className={
                           "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -806,7 +789,7 @@ export default function DoctorsPage() {
                         data-testid="doctor-form-password"
                         value={form.password}
                         onChange={(e) =>
-                          setForm({ ...form, password: e.target.value })
+                          setForm((prev) => ({ ...prev, password: e.target.value }))
                         }
                         className={
                           "w-full rounded-lg border bg-white px-3 py-2 pr-10 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -844,7 +827,7 @@ export default function DoctorsPage() {
                       subtitleField="role"
                       hintField="email"
                       value={form.userId}
-                      onChange={(id) => setForm({ ...form, userId: id })}
+                      onChange={(id) => setForm((prev) => ({ ...prev, userId: id }))}
                       searchPlaceholder="Search by name, email..."
                       testIdPrefix="doctor-user-picker"
                       required
@@ -875,7 +858,7 @@ export default function DoctorsPage() {
                   data-testid="doctor-form-spec"
                   value={form.specialization}
                   onChange={(e) =>
-                    setForm({ ...form, specialization: e.target.value })
+                    setForm((prev) => ({ ...prev, specialization: e.target.value }))
                   }
                   className={
                     "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -909,7 +892,7 @@ export default function DoctorsPage() {
                   data-testid="doctor-form-qual"
                   value={form.qualification}
                   onChange={(e) =>
-                    setForm({ ...form, qualification: e.target.value })
+                    setForm((prev) => ({ ...prev, qualification: e.target.value }))
                   }
                   className={
                     "mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
@@ -937,7 +920,7 @@ export default function DoctorsPage() {
                   data-testid="doctor-form-reg"
                   value={form.registrationNumber}
                   onChange={(e) =>
-                    setForm({ ...form, registrationNumber: e.target.value })
+                    setForm((prev) => ({ ...prev, registrationNumber: e.target.value }))
                   }
                   className="mt-1 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 />
@@ -970,7 +953,7 @@ export default function DoctorsPage() {
                       rows={2}
                       value={form.address}
                       onChange={(e) =>
-                        setForm({ ...form, address: e.target.value })
+                        setForm((prev) => ({ ...prev, address: e.target.value }))
                       }
                       placeholder="Street, area, city, PIN"
                       className={
@@ -1010,10 +993,10 @@ export default function DoctorsPage() {
                           data-testid="doctor-form-ec-name"
                           value={form.emergencyContactName}
                           onChange={(e) =>
-                            setForm({
-                              ...form,
+                            setForm((prev) => ({
+                              ...prev,
                               emergencyContactName: e.target.value,
-                            })
+                            }))
                           }
                           placeholder="Contact name"
                           className={
@@ -1041,10 +1024,10 @@ export default function DoctorsPage() {
                           data-testid="doctor-form-ec-phone"
                           value={form.emergencyContactPhone}
                           onChange={(e) =>
-                            setForm({
-                              ...form,
+                            setForm((prev) => ({
+                              ...prev,
                               emergencyContactPhone: e.target.value,
-                            })
+                            }))
                           }
                           placeholder="10–15 digits"
                           className={
@@ -1072,10 +1055,10 @@ export default function DoctorsPage() {
                           data-testid="doctor-form-ec-rel"
                           value={form.emergencyContactRelationship}
                           onChange={(e) =>
-                            setForm({
-                              ...form,
+                            setForm((prev) => ({
+                              ...prev,
                               emergencyContactRelationship: e.target.value,
-                            })
+                            }))
                           }
                           placeholder="e.g. Spouse, Parent"
                           className={

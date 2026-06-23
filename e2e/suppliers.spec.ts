@@ -11,8 +11,9 @@
  *     suppliers.ts:21 authorize(...) on GET /suppliers): heading +
  *     "Add Supplier" CTA + search input render, and the list-fetch
  *     round-trip returns 200 with the table or empty-state.
- *   - Add-Supplier modal opens for ADMIN (the only role that can POST,
- *     suppliers.ts:74).
+ *   - Add-Supplier modal opens for ADMIN. POST /suppliers is allowed for
+ *     ADMIN + PHARMACIST (procurement is a pharmacy duty, June 2026);
+ *     this test exercises the ADMIN path. See suppliers.ts:74.
  *   - RBAC: DOCTOR + PATIENT are outside the GET /suppliers
  *     authorize(...) set so the in-page fetch comes back 403 — the
  *     page itself has no client-side gate (it renders the shell for

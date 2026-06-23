@@ -7,6 +7,7 @@ let app: any;
 let adminToken: string;
 let patientToken: string;
 let receptionToken: string;
+let pharmacistToken: string;
 
 describeIfDB("Suppliers API (integration)", () => {
   beforeAll(async () => {
@@ -14,6 +15,7 @@ describeIfDB("Suppliers API (integration)", () => {
     adminToken = await getAuthToken("ADMIN");
     patientToken = await getAuthToken("PATIENT");
     receptionToken = await getAuthToken("RECEPTION");
+    pharmacistToken = await getAuthToken("PHARMACIST");
     const mod = await import("../../app");
     app = mod.app;
   });
@@ -52,6 +54,33 @@ describeIfDB("Suppliers API (integration)", () => {
       .set("Authorization", `Bearer ${patientToken}`)
       .send({ name: "Foo" });
     expect(res.status).toBe(403);
+  });
+
+  it("allows PHARMACIST to create a supplier (procurement is a pharmacy duty)", async () => {
+    const res = await request(app)
+      .post("/api/v1/suppliers")
+      .set("Authorization", `Bearer ${pharmacistToken}`)
+      .send({
+        name: `PharmaVendor-${Date.now()}`,
+        contactPerson: "Bob",
+        phone: "9900000001",
+        gstNumber: "22BBBBB0000B1Z5",
+      });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.name).toMatch(/^PharmaVendor-/);
+  });
+
+  it("allows PHARMACIST to update a supplier", async () => {
+    const prisma = await getPrisma();
+    const sup = await prisma.supplier.create({
+      data: { name: `PharmEdit-${Date.now()}`, outstandingAmount: 0, isActive: true },
+    });
+    const res = await request(app)
+      .patch(`/api/v1/suppliers/${sup.id}`)
+      .set("Authorization", `Bearer ${pharmacistToken}`)
+      .send({ contactPerson: "Carol" });
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.contactPerson).toBe("Carol");
   });
 
   it("lists active suppliers", async () => {

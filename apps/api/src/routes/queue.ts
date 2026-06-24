@@ -302,7 +302,12 @@ async function buildDisplayBoard(
   // their own tenant; this only matters when a tenant-less super-admin wants
   // to narrow the cross-tenant board to a single tenant's doctors.
   tenantFilter: { tenantId?: string } = {},
+  // SLOT-mode patient name policy. The PUBLIC waiting-room board (GET /display)
+  // redacts to "First L." (PRD §2.1.5 privacy). The AUTHENTICATED staff board
+  // (GET /) passes `fullNames: true` so reception sees the full patient name.
+  opts: { fullNames?: boolean } = {},
 ) {
+  const fullNames = opts.fullNames === true;
   // `appointment.date` is a @db.Date column (UTC midnight). Build the day
   // window with setUTCHours (NOT setHours — local time shifts the window on
   // a non-UTC host and either misses today or leaks adjacent days into the
@@ -407,13 +412,21 @@ async function buildDisplayBoard(
             upcomingSlots = rows
               .filter((r) => r.slotStart)
               .map((r) => {
-                const fullName = r.patient?.user?.name ?? "";
-                const parts = fullName.trim().split(/\s+/);
-                const first = parts[0] ?? "—";
-                const lastInitial = parts.length > 1 ? `${parts[parts.length - 1][0]}.` : "";
+                const fullName = (r.patient?.user?.name ?? "").trim();
+                // Authed staff board → full name; public board → "First L."
+                let patientLabel: string;
+                if (fullNames) {
+                  patientLabel = fullName || "—";
+                } else {
+                  const parts = fullName.split(/\s+/);
+                  const first = parts[0] ?? "—";
+                  const lastInitial =
+                    parts.length > 1 ? `${parts[parts.length - 1][0]}.` : "";
+                  patientLabel = lastInitial ? `${first} ${lastInitial}` : first;
+                }
                 return {
                   slotStart: r.slotStart as string,
-                  patientLabel: lastInitial ? `${first} ${lastInitial}` : first,
+                  patientLabel,
                   status: r.status,
                 };
               });
@@ -452,9 +465,11 @@ router.get(
         tenantIdParam.trim().length > 0
           ? { tenantId: tenantIdParam.trim() }
           : {};
+      // Authenticated staff board → show full patient names (the public
+      // /display variant stays redacted to "First L.").
       res.json({
         success: true,
-        data: await buildDisplayBoard(tenantFilter),
+        data: await buildDisplayBoard(tenantFilter, { fullNames: true }),
         error: null,
       });
     } catch (err) {

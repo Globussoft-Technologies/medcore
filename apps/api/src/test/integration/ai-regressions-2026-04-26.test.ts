@@ -101,6 +101,37 @@ describeIfDB("AI-feature regressions (2026-04-26)", () => {
     expect(doctor!.specialization).toBe("General Medicine");
   });
 
+  // ── June 2026: the Add-Doctor form's specialization / qualification /
+  // registration number now ride on the /auth/register body and persist on
+  // the auto-created Doctor row (previously dropped by a dead PATCH call, so
+  // every doctor landed as "General Medicine"). registrationNumber maps to
+  // the Doctor model's `nmcRegNumber` column.
+  it("registering a DOCTOR persists the supplied specialization / qualification / registration number", async () => {
+    const prisma = await getPrisma();
+    const email = `doc_spec_${Date.now()}@test.local`;
+    const res = await request(app)
+      .post("/api/v1/auth/register")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "Dr. Ophthal Specialist",
+        email,
+        phone: "9123456700",
+        password: "Strong1Pass!",
+        role: "DOCTOR",
+        specialization: "Ophthalmology",
+        qualification: "MBBS, MS",
+        registrationNumber: "NMC-OPH-2026-001",
+      });
+    expect(res.status).toBe(201);
+    const userId = res.body.data.user.id;
+    const doctor = await prisma.doctor.findUnique({ where: { userId } });
+    expect(doctor).toBeTruthy();
+    expect(doctor!.specialization).toBe("Ophthalmology");
+    expect(doctor!.qualification).toBe("MBBS, MS");
+    // registrationNumber → nmcRegNumber on the model.
+    expect(doctor!.nmcRegNumber).toBe("NMC-OPH-2026-001");
+  });
+
   // ── #189: ADMIN can read a chat room they're not a participant in ────
   it("#189: ADMIN bypasses chat-room participant check (Agent Console triage)", async () => {
     const prisma = await getPrisma();

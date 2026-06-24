@@ -11,10 +11,35 @@ vi.mock("socket.io-client", () => ({
   })),
 }));
 
+// next/navigation: the page reads useSearchParams() (?scoped=) and useRouter()
+// (Esc / close → /dashboard). `searchParamsValue` is mutable so individual
+// tests can flip the page into scoped mode.
+let searchParamsValue = new URLSearchParams("");
+const pushMock = vi.fn();
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => searchParamsValue,
+  useRouter: () => ({ push: pushMock }),
+}));
+
+// The scoped board fetches via the api helper; the public board uses fetch.
+const apiGetMock = vi.fn(
+  async (..._args: any[]): Promise<{ success: boolean; data: any[] }> => ({
+    success: true,
+    data: [],
+  }),
+);
+vi.mock("@/lib/api", () => ({
+  api: { get: (...args: any[]) => apiGetMock(...args) },
+}));
+
 import TokenDisplayPage from "./page";
 
 describe("TokenDisplayPage", () => {
   beforeEach(() => {
+    searchParamsValue = new URLSearchParams("");
+    pushMock.mockReset();
+    apiGetMock.mockReset();
+    apiGetMock.mockResolvedValue({ success: true, data: [] });
     (globalThis as any).fetch = vi.fn(async () =>
       new Response(JSON.stringify({ success: true, data: [] }), {
         status: 200,
@@ -83,5 +108,45 @@ describe("TokenDisplayPage", () => {
     await waitFor(() =>
       expect(screen.getByText(/token display board/i)).toBeInTheDocument()
     );
+  });
+
+  it("public (unscoped) board has NO close button and uses the public fetch", async () => {
+    render(<TokenDisplayPage />);
+    await waitFor(() =>
+      expect(screen.getByText(/medcore hospital/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByTestId("display-close-button")).toBeNull();
+    expect((globalThis as any).fetch).toHaveBeenCalled();
+    expect(apiGetMock).not.toHaveBeenCalled();
+  });
+
+  it("scoped board fetches the tenant-scoped /queue via the api helper, shows a close button, and Esc returns to the dashboard", async () => {
+    searchParamsValue = new URLSearchParams("scoped=1");
+    apiGetMock.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          doctorId: "d1",
+          doctorName: "Asha Gupta",
+          specialization: "Cardiology",
+          currentToken: 7,
+          waitingCount: 3,
+        },
+      ],
+    });
+    render(<TokenDisplayPage />);
+    await waitFor(() =>
+      expect(screen.getByText(/asha gupta/i)).toBeInTheDocument()
+    );
+    // Tenant-scoped path: api.get("/queue") fired, raw public fetch did not.
+    expect(apiGetMock).toHaveBeenCalledWith("/queue");
+    // Close button present; clicking it returns to the dashboard.
+    const close = screen.getByTestId("display-close-button");
+    close.click();
+    expect(pushMock).toHaveBeenCalledWith("/dashboard");
+    // Esc also returns to the dashboard.
+    pushMock.mockReset();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(pushMock).toHaveBeenCalledWith("/dashboard");
   });
 });

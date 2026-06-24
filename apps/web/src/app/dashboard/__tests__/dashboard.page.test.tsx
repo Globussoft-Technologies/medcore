@@ -173,4 +173,31 @@ describe("DashboardPage", () => {
     // At least one element uses a dark: variant classname
     expect(container.querySelector('[class*="dark:"]')).not.toBeNull();
   });
+
+  it("RECEPTION sees a Token Display card linking to the scoped board, and NOT Today's Revenue", async () => {
+    authMock.mockReturnValue({
+      user: { id: "u3", name: "Sneha", email: "sneha@x.com", role: "RECEPTION" },
+      isLoading: false,
+    });
+    render(<DashboardPage />);
+    await waitFor(() =>
+      expect(screen.getByText(/welcome.*sneha/i)).toBeInTheDocument()
+    );
+    // The Token Display launcher renders and links to the tenant-scoped board.
+    const card = await screen.findByText("Token Display");
+    const link = card.closest("a");
+    expect(link).not.toBeNull();
+    expect(link).toHaveAttribute("href", "/display?scoped=1");
+    // Today's Revenue is ADMIN-only (Issue #90) — RECEPTION must not see it.
+    expect(screen.queryByText(/today's revenue/i)).toBeNull();
+  });
+
+  it("does NOT show the Token Display card for ADMIN (their 6th slot is Today's Revenue)", async () => {
+    // Default beforeEach user is ADMIN.
+    render(<DashboardPage />);
+    await waitFor(() =>
+      expect(screen.getByText(/welcome.*sumit/i)).toBeInTheDocument()
+    );
+    expect(screen.queryByText("Token Display")).toBeNull();
+  });
 });

@@ -171,7 +171,9 @@ function mapMedicineInputToPrisma(
 // POST /api/v1/medicines — create medicine
 router.post(
   "/",
-  authorize(Role.ADMIN, Role.DOCTOR),
+  // Pharmacists own the medicine catalog, so they can add/edit entries
+  // alongside ADMIN / DOCTOR (delete stays ADMIN-only).
+  authorize(Role.ADMIN, Role.DOCTOR, Role.PHARMACIST),
   validate(createMedicineSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -192,7 +194,7 @@ router.post(
 // PATCH /api/v1/medicines/:id — update medicine
 router.patch(
   "/:id",
-  authorize(Role.ADMIN, Role.DOCTOR),
+  authorize(Role.ADMIN, Role.DOCTOR, Role.PHARMACIST),
   validate(updateMedicineSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {

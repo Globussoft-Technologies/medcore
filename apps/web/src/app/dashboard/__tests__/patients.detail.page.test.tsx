@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 
-const { apiMock, authMock, toastMock } = vi.hoisted(() => ({
+const { apiMock, authMock, toastMock, confirmMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -12,11 +12,18 @@ const { apiMock, authMock, toastMock } = vi.hoisted(() => ({
   },
   authMock: vi.fn(),
   toastMock: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+  // Booking now runs through the in-app confirm dialog (useConfirm) before it
+  // fires the POST; default the mock to "confirmed".
+  confirmMock: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/lib/store", () => ({ useAuthStore: authMock }));
 vi.mock("@/lib/toast", () => ({ toast: toastMock }));
+vi.mock("@/lib/use-dialog", () => ({
+  useConfirm: () => confirmMock,
+  usePrompt: () => vi.fn(),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
@@ -326,6 +333,7 @@ describe("PatientDetailPage", () => {
                 id: "doc1",
                 user: { name: "Dr Suresh" },
                 specialization: "GP",
+                appointmentMode: "SLOT",
               },
             ],
           });
@@ -361,6 +369,12 @@ describe("PatientDetailPage", () => {
       });
       fireEvent.click(bookBtns[0]);
 
+      // The modal starts on "Select Doctor" — pick doc1 to reveal booking
+      // options (SLOT mode → slot grid).
+      fireEvent.change(await screen.findByLabelText("Doctor"), {
+        target: { value: "doc1" },
+      });
+
       // Wait for the slot tile to render in the modal.
       const slotBtn = await screen.findByRole("button", { name: "17:00" });
       fireEvent.click(slotBtn);
@@ -391,6 +405,9 @@ describe("PatientDetailPage", () => {
         name: /book appointment/i,
       });
       fireEvent.click(bookBtns[0]);
+      fireEvent.change(await screen.findByLabelText("Doctor"), {
+        target: { value: "doc1" },
+      });
       const slotBtn = await screen.findByRole("button", { name: "17:00" });
       fireEvent.click(slotBtn);
 

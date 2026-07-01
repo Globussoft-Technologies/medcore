@@ -48,6 +48,7 @@ const CSRF_BYPASS_PATHS = [
   // read-only existence check — rate-limited at the route.
   "/api/v1/auth/check-availability",
   "/api/v1/auth/refresh",
+  "/api/v1/auth/logout",
   "/api/v1/auth/2fa-verify",
   "/api/v1/auth/2fa-validate",
   "/api/v1/auth/forgot-password",

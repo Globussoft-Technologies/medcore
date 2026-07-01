@@ -127,9 +127,14 @@ describe("csrfProtection — path-based bypass for auth bootstrap routes", () =>
   });
 
   it("does NOT bypass for unrelated /api/v1/auth/* mutation endpoints", () => {
-    // e.g. /api/v1/auth/logout, /api/v1/auth/me are NOT in the bypass list
-    // — they MUST require a valid CSRF token.
-    const req = makeReq({ method: "POST", path: "/api/v1/auth/logout" });
+    // Session-management mutations like /api/v1/auth/sessions/logout-others are
+    // NOT in the bypass list — they MUST require a valid CSRF token. (Logout
+    // itself IS bypassed so it can always clear cookies even with a stale CSRF
+    // token — see CSRF_BYPASS_PATHS.)
+    const req = makeReq({
+      method: "POST",
+      path: "/api/v1/auth/sessions/logout-others",
+    });
     const res = makeRes();
     csrfProtection(req as any, res, next);
     expect(next).not.toHaveBeenCalled();

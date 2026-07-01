@@ -24,6 +24,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { VITALS_RANGES } from "@medcore/shared";
 import { toast } from "@/lib/toast";
+import { ageFromDOB } from "@/lib/format";
 import { useAuthStore } from "@/lib/store";
 import { ConsultRightRail, VisitDetail, type Visit } from "@/components/ConsultRightRail";
 import { Skeleton, SkeletonText } from "@/components/Skeleton";
@@ -41,6 +42,7 @@ interface AppointmentDetail {
     id: string;
     mrNumber: string;
     age: number | null;
+    dateOfBirth?: string | null;
     gender: string | null;
     bloodGroup: string | null;
     address: string | null;
@@ -646,7 +648,12 @@ export default function ConsultPage() {
 
   const isReadOnly = consultation?.status === "SIGNED";
   const patientName = appointment?.patient.user.name ?? "—";
-  const patientAge = appointment?.patient.age ?? null;
+  // Prefer age derived from date-of-birth (always accurate); fall back to any
+  // legacy stored integer age. Patients now register with DOB, not age.
+  const patientAge =
+    ageFromDOB(appointment?.patient.dateOfBirth ?? null) ??
+    appointment?.patient.age ??
+    null;
   const patientSex = appointment?.patient.gender ?? null;
   const patientPhone = appointment?.patient.user.phone ?? null;
   // Initials now derived inside <PatientAvatar>; no local computation.

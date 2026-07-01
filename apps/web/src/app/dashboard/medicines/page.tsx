@@ -127,9 +127,11 @@ export default function MedicinesPage() {
 
   const isAdmin = user?.role === "ADMIN";
   const isDoctor = user?.role === "DOCTOR";
-  // Edit allowed for ADMIN + DOCTOR (matches API PATCH guard); delete is
+  const isPharmacist = user?.role === "PHARMACIST";
+  // Create/edit allowed for ADMIN + DOCTOR + PHARMACIST (matches the API
+  // POST/PATCH guard — pharmacists own the medicine catalog); delete is
   // ADMIN-only.
-  const canEdit = isAdmin || isDoctor;
+  const canEdit = isAdmin || isDoctor || isPharmacist;
   const canDelete = isAdmin;
 
   // Page-window derivation. `total` comes from /medicines `meta.total`
@@ -339,7 +341,7 @@ export default function MedicinesPage() {
             Medicine catalog &amp; interactions
           </p>
         </div>
-        {isAdmin && (
+        {canEdit && (
           <button
             onClick={() => setShowAdd(true)}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"

@@ -399,7 +399,7 @@ describe("PatientsPage", () => {
       expect(apiMock.post).not.toHaveBeenCalled();
     });
 
-    it("validation — bad phone, bad email, out-of-range age, PIN-flagged address", async () => {
+    it("validation — bad phone, bad email, future date-of-birth, PIN-flagged address", async () => {
       setAuth("RECEPTION");
       searchParamsRef.current = new URLSearchParams("register=1");
       apiMock.get.mockResolvedValue({ data: [], meta: { total: 0 } });
@@ -410,7 +410,9 @@ describe("PatientsPage", () => {
       await user.type(screen.getByTestId("patient-name"), "Aarav");
       await user.type(screen.getByTestId("patient-phone"), "abc");
       await user.type(screen.getByTestId("patient-email"), "not-an-email");
-      await user.type(screen.getByTestId("patient-age"), "200");
+      fireEvent.change(screen.getByTestId("patient-dob"), {
+        target: { value: "2099-01-01" },
+      });
       fireEvent.change(screen.getByLabelText(/address/i), {
         target: { value: "pin: Mumbai" },
       });
@@ -426,8 +428,8 @@ describe("PatientsPage", () => {
       expect(screen.getByTestId("error-email")).toHaveTextContent(
         /valid email address/i,
       );
-      expect(screen.getByTestId("error-patient-age")).toHaveTextContent(
-        /between 0 and 130/,
+      expect(screen.getByTestId("error-patient-dob")).toHaveTextContent(
+        /future/i,
       );
       // Address with "pin: " but no 6-digit code → errs.address set
       // (the page sets the error but does not render it inline; the
@@ -436,7 +438,7 @@ describe("PatientsPage", () => {
       expect(apiMock.post).not.toHaveBeenCalled();
     });
 
-    it("validation — empty age is allowed (#555 newborn-friendly)", async () => {
+    it("validation — empty date-of-birth is allowed (#555 newborn-friendly)", async () => {
       setAuth("RECEPTION");
       searchParamsRef.current = new URLSearchParams("register=1");
       apiMock.get.mockResolvedValue({ data: [], meta: { total: 0 } });
@@ -447,7 +449,7 @@ describe("PatientsPage", () => {
       await screen.findByTestId("patient-name");
       await user.type(screen.getByTestId("patient-name"), "Aarav");
       await user.type(screen.getByTestId("patient-phone"), "9876543210");
-      // Leave age blank.
+      // Leave date-of-birth blank.
       const form = screen
         .getByTestId("patient-name")
         .closest("form") as HTMLFormElement;
@@ -457,15 +459,15 @@ describe("PatientsPage", () => {
         "/patients",
         expect.objectContaining({ name: "Aarav", phone: "9876543210" }),
       ));
-      // Body must not carry an age key when empty.
+      // Body must not carry a dateOfBirth key when empty.
       const call = apiMock.post.mock.calls.find((c) => c[0] === "/patients");
       const body = call?.[1] as Record<string, unknown>;
-      expect(body.age).toBeUndefined();
+      expect(body.dateOfBirth).toBeUndefined();
       // bloodGroup blank → omitted.
       expect(body.bloodGroup).toBeUndefined();
     });
 
-    it("validation — age 0 (newborn) is accepted and posted as numeric 0", async () => {
+    it("validation — a valid past date-of-birth is accepted and posted", async () => {
       setAuth("RECEPTION");
       searchParamsRef.current = new URLSearchParams("register=1");
       apiMock.get.mockResolvedValue({ data: [], meta: { total: 0 } });
@@ -476,18 +478,20 @@ describe("PatientsPage", () => {
       await screen.findByTestId("patient-name");
       await user.type(screen.getByTestId("patient-name"), "Aarav");
       await user.type(screen.getByTestId("patient-phone"), "9876543210");
-      await user.type(screen.getByTestId("patient-age"), "0");
+      fireEvent.change(screen.getByTestId("patient-dob"), {
+        target: { value: "2020-05-15" },
+      });
       const form = screen
         .getByTestId("patient-name")
         .closest("form") as HTMLFormElement;
       fireEvent.submit(form);
 
       await waitFor(() => expect(apiMock.post).toHaveBeenCalled());
-      // Note: form.age = "0" — parseInt("0") || undefined === undefined.
-      // The page accepts age=0 but the wire body coerces it to undefined
-      // because `form.age ? parseInt(form.age) : undefined`. We assert age
-      // was NOT rejected (no error).
-      expect(screen.queryByTestId("error-patient-age")).toBeNull();
+      // No validation error, and the DOB travels on the wire body.
+      expect(screen.queryByTestId("error-patient-dob")).toBeNull();
+      const call = apiMock.post.mock.calls.find((c) => c[0] === "/patients");
+      const body = call?.[1] as Record<string, unknown>;
+      expect(body.dateOfBirth).toBe("2020-05-15");
     });
 
     it("happy POST — sends full body, resets form, hides modal, refetches", async () => {
@@ -502,7 +506,9 @@ describe("PatientsPage", () => {
       await user.type(screen.getByTestId("patient-name"), "Riya Sharma");
       await user.type(screen.getByTestId("patient-phone"), "9876543210");
       await user.type(screen.getByTestId("patient-email"), "riya@example.com");
-      await user.type(screen.getByTestId("patient-age"), "30");
+      fireEvent.change(screen.getByTestId("patient-dob"), {
+        target: { value: "1994-05-15" },
+      });
 
       // Pick FEMALE + blood + WEB source.
       await user.selectOptions(
@@ -530,7 +536,7 @@ describe("PatientsPage", () => {
           phone: "9876543210",
           email: "riya@example.com",
           gender: "FEMALE",
-          age: 30,
+          dateOfBirth: "1994-05-15",
           bloodGroup: "O+",
           source: "WEB",
           address: "12 MG Road",

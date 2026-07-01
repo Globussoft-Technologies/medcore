@@ -10,6 +10,7 @@ import { toast } from "@/lib/toast";
 import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { useTranslation } from "@/lib/i18n";
 import { PatientEditModal } from "@/components/PatientEditModal";
+import { AdmitPatientModal } from "@/components/AdmitPatientModal";
 import { PatientCRMActivity } from "@/components/PatientCRMActivity";
 import { PatientAvatar } from "@/components/PatientAvatar";
 import { SkeletonCard, SkeletonText } from "@/components/Skeleton";
@@ -414,6 +415,8 @@ export default function PatientDetailPage() {
   >(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  // Admit modal opens IN-PLACE on this page (no navigation to /admissions).
+  const [admitOpen, setAdmitOpen] = useState(false);
   // Pearl §2.1.3 — SOAP consult history drawer. Lazy-loads on first
   // open; clicking a row expands its SOAP body inline. Distinct from
   // the legacy "visits" list which only knows about prescriptions.
@@ -1109,12 +1112,13 @@ export default function PatientDetailPage() {
             </Link>
           )}
           {(isDoctor || isAdmin) && !stats?.currentAdmissionId && (
-            <Link
-              href={`/dashboard/ipd/admit?patientId=${id}`}
+            <button
+              type="button"
+              onClick={() => setAdmitOpen(true)}
               className="flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-1.5 text-sm text-white hover:bg-purple-700"
             >
               <BedDouble size={14} /> Admit
-            </Link>
+            </button>
           )}
           {/* Pearl §2.1.3 — second entry point to the SOAP consult
               history, placed next to the other clinical-action chips
@@ -1169,6 +1173,7 @@ export default function PatientDetailPage() {
           stats={stats}
           canEdit={canEdit}
           onBookAppt={() => setQuickModal("book")}
+          onAdmit={() => setAdmitOpen(true)}
         />
       )}
 
@@ -1404,6 +1409,21 @@ export default function PatientDetailPage() {
           loadStats();
         }}
       />
+
+      {/* In-place Admit modal — opens on this page (no navigation to the
+          Admissions section). Refreshes stats so the admission banner /
+          Admit button flip immediately on success. */}
+      {admitOpen && patient && (
+        <AdmitPatientModal
+          patient={{
+            id,
+            name: patient.user?.name ?? "",
+            mrNumber: patient.mrNumber,
+          }}
+          onClose={() => setAdmitOpen(false)}
+          onAdmitted={() => loadStats()}
+        />
+      )}
 
       {/* Pearl §2.1.3 — SOAP consult-history slide-over drawer. */}
       {consultHistoryOpen && (
@@ -3011,12 +3031,49 @@ interface DoctorLite {
   id: string;
   user: { name: string };
   specialization?: string | null;
+  // CALLING / TOKEN doctors run an arrival-order queue (no slot grid); SLOT
+  // doctors expose a time-slot picker. Drives the booking UI below.
+  appointmentMode?: "CALLING" | "TOKEN" | "SLOT" | null;
+  // Per-doctor channel allow-list (Pearl §3.2). Empty/undefined = all
+  // mode-valid channels. Mirrors the Appointments page.
+  enabledChannels?: ApptChannel[];
 }
 
 interface Slot {
   startTime: string;
   endTime: string;
   isAvailable: boolean;
+}
+
+// ── Booking channels (mirrors the Appointments page) ─────────────────────
+type ApptChannel = "CALLING" | "SLOT" | "TOKEN" | "WALKIN";
+
+const APPT_CHANNEL_LABEL: Record<ApptChannel, string> = {
+  CALLING: "Calling (arrival queue)",
+  SLOT: "Slot (fixed time)",
+  TOKEN: "Token (sequential)",
+  WALKIN: "Walk-in",
+};
+
+const MODE_VALID_CHANNELS: Record<"CALLING" | "TOKEN" | "SLOT", ApptChannel[]> = {
+  CALLING: ["CALLING", "WALKIN"],
+  TOKEN: ["TOKEN", "WALKIN"],
+  SLOT: ["SLOT", "WALKIN"],
+};
+
+// The channels actually offered for a doctor: (mode-valid) ∩ (enabledChannels,
+// when set); falls back to the mode's primary channel if the config narrows to
+// nothing. The API is the authoritative gate.
+function availableChannelsFor(d: {
+  appointmentMode?: "CALLING" | "TOKEN" | "SLOT" | null;
+  enabledChannels?: ApptChannel[];
+}): ApptChannel[] {
+  const mode = d.appointmentMode ?? "TOKEN";
+  const modeValid = MODE_VALID_CHANNELS[mode];
+  const configured = d.enabledChannels ?? [];
+  if (configured.length === 0) return modeValid;
+  const intersection = modeValid.filter((c) => configured.includes(c));
+  return intersection.length > 0 ? intersection : [modeValid[0]];
 }
 
 function QuickBookModal({
@@ -3036,18 +3093,62 @@ function QuickBookModal({
   const [slots, setSlots] = useState<Slot[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedChannel, setSelectedChannel] = useState<ApptChannel | "">("");
+  const [tokenPreview, setTokenPreview] = useState<{
+    label: string | null;
+    limitReached: boolean;
+  } | null>(null);
+  const askConfirm = useConfirm();
 
   useEffect(() => {
     (async () => {
       try {
         const res = await api.get<{ data: DoctorLite[] }>("/doctors");
         setDoctors(res.data);
-        if (res.data.length > 0) setDoctorId(res.data[0].id);
+        // Do NOT auto-select a doctor — start on "Select Doctor" so the user
+        // makes an explicit choice before booking options appear.
       } catch {
         // noop
       }
     })();
   }, []);
+
+  const selectedDoctor = doctors.find((d) => d.id === doctorId);
+
+  // When the doctor changes, default the channel to that doctor's primary
+  // (first available) channel — SLOT / TOKEN / CALLING depending on mode.
+  useEffect(() => {
+    if (!selectedDoctor) return;
+    setSelectedChannel(availableChannelsFor(selectedDoctor)[0]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doctorId, doctors.length]);
+
+  // Preview the next sequential token for a TOKEN doctor so the button can
+  // read "Book (assign token N)" and disable itself when the daily cap is hit.
+  useEffect(() => {
+    if (selectedChannel !== "TOKEN" || !doctorId || !date) {
+      setTokenPreview(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .get<{ data: { tokenLabel: string | null; limitReached: boolean } }>(
+        `/appointments/next-token?doctorId=${encodeURIComponent(doctorId)}&date=${encodeURIComponent(date)}`,
+      )
+      .then((r) => {
+        if (cancelled) return;
+        setTokenPreview({
+          label: r.data?.tokenLabel ?? null,
+          limitReached: !!r.data?.limitReached,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setTokenPreview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChannel, doctorId, date]);
 
   useEffect(() => {
     if (!doctorId || !date) return;
@@ -3103,6 +3204,95 @@ function QuickBookModal({
     setSaving(false);
   }
 
+  // Arrival-queue booking for CALLING / TOKEN doctors — no slot time; the
+  // patient is added to the queue for the chosen date (backend mints the
+  // arrivalSeq / token). Mirrors the Appointments page's queue flow.
+  async function bookQueue() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(
+        "/appointments/book",
+        { patientId, doctorId, date },
+        { skip401Redirect: true },
+      );
+      onSaved();
+    } catch (e) {
+      const status = (e as Error & { status?: number }).status;
+      setError(
+        status === 401
+          ? "Your session is out of sync. Please refresh the page and try again."
+          : (e as Error).message,
+      );
+    }
+    setSaving(false);
+  }
+
+  // Walk-in registration — separate endpoint that mints a token + writes a
+  // WALK_IN type row and joins today's in-clinic queue.
+  async function bookWalkin() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.post(
+        "/appointments/walk-in",
+        { patientId, doctorId },
+        { skip401Redirect: true },
+      );
+      onSaved();
+    } catch (e) {
+      const status = (e as Error & { status?: number }).status;
+      setError(
+        status === 401
+          ? "Your session is out of sync. Please refresh the page and try again."
+          : (e as Error).message,
+      );
+    }
+    setSaving(false);
+  }
+
+  // Guard against a duplicate open appointment (same patient + SAME doctor,
+  // not yet completed) and confirm before booking. A DIFFERENT doctor is
+  // always allowed. Runs before every channel's book action.
+  async function confirmAndBook(action: () => Promise<void>) {
+    if (!doctorId) return;
+    setError(null);
+    // Duplicate check: any BOOKED / CHECKED_IN / IN_CONSULTATION appointment
+    // for this patient with this doctor blocks a second booking.
+    try {
+      const res = await api.get<{ data: { status: string }[] }>(
+        `/appointments?patientId=${encodeURIComponent(patientId)}&doctorId=${encodeURIComponent(doctorId)}&limit=100`,
+      );
+      const OPEN = ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"];
+      const hasOpen = (res.data || []).some((a) => OPEN.includes(a.status));
+      if (hasOpen) {
+        const docName = selectedDoctor
+          ? formatDoctorName(selectedDoctor.user.name)
+          : "this doctor";
+        setError(
+          `This patient already has an open appointment with ${docName}. Complete or cancel it before booking another with the same doctor. (Booking with a different doctor is allowed.)`,
+        );
+        return;
+      }
+    } catch {
+      // If the pre-check fails (network/permission), don't hard-block — the
+      // backend remains the authoritative guard.
+    }
+
+    const docName = selectedDoctor
+      ? formatDoctorName(selectedDoctor.user.name)
+      : "the selected doctor";
+    const ok = await askConfirm({
+      title: "Confirm appointment",
+      message: `Book an appointment for this patient with ${docName} on ${date}?`,
+      confirmLabel: "Confirm booking",
+    });
+    if (!ok) return;
+    await action();
+  }
+
+  const channels = selectedDoctor ? availableChannelsFor(selectedDoctor) : [];
+
   return (
     <Modal title="Book Appointment" onClose={onClose} size="lg">
       <div className="space-y-3">
@@ -3120,6 +3310,7 @@ function QuickBookModal({
               value={doctorId}
               onChange={(e) => setDoctorId(e.target.value)}
             >
+              <option value="">Select Doctor</option>
               {doctors.map((d) => (
                 <option key={d.id} value={d.id}>
                   {formatDoctorName(d.user.name)}
@@ -3140,32 +3331,135 @@ function QuickBookModal({
             />
           </div>
         </div>
-        <div>
-          <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
-            Available Slots
-          </p>
-          {slots.length === 0 ? (
-            <p className="text-sm text-gray-400 dark:text-gray-500">No slots available</p>
-          ) : (
-            <div className="grid grid-cols-4 gap-2">
-              {slots.map((s) => (
+        {!selectedDoctor ? (
+          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
+            Pick a doctor to see booking options.
+          </div>
+        ) : (
+          <>
+        {/* Booking channel toggle — only when the doctor offers more than one
+            (e.g. Token + Walk-in). Mirrors the Appointments page. */}
+        {channels.length > 1 && (
+          <div>
+            <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-200">
+              Booking channel
+            </p>
+            <div className="inline-flex rounded-lg border border-gray-300 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
+              {channels.map((ch) => (
                 <button
-                  key={s.startTime}
+                  key={ch}
                   type="button"
-                  disabled={!s.isAvailable || saving}
-                  onClick={() => book(s.startTime)}
-                  className={`rounded-md px-2 py-2 text-xs ${
-                    s.isAvailable
-                      ? "border border-primary text-primary hover:bg-primary hover:text-white"
-                      : "cursor-not-allowed bg-gray-100 text-gray-400 dark:bg-gray-900/60 dark:text-gray-600"
+                  onClick={() => setSelectedChannel(ch)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                    selectedChannel === ch
+                      ? "bg-primary text-white"
+                      : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
                   }`}
                 >
-                  {s.startTime}
+                  {APPT_CHANNEL_LABEL[ch]}
                 </button>
               ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* SLOT — timed slot grid. */}
+        {selectedChannel === "SLOT" && (
+          <div>
+            <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
+              Available Slots
+            </p>
+            {slots.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">No slots available</p>
+            ) : (
+              <div className="grid grid-cols-4 gap-2">
+                {slots.map((s) => (
+                  <button
+                    key={s.startTime}
+                    type="button"
+                    disabled={!s.isAvailable || saving}
+                    onClick={() => confirmAndBook(() => book(s.startTime))}
+                    className={`rounded-md px-2 py-2 text-xs ${
+                      s.isAvailable
+                        ? "border border-primary text-primary hover:bg-primary hover:text-white"
+                        : "cursor-not-allowed bg-gray-100 text-gray-400 dark:bg-gray-900/60 dark:text-gray-600"
+                    }`}
+                  >
+                    {s.startTime}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TOKEN — sequential token, no slot time. */}
+        {selectedChannel === "TOKEN" && (
+          <div className="rounded-lg border border-indigo-300 bg-indigo-50 p-4 text-sm text-indigo-900 dark:border-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-100">
+            <p className="mb-3">
+              This doctor uses <strong>sequential token</strong> booking. No
+              slot time needed — a token number is assigned automatically.
+            </p>
+            {tokenPreview?.limitReached ? (
+              <p className="rounded-lg bg-rose-100 px-3 py-2 text-sm font-medium text-rose-700 dark:bg-rose-900/30 dark:text-rose-300">
+                Daily appointment limit reached for this doctor — no more tokens
+                can be booked today.
+              </p>
+            ) : (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => confirmAndBook(bookQueue)}
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {saving
+                  ? "Booking…"
+                  : tokenPreview?.label
+                    ? `Book (assign token ${tokenPreview.label})`
+                    : "Book (assign token)"}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* CALLING — arrival-order queue, no slot time. */}
+        {selectedChannel === "CALLING" && (
+          <div className="rounded-lg border border-blue-300 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-100">
+            <p className="mb-3">
+              This doctor uses an <strong>arrival-order queue</strong>. No slot
+              time needed — the patient is added to today&apos;s queue and seen
+              in arrival order.
+            </p>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={bookQueue}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {saving ? "Adding…" : "Add to today's queue"}
+            </button>
+          </div>
+        )}
+
+        {/* WALKIN — separate endpoint (mints token + WALK_IN type). */}
+        {selectedChannel === "WALKIN" && (
+          <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-100">
+            <p className="mb-3">
+              Register the patient as a <strong>walk-in</strong>. A token is
+              minted for today and the patient joins the in-clinic queue.
+            </p>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => confirmAndBook(bookWalkin)}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {saving ? "Adding…" : "Add to today's walk-in queue"}
+            </button>
+          </div>
+        )}
+          </>
+        )}
       </div>
     </Modal>
   );
@@ -4475,12 +4769,14 @@ function Patient360Tab({
   stats,
   canEdit,
   onBookAppt,
+  onAdmit,
 }: {
   patientId: string;
   patient: PatientDetail & { photoUrl?: string | null };
   stats: PatientStats | null;
   canEdit: boolean;
   onBookAppt: () => void;
+  onAdmit: () => void;
 }) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [vitals, setVitals] = useState<VitalsTrendPoint[]>([]);
@@ -4685,8 +4981,8 @@ function Patient360Tab({
                 Icon={User}
               />
               {!stats?.currentAdmissionId && (
-                <QuickLink
-                  href={`/dashboard/ipd/admit?patientId=${patientId}`}
+                <QuickBtn
+                  onClick={onAdmit}
                   label="Admit"
                   color="bg-indigo-600"
                   Icon={BedDouble}

@@ -362,7 +362,7 @@ describe("MedicinesPage (formulary catalog — full surface)", () => {
     );
   });
 
-  it("hides the Add Medicine button for DOCTOR (ADMIN-only write-create gate)", async () => {
+  it("shows the Add Medicine button for DOCTOR (create allowed — matches API POST guard)", async () => {
     asDoctor();
     apiMock.get.mockResolvedValue({ data: [medFixture()] });
 
@@ -370,8 +370,8 @@ describe("MedicinesPage (formulary catalog — full surface)", () => {
     await screen.findByText("Amlodipine 5mg");
 
     expect(
-      screen.queryByRole("button", { name: /Add Medicine/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: /Add Medicine/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows Edit but NOT Delete for DOCTOR (canEdit true, canDelete false)", async () => {
@@ -385,15 +385,19 @@ describe("MedicinesPage (formulary catalog — full surface)", () => {
     expect(screen.queryByTestId("medicine-delete")).not.toBeInTheDocument();
   });
 
-  it("hides BOTH Edit and Delete for PHARMACIST (read-only role)", async () => {
+  it("shows Edit but NOT Delete for PHARMACIST (create/edit allowed, delete admin-only)", async () => {
     asPharmacist();
     apiMock.get.mockResolvedValue({ data: [medFixture()] });
 
     render(<MedicinesPage />);
     await screen.findByText("Amlodipine 5mg");
 
-    expect(screen.queryByTestId("medicine-edit")).not.toBeInTheDocument();
+    // Pharmacists own the catalog → can add/edit, but delete stays ADMIN-only.
+    expect(screen.getByTestId("medicine-edit")).toBeInTheDocument();
     expect(screen.queryByTestId("medicine-delete")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Add Medicine/i }),
+    ).toBeInTheDocument();
   });
 
   it("allows NURSE to view but hides write actions (canEdit and canDelete both false)", async () => {

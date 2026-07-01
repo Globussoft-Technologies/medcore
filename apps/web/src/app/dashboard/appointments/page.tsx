@@ -1145,6 +1145,7 @@ export default function AppointmentsPage() {
       setPatientFieldError(false);
       setShowBooking(false);
       setIsRecurring(false);
+      setFilterDate(bookDate);
       loadAppointments();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Booking failed");

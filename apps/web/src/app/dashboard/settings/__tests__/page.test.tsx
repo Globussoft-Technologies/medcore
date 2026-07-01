@@ -941,21 +941,20 @@ describe("SettingsPage — Notifications tab", () => {
   });
 
   it("Send test confirm rejected → no POST (Issue #940)", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    // Now uses the in-app confirm dialog (useConfirm → confirmMock), not the
+    // native window.confirm.
+    confirmMock.mockResolvedValue(false);
     await openNotifications();
 
     // First "Send test" button in the DOM is the WHATSAPP row's.
     fireEvent.click(screen.getAllByRole("button", { name: /Send test/i })[0]);
 
-    expect(confirmSpy).toHaveBeenCalledWith(
-      "Send a test notification via WhatsApp?",
-    );
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
     expect(apiMock.post).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
   });
 
   it("Send test confirm accepted → POST /notifications/test + toast", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirmMock.mockResolvedValue(true);
     apiMock.post.mockResolvedValue({ data: { ok: true } });
     await openNotifications();
 
@@ -969,7 +968,6 @@ describe("SettingsPage — Notifications tab", () => {
     expect(toastMock.success).toHaveBeenCalledWith(
       "Test WhatsApp notification queued",
     );
-    confirmSpy.mockRestore();
   });
 });
 

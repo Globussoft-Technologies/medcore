@@ -119,7 +119,7 @@ export default function PatientsPage() {
     name: "",
     phone: "",
     email: "",
-    age: "",
+    dateOfBirth: "",
     gender: "MALE",
     address: "",
     bloodGroup: "",
@@ -375,16 +375,20 @@ export default function PatientsPage() {
       errs.phone = "Phone must be 10–15 digits, optional leading +";
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
       errs.email = "Enter a valid email address";
-    if (form.age !== undefined && form.age !== "") {
-      const ageNum = parseInt(form.age, 10);
-      // Issue #555 (May 2026): allow age=0 (newborns). The original #167
-      // restriction to age>=1 was an over-correction that blocked
-      // legitimate newborn / infant registrations the registry was
-      // already storing (MR009000 Aarav age 0, MR009003 Diya age 2).
-      // Empty input is still treated as "not provided" via the outer
-      // string check; only an explicitly-typed value is range-checked.
-      if (Number.isNaN(ageNum) || ageNum < 0 || ageNum > 130)
-        errs.age = "Age must be between 0 and 130";
+    if (form.dateOfBirth) {
+      // Date of birth is optional, but if provided it must be a real date,
+      // not in the future, and within a sane range (<=130 years old).
+      const dob = new Date(form.dateOfBirth);
+      const now = new Date();
+      const min = new Date();
+      min.setFullYear(min.getFullYear() - 130);
+      if (Number.isNaN(dob.getTime())) {
+        errs.dateOfBirth = "Enter a valid date of birth";
+      } else if (dob > now) {
+        errs.dateOfBirth = "Date of birth can't be in the future";
+      } else if (dob < min) {
+        errs.dateOfBirth = "Date of birth is too far in the past";
+      }
     }
     if (form.address) {
       const pinMatch = form.address.match(/\b(\d{6})\b/);
@@ -403,7 +407,7 @@ export default function PatientsPage() {
         ...form,
         name: trimmedName,
         phone: trimmedPhone,
-        age: form.age ? parseInt(form.age) : undefined,
+        dateOfBirth: form.dateOfBirth || undefined,
         bloodGroup: form.bloodGroup || undefined,
         // Super-admin only — which tenant to create under. The API ignores it
         // for tenant-bound callers (uses their own req.tenantId).
@@ -443,7 +447,7 @@ export default function PatientsPage() {
         name: "",
         phone: "",
         email: "",
-        age: "",
+        dateOfBirth: "",
         gender: "MALE",
         address: "",
         bloodGroup: "",
@@ -846,26 +850,32 @@ export default function PatientsPage() {
               )}
             </div>
             <div>
-              <label htmlFor="patient-age" className="sr-only">
-                {t("register.age")}
+              <label
+                htmlFor="patient-dob"
+                className="mb-1 block text-xs text-gray-500 dark:text-gray-400"
+              >
+                {t("register.dob", "Date of Birth")}
               </label>
               <input
-                id="patient-age"
-                placeholder={t("register.age")}
-                type="number"
-                min={1}
-                max={130}
-                value={form.age}
-                data-testid="patient-age"
-                onChange={(e) => setForm({ ...form, age: e.target.value })}
+                id="patient-dob"
+                type="date"
+                // Can't be born in the future; native picker greys out later days.
+                max={new Date().toISOString().split("T")[0]}
+                value={form.dateOfBirth}
+                data-testid="patient-dob"
+                onChange={(e) =>
+                  setForm({ ...form, dateOfBirth: e.target.value })
+                }
                 className={
                   "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100 " +
-                  (formErrors.age ? "border-red-500" : "border-gray-200 dark:border-gray-600")
+                  (formErrors.dateOfBirth
+                    ? "border-red-500"
+                    : "border-gray-200 dark:border-gray-600")
                 }
               />
-              {formErrors.age && (
-                <p data-testid="error-patient-age" className="mt-1 text-xs text-red-600">
-                  {formErrors.age}
+              {formErrors.dateOfBirth && (
+                <p data-testid="error-patient-dob" className="mt-1 text-xs text-red-600">
+                  {formErrors.dateOfBirth}
                 </p>
               )}
             </div>

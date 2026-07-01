@@ -903,6 +903,7 @@ function SecurityTab() {
 // ─── NOTIFICATIONS ─────────────────────────────────────
 
 function NotificationsTab() {
+  const askConfirm = useConfirm();
   const [prefs, setPrefs] = useState<Preference[]>([]);
   const [quietStart, setQuietStart] = useState("");
   const [quietEnd, setQuietEnd] = useState("");
@@ -965,14 +966,18 @@ function NotificationsTab() {
   async function testChannel(channel: string) {
     // Issue #940: the "Send test" button fired immediately on click with no
     // confirmation, which let a stray click send a real (potentially SMS or
-    // WhatsApp-charged) test message. Gate it behind a native confirm so the
-    // user explicitly opts in. The label uses the same friendly map the
-    // success toast does so the prompt and the toast read consistently.
+    // WhatsApp-charged) test message. Gate it behind the in-app confirm dialog
+    // (not the native browser confirm) so it matches the rest of the UI. The
+    // label uses the same friendly map the success toast does so the prompt
+    // and the toast read consistently.
     const label =
       CHANNEL_LABEL[channel as Preference["channel"]] ?? channel;
-    if (typeof window !== "undefined" && !window.confirm(`Send a test notification via ${label}?`)) {
-      return;
-    }
+    const ok = await askConfirm({
+      title: `Send a test ${label} notification?`,
+      message: `A real test message will be sent via ${label} to your registered contact.`,
+      confirmLabel: "Send test",
+    });
+    if (!ok) return;
     try {
       await api.post("/notifications/test", { channel });
       // Issue #873 continued: the toast renders the friendly label (set

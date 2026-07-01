@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const { apiMock, authMock, toastMock } = vi.hoisted(() => ({
+const { apiMock, authMock, toastMock, confirmMock } = vi.hoisted(() => ({
   apiMock: {
     get: vi.fn(),
     post: vi.fn(),
@@ -13,11 +13,18 @@ const { apiMock, authMock, toastMock } = vi.hoisted(() => ({
   },
   authMock: vi.fn(),
   toastMock: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+  // Send-test now uses the in-app confirm dialog (useConfirm), not the native
+  // window.confirm.
+  confirmMock: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 vi.mock("@/lib/store", () => ({ useAuthStore: authMock }));
 vi.mock("@/lib/toast", () => ({ toast: toastMock }));
+vi.mock("@/lib/use-dialog", () => ({
+  useConfirm: () => confirmMock,
+  usePrompt: () => vi.fn(),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
@@ -29,6 +36,8 @@ import SettingsPage from "../settings/page";
 describe("SettingsPage", () => {
   beforeEach(() => {
     apiMock.get.mockReset();
+    confirmMock.mockReset();
+    confirmMock.mockResolvedValue(true);
     authMock.mockImplementation((selector: any) => {
       const state = {
         user: { id: "u1", name: "Admin", email: "a@x.com", role: "ADMIN" },
@@ -85,7 +94,7 @@ describe("SettingsPage", () => {
   // SMS/WhatsApp-charged) test message. The fix wraps the click in a
   // window.confirm prompt. We assert both (a) the confirm is called and
   // (b) NO POST is fired when the user declines.
-  it("gates Send test behind window.confirm (#940 — declines do not POST)", async () => {
+  it("gates Send test behind the confirm dialog (#940 — declines do not POST)", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/notifications/preferences"))
         return Promise.resolve({
@@ -100,7 +109,7 @@ describe("SettingsPage", () => {
         return Promise.resolve({ data: null });
       return Promise.resolve({ data: [] });
     });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    confirmMock.mockResolvedValue(false);
     const user = userEvent.setup();
     render(<SettingsPage />);
     // Switch to the Notifications tab.
@@ -115,17 +124,15 @@ describe("SettingsPage", () => {
     expect(sendButtons.length).toBeGreaterThan(0);
     apiMock.post.mockClear();
     await user.click(sendButtons[0]);
-    expect(confirmSpy).toHaveBeenCalledTimes(1);
-    expect(confirmSpy.mock.calls[0][0]).toMatch(/send a test notification via/i);
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled());
     // Critical: declining the confirm must NOT fire the test-notification POST.
     expect(apiMock.post).not.toHaveBeenCalledWith(
       "/notifications/test",
       expect.anything()
     );
-    confirmSpy.mockRestore();
   });
 
-  it("Send test POSTs when window.confirm is accepted (#940 — happy path)", async () => {
+  it("Send test POSTs when the confirm dialog is accepted (#940 — happy path)", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url.startsWith("/notifications/preferences"))
         return Promise.resolve({
@@ -136,7 +143,7 @@ describe("SettingsPage", () => {
       return Promise.resolve({ data: [] });
     });
     apiMock.post.mockResolvedValue({ data: { ok: true } });
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    confirmMock.mockResolvedValue(true);
     const user = userEvent.setup();
     render(<SettingsPage />);
     await waitFor(() =>
@@ -150,14 +157,13 @@ describe("SettingsPage", () => {
     // to /notifications/test fired with SOME channel string.
     const sendButtons = await screen.findAllByRole("button", { name: /send test/i });
     await user.click(sendButtons[0]);
-    expect(confirmSpy).toHaveBeenCalled();
+    expect(confirmMock).toHaveBeenCalled();
     await waitFor(() =>
       expect(apiMock.post).toHaveBeenCalledWith(
         "/notifications/test",
         expect.objectContaining({ channel: expect.any(String) })
       )
     );
-    confirmSpy.mockRestore();
   });
 
   // Issue #437: nurse role must only see personal-scoped settings tabs.

@@ -110,6 +110,31 @@ function LoginPageInner() {
   const hasExplicitRedirect = Boolean(nextRaw && nextRaw.trim().length > 0);
   const { login, verify2FA } = useAuthStore();
   const { t } = useTranslation();
+
+  // Where to send the user after a successful sign-in. Priority:
+  //   1. an explicit ?next= / ?redirect= (the dashboard auth-gate sets this)
+  //   2. PATIENT → their portal
+  //   3. staff → their saved "Default Landing Page" (Settings → Preferences)
+  //   4. the default dashboard
+  // The /auth/login response carries only a partial user, so we refresh from
+  // /auth/me first to make sure defaultLandingPage is populated.
+  async function goToPostLoginDest() {
+    try {
+      await useAuthStore.getState().refreshUser();
+    } catch {
+      // non-fatal — fall back to the default destination below
+    }
+    const u = useAuthStore.getState().user;
+    let dest = redirectTo;
+    if (!hasExplicitRedirect) {
+      if (u?.role === "PATIENT") {
+        dest = "/patient/dashboard";
+      } else if (u?.defaultLandingPage) {
+        dest = sanitizeNextPath(u.defaultLandingPage) || redirectTo;
+      }
+    }
+    router.push(dest);
+  }
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   // Issue #1: Remember-me preference. Unchecked = session-only (refresh
@@ -221,12 +246,7 @@ function LoginPageInner() {
       // gate so users land back on the page they originally tried to open.
       // PATIENT override: when no explicit redirect was requested, send the
       // patient to /patient/dashboard instead of the staff /dashboard.
-      const role = useAuthStore.getState().user?.role;
-      const dest =
-        !hasExplicitRedirect && role === "PATIENT"
-          ? "/patient/dashboard"
-          : redirectTo;
-      router.push(dest);
+      await goToPostLoginDest();
     } catch (err) {
       // Issue #15: distinguish 429 (rate-limit) from 401/403 (bad creds) so
       // users never see "Invalid email or password" when they're simply
@@ -253,12 +273,7 @@ function LoginPageInner() {
         return;
       }
       toast.success(t("login.welcome"));
-      const role = useAuthStore.getState().user?.role;
-      const dest =
-        !hasExplicitRedirect && role === "PATIENT"
-          ? "/patient/dashboard"
-          : redirectTo;
-      router.push(dest);
+      await goToPostLoginDest();
     } catch (err) {
       const msg = messageForAuthError(err, t);
       setError(msg);
@@ -277,12 +292,7 @@ function LoginPageInner() {
       toast.success(t("login.welcome"));
       // Issue #33: honour ?redirect= after successful 2FA as well.
       // PATIENT override (same logic as the password path).
-      const role = useAuthStore.getState().user?.role;
-      const dest =
-        !hasExplicitRedirect && role === "PATIENT"
-          ? "/patient/dashboard"
-          : redirectTo;
-      router.push(dest);
+      await goToPostLoginDest();
     } catch (err) {
       // Issue #15: same status-aware handling for the 2FA step. A throttled
       // verify must not read as "Invalid 2FA code".

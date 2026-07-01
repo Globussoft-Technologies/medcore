@@ -1765,18 +1765,56 @@ router.get(
 // POST /api/v1/auth/logout
 router.post(
   "/logout",
-  authenticate,
+  // Intentionally NOT gated by `authenticate`. Logout must ALWAYS clear the
+  // session cookies — even when the access token has already expired — or the
+  // still-valid refresh cookie survives the "logout" and the next visit
+  // silently re-authenticates ("old cookie survives logout"). We identify the
+  // user best-effort to revoke their server-side refresh tokens, but the
+  // cookie clear below is unconditional.
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      await prisma.refreshToken.deleteMany({
-        where: { userId: req.user!.userId },
-      });
+      const cookies = (req as Request & { cookies?: Record<string, string> })
+        .cookies;
+      const rt = cookies?.medcore_rt;
+      // Read the access token from the cookie (browser) OR the Authorization:
+      // Bearer header (API clients / tests) — same dual-source rule the rest
+      // of auth uses.
+      const header = req.headers.authorization;
+      const headerToken = header?.startsWith("Bearer ")
+        ? header.split(" ")[1]
+        : undefined;
+      const at = cookies?.medcore_at || headerToken;
 
-      auditLog(req, "AUTH_LOGOUT", "user", req.user!.userId).catch(console.error);
+      // Best-effort: decode the access token to get the userId. A failure
+      // (expired/tampered) must not block the cookie clear.
+      let userId: string | undefined;
+      if (at) {
+        try {
+          userId = verifyAccessToken<{ userId: string }>(at).userId;
+        } catch {
+          // expired/invalid — fall back to revoking by refresh-token value
+        }
+      }
 
-      // Issue #477: clear all auth cookies so the next request from this
-      // browser is unauthenticated. Server-side refresh tokens are
-      // already revoked via deleteMany above.
+      try {
+        if (userId) {
+          // Full logout: revoke every server-side refresh token for the user.
+          await prisma.refreshToken.deleteMany({ where: { userId } });
+        } else if (rt) {
+          // Access token gone but the refresh cookie is present — revoke just
+          // this session's refresh token by its value.
+          await prisma.refreshToken.deleteMany({ where: { token: rt } });
+        }
+      } catch {
+        // best-effort — a DB hiccup must never strand the cookies
+      }
+
+      if (userId) {
+        auditLog(req, "AUTH_LOGOUT", "user", userId).catch(console.error);
+      }
+
+      // Issue #477: unconditionally clear all auth cookies so the next request
+      // from this browser is unauthenticated.
       clearAuthCookies(res);
 
       res.json({ success: true, data: null, error: null });

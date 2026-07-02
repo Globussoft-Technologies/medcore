@@ -287,9 +287,20 @@ test.describe("Negative paths — error surfaces, retries, and offline (E2E_COVE
     await page.locator("#reg-ec-rel").fill("Mother");
     await page.getByTestId("reg-accept-terms").check();
 
+    // Wait for the mocked 408 to actually be served (proves client-side
+    // validation passed and the POST fired) BEFORE asserting the banner.
+    // On a heavily-loaded WebKit shard the fetch round-trip can lag past a
+    // fixed banner-visibility timeout, so synchronise on the response first
+    // rather than racing the render — the banner is set synchronously in the
+    // catch once this resolves.
+    const registerResponse = page.waitForResponse(
+      (r) => r.url().includes("/api/v1/auth/register"),
+      { timeout: 15_000 }
+    );
     await page
       .getByRole("button", { name: /register|create account|sign up/i })
       .click();
+    await registerResponse;
 
     // 408 must surface the SAME retry banner shape as 5xx — both go through
     // the `isRetryable` branch.

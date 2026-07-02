@@ -551,22 +551,19 @@ export default function AppointmentsPage() {
   const dbgErr = useCallback(
     (label: string, err: unknown) => {
       if (!APPT_DEBUG) return;
-      const e = err as
-        | (Error & { status?: number; payload?: unknown })
-        | undefined;
+      const e = (err ?? {}) as {
+        message?: string;
+        status?: number;
+        payload?: Record<string, unknown>;
+      };
+      const payload = e.payload ?? {};
       // eslint-disable-next-line no-console
       console.error(`[ApptUI] ✗ ${label}`, {
-        message: e?.message,
-        status: e?.status,
-        serverError:
-          e?.payload && typeof e.payload === "object"
-            ? (e.payload as Record<string, unknown>).error
-            : undefined,
-        details:
-          e?.payload && typeof e.payload === "object"
-            ? (e.payload as Record<string, unknown>).details
-            : undefined,
-        payload: e?.payload,
+        message: e.message,
+        status: e.status,
+        serverError: payload.error,
+        details: payload.details,
+        payload: e.payload,
         raw: err,
       });
     },

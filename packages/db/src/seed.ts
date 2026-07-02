@@ -815,7 +815,13 @@ async function main() {
 
   await prisma.patient.upsert({
     where: { userId: patientUser.id },
-    update: { tenantId },
+    // `contactEmail` MUST be set (and kept in sync on re-seed) — the
+    // /auth/register duplicate-email anti-enumeration check matches an
+    // existing patient by (tenantId, contactEmail). Without it the seeded
+    // patient is invisible to that check, so registering patient1's email
+    // is treated as brand-new and issues tokens (breaks the public-auth
+    // "duplicate email" e2e, which asserts NO tokens are returned).
+    update: { tenantId, contactEmail: "patient1@medcore.local" },
     create: {
       userId: patientUser.id,
       mrNumber: "MR000001",
@@ -823,6 +829,7 @@ async function main() {
       age: 35,
       address: "123 Main Street, Mumbai",
       bloodGroup: "B+",
+      contactEmail: "patient1@medcore.local",
       tenantId,
     },
   });

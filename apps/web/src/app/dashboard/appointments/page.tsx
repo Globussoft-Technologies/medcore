@@ -22,7 +22,7 @@ import { TablePagination } from "@/components/TablePagination";
 import { EntityPicker } from "@/components/EntityPicker";
 import { TenantSelect } from "@/components/TenantSelect";
 import { AppointmentRemarksModal } from "@/components/AppointmentRemarksModal";
-import { Calendar, MessageSquare, MoreVertical } from "lucide-react";
+import { Calendar, MessageSquare, MoreVertical, X } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
 
@@ -1616,6 +1616,14 @@ export default function AppointmentsPage() {
   // ─── CSV export ───────────────────
 
   async function findNextAvailable() {
+    // A logged-in DOCTOR books only for themselves, so the cross-doctor
+    // "next available" search (which can surface a DIFFERENT doctor, e.g.
+    // suggesting Dr. Dhurandar while Dr. Sharma is signed in) doesn't apply.
+    // Just open their own Book New Appointment panel — no suggestion popup.
+    if (isDoctor) {
+      setShowBooking(true);
+      return;
+    }
     try {
       const res = await api.get<{
         data: {
@@ -1630,7 +1638,15 @@ export default function AppointmentsPage() {
         };
       }>("/appointments/next-available");
       if (!res.data.slot) {
-        toast.info("No slots available in the next 14 days.");
+        // No timed slot to suggest — e.g. a TOKEN / CALLING doctor has no slot
+        // grid, or the next 14 days are genuinely full. Fall back to opening
+        // the Book New Appointment panel (same as the "Book Appointment" CTA)
+        // so the user can still book a token / walk-in / pick another doctor,
+        // instead of dead-ending on a toast.
+        setShowBooking(true);
+        toast.info(
+          "No timed slot to suggest — opening the booking form so you can book directly.",
+        );
         return;
       }
       const s = res.data.slot;
@@ -1709,7 +1725,12 @@ export default function AppointmentsPage() {
         slotEndTime: s.endTime ?? "",
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not find next slot");
+      // If the suggestion endpoint is unavailable (e.g. older server build),
+      // don't dead-end — open the booking panel so the user can still book.
+      setShowBooking(true);
+      toast.error(
+        err instanceof Error ? err.message : "Could not find next slot",
+      );
     }
   }
 
@@ -2625,13 +2646,30 @@ export default function AppointmentsPage() {
               >
                 Export CSV
               </button>
-              <button
-                onClick={findNextAvailable}
-                className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-                title="Find the earliest open appointment slot across all doctors"
-              >
-                Next Available
-              </button>
+              {/* Toggle: click opens the booking panel; a second click (or the
+                  red ✕ floated ABOVE the button) closes it. */}
+              <span className="relative inline-flex">
+                {showBooking && (
+                  <button
+                    type="button"
+                    onClick={() => setShowBooking(false)}
+                    aria-label="Close booking panel"
+                    title="Close the booking panel"
+                    className="absolute -top-4 left-1/2 -translate-x-1/2 text-red-600 hover:text-red-700"
+                  >
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                )}
+                <button
+                  onClick={() =>
+                    showBooking ? setShowBooking(false) : findNextAvailable()
+                  }
+                  title="Find the earliest open appointment slot across all doctors"
+                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+                >
+                  Next Available
+                </button>
+              </span>
             </div>
             {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
               <div className="flex flex-wrap items-center gap-2">

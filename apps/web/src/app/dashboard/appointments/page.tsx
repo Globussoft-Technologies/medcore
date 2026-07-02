@@ -50,6 +50,12 @@ interface Doctor {
   // allow-list. Empty / undefined = "all mode-valid channels permitted"
   // (back-compat default). Stored as `Doctor.enabledChannels` enum array.
   enabledChannels?: AppointmentChannel[];
+  // Token-series config (admin-set). Surfaced from /doctors so the confirm
+  // dialog can show the configured prefix even if the /next-token PREVIEW
+  // endpoint is unavailable (e.g. an older server build) — the exact
+  // sequential number still comes from /next-token when it responds.
+  tokenPrefix?: string | null;
+  tokenStartNumber?: number | null;
 }
 
 // Pearl ERP Stage 1 §3.1 (gap row 71) — channels semantically valid for
@@ -2155,7 +2161,9 @@ export default function AppointmentsPage() {
                         ? "Daily limit reached"
                         : tokenPreview?.label
                           ? tokenPreview.label
-                          : "Auto-assigned (sequential)"}
+                          : doctor?.tokenPrefix
+                            ? `Auto-assigned (${doctor.tokenPrefix} series)`
+                            : "Auto-assigned (sequential)"}
                     </dd>
                   </div>
                 ) : doctor?.appointmentMode === "CALLING" ? null : (

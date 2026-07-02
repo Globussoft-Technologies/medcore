@@ -765,16 +765,24 @@ export default function AppointmentsPage() {
     setLoading(false);
   }, [isPatient, filterDate, isSuperAdmin, selectedTenantId]);
 
-  const loadSlots = useCallback(async (doctorId: string, date: string) => {
-    try {
-      const res = await api.get<{ data: { slots: Slot[] } }>(
-        `/doctors/${doctorId}/slots?date=${date}`
-      );
-      setSlots(res.data.slots);
-    } catch {
-      setSlots([]);
-    }
-  }, []);
+  const loadSlots = useCallback(
+    async (doctorId: string, date: string) => {
+      const doc = doctors.find((d) => d.id === doctorId);
+      if (doc && doc.appointmentMode !== "SLOT") {
+        setSlots([]);
+        return;
+      }
+      try {
+        const res = await api.get<{ data: { slots: Slot[] } }>(
+          `/doctors/${doctorId}/slots?date=${date}`
+        );
+        setSlots(res.data.slots);
+      } catch {
+        setSlots([]);
+      }
+    },
+    [doctors]
+  );
 
   const loadCalendar = useCallback(async () => {
     setCalLoading(true);
@@ -1552,6 +1560,29 @@ export default function AppointmentsPage() {
       };
     });
   }, [slots, selectedDate, nowMs]);
+
+  // The doctor currently selected in the booking form. Drives which API is
+  // queried and what the TOKEN / SLOT blocks below render — the slot grid
+  // (SLOT), the token preview (TOKEN), or the arrival-queue note (CALLING).
+  const bookDoctor = useMemo(
+    () => doctors.find((d) => d.id === selectedDoctor) ?? null,
+    [doctors, selectedDoctor]
+  );
+
+  // Best-available token label for a TOKEN-mode doctor, in priority order:
+  //   1. the EXACT next token from /next-token (prefix + live sequential
+  //      number, e.g. "R-5") — the authoritative value, fetched per doctorId
+  //      + date so it reflects how many tokens are already booked today;
+  //   2. the admin-configured series (prefix + tokenStartNumber, e.g. "R-1")
+  //      shown as a "series" hint when the preview endpoint didn't respond
+  //      (older server build), so a doctor who set a prefix still sees it;
+  //   3. null → generic "assign token" copy (no prefix configured at all).
+  const tokenExactLabel = tokenPreview?.label ?? null;
+  const tokenSeriesHint = useMemo(() => {
+    if (!bookDoctor?.tokenPrefix) return null;
+    const start = bookDoctor.tokenStartNumber ?? 1;
+    return `${bookDoctor.tokenPrefix}-${start}`;
+  }, [bookDoctor]);
 
   // ─── Derived list ─────────────────
 
@@ -3122,7 +3153,18 @@ export default function AppointmentsPage() {
                   <p className="mb-3">
                     This doctor uses <strong>sequential token</strong> booking.
                     No slot time needed — a token number is assigned
-                    automatically.
+                    automatically
+                    {tokenSeriesHint ? (
+                      <>
+                        {" "}
+                        from the{" "}
+                        <strong data-testid="appt-book-token-prefix">
+                          {bookDoctor?.tokenPrefix}
+                        </strong>{" "}
+                        series
+                      </>
+                    ) : null}
+                    .
                   </p>
                   {tokenPreview?.limitReached ? (
                     // Daily appointment cap hit — block further token bookings
@@ -3143,9 +3185,11 @@ export default function AppointmentsPage() {
                       onClick={() => bookAppointment("")}
                       className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
                     >
-                      {tokenPreview?.label
-                        ? `Book (assign token ${tokenPreview.label})`
-                        : "Book (assign token)"}
+                      {tokenExactLabel
+                        ? `Book (assign token ${tokenExactLabel})`
+                        : tokenSeriesHint
+                          ? `Book (assign token — ${bookDoctor?.tokenPrefix} series)`
+                          : "Book (assign token)"}
                     </button>
                   )}
                 </div>

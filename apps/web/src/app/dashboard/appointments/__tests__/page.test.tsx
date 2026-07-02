@@ -898,7 +898,7 @@ describe("AppointmentsPage — colocated coverage", () => {
 
   // ─── Next Available top-bar (no-slot path) ────────────────────────
 
-  it("Next Available with no slot lands on toast.info (no booking dialog)", async () => {
+  it("Next Available with no slot opens the booking form via toast.info (no confirm dialog)", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/appointments/next-available") {
         return Promise.resolve({ data: { slot: null } });
@@ -910,11 +910,16 @@ describe("AppointmentsPage — colocated coverage", () => {
     await user.click(
       await screen.findByRole("button", { name: /^next available$/i }),
     );
+    // No timed slot to suggest → the handler no longer dead-ends on a toast;
+    // it opens the Book New Appointment panel (same as the Book CTA) and
+    // surfaces an info toast pointing the user at the form.
     await waitFor(() =>
       expect(toastMock.info).toHaveBeenCalledWith(
-        expect.stringMatching(/no slots available/i),
+        expect.stringMatching(/opening the booking form/i),
       ),
     );
+    // The cross-doctor CONFIRM dialog must still not appear (there was no
+    // slot to confirm), even though the booking panel itself opened.
     expect(
       screen.queryByTestId("confirm-appointment-dialog"),
     ).not.toBeInTheDocument();

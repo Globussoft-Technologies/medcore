@@ -22,7 +22,7 @@ import { TablePagination } from "@/components/TablePagination";
 import { EntityPicker } from "@/components/EntityPicker";
 import { TenantSelect } from "@/components/TenantSelect";
 import { AppointmentRemarksModal } from "@/components/AppointmentRemarksModal";
-import { Calendar, MessageSquare, MoreVertical, X } from "lucide-react";
+import { Calendar, MessageSquare, MoreVertical } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────
 
@@ -2646,30 +2646,33 @@ export default function AppointmentsPage() {
               >
                 Export CSV
               </button>
-              {/* Toggle: click opens the booking panel; a second click (or the
-                  red ✕ floated ABOVE the button) closes it. */}
-              <span className="relative inline-flex">
-                {showBooking && (
-                  <button
-                    type="button"
-                    onClick={() => setShowBooking(false)}
-                    aria-label="Close booking panel"
-                    title="Close the booking panel"
-                    className="absolute -top-4 left-1/2 -translate-x-1/2 text-red-600 hover:text-red-700"
-                  >
-                    <X size={16} aria-hidden="true" />
-                  </button>
-                )}
-                <button
-                  onClick={() =>
-                    showBooking ? setShowBooking(false) : findNextAvailable()
+              {/* When the panel is open the button turns RED and a second click
+                  closes it. A doctor's Next Available only opens/closes their
+                  own booking panel (no cross-doctor search), so it toggles
+                  cleanly. Staff still run the search even while the panel is
+                  open — the "pick a patient, then Next Available" flow depends
+                  on that — so the close-toggle is gated to the doctor case. */}
+              <button
+                onClick={() => {
+                  if (isDoctor && showBooking) {
+                    setShowBooking(false);
+                    return;
                   }
-                  title="Find the earliest open appointment slot across all doctors"
-                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
-                >
-                  Next Available
-                </button>
-              </span>
+                  findNextAvailable();
+                }}
+                title={
+                  showBooking
+                    ? "Close the booking panel"
+                    : "Find the earliest open appointment slot across all doctors"
+                }
+                className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                  showBooking
+                    ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                    : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                }`}
+              >
+                Next Available
+              </button>
             </div>
             {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
               <div className="flex flex-wrap items-center gap-2">

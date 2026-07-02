@@ -526,6 +526,53 @@ export default function AppointmentsPage() {
   // Other roles (ADMIN/RECEPTION/NURSE) keep the full doctor list.
   const isDoctor = user?.role === "DOCTOR";
 
+  // ─── DEBUG (temporary — remove when done) ─────────────────────────────
+  // Verbose console tracing for the appointment booking / slot / token /
+  // tenant flows. Every line is prefixed "[ApptUI]" so it's greppable in the
+  // browser console. Flip APPT_DEBUG to false to silence without deleting the
+  // call sites, or delete this block + the dbg() calls entirely when done.
+  const APPT_DEBUG = true;
+  const dbg = useCallback(
+    (label: string, data?: unknown) => {
+      if (!APPT_DEBUG) return;
+      // eslint-disable-next-line no-console
+      if (data === undefined) console.log(`[ApptUI] ${label}`);
+      // eslint-disable-next-line no-console
+      else console.log(`[ApptUI] ${label}`, data);
+    },
+    [APPT_DEBUG]
+  );
+  // Verbose error logger — surfaces the SERVER + DATABASE detail the API
+  // client attaches to a failed request: the HTTP status, the server's
+  // `error` message, and the full JSON `payload` (which carries Zod
+  // `details`, Prisma/DB error text, tenant-guard messages, etc.). Use this
+  // in every catch block so a 4xx/5xx from the backend is fully visible in
+  // the browser console instead of just a generic toast.
+  const dbgErr = useCallback(
+    (label: string, err: unknown) => {
+      if (!APPT_DEBUG) return;
+      const e = err as
+        | (Error & { status?: number; payload?: unknown })
+        | undefined;
+      // eslint-disable-next-line no-console
+      console.error(`[ApptUI] ✗ ${label}`, {
+        message: e?.message,
+        status: e?.status,
+        serverError:
+          e?.payload && typeof e.payload === "object"
+            ? (e.payload as Record<string, unknown>).error
+            : undefined,
+        details:
+          e?.payload && typeof e.payload === "object"
+            ? (e.payload as Record<string, unknown>).details
+            : undefined,
+        payload: e?.payload,
+        raw: err,
+      });
+    },
+    [APPT_DEBUG]
+  );
+
   // Issue #491 (2026-05-03): every "future-date" input on this page (book a
   // new appointment, reschedule, waitlist preferred date, recurring start,
   // coordinated visit) needs a `min={today}` so the native date picker stops
@@ -757,31 +804,61 @@ export default function AppointmentsPage() {
       const endpoint = isPatient
         ? `/appointments?limit=200${tq}`
         : `/appointments?date=${filterDate}&limit=100${tq}`;
+      dbg("loadAppointments → GET", {
+        endpoint,
+        isPatient,
+        isSuperAdmin,
+        selectedTenantId: selectedTenantId || null,
+        filterDate,
+      });
       const res = await api.get<{ data: Appointment[] }>(endpoint);
+      dbg("loadAppointments ← rows", {
+        count: res.data?.length ?? 0,
+        rows: (res.data ?? []).map((a) => ({
+          id: a.id,
+          doctor: a.doctor?.user?.name,
+          date: a.date,
+          status: a.status,
+        })),
+      });
       setAppointments(res.data);
-    } catch {
-      // empty
+    } catch (err) {
+      dbgErr("loadAppointments (GET /appointments)", err);
     }
     setLoading(false);
-  }, [isPatient, filterDate, isSuperAdmin, selectedTenantId]);
+  }, [isPatient, filterDate, isSuperAdmin, selectedTenantId, dbg, dbgErr]);
 
   const loadSlots = useCallback(
     async (doctorId: string, date: string) => {
       const doc = doctors.find((d) => d.id === doctorId);
       if (doc && doc.appointmentMode !== "SLOT") {
+        dbg("loadSlots ⤼ skipped (non-SLOT doctor)", {
+          doctorId,
+          mode: doc.appointmentMode,
+        });
         setSlots([]);
         return;
       }
       try {
+        dbg("loadSlots → GET slots", {
+          doctorId,
+          date,
+          mode: doc?.appointmentMode ?? "(doctor not in list yet)",
+        });
         const res = await api.get<{ data: { slots: Slot[] } }>(
           `/doctors/${doctorId}/slots?date=${date}`
         );
+        dbg("loadSlots ← slots", {
+          doctorId,
+          count: res.data.slots?.length ?? 0,
+        });
         setSlots(res.data.slots);
-      } catch {
+      } catch (err) {
+        dbgErr("loadSlots (GET /doctors/:id/slots)", err);
         setSlots([]);
       }
     },
-    [doctors]
+    [doctors, dbg, dbgErr]
   );
 
   const loadCalendar = useCallback(async () => {
@@ -912,22 +989,35 @@ export default function AppointmentsPage() {
       !!date &&
       (confirmDialog.open || selectedChannel === "TOKEN");
     if (!shouldFetch) {
+      dbg("tokenPreview ⤼ skipped", {
+        doctorId: dId || null,
+        isTokenDoctor,
+        selectedChannel,
+        confirmOpen: confirmDialog.open,
+      });
       setTokenPreview(null);
       return;
     }
     let cancelled = false;
+    dbg("tokenPreview → GET next-token", { doctorId: dId, date });
     api
       .get<{ data: { tokenLabel: string | null; limitReached: boolean } }>(
         `/appointments/next-token?doctorId=${encodeURIComponent(dId)}&date=${encodeURIComponent(date)}`,
       )
       .then((r) => {
         if (cancelled) return;
+        dbg("tokenPreview ← next-token", {
+          doctorId: dId,
+          tokenLabel: r.data?.tokenLabel ?? null,
+          limitReached: !!r.data?.limitReached,
+        });
         setTokenPreview({
           label: r.data?.tokenLabel ?? null,
           limitReached: !!r.data?.limitReached,
         });
       })
-      .catch(() => {
+      .catch((err) => {
+        dbgErr("tokenPreview (GET /appointments/next-token)", err);
         if (!cancelled) setTokenPreview(null);
       });
     return () => {
@@ -940,6 +1030,8 @@ export default function AppointmentsPage() {
     selectedDate,
     nextAvailableLock,
     doctors,
+    dbg,
+    dbgErr,
   ]);
 
   useEffect(() => {
@@ -1033,6 +1125,14 @@ export default function AppointmentsPage() {
   // open keeps the handler idempotent.
   const bookAppointment = useCallback(
     (slotStartTime: string) => {
+      dbg("bookAppointment() clicked", {
+        slotStartTime: slotStartTime || "(none — token/calling)",
+        selectedDoctor,
+        selectedChannel,
+        selectedDate,
+        isPatient,
+        patientPicked: patientIdInput.trim().length > 0,
+      });
       // Ignore double-click bursts on the confirm dialog.
       if (confirmDialog.open) return;
 
@@ -1088,11 +1188,13 @@ export default function AppointmentsPage() {
       confirmDialog.open,
       selectedDate,
       selectedDoctor,
+      selectedChannel,
       t,
       patientIdInput,
       isPatient,
       mePatient,
       slots,
+      dbg,
     ]
   );
 
@@ -1122,21 +1224,34 @@ export default function AppointmentsPage() {
     // both book with no slotStartTime via their own "Book" buttons.
     const doctorMode =
       doctors.find((d) => d.id === bookDoctorId)?.appointmentMode ?? "TOKEN";
+    dbg("confirmPatientIdAndBook → resolved", {
+      patientId,
+      bookDoctorId,
+      bookDate,
+      doctorMode,
+      slotStartTime: slotStartTime || null,
+      isRecurring,
+      viaNextAvailableLock: !!nextAvailableLock,
+    });
     if (doctorMode === "SLOT" && !slotStartTime) {
+      dbg("confirmPatientIdAndBook ⤼ blocked: SLOT mode needs a slot");
       toast.error("Please pick a slot before booking");
       return;
     }
     setBookingInFlight(true);
     try {
       if (isRecurring) {
-        await api.post("/appointments/recurring", {
+        const recBody = {
           patientId,
           doctorId: bookDoctorId,
           startDate: bookDate,
           slotStart: slotStartTime,
           frequency: recFrequency,
           occurrences: recOccurrences,
-        });
+        };
+        dbg("POST /appointments/recurring →", recBody);
+        await api.post("/appointments/recurring", recBody);
+        dbg("POST /appointments/recurring ✓ ok");
         toast.success(`Created ${recOccurrences} recurring appointments.`);
       } else {
         const body: Record<string, unknown> = {
@@ -1148,7 +1263,12 @@ export default function AppointmentsPage() {
         if (doctorMode !== "CALLING" && slotStartTime) {
           body.slotId = slotStartTime;
         }
-        await api.post("/appointments/book", body);
+        dbg("POST /appointments/book →", body);
+        const res = await api.post<{ data: { id?: string } }>(
+          "/appointments/book",
+          body
+        );
+        dbg("POST /appointments/book ✓ ok", { id: res?.data?.id });
         toast.success("Appointment booked!");
       }
       setConfirmDialog({ open: false, slotStartTime: "", slotEndTime: "" });
@@ -1162,6 +1282,7 @@ export default function AppointmentsPage() {
       setFilterDate(bookDate);
       loadAppointments();
     } catch (err) {
+      dbgErr("confirmPatientIdAndBook (POST book/recurring)", err);
       toast.error(err instanceof Error ? err.message : "Booking failed");
     } finally {
       setBookingInFlight(false);
@@ -1646,16 +1767,67 @@ export default function AppointmentsPage() {
 
   // ─── CSV export ───────────────────
 
-  async function findNextAvailable() {
-    // A logged-in DOCTOR books only for themselves, so the cross-doctor
-    // "next available" search (which can surface a DIFFERENT doctor, e.g.
-    // suggesting Dr. Dhurandar while Dr. Sharma is signed in) doesn't apply.
-    // Just open their own Book New Appointment panel — no suggestion popup.
+  // `jumpToNextSlot` distinguishes the two triggers for a logged-in DOCTOR:
+  //   • false (TOP toolbar button) → just open the panel on the CURRENT date;
+  //     never auto-jump.
+  //   • true  (the "Next Available" link inside the no-slots message BELOW) →
+  //     look up the doctor's own next open slot and jump the Date field to it.
+  // Staff (non-doctor) always run the cross-doctor search regardless.
+  async function findNextAvailable(jumpToNextSlot = false) {
+    dbg("findNextAvailable() clicked", { isDoctor, showBooking, jumpToNextSlot });
+    // A logged-in DOCTOR books only for themselves, so the CROSS-doctor
+    // suggestion popup doesn't apply. The Date field defaults to TODAY and is
+    // never auto-changed on panel-open. ONLY when the doctor explicitly clicks
+    // "Next Available" (this handler) do we look up THEIR OWN next open slot
+    // and jump the Date field to it + reload the grid — no confirm popup.
+    // TOKEN / CALLING doctors have no slot grid, so we only open the panel.
     if (isDoctor) {
       setShowBooking(true);
+      // TOP toolbar button → open the panel on the CURRENT date, no jump.
+      if (!jumpToNextSlot) {
+        dbg("findNextAvailable ⤼ doctor TOP button → open panel, keep current date");
+        return;
+      }
+      const mine = doctors.find((d) => d.id === selectedDoctor);
+      if (!selectedDoctor || mine?.appointmentMode !== "SLOT") {
+        dbg("findNextAvailable ⤼ doctor (non-SLOT) → just open own panel", {
+          selectedDoctor,
+          mode: mine?.appointmentMode,
+        });
+        return;
+      }
+      try {
+        dbg("findNextAvailable → GET next-available (own doctorId)", {
+          doctorId: selectedDoctor,
+        });
+        const res = await api.get<{
+          data: {
+            slot: { doctorId: string; date: string; startTime: string } | null;
+          };
+        }>(
+          `/appointments/next-available?doctorId=${encodeURIComponent(selectedDoctor)}`
+        );
+        const s = res.data.slot;
+        dbg("findNextAvailable ← own next slot", s);
+        if (s) {
+          // Explicit click → jump the Date field to the next open slot and
+          // reload the grid so the doctor can pick a time right away.
+          setSelectedDate(s.date);
+          void loadSlots(s.doctorId, s.date);
+          toast.success(`Next available: ${s.date} at ${s.startTime}`);
+        } else {
+          toast.info("No open slots in the next 14 days for your schedule.");
+        }
+      } catch (err) {
+        dbgErr("findNextAvailable own-doctor (GET /next-available)", err);
+        toast.error(
+          err instanceof Error ? err.message : "Could not find next slot"
+        );
+      }
       return;
     }
     try {
+      dbg("findNextAvailable → GET /appointments/next-available");
       const res = await api.get<{
         data: {
           slot: {
@@ -1668,6 +1840,7 @@ export default function AppointmentsPage() {
           } | null;
         };
       }>("/appointments/next-available");
+      dbg("findNextAvailable ← suggestion", res.data?.slot ?? null);
       if (!res.data.slot) {
         // No timed slot to suggest — e.g. a TOKEN / CALLING doctor has no slot
         // grid, or the next 14 days are genuinely full. Fall back to opening
@@ -1756,6 +1929,7 @@ export default function AppointmentsPage() {
         slotEndTime: s.endTime ?? "",
       });
     } catch (err) {
+      dbgErr("findNextAvailable (GET /appointments/next-available)", err);
       // If the suggestion endpoint is unavailable (e.g. older server build),
       // don't dead-end — open the booking panel so the user can still book.
       setShowBooking(true);
@@ -2934,10 +3108,21 @@ export default function AppointmentsPage() {
                             const d = doctors.find((x) => x.id === id);
                             if (d) {
                               const avail = availableChannelsFor(d);
+                              dbg("doctor selected", {
+                                doctorId: id,
+                                name: d.user?.name,
+                                appointmentMode: d.appointmentMode,
+                                enabledChannels: d.enabledChannels,
+                                derivedChannel: avail[0],
+                                tokenPrefix: d.tokenPrefix ?? null,
+                              });
                               setSelectedChannel(avail[0]);
+                            } else {
+                              dbg("doctor selected but not in list", { doctorId: id });
                             }
                             loadSlots(id, selectedDate);
                           } else {
+                            dbg("doctor cleared");
                             setSelectedChannel("");
                           }
                         }}
@@ -3094,10 +3279,13 @@ export default function AppointmentsPage() {
                       }
                       setBookingInFlight(true);
                       try {
-                        await api.post("/appointments/walk-in", {
+                        const walkInBody = {
                           patientId: patientIdInput.trim(),
                           doctorId: selectedDoctor,
-                        });
+                        };
+                        dbg("POST /appointments/walk-in →", walkInBody);
+                        await api.post("/appointments/walk-in", walkInBody);
+                        dbg("POST /appointments/walk-in ✓ ok");
                         toast.success("Walk-in registered!");
                         setPatientIdInput("");
                         setPickedPatientName("");
@@ -3106,6 +3294,7 @@ export default function AppointmentsPage() {
                         setShowBooking(false);
                         loadAppointments();
                       } catch (err) {
+                        dbgErr("walk-in (POST /appointments/walk-in)", err);
                         toast.error(err instanceof Error ? err.message : "Walk-in failed");
                       } finally {
                         setBookingInFlight(false);
@@ -3206,7 +3395,7 @@ export default function AppointmentsPage() {
                   Try a different date or use{" "}
                   <button
                     type="button"
-                    onClick={findNextAvailable}
+                    onClick={() => findNextAvailable(true)}
                     className="font-medium underline hover:text-amber-900"
                   >
                     Next Available
@@ -4413,15 +4602,22 @@ function GroupAppointmentModal({
     if (patientIds.length === 0 || !doctorId || !date || !slotStart) return;
     setSaving(true);
     try {
-      await api.post("/appointments/group", {
-        patientIds,
-        doctorId,
-        date,
-        slotStart,
-      });
+      const groupBody = { patientIds, doctorId, date, slotStart };
+      // eslint-disable-next-line no-console
+      console.log("[ApptUI] POST /appointments/group →", groupBody);
+      await api.post("/appointments/group", groupBody);
+      // eslint-disable-next-line no-console
+      console.log("[ApptUI] POST /appointments/group ✓ ok");
       toast.success(`Created group appointment for ${patientIds.length} patient(s)`);
       onSaved();
     } catch (err) {
+      const e = err as Error & { status?: number; payload?: unknown };
+      // eslint-disable-next-line no-console
+      console.error("[ApptUI] ✗ group (POST /appointments/group)", {
+        message: e?.message,
+        status: e?.status,
+        payload: e?.payload,
+      });
       toast.error(err instanceof Error ? err.message : "Failed");
     }
     setSaving(false);

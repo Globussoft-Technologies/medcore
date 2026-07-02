@@ -103,20 +103,29 @@ export function requireBranchId(): string {
  * added here or the extension will not scope it.
  *
  * Piece 2a (2026-05-21): `Appointment` only — POC.
- * Piece 2b (2026-05-21 follow-up): + `Invoice`, `Doctor`, `Patient` —
- *   the three highest-traffic transactional / identity tables. Schema
- *   migration `20260521000002` adds the columns + FKs + backfills
- *   existing rows to each tenant's `isDefault` branch so legacy data
- *   remains visible after the extension's auto-filter kicks in.
+ * Piece 2b (2026-05-21 follow-up): + `Invoice`, `Doctor`, `Patient`.
+ *
+ * 2026-07 REVERT of Doctor + Patient (bug fix): branch-scoping the DOCTOR
+ * and PATIENT *identity* records broke booking. A doctor/patient is a
+ * tenant-wide master record — the booking pickers list them via
+ * `tenantScopedPrisma` (routes/doctors.ts, routes/patients.ts), i.e. across
+ * ALL branches — but the booking handler (routes/appointments.ts, the only
+ * consumer of `branchScopedPrisma`) resolved them via the branch-scoped
+ * client. So a doctor created WITHOUT a branchId (the create paths never set
+ * one), or assigned to a different branch than the request's `X-Branch-Id`,
+ * was visible in the dropdown yet 404'd ("Doctor not found") on
+ * /appointments/book and /next-token. Identity records must NOT be
+ * branch-filtered; only TRANSACTIONAL rows (which branch physically owns
+ * this appointment / invoice) are. Appointment + Invoice stay scoped so the
+ * per-branch appointment/billing lists still isolate correctly.
  *
  * Future pieces will expand to Prescription / LabOrder / DoctorSchedule
- * etc. when their per-branch UX surfaces are designed.
+ * etc. (transactional rows) when their per-branch UX surfaces are designed —
+ * NOT to identity/master records.
  */
 export const BRANCH_SCOPED_MODELS = new Set<string>([
   "Appointment",
   "Invoice",
-  "Doctor",
-  "Patient",
 ]);
 
 /** Operations on which we INJECT `branchId` into `args.data`. */

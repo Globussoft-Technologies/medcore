@@ -7,14 +7,18 @@ import { describe, it, expect } from "vitest";
 import { BRANCH_SCOPED_MODELS, shouldScopeBranch } from "../branch-prisma";
 
 describe("branch-scoping allow-list", () => {
-  it("includes the piece-2a Appointment model", () => {
+  it("includes the transactional Appointment + Invoice models", () => {
     expect(BRANCH_SCOPED_MODELS.has("Appointment")).toBe(true);
+    expect(BRANCH_SCOPED_MODELS.has("Invoice")).toBe(true);
   });
 
-  it("includes the piece-2b Invoice, Doctor, Patient models", () => {
-    expect(BRANCH_SCOPED_MODELS.has("Invoice")).toBe(true);
-    expect(BRANCH_SCOPED_MODELS.has("Doctor")).toBe(true);
-    expect(BRANCH_SCOPED_MODELS.has("Patient")).toBe(true);
+  it("does NOT branch-scope Doctor / Patient identity records (2026-07 bug fix)", () => {
+    // Doctor + Patient are tenant-wide master records — the booking pickers
+    // list them tenant-wide, so branch-filtering their existence lookups in
+    // the booking handler 404'd doctors that were visible in the dropdown.
+    // Only TRANSACTIONAL rows (Appointment/Invoice) are branch-owned.
+    expect(BRANCH_SCOPED_MODELS.has("Doctor")).toBe(false);
+    expect(BRANCH_SCOPED_MODELS.has("Patient")).toBe(false);
   });
 
   it("does NOT scope unrelated models (regression: catalogs must stay global)", () => {
@@ -26,15 +30,21 @@ describe("branch-scoping allow-list", () => {
 
   it("shouldScopeBranch returns true for scoped-model writes", () => {
     expect(shouldScopeBranch("Invoice", "create")).toBe(true);
-    expect(shouldScopeBranch("Doctor", "createMany")).toBe(true);
-    expect(shouldScopeBranch("Patient", "upsert")).toBe(true);
+    expect(shouldScopeBranch("Appointment", "createMany")).toBe(true);
+    expect(shouldScopeBranch("Invoice", "upsert")).toBe(true);
   });
 
   it("shouldScopeBranch returns true for scoped-model reads + updates", () => {
     expect(shouldScopeBranch("Invoice", "findMany")).toBe(true);
-    expect(shouldScopeBranch("Doctor", "findFirst")).toBe(true);
-    expect(shouldScopeBranch("Patient", "update")).toBe(true);
-    expect(shouldScopeBranch("Patient", "count")).toBe(true);
+    expect(shouldScopeBranch("Appointment", "findFirst")).toBe(true);
+    expect(shouldScopeBranch("Appointment", "update")).toBe(true);
+    expect(shouldScopeBranch("Invoice", "count")).toBe(true);
+  });
+
+  it("shouldScopeBranch returns false for Doctor / Patient (identity records)", () => {
+    expect(shouldScopeBranch("Doctor", "findUnique")).toBe(false);
+    expect(shouldScopeBranch("Patient", "findUnique")).toBe(false);
+    expect(shouldScopeBranch("Doctor", "create")).toBe(false);
   });
 
   it("shouldScopeBranch returns false for unscoped models", () => {

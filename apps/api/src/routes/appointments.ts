@@ -8,7 +8,7 @@ import { Router, Request, Response, NextFunction } from "express";
 //     opened a branch context on this request (Appointment only in piece
 //     2a, 2026-05-21 — see packages/db/src/branch-prisma.ts).
 // We alias it to `prisma` so every existing call site keeps working.
-import { branchScopedPrisma as prisma } from "@medcore/db";
+import { branchScopedPrisma as prisma, prisma as basePrisma } from "@medcore/db";
 import {
   Role,
   bookAppointmentSchema,
@@ -146,6 +146,59 @@ async function getConfigInt(key: string, fallback: number): Promise<number> {
   return isNaN(n) ? fallback : n;
 }
 
+// ─── DEBUG (temporary — remove when done) ─────────────────────────────────
+// Diagnoses the "Doctor not found" 404s on /next-token, /book and friends.
+// Root-cause hypothesis: this router uses `branchScopedPrisma` (tenant AND
+// branch scoped), while the doctor DROPDOWN is populated from routes/doctors.ts
+// which uses `tenantScopedPrisma` (tenant only). So a doctor the admin can SEE
+// in the dropdown can still be filtered out here by the branch/tenant scope —
+// the scoped `findUnique` returns null → "Doctor not found".
+//
+// This logs, for a given doctorId: the caller's tenant/branch context, whether
+// the SCOPED lookup found the doctor, and — via the BASE (unscoped) client —
+// whether the doctor exists at all and what its real tenantId/branchId are.
+// Compare the two to see exactly which scope dimension dropped the row.
+const APPT_API_DEBUG = true;
+async function dbgDoctorLookup(
+  routeLabel: string,
+  req: Request,
+  doctorId: string,
+): Promise<void> {
+  if (!APPT_API_DEBUG) return;
+  try {
+    const scoped = await prisma.doctor.findUnique({
+      where: { id: doctorId },
+      select: { id: true, tenantId: true },
+    });
+    const base = await basePrisma.doctor.findUnique({
+      where: { id: doctorId },
+      select: { id: true, tenantId: true, branchId: true, userId: true },
+    });
+    // eslint-disable-next-line no-console
+    console.log(`[ApptAPI] ${routeLabel} doctor-lookup`, {
+      doctorId,
+      caller: {
+        role: req.user?.role,
+        userId: req.user?.userId,
+        tokenTenantId: req.user?.tenantId ?? null,
+      },
+      reqTenantId: req.tenantId ?? null,
+      reqBranchId: (req as Request & { branchId?: string }).branchId ?? null,
+      scopedFound: !!scoped,
+      scopedTenantId: scoped?.tenantId ?? null,
+      baseFound: !!base,
+      doctorRealTenantId: base?.tenantId ?? null,
+      doctorRealBranchId: base?.branchId ?? null,
+      // The smoking gun: doctor EXISTS in the DB but the scoped client can't
+      // see it → a tenant/branch scope mismatch is dropping the row.
+      mismatch: !!base && !scoped,
+    });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(`[ApptAPI] ${routeLabel} doctor-lookup FAILED`, e);
+  }
+}
+
 // POST /api/v1/appointments/book — book scheduled appointment
 router.post(
   "/book",
@@ -258,6 +311,8 @@ router.post(
         },
       });
       if (!doctor) {
+        // DEBUG: log why the scoped lookup missed (tenant/branch mismatch?).
+        await dbgDoctorLookup("POST /book", req, doctorId);
         res.status(404).json({ success: false, data: null, error: "Doctor not found" });
         return;
       }
@@ -1750,6 +1805,8 @@ router.get(
         },
       });
       if (!doctor) {
+        // DEBUG: log why the scoped lookup missed (tenant/branch mismatch?).
+        await dbgDoctorLookup("GET /next-token", req, doctorId);
         res.status(404).json({ success: false, data: null, error: "Doctor not found" });
         return;
       }
@@ -2162,6 +2219,11 @@ router.get(
     try {
       const fromDateStr = (req.query.fromDate as string) || undefined;
       const specialty = (req.query.specialty as string) || undefined;
+      // Optional: scope the forward-search to a SINGLE doctor. Used by the
+      // logged-in DOCTOR's "Next Available" (they book only for themselves,
+      // so the cross-doctor suggestion doesn't apply — they just want THEIR
+      // own next open slot). When omitted, the search spans all doctors.
+      const onlyDoctorId = (req.query.doctorId as string) || undefined;
       // Match getNextToken's UTC convention for the forward-search
       // window so day-boundary comparisons against stored DATE values
       // are consistent across host timezones (A11). Prior: local-tz
@@ -2171,6 +2233,7 @@ router.get(
 
       const doctorWhere: Record<string, unknown> = {};
       if (specialty) doctorWhere.specialization = specialty;
+      if (onlyDoctorId) doctorWhere.id = onlyDoctorId;
       const doctors = await prisma.doctor.findMany({
         where: doctorWhere,
         include: {

@@ -55,7 +55,7 @@ test.describe("Medicines — /dashboard/medicines (ADMIN/DOCTOR/NURSE/PATIENT re
     ).toBeVisible();
   });
 
-  test("DOCTOR can view the catalog and sees Edit CTAs on cards (canEdit gate, page.tsx:71) but no Add Medicine button (ADMIN-only)", async ({
+  test("DOCTOR can view the catalog and sees the Add Medicine button + Edit CTAs (create/edit allowed, matches API guard) but not Delete (ADMIN-only)", async ({
     doctorPage,
   }) => {
     const page = doctorPage;
@@ -73,10 +73,10 @@ test.describe("Medicines — /dashboard/medicines (ADMIN/DOCTOR/NURSE/PATIENT re
     // acceptable here; we're locking the role gate, not the seed.
     await page.waitForTimeout(1500);
 
-    // ADMIN-only Add CTA must NOT render for DOCTOR.
+    // DOCTOR can create medicines (matches the API POST guard) → Add CTA renders.
     await expect(
       page.getByRole("button", { name: /add medicine/i })
-    ).toHaveCount(0);
+    ).toBeVisible();
 
     // If at least one medicine card rendered, DOCTOR sees Edit but not Delete.
     const cards = page.locator('[data-testid="medicine-card"]');

@@ -89,7 +89,7 @@ test.describe("Patients registry — /dashboard/patients (ADMIN/DOCTOR/NURSE/REC
       page.locator('[data-testid="patient-email"]')
     ).toBeVisible();
     await expect(
-      page.locator('[data-testid="patient-age"]')
+      page.locator('[data-testid="patient-dob"]')
     ).toBeVisible();
   });
 

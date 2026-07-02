@@ -307,12 +307,16 @@ test.describe("Insurance Claims — /dashboard/insurance-claims (ADMIN + RECEPTI
     await page.goto("/dashboard/insurance-claims", {
       waitUntil: "domcontentloaded",
     });
-    // Allow the client-side useEffect to fire its router.push.
-    await page.waitForTimeout(800);
+    // The gate fires in a client useEffect after the auth store hydrates,
+    // which on slow WebKit CI can take >800ms — a fixed sleep raced it and
+    // flaked. WAIT for the redirect to move us OFF /insurance-claims instead
+    // of asserting after an arbitrary delay.
+    await page.waitForURL((url) => !url.pathname.includes("/insurance-claims"), {
+      timeout: 15_000,
+    });
     // The bounce target is "/dashboard" (NOT "/dashboard/not-authorized") —
     // pin the actual archetype, don't fabricate.
     expect(page.url()).toMatch(/\/dashboard(\/?($|\?))/);
-    expect(page.url()).not.toMatch(/\/dashboard\/insurance-claims/);
     // Submit-new CTA must NOT be visible (would mean the page rendered).
     await expect(
       page.getByRole("button", { name: /submit new claim/i })
@@ -327,9 +331,13 @@ test.describe("Insurance Claims — /dashboard/insurance-claims (ADMIN + RECEPTI
     await page.goto("/dashboard/insurance-claims", {
       waitUntil: "domcontentloaded",
     });
-    await page.waitForTimeout(800);
+    // Wait for the client-side redirect off /insurance-claims (auth-store
+    // hydration + useEffect) rather than a fixed sleep — see the DOCTOR case
+    // above for why the 800ms timer flaked on WebKit.
+    await page.waitForURL((url) => !url.pathname.includes("/insurance-claims"), {
+      timeout: 15_000,
+    });
     expect(page.url()).toMatch(/\/dashboard(\/?($|\?))/);
-    expect(page.url()).not.toMatch(/\/dashboard\/insurance-claims/);
     await expect(
       page.getByRole("button", { name: /submit new claim/i })
     ).toHaveCount(0);

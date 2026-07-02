@@ -1534,4 +1534,208 @@ describe("AppointmentsPage — colocated coverage", () => {
       ),
     );
   });
+
+  // ─── Per-doctor slot vs token API (mode-gated) ─────────────────────
+  // The booking form must query the RIGHT endpoint for the selected
+  // doctor's appointmentMode: /doctors/:id/slots for SLOT, /next-token for
+  // TOKEN (prefix + daily-limit), and NOTHING for CALLING (arrival queue).
+  // Helper: has the mocked api.get been called with a URL matching `frag`?
+  const getCalledWith = (frag: string) =>
+    apiMock.get.mock.calls.some(
+      (call: any[]) => typeof call[0] === "string" && call[0].includes(frag),
+    );
+
+  async function openBookingAndPickDoctor(name: RegExp) {
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(
+      await screen.findByRole("button", { name: /book appointment/i }),
+    );
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name }));
+    return user;
+  }
+
+  it("selecting a CALLING-mode doctor shows the arrival-queue block and never calls /slots or /next-token", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors") {
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-call",
+              user: { name: "Dr. Call" },
+              specialization: "Psychiatry",
+              appointmentMode: "CALLING",
+              enabledChannels: ["CALLING"],
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    await openBookingAndPickDoctor(/Dr\. Call/i);
+
+    // Arrival-queue note renders (no slot grid, no token preview).
+    expect(
+      await screen.findByTestId("appt-book-calling-mode"),
+    ).toBeInTheDocument();
+    // The mode gate skips BOTH the slot round-trip and the token preview.
+    expect(getCalledWith("/slots")).toBe(false);
+    expect(getCalledWith("/appointments/next-token")).toBe(false);
+  });
+
+  it("selecting a SLOT-mode doctor calls /doctors/:id/slots and renders the timed slot grid", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors") {
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-slot",
+              user: { name: "Dr. Slotter" },
+              specialization: "GP",
+              appointmentMode: "SLOT",
+              enabledChannels: ["SLOT"],
+            },
+          ],
+        });
+      }
+      if (url.startsWith("/doctors/d-slot/slots")) {
+        return Promise.resolve({
+          data: {
+            slots: [{ startTime: "23:55", endTime: "23:59", isAvailable: true }],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    await openBookingAndPickDoctor(/Dr\. Slotter/i);
+
+    // Slot grid rendered from the /slots response.
+    expect(
+      await screen.findByRole("button", { name: /23:55 - 23:59/ }),
+    ).toBeInTheDocument();
+    expect(getCalledWith("/doctors/d-slot/slots")).toBe(true);
+    // SLOT mode does not fetch a token.
+    expect(getCalledWith("/appointments/next-token")).toBe(false);
+  });
+
+  it("selecting a TOKEN-mode doctor calls /next-token for that doctorId and shows the exact next token on the Book button", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors") {
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-tok",
+              user: { name: "Dr. Tok" },
+              specialization: "GP",
+              appointmentMode: "TOKEN",
+              enabledChannels: ["TOKEN"],
+              tokenPrefix: "R",
+              tokenStartNumber: 1,
+            },
+          ],
+        });
+      }
+      if (url.includes("/appointments/next-token")) {
+        return Promise.resolve({
+          data: { tokenLabel: "R-5", limitReached: false },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    await openBookingAndPickDoctor(/Dr\. Tok/i);
+
+    // The exact live token from /next-token lands on the Book button.
+    await waitFor(() =>
+      expect(screen.getByTestId("appt-book-token-add")).toHaveTextContent(
+        /assign token R-5/i,
+      ),
+    );
+    // The token API was queried scoped to this doctor id.
+    expect(
+      apiMock.get.mock.calls.some(
+        (call: any[]) =>
+          typeof call[0] === "string" &&
+          call[0].includes("/appointments/next-token") &&
+          call[0].includes("doctorId=d-tok"),
+      ),
+    ).toBe(true);
+    // TOKEN mode never hits the slot grid.
+    expect(getCalledWith("/slots")).toBe(false);
+  });
+
+  it("TOKEN doctor falls back to the configured prefix series when /next-token returns no label (stale server build)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors") {
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-series",
+              user: { name: "Dr. Series" },
+              specialization: "GP",
+              appointmentMode: "TOKEN",
+              enabledChannels: ["TOKEN"],
+              tokenPrefix: "R",
+              tokenStartNumber: 1,
+            },
+          ],
+        });
+      }
+      if (url.includes("/appointments/next-token")) {
+        // Older server: preview responds but with no computed label.
+        return Promise.resolve({
+          data: { tokenLabel: null, limitReached: false },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    await openBookingAndPickDoctor(/Dr\. Series/i);
+
+    // Prefix surfaces in the explanatory copy (the admin-set series).
+    expect(
+      await screen.findByTestId("appt-book-token-prefix"),
+    ).toHaveTextContent("R");
+    // ...and on the Book button as a "series" hint (no exact number known).
+    await waitFor(() =>
+      expect(screen.getByTestId("appt-book-token-add")).toHaveTextContent(
+        /assign token.*R series/i,
+      ),
+    );
+  });
+
+  it("TOKEN doctor at the daily limit shows the limit message and hides the Book button", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors") {
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-full",
+              user: { name: "Dr. Full" },
+              specialization: "GP",
+              appointmentMode: "TOKEN",
+              enabledChannels: ["TOKEN"],
+              tokenPrefix: "R",
+            },
+          ],
+        });
+      }
+      if (url.includes("/appointments/next-token")) {
+        return Promise.resolve({
+          data: { tokenLabel: null, limitReached: true },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    await openBookingAndPickDoctor(/Dr\. Full/i);
+
+    expect(
+      await screen.findByTestId("appt-book-token-limit"),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("appt-book-token-add")).not.toBeInTheDocument();
+  });
 });

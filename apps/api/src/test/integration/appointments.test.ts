@@ -5,6 +5,7 @@ import request from "supertest";
 import jwt from "jsonwebtoken";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import {
+  createUserFixture,
   createPatientFixture,
   createDoctorFixture,
   createAppointmentFixture,
@@ -442,5 +443,105 @@ describeIfDB("Appointments API (integration)", () => {
     expect(res.body.data.tokenNumber).toBeNull();
     expect(res.body.data.arrivalSeq).toBeNull();
     expect(res.body.data.slotStart).toBe("10:15");
+  });
+
+  // ─── Multi-tenant integrity of the booking write (2026-07) ──────────
+  // Regression guard: a SUPER_ADMIN carries no tenant context (platform
+  // role → req.tenantId undefined → tenantScopedPrisma is a pass-through),
+  // so the appointment write cannot rely on auto-injection. The route now
+  // pins tenantId explicitly from the DOCTOR. Without the fix the row saved
+  // with tenantId=null (the default tenant) and never surfaced for the
+  // doctor's real tenant — the "booked but not showing" bug.
+  it("SUPER_ADMIN booking pins the appointment to the doctor's tenant (not null)", async () => {
+    const prisma = await getPrisma();
+    const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    const tenant = await prisma.tenant.create({
+      data: {
+        name: `Tenant ${stamp}`,
+        subdomain: `t${stamp}`,
+        plan: "BASIC",
+        active: true,
+      },
+    });
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    // Both the doctor AND patient live in the new tenant. TOKEN mode so no
+    // slotId / schedule is needed to complete the booking.
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { tenantId: tenant.id, appointmentMode: "TOKEN" },
+    });
+    await prisma.patient.update({
+      where: { id: patient.id },
+      data: { tenantId: tenant.id },
+    });
+
+    // A real SUPER_ADMIN user (tenantId null) so authenticate() is satisfied
+    // even if it re-fetches the caller.
+    const superUser = await createUserFixture({
+      role: "SUPER_ADMIN",
+      email: `super_${stamp}@test.local`,
+    });
+    const superToken = jwt.sign(
+      { userId: superUser.id, email: superUser.email, role: "SUPER_ADMIN" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" },
+    );
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    const res = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${superToken}`)
+      .send({ patientId: patient.id, doctorId: doctor.id, date: tomorrow });
+
+    expect([200, 201]).toContain(res.status);
+    const created = await prisma.appointment.findUnique({
+      where: { id: res.body.data.id },
+      select: { tenantId: true },
+    });
+    // The row must belong to the doctor's tenant, NOT the default (null).
+    expect(created?.tenantId).toBe(tenant.id);
+  });
+
+  it("rejects booking a patient and doctor that belong to different tenants (400)", async () => {
+    const prisma = await getPrisma();
+    const stamp = `${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    const [tenantA, tenantB] = await Promise.all([
+      prisma.tenant.create({
+        data: { name: `A ${stamp}`, subdomain: `a${stamp}`, plan: "BASIC", active: true },
+      }),
+      prisma.tenant.create({
+        data: { name: `B ${stamp}`, subdomain: `b${stamp}`, plan: "BASIC", active: true },
+      }),
+    ]);
+    const patient = await createPatientFixture();
+    const doctor = await createDoctorFixture();
+    await prisma.patient.update({
+      where: { id: patient.id },
+      data: { tenantId: tenantA.id },
+    });
+    await prisma.doctor.update({
+      where: { id: doctor.id },
+      data: { tenantId: tenantB.id, appointmentMode: "TOKEN" },
+    });
+
+    const superUser = await createUserFixture({
+      role: "SUPER_ADMIN",
+      email: `super2_${stamp}@test.local`,
+    });
+    const superToken = jwt.sign(
+      { userId: superUser.id, email: superUser.email, role: "SUPER_ADMIN" },
+      process.env.JWT_SECRET || "test-jwt-secret-do-not-use-in-prod",
+      { expiresIn: "1h" },
+    );
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    const res = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${superToken}`)
+      .send({ patientId: patient.id, doctorId: doctor.id, date: tomorrow });
+
+    expect(res.status).toBe(400);
+    expect(String(res.body.error)).toMatch(/different tenants/i);
   });
 });

@@ -195,7 +195,7 @@ router.post(
       // ── No-show policy enforcement ──
       const patient = await prisma.patient.findUnique({
         where: { id: patientId },
-        select: { noShowCount: true },
+        select: { noShowCount: true, tenantId: true },
       });
       const threshold = await getConfigInt("no_show_threshold", 3);
       if (
@@ -254,12 +254,41 @@ router.post(
           tokenStartNumber: true,
           dailyAppointmentLimit: true,
           lastHourPolicy: true,
+          tenantId: true,
         },
       });
       if (!doctor) {
         res.status(404).json({ success: false, data: null, error: "Doctor not found" });
         return;
       }
+
+      // Multi-tenant integrity: an appointment's tenant is authoritative from
+      // the DOCTOR (a doctor belongs to exactly one tenant). Block a GENUINE
+      // cross-tenant pairing — both sides assigned to DIFFERENT real tenants —
+      // rather than silently misfiling. We deliberately tolerate a null on
+      // either side (un-migrated / default-tenant rows) so this guard doesn't
+      // break transitional data; the explicit tenant pin below still files the
+      // row under the doctor's tenant in that case.
+      if (
+        patient &&
+        patient.tenantId != null &&
+        doctor.tenantId != null &&
+        patient.tenantId !== doctor.tenantId
+      ) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Patient and doctor belong to different tenants",
+        });
+        return;
+      }
+      // The tenant this row must be tagged with. We set it EXPLICITLY on the
+      // create below (rather than relying on branch/tenantScopedPrisma's
+      // auto-injection) because a platform/super-admin caller has no tenant
+      // context — the scoping extension is a pass-through in that case, so
+      // without this the appointment would save with tenantId=null (the
+      // default tenant) and never surface for the doctor's real tenant.
+      const appointmentTenantId = doctor.tenantId ?? null;
       const mode = doctor.appointmentMode;
 
       if (mode === "SLOT" && !slotId) {
@@ -394,6 +423,7 @@ router.post(
               type: "SCHEDULED",
               status: "BOOKED",
               notes,
+              tenantId: appointmentTenantId,
             },
             include: {
               patient: {
@@ -509,9 +539,13 @@ router.post(
       //                a future cleanup may reject them outright)
       const doctorRow = await prisma.doctor.findUnique({
         where: { id: doctorId },
-        select: { appointmentMode: true, tokenStartNumber: true },
+        select: { appointmentMode: true, tokenStartNumber: true, tenantId: true },
       });
       const mode = doctorRow?.appointmentMode ?? "TOKEN";
+      // Pin the doctor's tenant explicitly — see the SCHEDULED-booking route
+      // above for why (platform/super-admin callers have no req.tenantId, so
+      // the scoping extension can't auto-inject it).
+      const walkInTenantId = doctorRow?.tenantId ?? null;
 
       let tokenNumber: number | null = null;
       let arrivalSeq: number | null = null;
@@ -539,6 +573,7 @@ router.post(
               status: "BOOKED",
               priority: priority || "NORMAL",
               notes,
+              tenantId: walkInTenantId,
             },
             include: {
               patient: {
@@ -1468,6 +1503,15 @@ router.post(
         return;
       }
 
+      // Pin the doctor's tenant explicitly on every occurrence — a platform/
+      // super-admin caller has no req.tenantId, so the scoping extension
+      // can't auto-inject it (see the SCHEDULED-booking route above).
+      const recurDoctor = await prisma.doctor.findUnique({
+        where: { id: doctorId },
+        select: { tenantId: true },
+      });
+      const recurTenantId = recurDoctor?.tenantId ?? null;
+
       // Single transaction — compute token numbers sequentially
       const created = await prisma.$transaction(async (tx) => {
         const results = [];
@@ -1488,6 +1532,7 @@ router.post(
               type: "SCHEDULED",
               status: "BOOKED",
               notes,
+              tenantId: recurTenantId,
             },
             include: {
               patient: {
@@ -1967,6 +2012,15 @@ router.post(
       // tokenNumber is nullable since the Pearl §2.1.2 schema change for
       // CALLING/SLOT-mode bookings; the group-booking flow itself always
       // sets it, but the type now honestly reflects the schema.
+      // Pin the doctor's tenant explicitly on every row — a platform/
+      // super-admin caller has no req.tenantId, so the scoping extension
+      // can't auto-inject it (see the SCHEDULED-booking route above).
+      const groupDoctor = await prisma.doctor.findUnique({
+        where: { id: doctorId },
+        select: { tenantId: true },
+      });
+      const groupTenantId = groupDoctor?.tenantId ?? null;
+
       const created: Array<{ id: string; tokenNumber: number | null; patientId: string }> = [];
       let nextToken = await getNextToken(doctorId, dateObj);
       for (const patientId of patientIds) {
@@ -1982,6 +2036,7 @@ router.post(
             status: "BOOKED",
             notes: groupNotes,
             groupId,
+            tenantId: groupTenantId,
           },
         });
         created.push({ id: appt.id, tokenNumber: appt.tokenNumber, patientId });

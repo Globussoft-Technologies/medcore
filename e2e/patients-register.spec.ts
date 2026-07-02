@@ -88,7 +88,8 @@ test.describe(
 
       await page.locator('[data-testid="patient-name"]').fill(tag);
       await page.locator('[data-testid="patient-phone"]').fill(phone);
-      await page.locator('[data-testid="patient-age"]').fill("34");
+      // Registration now captures Date of Birth (not a raw Age integer).
+      await page.locator('[data-testid="patient-dob"]').fill("1990-05-15");
 
       // Pin the POST status BEFORE looking for the row in the list. The
       // prior search-row-find assertion was hiding silent 4xx (and the

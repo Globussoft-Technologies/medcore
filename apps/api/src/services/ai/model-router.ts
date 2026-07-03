@@ -29,21 +29,29 @@ export interface ChatClient {
 // PRODUCTION RELIABILITY (2026-07): the OpenAI SDK defaults to a 10-MINUTE
 // per-request timeout and 2 internal retries. On the live server the hop to
 // the AI provider is slower/flakier than localhost, so a hung request would
-// sit for minutes — well past Nginx's default 60s proxy_read_timeout — and the
-// browser would see a 502/504 (the classic "works locally, breaks on server"
-// symptom). We therefore:
-//   • set an explicit, env-tunable request TIMEOUT (default 45s) so calls fail
-//     fast and surface as a clean retryable error instead of hanging; and
+// sit for minutes — well past a proxy read-timeout — and the browser would see
+// a 502/504 (the classic "works locally, breaks on server" symptom). We
+// therefore:
+//   • set an explicit, env-tunable request TIMEOUT (default 100s) — generous
+//     enough for a slow production SOAP generation (reasoning model + long
+//     transcript) to finish, while still bounded so a truly hung call fails
+//     cleanly instead of sitting for minutes; and
 //   • set `maxRetries: 0` so the SDK doesn't silently retry on top of the
-//     `withRetry` wrapper in sarvam.ts (which is the single source of retry
-//     policy) — otherwise a bad request could balloon to ~6 slow attempts.
-// Keep the server's reverse-proxy read-timeout ABOVE this value (see
-// docs/DEPLOY.md) so the proxy never cuts a legitimate in-flight AI call.
+//     `withRetry` wrapper in sarvam.ts (the single source of retry policy) —
+//     and note that withRetry does NOT re-attempt on a TIMEOUT (a timeout
+//     already consumed the full budget; retrying would double the wall-time
+//     and blow past the proxy ceiling). It only re-tries FAST failures
+//     (connection reset / 429 / 5xx).
+// Keep the reverse-proxy read-timeout ABOVE this value (see docs/DEPLOY.md):
+// e.g. Nginx `proxy_read_timeout 120s`. NOTE: Cloudflare's hard cap is ~100s,
+// so a 100s single-attempt budget sits right AT that edge — if you serve
+// through a Cloudflare tunnel, drop this to ~90s (or front prod with Nginx,
+// which has no such cap).
 
-/** Per-request timeout for AI provider calls (ms). Env-tunable; 45s default. */
+/** Per-request timeout for AI provider calls (ms). Env-tunable; 100s default. */
 const AI_REQUEST_TIMEOUT_MS = (() => {
   const raw = Number(process.env.AI_REQUEST_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : 45_000;
+  return Number.isFinite(raw) && raw > 0 ? raw : 100_000;
 })();
 
 // ── [SCRIBE-DBG] init diagnostics ───────────────────────────────────────────

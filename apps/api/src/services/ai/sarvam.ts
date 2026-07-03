@@ -117,6 +117,27 @@ function isRetryableError(err: unknown): boolean {
   return false;
 }
 
+// A CLIENT-SIDE TIMEOUT (the per-request `timeout` set in model-router.ts
+// firing) is distinct from a fast transient failure: it has already consumed
+// the entire request budget (default 80s). Re-attempting would DOUBLE/TRIPLE
+// the wall-time and blow past the reverse-proxy / Cloudflare ceiling, so we do
+// NOT retry timeouts — we degrade to 503 immediately. Fast failures
+// (connection reset / 429 / 5xx), which fail in well under a second, still
+// retry via isRetryableError below.
+function isTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const asAny = err as any;
+  const msg = (err.message || "").toLowerCase();
+  return (
+    asAny.name === "APITimeoutError" ||
+    asAny.name === "APIConnectionTimeoutError" ||
+    msg.includes("timed out") ||
+    msg.includes("timeout") ||
+    msg.includes("etimedout") ||
+    msg.includes("aborted")
+  );
+}
+
 function retryDelayMs(err: unknown, attempt: number): number {
   const asAny = err as any;
   if (asAny?.status === 429) {
@@ -128,11 +149,17 @@ function retryDelayMs(err: unknown, attempt: number): number {
 }
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  const MAX_ATTEMPTS = 3; // 1 initial + 2 retries
+  const MAX_ATTEMPTS = 3; // 1 initial + 2 retries (fast-failure errors only)
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       return await fn();
     } catch (err) {
+      // A timeout has already spent the full per-request budget — don't retry
+      // (that would stack another 80s and exceed the proxy/Cloudflare limit).
+      // Degrade to 503 so the route surfaces it cleanly / keeps the last draft.
+      if (isTimeoutError(err)) {
+        throw new AIServiceUnavailableError();
+      }
       const retryable = isRetryableError(err);
       if (!retryable) {
         // Non-retryable (e.g. 400 Bad Request, 401 Unauthorized, validation

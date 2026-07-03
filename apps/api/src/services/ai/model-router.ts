@@ -22,24 +22,73 @@ export interface ChatClient {
 // ── Client factories ──────────────────────────────────────────────────────────
 //
 // Each factory is deliberately simple: read env vars, new up an OpenAI-compat
-// client with a provider-specific base URL. No retries here — that concern
-// stays in `withRetry` inside sarvam.ts. This module's only job is "which
+// client with a provider-specific base URL. This module's only job is "which
 // endpoint are we calling?", so the wrappers can keep the same shape whether
 // we're hitting Sarvam, OpenAI proper, or (eventually) Anthropic.
+//
+// PRODUCTION RELIABILITY (2026-07): the OpenAI SDK defaults to a 10-MINUTE
+// per-request timeout and 2 internal retries. On the live server the hop to
+// the AI provider is slower/flakier than localhost, so a hung request would
+// sit for minutes — well past Nginx's default 60s proxy_read_timeout — and the
+// browser would see a 502/504 (the classic "works locally, breaks on server"
+// symptom). We therefore:
+//   • set an explicit, env-tunable request TIMEOUT (default 45s) so calls fail
+//     fast and surface as a clean retryable error instead of hanging; and
+//   • set `maxRetries: 0` so the SDK doesn't silently retry on top of the
+//     `withRetry` wrapper in sarvam.ts (which is the single source of retry
+//     policy) — otherwise a bad request could balloon to ~6 slow attempts.
+// Keep the server's reverse-proxy read-timeout ABOVE this value (see
+// docs/DEPLOY.md) so the proxy never cuts a legitimate in-flight AI call.
+
+/** Per-request timeout for AI provider calls (ms). Env-tunable; 45s default. */
+const AI_REQUEST_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.AI_REQUEST_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 45_000;
+})();
+
+// ── [SCRIBE-DBG] init diagnostics ───────────────────────────────────────────
+// Log ONCE per provider which endpoint + key we're wired to. This is the
+// single most useful production check: a missing / placeholder API key (env
+// not set on the server) is the #1 reason the scribe "works locally, fails on
+// prod". We NEVER print the key — only whether it's present and a masked tail.
+function maskKey(k: string | undefined): string {
+  if (!k) return "MISSING";
+  if (k === "sk-medcore-placeholder") return "PLACEHOLDER(env-unset)";
+  return `present(len=${k.length}, …${k.slice(-4)})`;
+}
+const _loggedInit = new Set<string>();
+function logClientInit(provider: string, key: string | undefined, baseURL: string) {
+  if (_loggedInit.has(provider)) return;
+  _loggedInit.add(provider);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[SCRIBE-DBG] client-init provider=${provider} baseURL=${baseURL} key=${maskKey(key)} timeoutMs=${AI_REQUEST_TIMEOUT_MS}`,
+  );
+}
 
 function buildSarvamClient(): ChatClient {
+  const key = process.env.SARVAM_API_KEY || "sk-medcore-placeholder";
+  const baseURL = "https://api.sarvam.ai/v1";
+  logClientInit("sarvam", key, baseURL);
   return new OpenAI({
     // openai@6 throws "Missing credentials" at construction when apiKey
     // is empty; placeholder lets the factory succeed when env is unset.
-    apiKey: process.env.SARVAM_API_KEY || "sk-medcore-placeholder",
-    baseURL: "https://api.sarvam.ai/v1",
+    apiKey: key,
+    baseURL,
+    timeout: AI_REQUEST_TIMEOUT_MS,
+    maxRetries: 0,
   });
 }
 
 function buildOpenAIClient(): ChatClient {
+  const key = process.env.OPENAI_API_KEY || "sk-medcore-placeholder";
+  const baseURL = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
+  logClientInit("openai", key, baseURL);
   return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY || "sk-medcore-placeholder",
-    baseURL: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
+    apiKey: key,
+    baseURL,
+    timeout: AI_REQUEST_TIMEOUT_MS,
+    maxRetries: 0,
   });
 }
 

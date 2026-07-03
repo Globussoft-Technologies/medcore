@@ -610,3 +610,74 @@ pm2 start medcore-web
 
 This change is **not** deployable from `scripts/deploy.sh` (we don't
 manage nginx config from the app repo). Schedule it with the ops owner.
+
+---
+
+## AI Scribe — production reliability (2026-07)
+
+The AI Scribe is **REST-only** (no WebSocket). Audio is transcribed in the
+browser; the frontend POSTs transcript deltas to `/api/v1/ai/scribe/:id/transcript`,
+the backend combines them with the consultation context and calls the AI
+provider to (re)generate the SOAP note. It "works locally but is flaky on the
+server" almost always for one of the reasons below — all are **ops/env**, not
+app-code, unless noted.
+
+### 1. AI provider request timeout (app-code — shipped)
+`apps/api/src/services/ai/model-router.ts` now builds the OpenAI-compatible
+clients with an explicit `timeout` (default **45s**, env `AI_REQUEST_TIMEOUT_MS`)
+and `maxRetries: 0` (the single retry policy lives in `withRetry` in
+`sarvam.ts`). Previously the SDK default (10-minute timeout, 2 internal retries)
+let a slow provider call hang past the proxy timeout → the browser saw 502/504.
+
+### 2. Nginx must out-wait the AI call
+The reverse proxy read-timeout MUST exceed `AI_REQUEST_TIMEOUT_MS`, or nginx
+cuts a legitimate in-flight SOAP generation. In the `location /api/` block that
+proxies to the API (`:4100`):
+
+```nginx
+location /api/ {
+    proxy_pass http://127.0.0.1:4100;
+    proxy_read_timeout 120s;   # > AI_REQUEST_TIMEOUT_MS (45s) + retries headroom
+    proxy_send_timeout 120s;
+    client_max_body_size 12m;  # /ai/transcribe accepts up to 10mb audio chunks
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+- `client_max_body_size` must be ≥ **10m** — the `/ai/transcribe` route parses
+  up to 10mb audio (`app.ts`), and nginx's default (1m) 413s the audio POST.
+- Reload with `sudo nginx -t && sudo nginx -s reload` (no downtime).
+
+### 3. HTTPS is mandatory (microphone)
+`getUserMedia` (and Web `SpeechRecognition`) only run in a **secure context** —
+the live site must be served over **HTTPS** with a valid cert, or the browser
+silently denies the mic and no transcript is produced. `localhost` is exempt,
+which is why it "works locally."
+
+### 4. Environment variables (set in `apps/api/.env` on the server)
+| Var | Purpose |
+|-----|---------|
+| `AI_PROVIDER` | `sarvam` or `openai` — selects the LLM + ASR pairing |
+| `SARVAM_API_KEY`, `SARVAM_MODEL` | Sarvam creds (when `AI_PROVIDER=sarvam`) |
+| `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` | OpenAI-compat creds |
+| `AI_REQUEST_TIMEOUT_MS` | Per-call AI timeout (default `45000`) |
+| `CORS_ORIGIN` | MUST include the live web origin (comma-separated ok) |
+
+A missing/placeholder key surfaces as `soapError` in the transcript response
+(the note stays blank) rather than a crash — check `pm2 logs medcore-api` for
+`[sarvam]`/`ai_call` error lines.
+
+### 5. Concurrency (app-code — shipped)
+The frontend (`apps/web/src/app/dashboard/scribe/page.tsx`) now keeps **at most
+one** `/transcript` request in flight and **queues** new lines while it's busy,
+draining them in a single batched POST when it completes. This prevents the
+parallel-request race (concurrent read-append-write of the transcript dropped
+lines, and concurrent SOAP regenerations piled up on the slow prod network).
+
+### Quick prod triage
+1. `curl -k https://prod-host/api/v1/health` → API reachable?
+2. `pm2 logs medcore-api --lines 100 | grep -Ei "sarvam|ai_call|scribe"` → provider/key/timeout errors?
+3. Browser console on `/dashboard/scribe`: `[scribe] transcript append failed` logs the exact status + payload.
+4. 413 on `/ai/transcribe` → raise nginx `client_max_body_size`.
+5. 502/504 on `/ai/scribe/.../transcript` → raise nginx `proxy_read_timeout` above `AI_REQUEST_TIMEOUT_MS`.

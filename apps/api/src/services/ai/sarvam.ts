@@ -83,16 +83,33 @@ export class AIServiceUnavailableError extends Error {
 
 function isRetryableError(err: unknown): boolean {
   if (err instanceof Error) {
+    const asAny = err as any;
+    // OpenAI SDK surfaces client-side timeouts / connection drops as named
+    // error classes (APITimeoutError, APIConnectionError) with no HTTP status.
+    // With the explicit per-request `timeout` set in model-router.ts these are
+    // the EXPECTED failure mode on a slow production network, so treat them as
+    // retryable (withRetry will back off, then degrade to 503).
     if (
-      err.message.includes("ECONNRESET") ||
-      err.message.includes("ENOTFOUND") ||
-      err.message.includes("ETIMEDOUT") ||
-      err.message.includes("socket hang up") ||
-      err.message.includes("fetch failed")
+      asAny.name === "APITimeoutError" ||
+      asAny.name === "APIConnectionError" ||
+      asAny.name === "APIConnectionTimeoutError"
     ) {
       return true;
     }
-    const asAny = err as any;
+    const msg = err.message || "";
+    if (
+      msg.includes("ECONNRESET") ||
+      msg.includes("ENOTFOUND") ||
+      msg.includes("ETIMEDOUT") ||
+      msg.includes("EAI_AGAIN") ||
+      msg.includes("socket hang up") ||
+      msg.includes("fetch failed") ||
+      msg.toLowerCase().includes("timed out") ||
+      msg.toLowerCase().includes("timeout") ||
+      msg.toLowerCase().includes("aborted")
+    ) {
+      return true;
+    }
     if (typeof asAny.status === "number" && (asAny.status >= 500 || asAny.status === 429)) {
       return true;
     }
@@ -942,6 +959,10 @@ export async function generateSOAPNote(
   },
 ): Promise<SOAPNote> {
   const { client, model } = resolveLLM(options?.provider);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[SCRIBE-DBG] generateSOAPNote start provider=${options?.provider ?? "(default)"} model=${model} transcriptEntries=${transcript.length} existingMeds=${(options?.existingMedications ?? []).length} verifyHallucinations=${options?.verifyHallucinations !== false}`,
+  );
   // Build the "keep these unchanged" block from the existing plan (if any) so
   // earlier prescriptions don't get swapped/re-ordered as the transcript grows.
   const existingMeds = (options?.existingMedications ?? []).filter(
@@ -1117,6 +1138,11 @@ Patient Context:
         }),
     );
   } catch (err) {
+    const anyErr = err as any;
+    // eslint-disable-next-line no-console
+    console.error(
+      `[SCRIBE-DBG] generateSOAPNote FAILED after ${Date.now() - t0}ms name=${anyErr?.name} status=${anyErr?.status ?? "n/a"} msg=${err instanceof Error ? err.message : String(err)}`,
+    );
     logAICall({
       feature: "scribe",
       model: MODEL,
@@ -1129,6 +1155,10 @@ Patient Context:
   }
 
   const raw = parseSarvamJson<SOAPNote>(response.choices[0]?.message?.content);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[SCRIBE-DBG] generateSOAPNote ok in ${Date.now() - t0}ms parsedJson=${!!raw} promptTokens=${response.usage?.prompt_tokens ?? 0} completionTokens=${response.usage?.completion_tokens ?? 0}${raw ? "" : " (parse returned null — model output not valid JSON)"}`,
+  );
   logAICall({
     feature: "scribe",
     model: MODEL,

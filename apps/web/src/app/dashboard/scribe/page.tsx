@@ -1143,6 +1143,10 @@ export default function ScribePage() {
 
   const startScribe = async (appointment: any, opts?: { silent?: boolean }) => {
     setLoading(true);
+    // eslint-disable-next-line no-console
+    console.log(
+      `[SCRIBE-DBG] startScribe apiBase=${process.env.NEXT_PUBLIC_API_URL || "(default localhost:4000)"} secureContext=${typeof window !== "undefined" ? window.isSecureContext : "n/a"} hasMediaDevices=${typeof navigator !== "undefined" && !!navigator.mediaDevices} appt=${appointment?.id}`,
+    );
     try {
       // Issue #193: `api.post` already returns the parsed JSON envelope
       // `{ success, data, error }` — the previous `res.data.data.sessionId`
@@ -1156,6 +1160,8 @@ export default function ScribePage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const sid: string | undefined = res?.data?.sessionId;
+      // eslint-disable-next-line no-console
+      console.log(`[SCRIBE-DBG] /ai/scribe/start ✓ session=${sid ?? "MISSING"} completed=${res?.data?.completed === true}`);
       if (!sid) {
         toast.error("Scribe started but no session id was returned");
         return;
@@ -1210,15 +1216,136 @@ export default function ScribePage() {
   // stale closure (startScribe isn't memoized, so this re-points each render).
   startScribeRef.current = startScribe;
 
+  // ── Serialized transcript sender: single in-flight request + queue ─────
+  // Speech recognition can emit several "final" results in quick succession.
+  // Firing a POST /transcript per result IN PARALLEL is the core production
+  // failure: (a) the server does a read-append-write of session.transcript, so
+  // concurrent writes race → last-write-wins DROPS lines; and (b) each request
+  // regenerates the SOAP note, so parallel requests run concurrent LLM calls
+  // (wasted tokens, clobbered drafts, and — behind a slow prod network — piled-
+  // up in-flight requests). So we keep AT MOST ONE request in flight and QUEUE
+  // new entries; when it finishes we drain the queue in ONE batched POST (the
+  // latest delta) and regen once, then repeat until the queue is empty.
+  const pendingEntriesRef = useRef<
+    {
+      speaker: "DOCTOR" | "PATIENT" | "ATTENDANT";
+      text: string;
+      timestamp: string;
+      confidence: number;
+    }[]
+  >([]);
+  const soapInFlightRef = useRef(false);
+
+  const flushTranscriptQueue = useCallback(async () => {
+    if (soapInFlightRef.current) return; // a drain is already running
+    const sid = sessionId;
+    if (!sid) return;
+    soapInFlightRef.current = true;
+    try {
+      while (pendingEntriesRef.current.length > 0) {
+        // Drain everything queued so far into ONE request — the "latest
+        // transcript update" batch. Entries that arrive mid-request queue up
+        // and go out on the next loop iteration (never concurrently).
+        const batch = pendingEntriesRef.current;
+        pendingEntriesRef.current = [];
+        try {
+          const _t0 = Date.now();
+          const res = await api.post<any>(
+            `/ai/scribe/${sid}/transcript`,
+            { entries: batch },
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+          // eslint-disable-next-line no-console
+          console.log(
+            `[SCRIBE-DBG] /transcript ✓ ${Date.now() - _t0}ms sent=${batch.length}`,
+            res?.data?._debug ?? {
+              soapDraftUpdated: res?.data?.soapDraftUpdated,
+              soapError: res?.data?.soapError,
+            },
+          );
+          setTranscriptLength(res.data.transcriptLength);
+          if (res.data.soapDraft) {
+            setSoapDraft(res.data.soapDraft);
+            setEditedSOAP(res.data.soapDraft);
+            soapJustUpdatedRef.current = true;
+          }
+          if (res.data.rxSafetyReport?.alerts) {
+            setRxSafetyReport(res.data.rxSafetyReport);
+            setAlertsAcknowledged(false);
+          }
+          // Append succeeded but the AI couldn't draft — surface why instead of
+          // leaving a silently-blank / stale draft.
+          if (res.data.soapError) {
+            toast.error(`AI draft failed: ${res.data.soapError}`);
+          }
+        } catch (err: any) {
+          console.error("[scribe] transcript append failed:", {
+            status: err?.status,
+            payload: err?.payload,
+            sentEntries: batch,
+          });
+          const serverMsg: string = err?.payload?.error || err?.message || "";
+          // Dead session (consent withdrawn / not found): stop draining, halt
+          // the stale recorder, and transparently spin up a FRESH session so
+          // the doctor can continue by tapping Start Recording again.
+          if (
+            err?.status === 404 ||
+            /consent has been withdrawn|session not found/i.test(serverMsg)
+          ) {
+            pendingEntriesRef.current = [];
+            serverASRActiveRef.current = false;
+            try {
+              recognitionRef.current?.stop();
+            } catch {
+              /* ignore */
+            }
+            recognitionRef.current = null;
+            setRecording(false);
+            setSessionId(null);
+            const appt = selectedAppointmentRef.current;
+            if (appt && startScribeRef.current) {
+              try {
+                await startScribeRef.current(appt, { silent: true });
+                toast.info(
+                  "Scribe session refreshed — tap Start Recording to continue.",
+                );
+              } catch {
+                toast.error("Scribe session ended — please start a new one.");
+              }
+            } else {
+              toast.error("Scribe session ended — please start a new one.");
+            }
+            break;
+          }
+          // Transient / other error (timeout, 5xx, network): surface it and
+          // STOP draining this cycle. The lines stay shown locally; the next
+          // spoken utterance triggers a fresh flush — no tight retry loop.
+          const detail =
+            err?.payload?.details?.[0]?.message ||
+            err?.payload?.error ||
+            err?.message ||
+            "please try again";
+          toast.error(`Couldn't sync that line: ${detail}`);
+          break;
+        }
+      }
+    } finally {
+      soapInFlightRef.current = false;
+    }
+    // If a line arrived between the while-exit and the flag reset, flush again.
+    if (pendingEntriesRef.current.length > 0 && sessionId) {
+      void flushTranscriptQueue();
+    }
+  }, [sessionId, token]);
+
   // Shared handler: push a final transcript string into the scribe session.
   // Accepts ATTENDANT as well so diarization-driven flushes can emit family
-  // members' utterances without losing the acoustic label.
+  // members' utterances without losing the acoustic label. Enqueues the entry
+  // and kicks the serialized sender (never posts directly / concurrently).
   const handleFinalTranscript = useCallback(
     async (text: string, speaker: "DOCTOR" | "PATIENT" | "ATTENDANT") => {
       // Build a schema-valid entry: non-empty trimmed text (addTranscriptChunk
-      // requires text.min(1)), a real ISO timestamp, and confidence clamped to
-      // [0,1]. A malformed entry was 400ing the whole append and the failure
-      // was swallowed, so the SOAP silently stopped updating.
+      // requires text.min(1)), a real ISO timestamp, confidence in [0,1].
       const cleanText = text.trim();
       if (!cleanText || !sessionId) return;
       const newEntry = {
@@ -1227,81 +1354,13 @@ export default function ScribePage() {
         timestamp: new Date().toISOString(),
         confidence: 0.9,
       };
-      const entries = [newEntry];
-      try {
-        const res = await api.post<any>(
-          `/ai/scribe/${sessionId}/transcript`,
-          { entries },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        setTranscriptLength(res.data.transcriptLength);
-        setTranscriptEntries((prev) => [...prev, newEntry]);
-        if (res.data.soapDraft) {
-          setSoapDraft(res.data.soapDraft);
-          setEditedSOAP(res.data.soapDraft);
-          soapJustUpdatedRef.current = true;
-        }
-        if (res.data.rxSafetyReport?.alerts) {
-          setRxSafetyReport(res.data.rxSafetyReport);
-          setAlertsAcknowledged(false);
-        }
-        // The append succeeded but the AI couldn't draft the note — surface why
-        // (e.g. provider/key error) instead of leaving a silently-blank draft.
-        if (res.data.soapError) {
-          toast.error(`AI draft failed: ${res.data.soapError}`);
-        }
-      } catch (err: any) {
-        // Surface the real cause instead of silently dropping the entry —
-        // a swallowed 400 here is exactly what made "data stops on the 2nd
-        // exchange" impossible to diagnose. Log the FULL payload (status +
-        // validation details / error) to the console so the exact reason is
-        // visible, then toast a short version.
-        console.error("[scribe] transcript append failed:", {
-          status: err?.status,
-          payload: err?.payload,
-          sentEntry: newEntry,
-        });
-        const serverMsg: string =
-          err?.payload?.error || err?.message || "";
-        // The session is dead (consent withdrawn or not found) — posting just
-        // 400s on every chunk. Halt the stale recording loop, then transparently
-        // spin up a FRESH session for the same appointment so the doctor can
-        // keep going by tapping Start Recording again (no lost workflow).
-        if (
-          err?.status === 404 ||
-          /consent has been withdrawn|session not found/i.test(serverMsg)
-        ) {
-          serverASRActiveRef.current = false;
-          try {
-            recognitionRef.current?.stop();
-          } catch {
-            /* ignore */
-          }
-          recognitionRef.current = null;
-          setRecording(false);
-          setSessionId(null);
-          const appt = selectedAppointmentRef.current;
-          if (appt && startScribeRef.current) {
-            try {
-              await startScribeRef.current(appt, { silent: true });
-              toast.info("Scribe session refreshed — tap Start Recording to continue.");
-            } catch {
-              toast.error("Scribe session ended — please start a new one.");
-            }
-          } else {
-            toast.error("Scribe session ended — please start a new one.");
-          }
-          return;
-        }
-        const detail =
-          err?.payload?.details?.[0]?.message ||
-          err?.payload?.error ||
-          err?.message ||
-          "please try again";
-        toast.error(`Couldn't capture that line: ${detail}`);
-      }
+      // Optimistic UI — show the captured line immediately.
+      setTranscriptEntries((prev) => [...prev, newEntry]);
+      // Queue + kick the single-in-flight sender.
+      pendingEntriesRef.current.push(newEntry);
+      void flushTranscriptQueue();
     },
-    [sessionId, token]
+    [sessionId, flushTranscriptQueue],
   );
 
   // GAP-S4: update speaker on a single transcript entry.
@@ -1370,6 +1429,7 @@ export default function ScribePage() {
           binary += String.fromCharCode(...uint8.subarray(i, i + CHUNK));
         }
         const base64 = btoa(binary);
+        const _t0 = Date.now();
         const res = await api.post<any>(
           "/ai/transcribe",
           {
@@ -1383,10 +1443,21 @@ export default function ScribePage() {
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const transcript: string = res.data?.transcript ?? "";
+        // eslint-disable-next-line no-console
+        console.log(
+          `[SCRIBE-DBG] /transcribe ✓ ${Date.now() - _t0}ms audioBytes=${blob.size} gotChars=${transcript.length}`,
+          res?.data?._debug ?? {},
+        );
         if (transcript.trim()) {
           await handleFinalTranscript(transcript, speaker);
         }
       } catch (err: any) {
+        // eslint-disable-next-line no-console
+        console.error("[SCRIBE-DBG] /transcribe ✗", {
+          status: err?.status,
+          serverError: err?.payload?.error,
+          msg: err?.message,
+        });
         const msg = err?.payload?.error || err?.message || "Sarvam transcription failed";
         toast.error(`ASR: ${msg}`);
       }
@@ -1400,6 +1471,8 @@ export default function ScribePage() {
     async (speaker: "DOCTOR" | "PATIENT") => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // eslint-disable-next-line no-console
+        console.log(`[SCRIBE-DBG] mic granted (getUserMedia ok) speaker=${speaker}`);
         micStreamRef.current = stream;
         serverASRActiveRef.current = true;
         micDeniedToastRef.current = false;
@@ -1466,7 +1539,11 @@ export default function ScribePage() {
         } else {
           setLiveText("🎤 Listening...");
         }
-      } catch {
+      } catch (micErr: any) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[SCRIBE-DBG] mic FAILED (getUserMedia) name=${micErr?.name} msg=${micErr?.message} secureContext=${typeof window !== "undefined" ? window.isSecureContext : "n/a"} — over a tunnel this is almost always: page not served over HTTPS, or the user denied the mic.`,
+        );
         // Mic blocked / busy — fully stop so the loop can't retry, and toast
         // only once (a denied mic otherwise spams one toast per attempt).
         serverASRActiveRef.current = false;

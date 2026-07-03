@@ -56,6 +56,16 @@ import {
   receiveHealthInformation,
 } from "../services/abdm/hiu";
 import { ABDMError } from "../services/abdm/client";
+import {
+  requestAadhaarOtp,
+  verifyAadhaarOtp,
+  loginWithAadhaar,
+  verifyLoginOtp,
+  getPatientProfile,
+  downloadAbhaCard,
+  putAbhaSession,
+  getAbhaXToken,
+} from "../services/abdm/abha-enrolment";
 import { verifyGatewaySignature } from "../services/abdm/jwks";
 import { getSignedDownloadUrl } from "../services/storage";
 import { assertPatientOwnsResource } from "../middleware/patient-self-only";
@@ -63,6 +73,11 @@ import {
   hiuFetchSchema,
   uploadRecordSchema,
   recordsQuerySchema,
+  abhaEnrolRequestOtpSchema,
+  abhaEnrolVerifyOtpSchema,
+  abhaLoginRequestOtpSchema,
+  abhaLoginVerifyOtpSchema,
+  abhaSessionQuerySchema,
 } from "@medcore/shared";
 
 // Resolve the caller's own Patient row id (PATIENT role) — null for staff.
@@ -1192,6 +1207,192 @@ abdmRouter.get(
         },
       });
       res.json({ success: true, data: rows, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── ABHA Milestone-1 (V3) Aadhaar enrolment + login (authenticated) ────────
+//
+// Staff (RECEPTION/DOCTOR/ADMIN) and a logged-in PATIENT can run the Aadhaar
+// OTP → create/verify ABHA → profile → card flow. The PUBLIC, pre-login
+// booking variant lives in routes/public-abha.ts and reuses the same service.
+// Aadhaar/OTP arrive as plaintext (HTTPS) and are RSA-encrypted server-side;
+// the ABDM X-Token is held server-side (putAbhaSession) and only an opaque
+// sessionId is returned. NOTHING sensitive is ever logged.
+
+const ABHA_ENROL_ROLES = [
+  Role.PATIENT,
+  Role.RECEPTION,
+  Role.DOCTOR,
+  Role.ADMIN,
+] as const;
+
+// POST /abha/enrol/request-otp — send Aadhaar OTP for a NEW ABHA.
+abdmRouter.post(
+  "/abha/enrol/request-otp",
+  authorize(...ABHA_ENROL_ROLES),
+  validate(abhaEnrolRequestOtpSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const cd = checkOtpCooldown(req, "abha-enrol");
+      if (!cd.ok) {
+        res.setHeader("Retry-After", String(cd.retryAfterSeconds));
+        res.status(429).json({
+          success: false,
+          data: null,
+          error: "Please wait before requesting another OTP",
+          retryAfter: cd.retryAfterSeconds,
+        });
+        return;
+      }
+      const { txnId } = await requestAadhaarOtp(req.body.aadhaar);
+      await auditLog(req, "ABDM_ABHA_ENROL_OTP_REQUEST", "AbhaLink", undefined, {
+        txnIdIssued: true,
+      });
+      res.json({ success: true, data: { txnId }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /abha/enrol/verify-otp — verify OTP + create ABHA.
+abdmRouter.post(
+  "/abha/enrol/verify-otp",
+  authorize(...ABHA_ENROL_ROLES),
+  validate(abhaEnrolVerifyOtpSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await verifyAadhaarOtp(req.body);
+      const sessionId = result.xToken ? putAbhaSession(result.xToken) : null;
+      await auditLog(req, "ABDM_ABHA_ENROL_CREATE", "AbhaLink", undefined, {
+        abhaNumber: result.profile.abhaNumber ?? undefined,
+        abhaAddress: result.profile.abhaAddress ?? undefined,
+      });
+      res.json({
+        success: true,
+        data: { profile: result.profile, sessionId },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /abha/login/request-otp — send Aadhaar OTP for an EXISTING ABHA.
+abdmRouter.post(
+  "/abha/login/request-otp",
+  authorize(...ABHA_ENROL_ROLES),
+  validate(abhaLoginRequestOtpSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const cd = checkOtpCooldown(req, "abha-login");
+      if (!cd.ok) {
+        res.setHeader("Retry-After", String(cd.retryAfterSeconds));
+        res.status(429).json({
+          success: false,
+          data: null,
+          error: "Please wait before requesting another OTP",
+          retryAfter: cd.retryAfterSeconds,
+        });
+        return;
+      }
+      const { txnId } = await loginWithAadhaar(req.body.aadhaar);
+      await auditLog(req, "ABDM_ABHA_LOGIN_OTP_REQUEST", "AbhaLink", undefined, {
+        txnIdIssued: true,
+      });
+      res.json({ success: true, data: { txnId }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// POST /abha/login/verify-otp — verify OTP → X-Token (server-side) + profile.
+abdmRouter.post(
+  "/abha/login/verify-otp",
+  authorize(...ABHA_ENROL_ROLES),
+  validate(abhaLoginVerifyOtpSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await verifyLoginOtp(req.body);
+      const sessionId = putAbhaSession(result.xToken);
+      const profile = result.profile ?? (await getPatientProfile(result.xToken));
+      await auditLog(req, "ABDM_ABHA_LOGIN_VERIFY", "AbhaLink", undefined, {
+        abhaNumber: profile.abhaNumber ?? undefined,
+        abhaAddress: profile.abhaAddress ?? undefined,
+      });
+      res.json({ success: true, data: { profile, sessionId }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /abha/enrol/profile?sessionId= — re-fetch the ABHA profile.
+abdmRouter.get(
+  "/abha/enrol/profile",
+  authorize(...ABHA_ENROL_ROLES),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = abhaSessionQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "A valid sessionId query param is required",
+        });
+        return;
+      }
+      const xToken = getAbhaXToken(parsed.data.sessionId);
+      if (!xToken) {
+        res.status(401).json({
+          success: false,
+          data: null,
+          error: "ABHA session expired — please verify OTP again",
+        });
+        return;
+      }
+      const profile = await getPatientProfile(xToken);
+      res.json({ success: true, data: { profile }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /abha/enrol/card?sessionId= — download the ABHA card (PDF).
+abdmRouter.get(
+  "/abha/enrol/card",
+  authorize(...ABHA_ENROL_ROLES),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = abhaSessionQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "A valid sessionId query param is required",
+        });
+        return;
+      }
+      const xToken = getAbhaXToken(parsed.data.sessionId);
+      if (!xToken) {
+        res.status(401).json({
+          success: false,
+          data: null,
+          error: "ABHA session expired — please verify OTP again",
+        });
+        return;
+      }
+      const card = await downloadAbhaCard(xToken);
+      await auditLog(req, "ABDM_ABHA_CARD_DOWNLOAD", "AbhaLink", undefined, {});
+      res.setHeader("Content-Type", card.contentType);
+      res.setHeader("Content-Disposition", 'inline; filename="abha-card.pdf"');
+      res.send(card.buffer);
     } catch (err) {
       next(err);
     }

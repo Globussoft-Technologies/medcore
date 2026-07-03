@@ -93,6 +93,14 @@ const CSRF_BYPASS_PATHS = [
   // AI triage chat — unauthenticated, no session/CSRF cookie. Rate-limited
   // (15/min) + turn/length-capped. See routes/public-booking.ts POST /chat.
   "/api/v1/public/booking/chat",
+  // Public ABHA (ABDM M1 V3) Aadhaar flow for the pre-login booking page —
+  // fully unauthenticated, so there is no medcore_csrf cookie to echo and
+  // CSRF cannot apply. Defence in lieu of CSRF: per-IP rate limiting (OTP
+  // sends 3/min) + strict Zod validation; Aadhaar/OTP are RSA-encrypted
+  // server-side and the ABDM X-Token never reaches the browser. The prefix
+  // covers request-otp / verify-otp / login/* / profile / card. See
+  // routes/public-abha.ts.
+  "/api/v1/public/abha",
   // Razorpay webhook is authenticated by signature, not CSRF — and is
   // mounted before express.json so it doesn't even pass through here,
   // but list it for documentation.

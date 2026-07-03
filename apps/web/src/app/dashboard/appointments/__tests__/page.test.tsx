@@ -896,40 +896,33 @@ describe("AppointmentsPage — colocated coverage", () => {
     });
   });
 
-  // ─── Next Available top-bar (no-slot path) ────────────────────────
+  // ─── Next Available top-bar (clean open/close toggle) ─────────────
+  // The top "Next Available" button is a clean panel toggle: a first click
+  // opens a FRESH Book New Appointment panel (cleared patient), a second
+  // click (button now red) closes it. It no longer runs the cross-doctor
+  // suggestion search or opens a confirm dialog from the top bar.
 
-  it("Next Available with no slot opens the booking form via toast.info (no confirm dialog)", async () => {
-    apiMock.get.mockImplementation((url: string) => {
-      if (url === "/appointments/next-available") {
-        return Promise.resolve({ data: { slot: null } });
-      }
-      return Promise.resolve({ data: [] });
-    });
+  it("Next Available (top button) opens a clean booking panel and never surfaces a confirm dialog", async () => {
+    apiMock.get.mockImplementation(() => Promise.resolve({ data: [] }));
     const user = userEvent.setup();
     render(<AppointmentsPage />);
     await user.click(
       await screen.findByRole("button", { name: /^next available$/i }),
     );
-    // No timed slot to suggest → the handler no longer dead-ends on a toast;
-    // it opens the Book New Appointment panel (same as the Book CTA) and
-    // surfaces an info toast pointing the user at the form.
-    await waitFor(() =>
-      expect(toastMock.info).toHaveBeenCalledWith(
-        expect.stringMatching(/opening the booking form/i),
-      ),
-    );
-    // The cross-doctor CONFIRM dialog must still not appear (there was no
-    // slot to confirm), even though the booking panel itself opened.
+    // Opens the Book New Appointment panel...
+    expect(
+      await screen.findByText(/Book New Appointment/i),
+    ).toBeInTheDocument();
+    // ...and does NOT surface the cross-doctor confirm dialog.
     expect(
       screen.queryByTestId("confirm-appointment-dialog"),
     ).not.toBeInTheDocument();
   });
 
-  it("Next Available API rejection surfaces toast.error", async () => {
+  it("Next Available (top button) does not fire the cross-doctor search endpoint", async () => {
+    const calls: string[] = [];
     apiMock.get.mockImplementation((url: string) => {
-      if (url === "/appointments/next-available") {
-        return Promise.reject(new Error("boom"));
-      }
+      calls.push(url);
       return Promise.resolve({ data: [] });
     });
     const user = userEvent.setup();
@@ -937,8 +930,416 @@ describe("AppointmentsPage — colocated coverage", () => {
     await user.click(
       await screen.findByRole("button", { name: /^next available$/i }),
     );
+    await screen.findByText(/Book New Appointment/i);
+    // The top button opens a clean panel — it must NOT call the cross-doctor
+    // /appointments/next-available search anymore.
+    expect(
+      calls.some((u) => u.includes("/appointments/next-available")),
+    ).toBe(false);
+  });
+
+  it("Next Available (top button) toggles the panel closed on a second click", async () => {
+    apiMock.get.mockImplementation(() => Promise.resolve({ data: [] }));
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    const btn = await screen.findByRole("button", { name: /^next available$/i });
+    await user.click(btn);
+    expect(await screen.findByText(/Book New Appointment/i)).toBeInTheDocument();
+    // Second click (button is now red) closes the panel.
+    await user.click(btn);
     await waitFor(() =>
-      expect(toastMock.error).toHaveBeenCalledWith("boom"),
+      expect(screen.queryByText(/Book New Appointment/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  // ─── Duplicate-open guard (proactive disable + inline note) ────────
+
+  it("disables Book and shows a duplicate note when the patient already has an open appointment with the doctor on that date", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-tok",
+              user: { name: "Dr. Tok" },
+              specialization: "GP",
+              appointmentMode: "TOKEN",
+              enabledChannels: ["TOKEN"],
+            },
+          ],
+        });
+      if (url.includes("/appointments/next-token"))
+        return Promise.resolve({ data: { tokenLabel: null, limitReached: false } });
+      // The proactive duplicate pre-check (patientId + doctorId + date) finds
+      // an existing OPEN appointment → drives the disable + note.
+      if (url.includes("patientId=") && url.includes("doctorId="))
+        return Promise.resolve({ data: [{ status: "BOOKED" }] });
+      if (url.startsWith("/patients"))
+        return Promise.resolve({
+          data: [
+            {
+              id: "pat-1",
+              mrNumber: "MR-1",
+              user: { name: "Asha Roy", phone: "9000000001" },
+            },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. Tok/i }));
+    const patientInput = screen.getByTestId("appt-book-patient-input");
+    await user.type(patientInput, "as");
+    await user.click(await screen.findByTestId("appt-book-patient-option"));
+
+    // Inline duplicate note appears and the token Book button is disabled.
+    expect(
+      await screen.findByTestId("appt-book-duplicate-note"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId("appt-book-token-add")).toBeDisabled(),
+    );
+  });
+
+  it("Walk-in channel locks the date to today and hides Book Recurring", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-cal",
+              user: { name: "Dr. Cal" },
+              specialization: "GP",
+              appointmentMode: "CALLING",
+              enabledChannels: ["CALLING", "WALKIN"],
+            },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. Cal/i }));
+    // Switch to the Walk-in channel.
+    await user.click(await screen.findByTestId("appt-book-channel-walkin"));
+
+    // Date input is disabled + hint shown; Book Recurring is hidden.
+    const dateInput = document.getElementById(
+      "appt-book-date",
+    ) as HTMLInputElement | null;
+    expect(dateInput).toBeDisabled();
+    expect(
+      screen.getByText(/Walk-ins are registered for today/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /book recurring/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the Walk-in channel when the doctor is changed", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d1",
+              user: { name: "Dr. One" },
+              specialization: "GP",
+              appointmentMode: "CALLING",
+              enabledChannels: ["CALLING", "WALKIN"],
+            },
+            {
+              id: "d2",
+              user: { name: "Dr. Two" },
+              specialization: "GP",
+              appointmentMode: "TOKEN",
+              enabledChannels: ["TOKEN", "WALKIN"],
+            },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. One/i }));
+    await user.click(await screen.findByTestId("appt-book-channel-walkin"));
+    // Change the doctor — should STAY on Walk-in (both doctors support it).
+    await user.click(screen.getByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. Two/i }));
+    expect(
+      await screen.findByTestId("appt-book-walkin-mode"),
+    ).toBeInTheDocument();
+  });
+
+  it("the in-panel Next Available link jumps a SLOT doctor to their next open slot", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-slot",
+              user: { name: "Dr. Slot" },
+              specialization: "GP",
+              appointmentMode: "SLOT",
+              enabledChannels: ["SLOT"],
+            },
+          ],
+        });
+      // No slots for the selected date → the no-slots message + link render.
+      if (url.startsWith("/doctors/d-slot/slots"))
+        return Promise.resolve({ data: { slots: [] } });
+      // The scoped Next-Available search returns a future open slot.
+      if (url.includes("/appointments/next-available"))
+        return Promise.resolve({
+          data: { slot: { doctorId: "d-slot", date: "2099-01-02", startTime: "09:00" } },
+        });
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. Slot/i }));
+    // The no-slots message hosts the in-panel "Next Available" link.
+    const noSlots = await screen.findByTestId("appt-book-no-slots");
+    await user.click(within(noSlots).getByRole("button", { name: /next available/i }));
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(
+        expect.stringMatching(/next available/i),
+      ),
+    );
+  });
+
+  it("books a TOKEN appointment through the confirm dialog (no duplicate)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-t",
+              user: { name: "Dr. T" },
+              specialization: "GP",
+              appointmentMode: "TOKEN",
+              enabledChannels: ["TOKEN"],
+              tokenPrefix: "R",
+              tokenStartNumber: 1,
+            },
+          ],
+        });
+      if (url.includes("/appointments/next-token"))
+        return Promise.resolve({ data: { tokenLabel: "R-5", limitReached: false } });
+      // Duplicate pre-check → no open appointment.
+      if (url.includes("patientId=") && url.includes("doctorId="))
+        return Promise.resolve({ data: [] });
+      if (url.startsWith("/patients"))
+        return Promise.resolve({
+          data: [
+            {
+              id: "pat-1",
+              mrNumber: "MR-1",
+              user: { name: "Asha Roy", phone: "9000000001" },
+            },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+    apiMock.post.mockResolvedValue({ data: { id: "a-1" } });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. T/i }));
+    const patientInput = screen.getByTestId("appt-book-patient-input");
+    await user.type(patientInput, "as");
+    await user.click(await screen.findByTestId("appt-book-patient-option"));
+    // Token "Book (assign token R-5)" → confirm dialog → Confirm.
+    await user.click(await screen.findByTestId("appt-book-token-add"));
+    await user.click(await screen.findByTestId("confirm-appointment-confirm"));
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/appointments/book",
+        expect.objectContaining({ patientId: "pat-1", doctorId: "d-t" }),
+      ),
+    );
+  });
+
+  it("registers a walk-in via the walk-in button (no duplicate)", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-w",
+              user: { name: "Dr. W" },
+              specialization: "GP",
+              appointmentMode: "CALLING",
+              enabledChannels: ["CALLING", "WALKIN"],
+            },
+          ],
+        });
+      if (url.includes("patientId=") && url.includes("doctorId="))
+        return Promise.resolve({ data: [] });
+      if (url.startsWith("/patients"))
+        return Promise.resolve({
+          data: [
+            {
+              id: "pat-1",
+              mrNumber: "MR-1",
+              user: { name: "Asha Roy", phone: "9000000001" },
+            },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+    apiMock.post.mockResolvedValue({ data: { id: "w-1" } });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. W/i }));
+    await user.click(await screen.findByTestId("appt-book-channel-walkin"));
+    const patientInput = screen.getByTestId("appt-book-patient-input");
+    await user.type(patientInput, "as");
+    await user.click(await screen.findByTestId("appt-book-patient-option"));
+    await user.click(await screen.findByTestId("appt-book-walkin-add"));
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/appointments/walk-in",
+        expect.objectContaining({ patientId: "pat-1", doctorId: "d-w" }),
+      ),
+    );
+  });
+
+  it("in-panel Next Available link info-toasts when the SLOT doctor has no upcoming slots", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-slot",
+              user: { name: "Dr. Slot" },
+              specialization: "GP",
+              appointmentMode: "SLOT",
+              enabledChannels: ["SLOT"],
+            },
+          ],
+        });
+      if (url.startsWith("/doctors/d-slot/slots"))
+        return Promise.resolve({ data: { slots: [] } });
+      if (url.includes("/appointments/next-available"))
+        return Promise.resolve({ data: { slot: null } });
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. Slot/i }));
+    const noSlots = await screen.findByTestId("appt-book-no-slots");
+    await user.click(within(noSlots).getByRole("button", { name: /next available/i }));
+    await waitFor(() =>
+      expect(toastMock.info).toHaveBeenCalledWith(
+        expect.stringMatching(/no open slots/i),
+      ),
+    );
+  });
+
+  it("disables Add-to-queue with a duplicate note for a CALLING doctor with an open appointment", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-c",
+              user: { name: "Dr. C" },
+              specialization: "GP",
+              appointmentMode: "CALLING",
+              enabledChannels: ["CALLING"],
+            },
+          ],
+        });
+      if (url.includes("patientId=") && url.includes("doctorId="))
+        return Promise.resolve({ data: [{ status: "IN_CONSULTATION" }] });
+      if (url.startsWith("/patients"))
+        return Promise.resolve({
+          data: [
+            {
+              id: "pat-1",
+              mrNumber: "MR-1",
+              user: { name: "Asha Roy", phone: "9000000001" },
+            },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. C/i }));
+    const patientInput = screen.getByTestId("appt-book-patient-input");
+    await user.type(patientInput, "as");
+    await user.click(await screen.findByTestId("appt-book-patient-option"));
+    await waitFor(() =>
+      expect(screen.getByTestId("appt-book-calling-add")).toBeDisabled(),
+    );
+  });
+
+  it("disables slot buttons for a SLOT doctor with an open appointment on that date", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors")
+        return Promise.resolve({
+          data: [
+            {
+              id: "d-s",
+              user: { name: "Dr. S" },
+              specialization: "GP",
+              appointmentMode: "SLOT",
+              enabledChannels: ["SLOT"],
+            },
+          ],
+        });
+      if (url.startsWith("/doctors/d-s/slots"))
+        return Promise.resolve({
+          data: {
+            slots: [{ startTime: "23:55", endTime: "23:59", isAvailable: true }],
+          },
+        });
+      if (url.includes("patientId=") && url.includes("doctorId="))
+        return Promise.resolve({ data: [{ status: "BOOKED" }] });
+      if (url.startsWith("/patients"))
+        return Promise.resolve({
+          data: [
+            {
+              id: "pat-1",
+              mrNumber: "MR-1",
+              user: { name: "Asha Roy", phone: "9000000001" },
+            },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+    await user.click(await screen.findByRole("button", { name: /book appointment/i }));
+    await user.click(await screen.findByTestId("appt-book-doctor"));
+    await user.click(await screen.findByRole("option", { name: /Dr\. S/i }));
+    const patientInput = screen.getByTestId("appt-book-patient-input");
+    await user.type(patientInput, "as");
+    await user.click(await screen.findByTestId("appt-book-patient-option"));
+    // The late-day slot renders but is disabled because of the open-appointment
+    // duplicate on this date.
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /23:55 - 23:59/ }),
+      ).toBeDisabled(),
     );
   });
 

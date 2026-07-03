@@ -471,8 +471,13 @@ describe("AppointmentsPage", () => {
    * resulting POST /appointments/book body carries the suggestion's
    * doctorId — not whatever the form's state happened to be.
    */
-  describe("Issue #950 — Next Available locks the suggested doctor", () => {
-    it("books against the suggested doctor even if form state would drift", async () => {
+  // The top-bar "Next Available" button was simplified (per product) to a
+  // clean panel open/close toggle: it no longer runs the cross-doctor
+  // suggestion search or opens a confirm dialog with a "locked" suggested
+  // doctor from the top bar. (The old Issue #950 cross-doctor lock-and-book
+  // via the top button was removed.) This pins the new behavior.
+  describe("Next Available — top button clean panel toggle", () => {
+    it("opens a fresh panel on click and never surfaces a cross-doctor confirm dialog", async () => {
       const user = userEvent.setup();
       apiMock.get.mockImplementation((url: string) => {
         if (url === "/doctors")
@@ -485,105 +490,34 @@ describe("AppointmentsPage", () => {
                 appointmentMode: "SLOT",
                 enabledChannels: ["SLOT"],
               },
-              {
-                id: "doc-B",
-                user: { name: "Dr. Bob" },
-                specialization: "Dermatology",
-                appointmentMode: "SLOT",
-                enabledChannels: ["SLOT"],
-              },
             ],
           });
-        if (url === "/appointments/next-available")
-          return Promise.resolve({
-            data: {
-              slot: {
-                doctorId: "doc-B",
-                doctorName: "Dr. Bob",
-                specialization: "Dermatology",
-                date: "2026-06-01",
-                startTime: "11:00",
-                endTime: "11:30",
-              },
-            },
-          });
-        if (url.startsWith("/doctors/doc-B/slots"))
-          return Promise.resolve({
-            data: {
-              slots: [
-                { startTime: "11:00", endTime: "11:30", isAvailable: true },
-              ],
-            },
-          });
-        if (url.startsWith("/patients"))
-          return Promise.resolve({
-            data: [
-              {
-                id: "pat-1",
-                mrNumber: "MR-1",
-                user: { name: "Asha Roy", phone: "9000000001" },
-              },
-            ],
-          });
-        if (url.startsWith("/appointments")) return Promise.resolve({ data: [] });
         return Promise.resolve({ data: [] });
       });
-      apiMock.post.mockResolvedValue({ data: { id: "a-1", doctorId: "doc-B" } });
 
       render(<AppointmentsPage />);
 
-      // Open the booking panel + pre-pick a patient FIRST. The Next
-      // Available handler now guards staff flows behind a
-      // patientIdInput-non-empty check (page.tsx findNextAvailable
-      // line ~1100) — without a picked patient the handler toast.errors
-      // and returns BEFORE opening the confirm dialog.
-      const bookToggle = await screen.findByTestId("appt-book-toggle");
-      await user.click(bookToggle);
-      const patientInput = await screen.findByTestId("appt-book-patient-input");
-      await user.type(patientInput, "as");
-      const patientOption = await screen.findByTestId(
-        "appt-book-patient-option"
-      );
-      await user.click(patientOption);
-
-      // Now click the top-bar "Next Available" — fires findNextAvailable,
-      // which calls GET /next-available, opens the (mocked-true) confirm,
-      // then pre-fills the booking form AND surfaces the Confirm
-      // Appointment dialog with the locked (doctorId, date, slot).
       const nextBtn = await screen.findByRole("button", {
         name: /^next available$/i,
       });
       await user.click(nextBtn);
 
-      // The Confirm Appointment dialog should be open with Dr. Bob shown.
-      const dialog = await screen.findByTestId("confirm-appointment-dialog");
-      expect(dialog).toBeInTheDocument();
-      expect(screen.getByTestId("confirm-appointment-doctor")).toHaveTextContent(
-        /Dr\. Bob/i
-      );
-      expect(screen.getByTestId("confirm-appointment-date")).toHaveTextContent(
-        "2026-06-01"
-      );
+      // Opens the Book New Appointment panel...
+      expect(
+        await screen.findByText(/Book New Appointment/i)
+      ).toBeInTheDocument();
+      // ...with NO cross-doctor confirm dialog.
+      expect(
+        screen.queryByTestId("confirm-appointment-dialog")
+      ).not.toBeInTheDocument();
 
-      // Click Confirm — fires confirmPatientIdAndBook, which under the
-      // fix uses the locked suggestion doctorId + date even if form state
-      // has drifted.
-      await user.click(screen.getByTestId("confirm-appointment-confirm"));
-
-      await waitFor(() => {
-        expect(apiMock.post).toHaveBeenCalled();
-      });
-      // The booking POST MUST target doc-B (the suggestion), not doc-A
-      // (the first doctor in the list, which would be a plausible
-      // pre-fix bug shape if React batched setSelectedDoctor late).
-      const [path, body] = apiMock.post.mock.calls[0];
-      expect(path).toBe("/appointments/book");
-      expect(body).toMatchObject({
-        doctorId: "doc-B",
-        date: "2026-06-01",
-        slotId: "11:00",
-        patientId: "pat-1",
-      });
+      // Second click (button now red) closes the panel.
+      await user.click(nextBtn);
+      await waitFor(() =>
+        expect(
+          screen.queryByText(/Book New Appointment/i)
+        ).not.toBeInTheDocument()
+      );
     });
   });
 });

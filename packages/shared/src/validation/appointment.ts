@@ -259,6 +259,16 @@ export const recurringAppointmentSchema = z.object({
   slotStart: z.string().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"),
   frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY"]),
   occurrences: z.number().int().min(2).max(52),
+  // Optional explicit visit dates (YYYY-MM-DD). When provided, the server
+  // books exactly these dates instead of computing them from
+  // frequency/occurrences — used when the receptionist has edited individual
+  // recurring dates in the UI. `frequency`/`occurrences` remain required for
+  // back-compat + as the default when `dates` is omitted.
+  dates: z
+    .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"))
+    .min(1)
+    .max(52)
+    .optional(),
   notes: optionalFreeText,
 });
 

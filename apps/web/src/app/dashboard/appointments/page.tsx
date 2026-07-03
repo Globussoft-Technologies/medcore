@@ -56,6 +56,11 @@ interface Doctor {
   // sequential number still comes from /next-token when it responds.
   tokenPrefix?: string | null;
   tokenStartNumber?: number | null;
+  // Weekly working days (from /doctors `include: { schedules }`). Each row's
+  // `dayOfWeek` is 0=Sun … 6=Sat. Used to flag recurring-visit dates that fall
+  // on a day the doctor doesn't work, so the user sees availability BEFORE
+  // booking. Undefined when the list endpoint didn't include schedules.
+  schedules?: { dayOfWeek: number }[];
 }
 
 // Pearl ERP Stage 1 §3.1 (gap row 71) — channels semantically valid for
@@ -656,6 +661,10 @@ export default function AppointmentsPage() {
   const [isRecurring, setIsRecurring] = useState(false);
   const [recFrequency, setRecFrequency] = useState<"DAILY" | "WEEKLY" | "MONTHLY">("WEEKLY");
   const [recOccurrences, setRecOccurrences] = useState(4);
+  // The effective recurring visit dates — seeded from the computed preview but
+  // individually editable (each has its own small date picker). Booking sends
+  // exactly these to the server.
+  const [recurringDates, setRecurringDates] = useState<string[]>([]);
 
   const [patientIdInput, setPatientIdInput] = useState("");
   // Display name of the patient most recently picked via the in-form
@@ -691,6 +700,12 @@ export default function AppointmentsPage() {
     label: string | null;
     limitReached: boolean;
   } | null>(null);
+  // Proactive duplicate-booking state: true when the currently-picked patient
+  // already has an OPEN appointment (BOOKED / CHECKED_IN / IN_CONSULTATION)
+  // with the currently-selected doctor. Drives disabling every "Book" action
+  // + an inline explanation, so the user sees it BEFORE clicking (the on-click
+  // guard + the server 409 remain as backstops). A different doctor is fine.
+  const [dupOpenWithDoctor, setDupOpenWithDoctor] = useState(false);
 
   // Reschedule modal
   const [reschedTarget, setReschedTarget] = useState<Appointment | null>(null);
@@ -1031,6 +1046,52 @@ export default function AppointmentsPage() {
     dbgErr,
   ]);
 
+  // Proactive same-patient + same-doctor open-appointment detection. When a
+  // staff user has picked BOTH a patient and a doctor, check for an existing
+  // OPEN appointment so the Book actions can disable + explain BEFORE a click.
+  // Recurring is exempt (intentional multi-book). Clears when either side is
+  // unset (e.g. after a successful booking clears the patient field).
+  useEffect(() => {
+    const pid = patientIdInput.trim();
+    const did = selectedDoctor;
+    if (!pid || !did || isRecurring) {
+      setDupOpenWithDoctor(false);
+      return;
+    }
+    // Per-DATE scope: the duplicate rule is one open appointment per patient +
+    // doctor PER DAY, so we only flag a clash on the date this booking targets.
+    // Walk-in always books TODAY; every other channel books the selected date.
+    const checkDate =
+      selectedChannel === "WALKIN" ? toISODate(new Date()) : selectedDate;
+    let cancelled = false;
+    api
+      .get<{ data: { status: string }[] }>(
+        `/appointments?patientId=${encodeURIComponent(pid)}&doctorId=${encodeURIComponent(did)}&date=${encodeURIComponent(checkDate)}&limit=100`,
+      )
+      .then((r) => {
+        if (cancelled) return;
+        const OPEN = ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"];
+        const hasOpen = (r.data || []).some((a) => OPEN.includes(a.status));
+        dbg("dupOpenWithDoctor check", { pid, did, checkDate, hasOpen });
+        setDupOpenWithDoctor(hasOpen);
+      })
+      .catch((err) => {
+        dbgErr("dupOpenWithDoctor check", err);
+        if (!cancelled) setDupOpenWithDoctor(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    patientIdInput,
+    selectedDoctor,
+    selectedChannel,
+    selectedDate,
+    isRecurring,
+    dbg,
+    dbgErr,
+  ]);
+
   useEffect(() => {
     if (!isPatient) return;
     let cancelled = false;
@@ -1235,6 +1296,43 @@ export default function AppointmentsPage() {
       toast.error("Please pick a slot before booking");
       return;
     }
+
+    // Duplicate guard (same rule as the patient-detail QuickBook): a patient
+    // may not hold TWO open appointments with the SAME doctor ON THE SAME DATE.
+    // Block a second booking when an existing BOOKED / CHECKED_IN /
+    // IN_CONSULTATION row already exists for this (patient, doctor, date). The
+    // same patient CAN book one per day (today AND tomorrow). A DIFFERENT
+    // doctor is always allowed; once that day's visit is completed or cancelled
+    // they can rebook. Skipped for recurring series (intentional multi-books).
+    if (!isRecurring) {
+      try {
+        const dupRes = await api.get<{ data: { status: string }[] }>(
+          `/appointments?patientId=${encodeURIComponent(patientId)}&doctorId=${encodeURIComponent(bookDoctorId)}&date=${encodeURIComponent(bookDate)}&limit=100`,
+        );
+        const OPEN = ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"];
+        const hasOpen = (dupRes.data || []).some((a) => OPEN.includes(a.status));
+        dbg("confirmPatientIdAndBook duplicate pre-check", {
+          patientId,
+          doctorId: bookDoctorId,
+          bookDate,
+          hasOpen,
+        });
+        if (hasOpen) {
+          const docName = doctors.find((d) => d.id === bookDoctorId)?.user.name;
+          toast.error(
+            `This patient already has an open appointment with ${
+              docName ? formatDoctorName(docName) : "this doctor"
+            } on ${bookDate}. Complete or cancel it before booking another for the same day. (A different doctor, or a different day, is allowed.)`,
+          );
+          return;
+        }
+      } catch (err) {
+        // Non-fatal — if the pre-check can't run, let the booking proceed;
+        // the backend remains the authoritative guard.
+        dbgErr("confirmPatientIdAndBook duplicate pre-check", err);
+      }
+    }
+
     setBookingInFlight(true);
     try {
       if (isRecurring) {
@@ -1245,6 +1343,9 @@ export default function AppointmentsPage() {
           slotStart: slotStartTime,
           frequency: recFrequency,
           occurrences: recOccurrences,
+          // Send the (possibly user-edited) explicit visit dates so the server
+          // books exactly what the preview shows.
+          ...(recurringDates.length > 0 ? { dates: recurringDates } : {}),
         };
         dbg("POST /appointments/recurring →", recBody);
         await api.post("/appointments/recurring", recBody);
@@ -1276,7 +1377,10 @@ export default function AppointmentsPage() {
       setPatientFieldError(false);
       setShowBooking(false);
       setIsRecurring(false);
-      setFilterDate(bookDate);
+      // Do NOT move the top list filter to the booked date — the filter stays
+      // on its current value (today by default); the user changes it manually
+      // to view another day. (Booking a future date simply won't appear in the
+      // today-filtered list until they switch the filter.)
       loadAppointments();
     } catch (err) {
       dbgErr("confirmPatientIdAndBook (POST book/recurring)", err);
@@ -1702,6 +1806,57 @@ export default function AppointmentsPage() {
     return `${bookDoctor.tokenPrefix}-${start}`;
   }, [bookDoctor]);
 
+  // Recurring-visit date preview. Mirrors the server's recurring expansion
+  // EXACTLY (see /appointments/recurring): it SKIPS days the selected doctor
+  // doesn't work (per their weekly schedule) and rolls forward to the next
+  // working day, always producing `occurrences` visits on working days.
+  //   • DAILY   → consecutive working days, off-days skipped.
+  //   • WEEKLY  → same weekday each week; if that lands on an off-day, roll
+  //               forward (bounded to a week) to the next working day.
+  //   • MONTHLY → same date each month; roll forward off-days the same way.
+  // If the doctor's schedules weren't loaded we don't skip (server stays the
+  // authoritative gate).
+  const recurringPreviewDates = useMemo(() => {
+    const base = new Date(selectedDate);
+    if (Number.isNaN(base.getTime())) return [];
+    const n = Math.max(1, Math.min(52, recOccurrences || 1));
+    const workDays = bookDoctor?.schedules?.length
+      ? new Set(bookDoctor.schedules.map((s) => s.dayOfWeek))
+      : null;
+    const isWork = (d: Date) => !workDays || workDays.has(d.getDay());
+    const SAFETY = n * 10 + 400;
+    const out: string[] = [];
+    if (recFrequency === "DAILY") {
+      const cur = new Date(base);
+      let iters = 0;
+      while (out.length < n && iters < SAFETY) {
+        if (isWork(cur)) out.push(toISODate(cur));
+        cur.setDate(cur.getDate() + 1);
+        iters++;
+      }
+    } else {
+      for (let i = 0; out.length < n && i < SAFETY; i++) {
+        const d = new Date(base);
+        if (recFrequency === "WEEKLY") d.setDate(base.getDate() + i * 7);
+        else d.setMonth(base.getMonth() + i);
+        let roll = 0;
+        while (!isWork(d) && roll < 7) {
+          d.setDate(d.getDate() + 1);
+          roll++;
+        }
+        if (isWork(d)) out.push(toISODate(d));
+      }
+    }
+    return out;
+  }, [selectedDate, recFrequency, recOccurrences, bookDoctor]);
+
+  // Seed the editable recurring dates from the computed preview whenever the
+  // inputs (start date / frequency / count / doctor) change. Individual edits
+  // the user makes afterwards persist until one of those inputs changes again.
+  useEffect(() => {
+    setRecurringDates(recurringPreviewDates);
+  }, [recurringPreviewDates]);
+
   // ─── Derived list ─────────────────
 
   const filteredAppointments = useMemo(() => {
@@ -1764,37 +1919,39 @@ export default function AppointmentsPage() {
 
   // ─── CSV export ───────────────────
 
-  // `jumpToNextSlot` distinguishes the two triggers for a logged-in DOCTOR:
-  //   • false (TOP toolbar button) → just open the panel on the CURRENT date;
-  //     never auto-jump.
-  //   • true  (the "Next Available" link inside the no-slots message BELOW) →
-  //     look up the doctor's own next open slot and jump the Date field to it.
-  // Staff (non-doctor) always run the cross-doctor search regardless.
+  // "Next Available" (the in-panel LINK in the no-slots message). Always
+  // scoped to the CURRENTLY-SELECTED doctor — no cross-doctor suggestion
+  // popup. Only jumps for a SLOT doctor (jumpToNextSlot=true): it looks up
+  // that doctor's own next open slot and moves the Date field to it. For a
+  // non-SLOT doctor (or the top button, jumpToNextSlot=false) it just opens
+  // the panel. The top toolbar button no longer calls this — it's a clean
+  // open/close panel toggle handled inline on the button.
   async function findNextAvailable(jumpToNextSlot = false) {
-    dbg("findNextAvailable() clicked", { isDoctor, showBooking, jumpToNextSlot });
-    // A logged-in DOCTOR books only for themselves, so the CROSS-doctor
-    // suggestion popup doesn't apply. The Date field defaults to TODAY and is
-    // never auto-changed on panel-open. ONLY when the doctor explicitly clicks
-    // "Next Available" (this handler) do we look up THEIR OWN next open slot
-    // and jump the Date field to it + reload the grid — no confirm popup.
-    // TOKEN / CALLING doctors have no slot grid, so we only open the panel.
-    if (isDoctor) {
+    dbg("findNextAvailable() clicked", {
+      isDoctor,
+      showBooking,
+      jumpToNextSlot,
+      selectedDoctor,
+    });
+    if (isDoctor || selectedDoctor) {
       setShowBooking(true);
-      // TOP toolbar button → open the panel on the CURRENT date, no jump.
-      if (!jumpToNextSlot) {
-        dbg("findNextAvailable ⤼ doctor TOP button → open panel, keep current date");
-        return;
-      }
       const mine = doctors.find((d) => d.id === selectedDoctor);
-      if (!selectedDoctor || mine?.appointmentMode !== "SLOT") {
-        dbg("findNextAvailable ⤼ doctor (non-SLOT) → just open own panel", {
+      // Only the explicit LINK jumps, and only for a SLOT doctor. Otherwise
+      // just open the panel on the current date (no cross-doctor suggestion).
+      if (
+        !jumpToNextSlot ||
+        !selectedDoctor ||
+        mine?.appointmentMode !== "SLOT"
+      ) {
+        dbg("findNextAvailable ⤼ scoped-doctor → open panel, no jump", {
           selectedDoctor,
           mode: mine?.appointmentMode,
+          jumpToNextSlot,
         });
         return;
       }
       try {
-        dbg("findNextAvailable → GET next-available (own doctorId)", {
+        dbg("findNextAvailable → GET next-available (scoped doctorId)", {
           doctorId: selectedDoctor,
         });
         const res = await api.get<{
@@ -1805,134 +1962,23 @@ export default function AppointmentsPage() {
           `/appointments/next-available?doctorId=${encodeURIComponent(selectedDoctor)}`
         );
         const s = res.data.slot;
-        dbg("findNextAvailable ← own next slot", s);
+        dbg("findNextAvailable ← scoped next slot", s);
         if (s) {
           // Explicit click → jump the Date field to the next open slot and
-          // reload the grid so the doctor can pick a time right away.
+          // reload the grid so the user can pick a time right away.
           setSelectedDate(s.date);
           void loadSlots(s.doctorId, s.date);
           toast.success(`Next available: ${s.date} at ${s.startTime}`);
         } else {
-          toast.info("No open slots in the next 14 days for your schedule.");
+          toast.info("No open slots in the next 14 days for this doctor.");
         }
       } catch (err) {
-        dbgErr("findNextAvailable own-doctor (GET /next-available)", err);
+        dbgErr("findNextAvailable scoped-doctor (GET /next-available)", err);
         toast.error(
           err instanceof Error ? err.message : "Could not find next slot"
         );
       }
       return;
-    }
-    try {
-      dbg("findNextAvailable → GET /appointments/next-available");
-      const res = await api.get<{
-        data: {
-          slot: {
-            doctorId: string;
-            doctorName: string;
-            specialization: string | null;
-            date: string;
-            startTime: string;
-            endTime?: string;
-          } | null;
-        };
-      }>("/appointments/next-available");
-      dbg("findNextAvailable ← suggestion", res.data?.slot ?? null);
-      if (!res.data.slot) {
-        // No timed slot to suggest — e.g. a TOKEN / CALLING doctor has no slot
-        // grid, or the next 14 days are genuinely full. Fall back to opening
-        // the Book New Appointment panel (same as the "Book Appointment" CTA)
-        // so the user can still book a token / walk-in / pick another doctor,
-        // instead of dead-ending on a toast.
-        setShowBooking(true);
-        toast.info(
-          "No timed slot to suggest — opening the booking form so you can book directly.",
-        );
-        return;
-      }
-      const s = res.data.slot;
-      // Patient gate — same contract as bookAppointment() (line 758).
-      // Without it, clicking "Next Available" lets a staff user open the
-      // Confirm dialog without ever picking a patient, and the dialog
-      // renders Patient = "—". Patients (self-booking) are exempt — they
-      // book for themselves via `mePatient`.
-      //
-      // UX note: don't pre-light the Patient field red here. The red is
-      // reserved for actual slot-click attempts that fail the guard
-      // (see bookAppointment line 758). On the Next-Available path we
-      // open the booking panel CLEAN, with just a toast pointing the
-      // user at the picker — the field turns red only if they then
-      // click a slot / Next Available again without picking.
-      if (!isPatient && patientIdInput.trim().length === 0) {
-        if (!showBooking) {
-          // Booking form isn't open yet — just open it so the user can pick a
-          // patient. No error on this first click.
-          setShowBooking(true);
-          return;
-        }
-        // Form is already open but no patient was picked — now show a
-        // meaningful prompt pointing the user at the patient picker.
-        toast.error(
-          t(
-            "dashboard.appointments.pickPatientFirst",
-            "Please pick a patient first, then try Next Available again.",
-          ),
-        );
-        return;
-      }
-      if (
-        !(await confirm({
-          title: "Proceed to book?",
-          message: `Next available: ${formatDoctorName(s.doctorName)}${
-            s.specialization ? ` (${s.specialization})` : ""
-          } on ${s.date} at ${s.startTime}.`,
-        }))
-      )
-        return;
-      // Issue #950 — the suggested slot's doctor MUST be the one that
-      // ends up booked. Earlier this handler only called
-      //   setSelectedDoctor(s.doctorId); setSelectedDate(s.date);
-      //   setShowBooking(true);
-      // …and relied on the user to (a) re-pick the slot from a slot grid
-      // that was NEVER refreshed for the new doctor (loadSlots wasn't
-      // called) and (b) trust that React had flushed `selectedDoctor`
-      // before they clicked. In practice the slots panel showed the
-      // PREVIOUS doctor's slots; the user clicked a stale slot; and
-      // because the booking POST reads `selectedDoctor` from state, any
-      // re-render that came in between (e.g. DoctorSelect's auto-channel
-      // derivation, or a tab refocus) could flip the doctor — yielding
-      // the user-visible "I picked Dr A but the row says Dr B" bug.
-      //
-      // The fix is to remove the round-trip: we book the suggested
-      // (doctorId, date, slotStart) tuple DIRECTLY against the API, and
-      // the form state is updated only so the post-book "current view"
-      // (date filter, opened panel) stays coherent. The PATIENT/staff
-      // patient-picker contract is preserved by opening the same
-      // Confirm-Appointment dialog with the slot pre-filled — but the
-      // dialog handler now also receives the exact doctorId + date as
-      // overrides, so even if `selectedDoctor` is later mutated, the
-      // booking still targets the doctor the suggestion advertised.
-      setSelectedDoctor(s.doctorId);
-      setSelectedDate(s.date);
-      setShowBooking(true);
-      // Refresh the slot grid for the new doctor so it isn't visually
-      // out of sync with the dialog the user just confirmed.
-      void loadSlots(s.doctorId, s.date);
-      // Lock the suggested slot in for the upcoming confirmation step.
-      setNextAvailableLock({ doctorId: s.doctorId, date: s.date });
-      setConfirmDialog({
-        open: true,
-        slotStartTime: s.startTime,
-        slotEndTime: s.endTime ?? "",
-      });
-    } catch (err) {
-      dbgErr("findNextAvailable (GET /appointments/next-available)", err);
-      // If the suggestion endpoint is unavailable (e.g. older server build),
-      // don't dead-end — open the booking panel so the user can still book.
-      setShowBooking(true);
-      toast.error(
-        err instanceof Error ? err.message : "Could not find next slot",
-      );
     }
   }
 
@@ -2848,19 +2894,25 @@ export default function AppointmentsPage() {
               >
                 Export CSV
               </button>
-              {/* When the panel is open the button turns RED and a second click
-                  closes it. A doctor's Next Available only opens/closes their
-                  own booking panel (no cross-doctor search), so it toggles
-                  cleanly. Staff still run the search even while the panel is
-                  open — the "pick a patient, then Next Available" flow depends
-                  on that — so the close-toggle is gated to the doctor case. */}
+              {/* When the panel is open the button is RED and a click always
+                  CLOSES it. When closed (green) it opens a FRESH panel — same
+                  as "Book Appointment": clear any leftover patient/duplicate
+                  state so it never suggests/confirms a stale patient. */}
               <button
                 onClick={() => {
-                  if (isDoctor && showBooking) {
+                  if (showBooking) {
                     setShowBooking(false);
                     return;
                   }
-                  findNextAvailable();
+                  // Open clean (mirror the Book Appointment reset).
+                  setPatientIdInput("");
+                  setPickedPatientName("");
+                  setPickerResetKey((k) => k + 1);
+                  setPatientFieldError(false);
+                  setDupOpenWithDoctor(false);
+                  setNextAvailableLock(null);
+                  setIsRecurring(false);
+                  setShowBooking(true);
                 }}
                 title={
                   showBooking
@@ -2879,7 +2931,23 @@ export default function AppointmentsPage() {
             {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={() => setShowBooking(!showBooking)}
+                  onClick={() => {
+                    const opening = !showBooking;
+                    setShowBooking(opening);
+                    if (opening) {
+                      // Start a FRESH booking: clear any leftover patient
+                      // selection (and the duplicate-open warning it drove) so
+                      // reopening the form never shows a stale patient/message
+                      // the user didn't just pick. Doctor/date are kept.
+                      setPatientIdInput("");
+                      setPickedPatientName("");
+                      setPickerResetKey((k) => k + 1);
+                      setPatientFieldError(false);
+                      setDupOpenWithDoctor(false);
+                      setNextAvailableLock(null);
+                      setIsRecurring(false);
+                    }
+                  }}
                   data-testid="appt-book-toggle"
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
                 >
@@ -3105,15 +3173,26 @@ export default function AppointmentsPage() {
                             const d = doctors.find((x) => x.id === id);
                             if (d) {
                               const avail = availableChannelsFor(d);
+                              // Keep the user's WALK-IN choice when switching
+                              // doctors (every doctor supports walk-in), so
+                              // changing the doctor from the Walk-in tab doesn't
+                              // bounce them back to the doctor's primary channel
+                              // (e.g. Calling). Otherwise derive the primary.
+                              const nextChannel =
+                                selectedChannel === "WALKIN" &&
+                                avail.includes("WALKIN")
+                                  ? "WALKIN"
+                                  : avail[0];
                               dbg("doctor selected", {
                                 doctorId: id,
                                 name: d.user?.name,
                                 appointmentMode: d.appointmentMode,
                                 enabledChannels: d.enabledChannels,
-                                derivedChannel: avail[0],
+                                keptWalkIn: nextChannel === "WALKIN" && selectedChannel === "WALKIN",
+                                derivedChannel: nextChannel,
                                 tokenPrefix: d.tokenPrefix ?? null,
                               });
-                              setSelectedChannel(avail[0]);
+                              setSelectedChannel(nextChannel);
                             } else {
                               dbg("doctor selected but not in list", { doctorId: id });
                             }
@@ -3131,11 +3210,21 @@ export default function AppointmentsPage() {
                   <label htmlFor="appt-book-date" className="mb-1 block text-sm font-medium">
                     {t("dashboard.appointments.date")}
                   </label>
+                  {/* Walk-in is a real-time arrival → always TODAY. Lock the
+                      date to today (disabled) so the picker can't imply a
+                      future walk-in and mislead about which day the duplicate
+                      check applies to. Every other channel keeps the picker. */}
                   <input
                     id="appt-book-date"
                     type="date"
-                    value={selectedDate}
+                    value={selectedChannel === "WALKIN" ? todayMin : selectedDate}
                     min={todayMin}
+                    disabled={selectedChannel === "WALKIN"}
+                    title={
+                      selectedChannel === "WALKIN"
+                        ? "Walk-ins are always registered for today."
+                        : undefined
+                    }
                     onChange={(e) => {
                       setSelectedDate(e.target.value);
                       // Issue #950 — drop the "Next Available" lock when
@@ -3145,21 +3234,30 @@ export default function AppointmentsPage() {
                       setNextAvailableLock(null);
                       if (selectedDoctor) loadSlots(selectedDoctor, e.target.value);
                     }}
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:disabled:bg-gray-800"
                   />
+                  {selectedChannel === "WALKIN" && (
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      Walk-ins are registered for today.
+                    </p>
+                  )}
                 </div>
-                <div className="flex items-end">
-                  <button
-                    onClick={() => setIsRecurring(!isRecurring)}
-                    className={`w-full rounded-lg px-3 py-2 text-sm font-medium ${
-                      isRecurring
-                        ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                        : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700"
-                    }`}
-                  >
-                    {isRecurring ? "Recurring ON" : "Book Recurring"}
-                  </button>
-                </div>
+                {/* Recurring doesn't apply to walk-ins (a walk-in is a single
+                    same-day arrival), so hide the toggle for that channel. */}
+                {selectedChannel !== "WALKIN" && (
+                  <div className="flex items-end">
+                    <button
+                      onClick={() => setIsRecurring(!isRecurring)}
+                      className={`w-full rounded-lg px-3 py-2 text-sm font-medium ${
+                        isRecurring
+                          ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                          : "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700"
+                      }`}
+                    >
+                      {isRecurring ? "Recurring ON" : "Book Recurring"}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {isRecurring && (
@@ -3193,6 +3291,44 @@ export default function AppointmentsPage() {
                       className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
                     />
                   </div>
+                  {/* Editable preview of each recurring visit date. Seeded from
+                      the computed series (off-days skipped, matches the server)
+                      but each date has its own small date picker — click to
+                      change any single visit. The booking sends exactly these
+                      dates. */}
+                  {recurringDates.length > 0 && (
+                    <div
+                      className="sm:col-span-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-900 dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-100"
+                      data-testid="appt-rec-preview"
+                    >
+                      <p className="mb-2 font-medium">
+                        {recurringDates.length} visits — auto-filled (doctor&apos;s
+                        off-days skipped); click any date to edit:
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                        {recurringDates.map((d, i) => (
+                          <div key={i} className="flex items-center gap-1.5">
+                            <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
+                              {i + 1}.
+                            </span>
+                            <input
+                              type="date"
+                              value={d}
+                              min={todayMin}
+                              data-testid={`appt-rec-date-${i}`}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setRecurringDates((prev) =>
+                                  prev.map((old, idx) => (idx === i ? v : old)),
+                                );
+                              }}
+                              className="w-full rounded border border-indigo-200 bg-white px-2 py-1 text-xs text-gray-900 dark:border-indigo-700 dark:bg-gray-900 dark:text-gray-100"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3236,7 +3372,12 @@ export default function AppointmentsPage() {
                             role="radio"
                             aria-checked={selectedChannel === ch}
                             data-testid={`appt-book-channel-${ch.toLowerCase()}`}
-                            onClick={() => setSelectedChannel(ch)}
+                            onClick={() => {
+                              setSelectedChannel(ch);
+                              // Walk-in can't be recurring — drop any recurring
+                              // selection so its sub-form doesn't linger.
+                              if (ch === "WALKIN") setIsRecurring(false);
+                            }}
                             className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
                               selectedChannel === ch
                                 ? "bg-primary text-white"
@@ -3265,14 +3406,36 @@ export default function AppointmentsPage() {
                     Register the patient as a <strong>walk-in</strong>. A token is
                     minted for today and the patient joins the in-clinic queue.
                   </p>
+                  <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     data-testid="appt-book-walkin-add"
-                    disabled={bookingInFlight}
+                    disabled={bookingInFlight || dupOpenWithDoctor}
                     onClick={async () => {
                       if (patientIdInput.trim().length === 0) {
                         setPatientFieldError(true);
                         return;
+                      }
+                      // Duplicate guard scoped to TODAY (a walk-in always books
+                      // today): block only a second open appointment for this
+                      // patient + doctor on today's date.
+                      try {
+                        const todayStr = toISODate(new Date());
+                        const dupRes = await api.get<{ data: { status: string }[] }>(
+                          `/appointments?patientId=${encodeURIComponent(patientIdInput.trim())}&doctorId=${encodeURIComponent(selectedDoctor)}&date=${encodeURIComponent(todayStr)}&limit=100`,
+                        );
+                        const OPEN = ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"];
+                        if ((dupRes.data || []).some((a) => OPEN.includes(a.status))) {
+                          const docName = doctors.find((d) => d.id === selectedDoctor)?.user.name;
+                          toast.error(
+                            `This patient already has an open appointment with ${
+                              docName ? formatDoctorName(docName) : "this doctor"
+                            } today. Complete or cancel it before adding a walk-in for today.`,
+                          );
+                          return;
+                        }
+                      } catch (err) {
+                        dbgErr("walk-in duplicate pre-check", err);
                       }
                       setBookingInFlight(true);
                       try {
@@ -3297,10 +3460,18 @@ export default function AppointmentsPage() {
                         setBookingInFlight(false);
                       }
                     }}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Add to today&apos;s walk-in queue
                   </button>
+                  {dupOpenWithDoctor && (
+                    <p className="flex-1 rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                      This patient already has an open appointment with this
+                      doctor today. Complete or cancel it before adding another
+                      for today. (A different doctor is allowed.)
+                    </p>
+                  )}
+                  </div>
                 </div>
               )}
 
@@ -3317,14 +3488,24 @@ export default function AppointmentsPage() {
                       slot time needed — the patient is added to today's queue
                       and seen in arrival order.
                     </p>
-                    <button
-                      type="button"
-                      data-testid="appt-book-calling-add"
-                      onClick={() => bookAppointment("")}
-                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-                    >
-                      Add to today&apos;s queue
-                    </button>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        data-testid="appt-book-calling-add"
+                        disabled={bookingInFlight || dupOpenWithDoctor}
+                        onClick={() => bookAppointment("")}
+                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Add to today&apos;s queue
+                      </button>
+                      {dupOpenWithDoctor && (
+                        <p className="flex-1 rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                          This patient already has an open appointment with this
+                          doctor on this date. Complete or cancel it first. (A
+                          different doctor, or a different day, is allowed.)
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -3364,19 +3545,32 @@ export default function AppointmentsPage() {
                         : "Daily appointment limit reached for this doctor — no more tokens can be booked today."}
                     </p>
                   ) : (
-                    <button
-                      type="button"
-                      data-testid="appt-book-token-add"
-                      disabled={bookingInFlight}
-                      onClick={() => bookAppointment("")}
-                      className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                      {tokenExactLabel
-                        ? `Book (assign token ${tokenExactLabel})`
-                        : tokenSeriesHint
-                          ? `Book (assign token — ${bookDoctor?.tokenPrefix} series)`
-                          : "Book (assign token)"}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        data-testid="appt-book-token-add"
+                        disabled={bookingInFlight || dupOpenWithDoctor}
+                        onClick={() => bookAppointment("")}
+                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {tokenExactLabel
+                          ? `Book (assign token ${tokenExactLabel})`
+                          : tokenSeriesHint
+                            ? `Book (assign token — ${bookDoctor?.tokenPrefix} series)`
+                            : "Book (assign token)"}
+                      </button>
+                      {dupOpenWithDoctor && (
+                        <p
+                          data-testid="appt-book-duplicate-note"
+                          className="flex-1 rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
+                        >
+                          This patient already has an open appointment with this
+                          doctor on this date. Complete or cancel it before
+                          booking another for the same day. (A different doctor,
+                          or a different day, is allowed.)
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
@@ -3410,13 +3604,23 @@ export default function AppointmentsPage() {
                       ? "Pick a start slot (will repeat):"
                       : "Available Slots:"}
                   </p>
+                  {dupOpenWithDoctor && (
+                    <p className="mb-2 rounded-lg bg-amber-100 px-3 py-2 text-sm font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                      This patient already has an open appointment with this
+                      doctor on this date. Complete or cancel it before booking
+                      another for the same day. (A different doctor, or a
+                      different day, is allowed.)
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     {slotsWithPast.map((slot) => {
                       // Issue #34: a slot that sits before the current wall
                       // clock must be both visually and functionally dead,
                       // regardless of whether the backend also flagged it
-                      // via `isAvailable`.
-                      const bookable = slot.isAvailable && !slot.isPast;
+                      // via `isAvailable`. Also dead when the patient already
+                      // has an open appointment with this doctor (dupOpenWithDoctor).
+                      const bookable =
+                        slot.isAvailable && !slot.isPast && !dupOpenWithDoctor;
                       const title = slot.isPast
                         ? t(
                             "dashboard.appointments.slotInPast",

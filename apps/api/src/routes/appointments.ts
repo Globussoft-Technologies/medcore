@@ -345,6 +345,28 @@ router.post(
       // default tenant) and never surface for the doctor's real tenant.
       const appointmentTenantId = doctor.tenantId ?? null;
       const mode = doctor.appointmentMode;
+      const dupDayStart = new Date(dateObj);
+      dupDayStart.setUTCHours(0, 0, 0, 0);
+      const dupDayEnd = new Date(dupDayStart);
+      dupDayEnd.setUTCDate(dupDayEnd.getUTCDate() + 1);
+      const openDuplicate = await prisma.appointment.findFirst({
+        where: {
+          patientId,
+          doctorId,
+          status: { in: ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"] },
+          date: { gte: dupDayStart, lt: dupDayEnd },
+        },
+        select: { id: true },
+      });
+      if (openDuplicate) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error:
+            "This patient already has an open appointment with this doctor on this date. Complete or cancel it before booking another for the same day.",
+        });
+        return;
+      }
 
       if (mode === "SLOT" && !slotId) {
         res.status(400).json({
@@ -601,6 +623,32 @@ router.post(
       // above for why (platform/super-admin callers have no req.tenantId, so
       // the scoping extension can't auto-inject it).
       const walkInTenantId = doctorRow?.tenantId ?? null;
+
+      // Duplicate guard (same rule as /book), scoped to TODAY — a walk-in is
+      // always booked for the current day, so block only a second OPEN
+      // appointment for this patient + doctor ON TODAY. A prior open
+      // appointment on a DIFFERENT day (e.g. tomorrow) does not block a
+      // walk-in today.
+      const walkInDayEnd = new Date(today);
+      walkInDayEnd.setDate(walkInDayEnd.getDate() + 1);
+      const openWalkInDup = await prisma.appointment.findFirst({
+        where: {
+          patientId,
+          doctorId,
+          status: { in: ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"] },
+          date: { gte: today, lt: walkInDayEnd },
+        },
+        select: { id: true },
+      });
+      if (openWalkInDup) {
+        res.status(409).json({
+          success: false,
+          data: null,
+          error:
+            "This patient already has an open appointment with this doctor today. Complete or cancel it before adding another for today.",
+        });
+        return;
+      }
 
       let tokenNumber: number | null = null;
       let arrivalSeq: number | null = null;
@@ -1504,7 +1552,7 @@ router.post(
   validate(recurringAppointmentSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, doctorId, startDate, slotStart, frequency, occurrences, notes } =
+      const { patientId, doctorId, startDate, slotStart, frequency, occurrences, notes, dates: explicitDates } =
         req.body as {
           patientId: string;
           doctorId: string;
@@ -1513,6 +1561,7 @@ router.post(
           frequency: "DAILY" | "WEEKLY" | "MONTHLY";
           occurrences: number;
           notes?: string;
+          dates?: string[];
         };
 
       // A11 partial-revert (2026-05-17): IST-midnight rebase produced
@@ -1521,19 +1570,64 @@ router.post(
       // to pre-A11 setHours(0,0,0,0) which matches existing tests +
       // the conventional input shape from the recurring-series UI.
       // Cross-tz drift class documented for follow-up.
+      // Load the doctor's tenant + weekly working days up front. The weekly
+      // schedule (DoctorSchedule.dayOfWeek, 0=Sun..6=Sat) lets us SKIP days the
+      // doctor doesn't work when expanding the series: the patient still gets
+      // `occurrences` visits, but off-days are skipped and the next working day
+      // is taken instead. If the doctor has no schedule rows we don't skip
+      // (unknown availability → keep the raw cadence).
+      const recurDoctor = await prisma.doctor.findUnique({
+        where: { id: doctorId },
+        select: { tenantId: true, schedules: { select: { dayOfWeek: true } } },
+      });
+      const recurTenantId = recurDoctor?.tenantId ?? null;
+      const workDays = recurDoctor?.schedules?.length
+        ? new Set(recurDoctor.schedules.map((s) => s.dayOfWeek))
+        : null;
+      const isWorkDay = (d: Date) => !workDays || workDays.has(d.getDay());
+
       const dates: Date[] = [];
       const base = new Date(startDate);
       base.setHours(0, 0, 0, 0);
-      for (let i = 0; i < occurrences; i++) {
-        const d = new Date(base);
-        if (frequency === "DAILY") {
-          d.setDate(base.getDate() + i);
-        } else if (frequency === "WEEKLY") {
-          d.setDate(base.getDate() + i * 7);
-        } else {
-          d.setMonth(base.getMonth() + i);
+
+      // When the UI sent explicit (possibly user-edited) dates, book exactly
+      // those — the receptionist has already chosen each visit day, so we
+      // honour them verbatim and skip the frequency/off-day expansion.
+      if (explicitDates && explicitDates.length > 0) {
+        for (const ds of explicitDates) {
+          const d = new Date(ds);
+          d.setHours(0, 0, 0, 0);
+          if (!Number.isNaN(d.getTime())) dates.push(d);
         }
-        dates.push(d);
+      }
+
+      const SAFETY = occurrences * 10 + 400; // bound the skip search
+      if (dates.length > 0) {
+        // Explicit dates already collected above — skip the computed expansion.
+      } else if (frequency === "DAILY") {
+        // Take consecutive WORKING days, skipping off-days, until we have
+        // `occurrences` of them.
+        const cur = new Date(base);
+        let iters = 0;
+        while (dates.length < occurrences && iters < SAFETY) {
+          if (isWorkDay(cur)) dates.push(new Date(cur));
+          cur.setDate(cur.getDate() + 1);
+          iters++;
+        }
+      } else {
+        // WEEKLY / MONTHLY: step by the cadence; if the target lands on an
+        // off-day, roll forward (bounded to a week) to the next working day.
+        for (let i = 0; dates.length < occurrences && i < SAFETY; i++) {
+          const d = new Date(base);
+          if (frequency === "WEEKLY") d.setDate(base.getDate() + i * 7);
+          else d.setMonth(base.getMonth() + i);
+          let roll = 0;
+          while (!isWorkDay(d) && roll < 7) {
+            d.setDate(d.getDate() + 1);
+            roll++;
+          }
+          if (isWorkDay(d)) dates.push(new Date(d));
+        }
       }
 
       // Check that none of the slots conflict
@@ -1558,14 +1652,7 @@ router.post(
         return;
       }
 
-      // Pin the doctor's tenant explicitly on every occurrence — a platform/
-      // super-admin caller has no req.tenantId, so the scoping extension
-      // can't auto-inject it (see the SCHEDULED-booking route above).
-      const recurDoctor = await prisma.doctor.findUnique({
-        where: { id: doctorId },
-        select: { tenantId: true },
-      });
-      const recurTenantId = recurDoctor?.tenantId ?? null;
+      // (recurTenantId + working-day skipping were resolved above.)
 
       // Single transaction — compute token numbers sequentially
       const created = await prisma.$transaction(async (tx) => {

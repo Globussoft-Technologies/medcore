@@ -624,10 +624,18 @@ app-code, unless noted.
 
 ### 1. AI provider request timeout (app-code — shipped)
 `apps/api/src/services/ai/model-router.ts` now builds the OpenAI-compatible
-clients with an explicit `timeout` (default **45s**, env `AI_REQUEST_TIMEOUT_MS`)
+clients with an explicit `timeout` (default **100s**, env `AI_REQUEST_TIMEOUT_MS`)
 and `maxRetries: 0` (the single retry policy lives in `withRetry` in
 `sarvam.ts`). Previously the SDK default (10-minute timeout, 2 internal retries)
 let a slow provider call hang past the proxy timeout → the browser saw 502/504.
+100s is generous enough for a slow production SOAP generation (reasoning model +
+long transcript) to finish. IMPORTANT: `withRetry` does NOT re-attempt on a
+timeout (a timeout already spent the 100s budget; retrying would stack past the
+proxy ceiling) — it degrades to 503. Only FAST failures (connection reset / 429
+/ 5xx) are retried, so a single AI call's wall-time is bounded to ~100s. NOTE:
+Cloudflare's hard cap is ~100s, so a 100s budget sits right AT that edge — if
+you front prod with a Cloudflare tunnel, drop `AI_REQUEST_TIMEOUT_MS` to ~90000;
+behind Nginx (no such cap) 100s is fine.
 
 ### 2. Nginx must out-wait the AI call
 The reverse proxy read-timeout MUST exceed `AI_REQUEST_TIMEOUT_MS`, or nginx
@@ -637,7 +645,7 @@ proxies to the API (`:4100`):
 ```nginx
 location /api/ {
     proxy_pass http://127.0.0.1:4100;
-    proxy_read_timeout 120s;   # > AI_REQUEST_TIMEOUT_MS (45s) + retries headroom
+    proxy_read_timeout 120s;   # > AI_REQUEST_TIMEOUT_MS (100s) + headroom
     proxy_send_timeout 120s;
     client_max_body_size 12m;  # /ai/transcribe accepts up to 10mb audio chunks
     proxy_set_header Host $host;
@@ -661,7 +669,7 @@ which is why it "works locally."
 | `AI_PROVIDER` | `sarvam` or `openai` — selects the LLM + ASR pairing |
 | `SARVAM_API_KEY`, `SARVAM_MODEL` | Sarvam creds (when `AI_PROVIDER=sarvam`) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` | OpenAI-compat creds |
-| `AI_REQUEST_TIMEOUT_MS` | Per-call AI timeout (default `45000`) |
+| `AI_REQUEST_TIMEOUT_MS` | Per-call AI timeout in ms (default `100000` = 100s; timeouts are not retried) |
 | `CORS_ORIGIN` | MUST include the live web origin (comma-separated ok) |
 
 A missing/placeholder key surfaces as `soapError` in the transcript response

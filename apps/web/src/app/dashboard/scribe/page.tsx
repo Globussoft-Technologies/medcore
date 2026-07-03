@@ -1167,6 +1167,18 @@ export default function ScribePage() {
         return;
       }
       const isCompleted = res?.data?.completed === true;
+      // Are we RE-ENTERING the session that's already loaded in this component?
+      // startScribe fires more than once per session in practice — the
+      // once-per-mount auto-resume, the dead-session recovery in
+      // flushTranscriptQueue, and (in dev) React's double-invoke all call it.
+      // The state-reset block below wipes soapDraft/editedSOAP to null, so a
+      // re-entrant call that lands AFTER a live regen has arrived would blank
+      // the freshly-drafted SOAP → `soapHasContent` flips false → the panel
+      // drops back to the "Listening…" spinner and the doctor never sees the
+      // note. Only reset when we're switching to a genuinely DIFFERENT session;
+      // on a same-session resume we keep the live draft and let the GET /soap
+      // below reconcile it with the server copy.
+      const resuming = !!sid && sid === sessionId;
       setIsCompletedSession(isCompleted);
       setIsEditMode(false);
       setSessionId(sid);
@@ -1179,11 +1191,13 @@ export default function ScribePage() {
       } catch {
         /* sessionStorage unavailable (private mode) — resume just won't fire */
       }
-      setTranscriptEntries([]);
-      setTranscriptLength(0);
-      setSoapDraft(null);
-      setEditedSOAP(null);
-      setEditLog([]);
+      if (!resuming) {
+        setTranscriptEntries([]);
+        setTranscriptLength(0);
+        setSoapDraft(null);
+        setEditedSOAP(null);
+        setEditLog([]);
+      }
       setPatientPreferredLanguage(
         res?.data?.patientContext?.preferredLanguage ?? null
       );
@@ -1193,9 +1207,21 @@ export default function ScribePage() {
         const soapRes = await api.get<any>(`/ai/scribe/${sid}/soap`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (soapRes?.data?.soapDraft) {
-          setSoapDraft(soapRes.data.soapDraft);
-          setEditedSOAP(soapRes.data.soapDraft);
+        const serverDraft = soapRes?.data?.soapDraft;
+        // On a same-session resume, don't let an empty/placeholder server draft
+        // (e.g. the GET landing before a regen has persisted) overwrite a live
+        // draft that already has content. Adopt the server copy only when it's
+        // non-empty OR we have nothing yet.
+        const serverHasContent =
+          !!serverDraft &&
+          (String(serverDraft?.subjective?.chiefComplaint ?? "").trim().toLowerCase() !==
+            "no clinical complaint stated yet" &&
+            String(serverDraft?.subjective?.chiefComplaint ?? "").trim() !== "") ||
+          (Array.isArray(serverDraft?.plan?.medications) &&
+            serverDraft.plan.medications.length > 0);
+        if (serverDraft && (!resuming || serverHasContent || !soapDraft)) {
+          setSoapDraft(serverDraft);
+          setEditedSOAP(serverDraft);
         }
         if (Array.isArray(soapRes?.data?.transcript) && soapRes.data.transcript.length > 0) {
           setTranscriptEntries(soapRes.data.transcript);
@@ -1256,13 +1282,23 @@ export default function ScribePage() {
             { headers: { Authorization: `Bearer ${token}` } },
           );
           // eslint-disable-next-line no-console
-          console.log(
-            `[SCRIBE-DBG] /transcript ✓ ${Date.now() - _t0}ms sent=${batch.length}`,
-            res?.data?._debug ?? {
-              soapDraftUpdated: res?.data?.soapDraftUpdated,
-              soapError: res?.data?.soapError,
-            },
-          );
+          {
+            const d = res?.data?._debug ?? {};
+            const sd = res?.data?.soapDraft;
+            const cc = String(sd?.subjective?.chiefComplaint ?? "").trim();
+            const medCount = Array.isArray(sd?.plan?.medications) ? sd.plan.medications.length : 0;
+            // Print the decisive fields INLINE (not behind a collapsed Object) so
+            // "is the SOAP actually populated?" is answerable at a glance:
+            //   soapParsed=true soapError=null hasCC=true medCount=1  → good draft, UI should render.
+            //   soapParsed=false / soapError=… / hasCC=false medCount=0 → server returned nothing usable.
+            console.log(
+              `[SCRIBE-DBG] /transcript ✓ ${Date.now() - _t0}ms sent=${batch.length} ` +
+                `soapParsed=${d.soapParsed} soapError=${d.soapError ?? "null"} ` +
+                `regen=${d.regenReason} soapGenMs=${d.soapGenMs ?? "n/a"} ` +
+                `hasCC=${cc !== "" && cc.toLowerCase() !== "no clinical complaint stated yet"} medCount=${medCount}`,
+              d,
+            );
+          }
           setTranscriptLength(res.data.transcriptLength);
           if (res.data.soapDraft) {
             setSoapDraft(res.data.soapDraft);

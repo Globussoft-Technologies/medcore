@@ -72,9 +72,28 @@ async function seedTwoUnpaidInvoices(
   api: import("@playwright/test").APIRequestContext,
   patientId: string,
 ): Promise<InvoiceCreateResponse[]> {
+  // The walk-in endpoint blocks a SECOND open appointment for the same
+  // patient + doctor + today (appointments.ts, added 2026-07-03: "This
+  // patient already has an open appointment with this doctor today").
+  // Since this helper needs TWO appointments for one patient on the same
+  // day, anchor each invoice to a DIFFERENT doctor so the guard doesn't
+  // fire. Resolve two distinct doctor IDs up front.
+  const docsRes = await api.get(`${API_BASE}/doctors`);
+  expect(docsRes.ok(), `list doctors: ${docsRes.status()}`).toBeTruthy();
+  const docsJson = await docsRes.json();
+  const docList: Array<{ id: string }> = docsJson.data ?? docsJson ?? [];
+  const doctorIds = docList.map((d) => d.id).filter(Boolean);
+  expect(
+    doctorIds.length,
+    "seedTwoUnpaidInvoices needs at least 2 seeded doctors",
+  ).toBeGreaterThanOrEqual(2);
+
   const created: InvoiceCreateResponse[] = [];
   for (let i = 0; i < 2; i++) {
-    const appt = await seedAppointment(api, { patientId });
+    const appt = await seedAppointment(api, {
+      patientId,
+      doctorId: doctorIds[i],
+    });
     const res = await api.post(`${API_BASE}/billing/invoices`, {
       data: {
         appointmentId: appt.id,

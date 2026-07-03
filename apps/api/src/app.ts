@@ -51,6 +51,7 @@ import { billingRouter, razorpayWebhookRouter } from "./routes/billing";
 import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescriptions";
 import { publicPatientRouter } from "./routes/public-patient";
 import { publicBookingRouter } from "./routes/public-booking";
+import { publicAbhaRouter } from "./routes/public-abha";
 import { queueRouter } from "./routes/queue";
 import { notificationRouter } from "./routes/notifications";
 import { auditRouter } from "./routes/audit";
@@ -370,6 +371,11 @@ export function buildApp() {
   // suggested doctors, then book (auto-registers the patient by phone + sends
   // a WhatsApp confirmation). Per-IP rate-limited inside the router.
   app.use("/api/v1/public/booking", publicBookingRouter);
+  // ABHA (ABDM M1 V3) Aadhaar flow for the pre-login booking surface —
+  // UNAUTHENTICATED. Aadhaar → OTP → create/verify ABHA → profile the
+  // booking form auto-populates. Per-IP rate-limited inside the router; the
+  // ABDM X-Token stays server-side. Reuses services/abdm/abha-enrolment.ts.
+  app.use("/api/v1/public/abha", publicAbhaRouter);
   // Pearl §8.4 gap row 221 — public status endpoint. UNAUTHENTICATED;
   // mounted alongside the other /public routes (and BEFORE any router
   // that calls `router.use(authenticate)`). External uptime monitors

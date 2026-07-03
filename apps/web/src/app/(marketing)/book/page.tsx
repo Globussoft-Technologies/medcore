@@ -580,6 +580,24 @@ export default function QuickBookPage() {
   const [dobYear, setDobYear] = useState("");
   const [email, setEmail] = useState("");
 
+  // ── ABHA (ABDM M1 V3) "Continue with Aadhaar" state ──────────────────
+  // Optional identity shortcut: the patient enters their Aadhaar, gets an
+  // OTP, and on verify we auto-populate the identity fields from their ABHA
+  // profile. Calls the PUBLIC endpoints with bare fetch (same convention as
+  // the rest of this page). The Aadhaar/OTP go straight to the API over
+  // HTTPS and are RSA-encrypted server-side — we never store them here.
+  const [abhaOpen, setAbhaOpen] = useState(false);
+  const [abhaStage, setAbhaStage] = useState<"aadhaar" | "otp">("aadhaar");
+  const [abhaAadhaar, setAbhaAadhaar] = useState("");
+  const [abhaOtp, setAbhaOtp] = useState("");
+  const [abhaMobile, setAbhaMobile] = useState("");
+  const [abhaTxnId, setAbhaTxnId] = useState("");
+  const [abhaBusy, setAbhaBusy] = useState(false);
+  const [abhaError, setAbhaError] = useState<string | null>(null);
+  // Set once a profile has been fetched — shows the linked-ABHA banner.
+  const [abhaNumber, setAbhaNumber] = useState<string | null>(null);
+  const [abhaAddress, setAbhaAddress] = useState<string | null>(null);
+
   // AI chat state. The conversation lives only in the browser; on "Find a
   // doctor" the user turns are concatenated into the symptom text.
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -680,6 +698,127 @@ export default function QuickBookPage() {
       );
     } else {
       setDob("");
+    }
+  }
+
+  // ── ABHA: apply a fetched profile onto the identity fields ───────────
+  function applyAbhaProfile(profile: {
+    abhaNumber?: string | null;
+    abhaAddress?: string | null;
+    name?: string | null;
+    gender?: string | null;
+    dateOfBirth?: string | null;
+    mobile?: string | null;
+    email?: string | null;
+  }) {
+    if (profile.name) setName(profile.name);
+    if (profile.mobile) {
+      // Keep the last 10 digits as the WhatsApp number.
+      const digits = profile.mobile.replace(/\D/g, "");
+      if (digits.length >= 10) setPhone(digits.slice(-10));
+    }
+    if (profile.gender) {
+      const g = profile.gender.trim().toUpperCase();
+      setGender(
+        g.startsWith("M") ? "MALE" : g.startsWith("F") ? "FEMALE" : "OTHER",
+      );
+    }
+    if (profile.email) setEmail(profile.email);
+    // DOB — accept YYYY-MM-DD, DD-MM-YYYY, or a bare year.
+    if (profile.dateOfBirth) {
+      const raw = profile.dateOfBirth.trim();
+      let y = "";
+      let m = "";
+      let d = "";
+      const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      const dmy = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+      if (iso) {
+        [, y, m, d] = iso;
+      } else if (dmy) {
+        [, d, m, y] = dmy;
+      } else if (/^\d{4}$/.test(raw)) {
+        y = raw;
+      }
+      if (y) setDobYear(y);
+      if (m) setDobMonth(String(Number(m)));
+      if (d) setDobDay(String(Number(d)));
+      if (y && m && d) {
+        setDob(
+          `${y}-${String(Number(m)).padStart(2, "0")}-${String(Number(d)).padStart(2, "0")}`,
+        );
+      }
+    }
+    setAbhaNumber(profile.abhaNumber ?? null);
+    setAbhaAddress(profile.abhaAddress ?? null);
+  }
+
+  // ── ABHA step 1: request the Aadhaar OTP ─────────────────────────────
+  async function requestAbhaOtp() {
+    setAbhaError(null);
+    const digits = abhaAadhaar.replace(/\D/g, "");
+    if (!/^\d{12}$/.test(digits)) {
+      setAbhaError("Enter a valid 12-digit Aadhaar number.");
+      return;
+    }
+    setAbhaBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/public/abha/request-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ aadhaar: digits }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.data?.txnId) {
+        throw new Error(json?.error || "Could not send the Aadhaar OTP. Try again.");
+      }
+      setAbhaTxnId(json.data.txnId);
+      setAbhaStage("otp");
+      // Prefill the OTP-stage mobile from the WhatsApp number if entered.
+      const wa = phone.replace(/\D/g, "");
+      if (wa.length >= 10) setAbhaMobile(wa.slice(-10));
+    } catch (err) {
+      setAbhaError(err instanceof Error ? err.message : "Could not send the OTP.");
+    } finally {
+      setAbhaBusy(false);
+    }
+  }
+
+  // ── ABHA step 2: verify OTP → create/fetch ABHA → auto-populate ──────
+  async function verifyAbhaOtp() {
+    setAbhaError(null);
+    if (!/^\d{4,8}$/.test(abhaOtp.trim())) {
+      setAbhaError("Enter the OTP sent to your Aadhaar-linked mobile.");
+      return;
+    }
+    const mobile = abhaMobile.replace(/\D/g, "");
+    if (!/^\d{10}$/.test(mobile)) {
+      setAbhaError("Enter the 10-digit mobile linked to this ABHA/Aadhaar.");
+      return;
+    }
+    setAbhaBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/public/abha/verify-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          txnId: abhaTxnId,
+          otp: abhaOtp.trim(),
+          mobile,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.data?.profile) {
+        throw new Error(json?.error || "OTP verification failed. Try again.");
+      }
+      applyAbhaProfile(json.data.profile);
+      setAbhaOpen(false); // collapse to the linked-ABHA banner
+      setAbhaStage("aadhaar");
+      setAbhaAadhaar("");
+      setAbhaOtp("");
+    } catch (err) {
+      setAbhaError(err instanceof Error ? err.message : "Verification failed.");
+    } finally {
+      setAbhaBusy(false);
     }
   }
 
@@ -1250,6 +1389,184 @@ export default function QuickBookPage() {
             {/* ── Step 1: identity ── */}
             {step === "identity" && (
               <div className="space-y-5">
+                {/* ── Continue with Aadhaar (ABHA) ── */}
+                {abhaNumber ? (
+                  // Linked — collapse to a success banner.
+                  <div
+                    data-testid="quick-book-abha-linked"
+                    className="flex items-start justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 mc-anim-pop dark:border-emerald-900/50 dark:bg-emerald-950/40"
+                  >
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      <div>
+                        <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                          ABHA linked — details auto-filled
+                        </p>
+                        <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                          {abhaAddress ?? abhaNumber}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid="quick-book-abha-clear"
+                      onClick={() => {
+                        setAbhaNumber(null);
+                        setAbhaAddress(null);
+                      }}
+                      className="text-xs font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-900 dark:text-emerald-300"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : abhaOpen ? (
+                  <div
+                    data-testid="quick-book-abha-panel"
+                    className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 mc-anim-pop dark:border-blue-900/50 dark:bg-blue-950/30"
+                  >
+                    {abhaError && (
+                      <p
+                        role="alert"
+                        data-testid="quick-book-abha-error"
+                        className="mb-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2.5 text-xs text-red-800 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+                      >
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {abhaError}
+                      </p>
+                    )}
+                    {abhaStage === "aadhaar" ? (
+                      <>
+                        <label
+                          htmlFor="qb-abha-aadhaar"
+                          className="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200"
+                        >
+                          Aadhaar number
+                        </label>
+                        <input
+                          id="qb-abha-aadhaar"
+                          data-testid="quick-book-abha-aadhaar"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          maxLength={14}
+                          value={abhaAadhaar}
+                          onChange={(e) => setAbhaAadhaar(e.target.value)}
+                          placeholder="12-digit Aadhaar"
+                          className={inputCls}
+                        />
+                        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                          We'll send an OTP to your Aadhaar-linked mobile. Your
+                          Aadhaar is encrypted and never stored.
+                        </p>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            data-testid="quick-book-abha-send-otp"
+                            disabled={abhaBusy}
+                            onClick={() => void requestAbhaOtp()}
+                            className={`${primaryBtn} flex-1`}
+                          >
+                            <span className="relative z-10 inline-flex items-center gap-2">
+                              {abhaBusy ? "Sending…" : "Send OTP"}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAbhaOpen(false);
+                              setAbhaError(null);
+                            }}
+                            className={ghostBtn}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <label
+                          htmlFor="qb-abha-otp"
+                          className="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200"
+                        >
+                          Enter OTP
+                        </label>
+                        <input
+                          id="qb-abha-otp"
+                          data-testid="quick-book-abha-otp"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          maxLength={8}
+                          value={abhaOtp}
+                          onChange={(e) => setAbhaOtp(e.target.value)}
+                          placeholder="OTP"
+                          className={inputCls}
+                        />
+                        <label
+                          htmlFor="qb-abha-mobile"
+                          className="mb-1.5 mt-3 block text-sm font-medium text-gray-800 dark:text-gray-200"
+                        >
+                          Mobile linked to ABHA
+                        </label>
+                        <input
+                          id="qb-abha-mobile"
+                          data-testid="quick-book-abha-mobile"
+                          type="tel"
+                          inputMode="tel"
+                          maxLength={10}
+                          value={abhaMobile}
+                          onChange={(e) => setAbhaMobile(e.target.value)}
+                          placeholder="10-digit mobile"
+                          className={inputCls}
+                        />
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            data-testid="quick-book-abha-verify"
+                            disabled={abhaBusy}
+                            onClick={() => void verifyAbhaOtp()}
+                            className={`${primaryBtn} flex-1`}
+                          >
+                            <span className="relative z-10 inline-flex items-center gap-2">
+                              {abhaBusy ? "Verifying…" : "Verify & auto-fill"}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAbhaStage("aadhaar");
+                              setAbhaError(null);
+                            }}
+                            className={ghostBtn}
+                          >
+                            Back
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mc-anim-slide-up">
+                    <button
+                      type="button"
+                      data-testid="quick-book-abha-start"
+                      onClick={() => {
+                        setAbhaOpen(true);
+                        setAbhaStage("aadhaar");
+                        setAbhaError(null);
+                      }}
+                      className={`${ghostBtn} w-full justify-center border-blue-300 text-blue-700 hover:border-blue-400 dark:border-blue-800 dark:text-blue-300`}
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      Continue with Aadhaar (ABHA)
+                    </button>
+                    <p className="mt-1.5 text-center text-xs text-gray-500 dark:text-gray-400">
+                      Auto-fill your details from your ABHA — or enter them
+                      manually below.
+                    </p>
+                  </div>
+                )}
+
                 <div className="mc-anim-slide-up mc-delay-1">
                   <label
                     htmlFor="qb-name"

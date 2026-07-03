@@ -140,3 +140,76 @@ export const recordsQuerySchema = z.object({
   hiType: z.string().trim().optional(),
 });
 export type RecordsQueryDto = z.infer<typeof recordsQuerySchema>;
+
+// ─── ABHA Milestone-1 (V3) enrolment + login by Aadhaar OTP ───────────
+//
+// These drive the Aadhaar-based ABHA CREATION (enrolment) and LOGIN flows
+// against the ABDM ABHA service host (ABDM_ABHA_BASE_URL, default
+// https://abhasbx.abdm.gov.in). The Aadhaar number and OTP arrive here as
+// PLAINTEXT over HTTPS and are RSA-OAEP encrypted server-side with the ABDM
+// public certificate before they ever leave the API — they are NEVER logged
+// or persisted. See apps/api/src/services/abdm/abha-enrolment.ts.
+const aadhaar = z
+  .string()
+  .trim()
+  .regex(/^\d{12}$/, "Aadhaar must be 12 digits");
+const otp = z
+  .string()
+  .trim()
+  .regex(/^\d{4,8}$/, "OTP must be 4-8 digits");
+const mobile10 = z
+  .string()
+  .trim()
+  .regex(/^\d{10}$/, "Mobile must be 10 digits");
+// Opaque server-issued handle that maps to the ABDM X-Token held server-side
+// (the real token is never sent to the browser).
+const abhaSessionId = z.string().trim().min(8).max(128);
+
+// Step 1 — request the Aadhaar OTP for a NEW ABHA enrolment.
+export const abhaEnrolRequestOtpSchema = z.object({
+  aadhaar,
+});
+export type AbhaEnrolRequestOtpDto = z.infer<typeof abhaEnrolRequestOtpSchema>;
+
+// Step 2 — verify the Aadhaar OTP and create / fetch the ABHA.
+export const abhaEnrolVerifyOtpSchema = z.object({
+  txnId: z.string().trim().min(1, "txnId is required"),
+  otp,
+  mobile: mobile10,
+});
+export type AbhaEnrolVerifyOtpDto = z.infer<typeof abhaEnrolVerifyOtpSchema>;
+
+// Step 3 (alt) — login to an EXISTING ABHA via Aadhaar OTP.
+export const abhaLoginRequestOtpSchema = z.object({
+  aadhaar,
+});
+export type AbhaLoginRequestOtpDto = z.infer<typeof abhaLoginRequestOtpSchema>;
+
+export const abhaLoginVerifyOtpSchema = z.object({
+  txnId: z.string().trim().min(1, "txnId is required"),
+  otp,
+});
+export type AbhaLoginVerifyOtpDto = z.infer<typeof abhaLoginVerifyOtpSchema>;
+
+// Profile re-fetch / ABHA-card download using the opaque session handle.
+export const abhaSessionQuerySchema = z.object({
+  sessionId: abhaSessionId,
+});
+export type AbhaSessionQueryDto = z.infer<typeof abhaSessionQuerySchema>;
+
+// Normalised ABHA profile returned to the client to auto-populate the
+// booking / registration form. NO tokens, NO raw Aadhaar.
+export interface AbhaProfileDto {
+  abhaNumber: string | null;
+  abhaAddress: string | null;
+  name: string | null;
+  gender: string | null;
+  dateOfBirth: string | null;
+  mobile: string | null;
+  email: string | null;
+  address: string | null;
+  pincode: string | null;
+  stateName: string | null;
+  districtName: string | null;
+  photoBase64: string | null;
+}

@@ -122,6 +122,11 @@ router.post(
       // callers, but right now they all collapse to "sarvam".
       const providers: ASRProvider[] = ["sarvam"];
 
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SCRIBE-DBG] transcribe recv bytes=${audioBuffer.length} lang=${language} diarize=${!!diarize} translate=${!!translate}`,
+      );
+
       try {
         const result = await callWithASRFallback(
           audioBuffer,
@@ -130,6 +135,11 @@ router.post(
             providers,
             feature: "asr-sarvam",
           }
+        );
+
+        // eslint-disable-next-line no-console
+        console.log(
+          `[SCRIBE-DBG] transcribe ok in ${Date.now() - startedAt}ms provider=${result.provider} transcriptChars=${result.transcript.length} segments=${result.segments?.length ?? 0}`,
         );
 
         safeAudit(req, "AI_TRANSCRIBE_INFERENCE", "ASRTranscript", undefined, {
@@ -153,6 +163,14 @@ router.post(
             segments: result.segments,
             provider: result.provider,
             language: result.language ?? language,
+            // [SCRIBE-DBG] surfaced to the browser console (frontend logs it).
+            _debug: {
+              provider: result.provider,
+              latencyMs: Date.now() - startedAt,
+              audioBytes: audioBuffer.length,
+              transcriptChars: result.transcript.length,
+              segments: result.segments?.length ?? 0,
+            },
           },
           error: null,
         });
@@ -164,6 +182,10 @@ router.post(
         // transient upstream failure (502).
         const status =
           /is not configured|not yet implemented/i.test(message) ? 500 : 502;
+        // eslint-disable-next-line no-console
+        console.error(
+          `[SCRIBE-DBG] transcribe FAILED after ${Date.now() - startedAt}ms status=${status} name=${(err as any)?.name} msg=${message}`,
+        );
         safeAudit(req, "AI_TRANSCRIBE_INFERENCE", "ASRTranscript", undefined, {
           promptBytes: audioBuffer.length,
           language,

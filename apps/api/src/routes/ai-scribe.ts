@@ -291,6 +291,10 @@ router.post(
       // server's AI_PROVIDER default in force.
       const llmProvider: "openai" | "sarvam" | undefined =
         asrEngine === "browser" ? "openai" : asrEngine === "sarvam" ? "sarvam" : undefined;
+      // eslint-disable-next-line no-console
+      console.log(
+        `[SCRIBE-DBG] /transcript recv session=${sessionId} newEntries=${Array.isArray(entries) ? entries.length : "n/a"} asrEngine=${asrEngine ?? "(none)"} llmProvider=${llmProvider ?? "(default)"} forceRegen=${!!forceRegen}`,
+      );
 
       const session = await prisma.aIScribeSession.findUnique({ where: { id: sessionId } });
       if (!session) {
@@ -343,6 +347,8 @@ router.post(
       // Surface a generation failure to the client (otherwise it's only in the
       // server log and the doctor just sees a blank, never-updating draft).
       let soapError: string | null = null;
+      // [SCRIBE-DBG] time the SOAP generation so the browser can see it.
+      let soapGenMs: number | null = null;
 
       // GAP-S8: Time-based SOAP flush. PRD §4.8 wants 30–60s freshness, not
       // per-utterance regeneration. Keep the updatedTranscript.length >= 3
@@ -378,6 +384,7 @@ router.post(
       );
 
       if (shouldRegen) {
+        const _genStart = Date.now();
         try {
           // Medication stability: pass the medicines already in the current
           // draft so the model PRESERVES them and only APPENDS new ones for
@@ -449,6 +456,7 @@ router.post(
           soapError = soapErr instanceof Error ? soapErr.message : String(soapErr);
           console.error("[ai-scribe] generateSOAPNote failed:", soapError);
         }
+        soapGenMs = Date.now() - _genStart;
 
         // Run drug safety checks whenever we have a fresh SOAP draft with medications
         const proposedMeds = (soapDraft as any)?.plan?.medications ?? [];
@@ -494,6 +502,31 @@ router.post(
           soapDraft,
           rxSafetyReport,
           soapError,
+          // [SCRIBE-DBG] pipeline diagnostics surfaced to the BROWSER console
+          // (the frontend logs `_debug`). Metadata only — no PHI. This is how
+          // "all logs show in browser" without SSHing for pm2 logs.
+          _debug: {
+            sessionId,
+            newEntries: Array.isArray(entries) ? entries.length : 0,
+            totalTranscript: updatedTranscript.length,
+            asrEngine: asrEngine ?? null,
+            llmProvider: llmProvider ?? "(server-default)",
+            shouldRegen,
+            regenReason: !shouldRegen
+              ? "throttled"
+              : forceRegen
+                ? "forceRegen"
+                : lastRegenAt == null
+                  ? "first-draft"
+                  : newEntriesSinceLastRegen >= 1
+                    ? "new-entries"
+                    : "time-elapsed",
+            soapGenMs,
+            soapParsed: !!soapDraft && !soapError,
+            soapError,
+            rxAlerts: rxSafetyReport?.alerts?.length ?? 0,
+            serverAt: new Date(now).toISOString(),
+          },
         },
         error: null,
       });

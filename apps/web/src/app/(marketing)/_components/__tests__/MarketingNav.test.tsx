@@ -48,6 +48,19 @@ vi.mock("lucide-react", () => ({
   Menu: (props: any) => <svg data-testid="icon-menu" {...props} />,
   X: (props: any) => <svg data-testid="icon-x" {...props} />,
 }));
+// HospitalQrScanner is a self-contained client component (camera + upload,
+// uses next/navigation's useRouter). It has its own test surface, so stub it
+// here to a button — otherwise its useRouter() throws "app router not mounted"
+// in this router-less render and it pulls in lucide icons this file doesn't mock.
+vi.mock("@/components/HospitalQrScanner", () => ({
+  // Stub as a NON-button element: the nav's own tests assert there's exactly
+  // one <button> (the mobile toggle), so the scanner stub must not add another.
+  HospitalQrScanner: ({ className }: { className?: string }) => (
+    <span data-testid="scan-hospital-qr" className={className}>
+      Scan Hospital QR
+    </span>
+  ),
+}));
 
 import { MarketingNav } from "../MarketingNav";
 

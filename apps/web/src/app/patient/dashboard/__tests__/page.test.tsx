@@ -23,6 +23,19 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+// The dashboard embeds the QR scanner (camera + upload). It uses
+// next/navigation's useRouter(), which throws "app router not mounted" in this
+// router-less jsdom render — stub it to a button. The scanner has its own test.
+vi.mock("@/components/HospitalQrScanner", () => ({
+  // Stub as a NON-button element so it doesn't trip the dashboard's
+  // 44px touch-target sweep over clickable <button>/<a> elements.
+  HospitalQrScanner: ({ className }: { className?: string }) => (
+    <span data-testid="scan-hospital-qr" className={className}>
+      Scan Hospital QR
+    </span>
+  ),
+}));
+
 import PatientDashboardPage from "../page";
 
 const HOUR = 60 * 60 * 1000;

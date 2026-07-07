@@ -30,6 +30,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { formatDoctorName } from "@/lib/format-doctor-name";
+import { HospitalQrScanner } from "@/components/HospitalQrScanner";
 import { isAppointmentDayPast } from "@/lib/appointments";
 
 interface AppointmentRow {
@@ -491,6 +492,20 @@ export default function PatientDashboardPage() {
           </div>
         </aside>
       ) : null}
+
+      {/* At-the-hospital shortcut: scan the front-desk QR to open this
+          hospital's kiosk (browse / book / self check-in). */}
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div>
+          <p className="text-sm font-semibold text-slate-900 dark:text-gray-100">
+            At the hospital?
+          </p>
+          <p className="text-xs text-slate-500 dark:text-gray-400">
+            Scan the front-desk QR to check in or book.
+          </p>
+        </div>
+        <HospitalQrScanner className="inline-flex h-11 min-w-[44px] items-center justify-center gap-2 rounded-md bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-700" />
+      </div>
 
       <section
         data-testid="patient-dashboard"

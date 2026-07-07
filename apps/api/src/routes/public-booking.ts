@@ -665,6 +665,108 @@ publicBookingRouter.post(
 // Body: { name, phone, doctorId, date, slotId, symptom? }
 // → auto-register patient (by phone) + book + WhatsApp confirm.
 // ════════════════════════════════════════════════════════
+// POST /public/booking/check-appointment — pre-submit duplicate check.
+// Given (name + phone + doctorId + date) resolved to the doctor's hospital,
+// tell the kiosk whether that patient ALREADY has an open appointment with
+// this doctor on this date — so the UI can show the existing booking instead
+// of creating a second one. Read-only, rate-limited, no rows written.
+publicBookingRouter.post(
+  "/check-appointment",
+  rateLimit(20, 60_000),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const name = typeof req.body?.name === "string" ? req.body.name : "";
+      const rawPhone = typeof req.body?.phone === "string" ? req.body.phone : "";
+      const doctorId = typeof req.body?.doctorId === "string" ? req.body.doctorId : "";
+      const date = typeof req.body?.date === "string" ? req.body.date : "";
+      if (!name.trim() || !rawPhone.trim() || !doctorId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "name, phone, doctorId and date (YYYY-MM-DD) are required",
+        });
+        return;
+      }
+      const phone = canonicalisePhone(rawPhone);
+      const cleanName = canonicaliseName(name);
+
+      const doctor = await prisma.doctor.findUnique({
+        where: { id: doctorId },
+        select: {
+          tenantId: true,
+          specialization: true,
+          tokenPrefix: true,
+          user: { select: { name: true } },
+        },
+      });
+      if (!doctor) {
+        res.status(404).json({ success: false, data: null, error: "Doctor not found" });
+        return;
+      }
+      const tenantId = doctor.tenantId ?? (await resolveTenant(req));
+
+      // Same (phone + name + tenant) match rule as /book's patient resolution.
+      const user = await prisma.user.findFirst({
+        where: {
+          phone,
+          role: Role.PATIENT,
+          name: { equals: cleanName, mode: "insensitive" },
+          ...(tenantId ? { tenantId } : {}),
+          patient: { is: {} },
+        },
+        select: { patient: { select: { id: true } } },
+      });
+      if (!user?.patient) {
+        // No matching patient → definitely not a duplicate → normal flow.
+        res.json({ success: true, data: { exists: false }, error: null });
+        return;
+      }
+
+      const dayStart = new Date(date);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+      const existing = await prisma.appointment.findFirst({
+        where: {
+          patientId: user.patient.id,
+          doctorId,
+          date: { gte: dayStart, lt: dayEnd },
+          status: { in: ["BOOKED", "CHECKED_IN", "IN_CONSULTATION"] },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (!existing) {
+        res.json({ success: true, data: { exists: false }, error: null });
+        return;
+      }
+      const displayToken =
+        existing.tokenNumber != null
+          ? `${doctor.tokenPrefix ?? ""}${existing.tokenNumber}`
+          : null;
+      res.json({
+        success: true,
+        data: {
+          exists: true,
+          appointment: {
+            appointmentId: existing.id,
+            date: existing.date.toISOString().slice(0, 10),
+            slotStart: existing.slotStart,
+            tokenNumber: existing.tokenNumber,
+            arrivalSeq: existing.arrivalSeq,
+            displayToken,
+            status: existing.status,
+            doctorName: doctor.user.name,
+            department: doctor.specialization,
+          },
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 publicBookingRouter.post(
   "/book",
   rateLimit(10, 60_000), // 10/min/IP — tighter; this writes rows

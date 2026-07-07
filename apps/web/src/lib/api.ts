@@ -233,7 +233,20 @@ async function request<T>(
     if (res.status === 401 && !skip401Redirect && typeof window !== "undefined") {
       handleAuthExpired();
     }
-    const err = new Error(data?.error || "Request failed") as Error & {
+    // Prefer the most specific human-readable message the server gave us:
+    //   1. Zod validation → `details[0].message` (e.g. "Enter a valid phone…")
+    //   2. friendly `message` field (some routes send one alongside `error`)
+    //   3. `error` string
+    //   4. generic fallback
+    // Without this, a validation failure surfaced only the generic
+    // "Validation failed" (or a blank box) instead of the field-level reason.
+    const detailMsg =
+      Array.isArray(data?.details) && data.details.length > 0
+        ? data.details.map((d: { message?: string }) => d?.message).filter(Boolean).join(" ")
+        : "";
+    const message =
+      detailMsg || data?.message || data?.error || "Request failed";
+    const err = new Error(message) as Error & {
       status?: number;
       payload?: unknown;
     };

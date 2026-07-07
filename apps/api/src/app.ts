@@ -52,6 +52,7 @@ import { prescriptionRouter, publicPrescriptionRouter } from "./routes/prescript
 import { publicPatientRouter } from "./routes/public-patient";
 import { publicBookingRouter } from "./routes/public-booking";
 import { publicAbhaRouter } from "./routes/public-abha";
+import { hospitalKioskRouter } from "./routes/hospital-kiosk";
 import { queueRouter } from "./routes/queue";
 import { notificationRouter } from "./routes/notifications";
 import { auditRouter } from "./routes/audit";
@@ -376,6 +377,7 @@ export function buildApp() {
   // booking form auto-populates. Per-IP rate-limited inside the router; the
   // ABDM X-Token stays server-side. Reuses services/abdm/abha-enrolment.ts.
   app.use("/api/v1/public/abha", publicAbhaRouter);
+  app.use("/api/v1/hospital-kiosk", hospitalKioskRouter);
   // Pearl §8.4 gap row 221 — public status endpoint. UNAUTHENTICATED;
   // mounted alongside the other /public routes (and BEFORE any router
   // that calls `router.use(authenticate)`). External uptime monitors

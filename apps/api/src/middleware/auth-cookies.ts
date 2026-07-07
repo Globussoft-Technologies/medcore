@@ -34,6 +34,28 @@ export function newCsrfToken(): string {
 }
 
 /**
+ * Resolve the cookie `secure` + `sameSite` posture.
+ *
+ * Default (localhost dev): `sameSite: "lax"`, `secure` only in production —
+ * so http://localhost keeps working.
+ *
+ * Cross-site mode (`COOKIE_CROSS_SITE=true`): `sameSite: "none"` + `secure:
+ * true`. Required when the web app and the API are served from DIFFERENT
+ * origins over HTTPS (e.g. VS Code dev tunnels: `<id>-3000…` calling
+ * `<id>-4000…`), otherwise the browser refuses to send the auth cookies on
+ * the cross-site fetch and the user appears logged out. SameSite=None
+ * MUST be paired with Secure, so we force secure on too.
+ */
+function cookieSecurity(): {
+  secure: boolean;
+  sameSite: "lax" | "none";
+} {
+  const crossSite = process.env.COOKIE_CROSS_SITE === "true";
+  if (crossSite) return { secure: true, sameSite: "none" };
+  return { secure: process.env.NODE_ENV === "production", sameSite: "lax" };
+}
+
+/**
  * Set the three auth cookies on `res`. Call this immediately after
  * minting tokens in any of: login, register, refresh, 2fa-verify.
  *
@@ -45,11 +67,11 @@ export function setAuthCookies(
   tokens: { accessToken: string; refreshToken: string },
   refreshTtlSeconds: number = REFRESH_TTL_SECONDS_DEFAULT,
 ): { csrfToken: string } {
-  const isProd = process.env.NODE_ENV === "production";
+  const { secure, sameSite } = cookieSecurity();
   const base = {
     httpOnly: true,
-    secure: isProd,
-    sameSite: "lax" as const,
+    secure,
+    sameSite,
     path: "/",
   };
 
@@ -69,8 +91,8 @@ export function setAuthCookies(
   const csrfToken = newCsrfToken();
   res.cookie(COOKIE_CSRF, csrfToken, {
     httpOnly: false,
-    secure: isProd,
-    sameSite: "lax",
+    secure,
+    sameSite,
     path: "/",
     // Match access-token lifetime — refreshing a session rotates the CSRF
     // cookie too, so we never have a stale CSRF outliving its access pair.
@@ -88,10 +110,10 @@ export function setAuthCookies(
  * matrix here makes the clear reliable across browsers.
  */
 export function clearAuthCookies(res: Response): void {
-  const isProd = process.env.NODE_ENV === "production";
+  const { secure, sameSite } = cookieSecurity();
   const base = {
-    secure: isProd,
-    sameSite: "lax" as const,
+    secure,
+    sameSite,
     path: "/",
   };
   res.clearCookie(COOKIE_AT, { ...base, httpOnly: true });

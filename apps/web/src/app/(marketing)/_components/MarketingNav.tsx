@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { Container } from "./Container";
+import { HospitalQrScanner } from "@/components/HospitalQrScanner";
 import logoHorizontal from "../../assets/MedCore_Logo1_0001_Layer-3.png";
 import logoHorizontalDark from "../../assets/MedCore_Logo1_0003_Layer-6.png";
 
@@ -76,6 +77,8 @@ export function MarketingNav() {
           >
             Book appointment
           </Link>
+          {/* Scan / upload the hospital QR to open its kiosk (camera or photo). */}
+          <HospitalQrScanner className="inline-flex items-center gap-2 rounded-full border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-600 shadow-sm hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/40" />
         </div>
 
         <button
@@ -121,6 +124,10 @@ export function MarketingNav() {
             >
               Book appointment
             </Link>
+            {/* Scan / upload the hospital QR. */}
+            <div className="mt-2">
+              <HospitalQrScanner className="flex w-full items-center justify-center gap-2 rounded-full border border-blue-300 px-4 py-2 text-center text-base font-semibold text-blue-600 dark:border-blue-800 dark:text-blue-400" />
+            </div>
           </div>
         </div>
       )}

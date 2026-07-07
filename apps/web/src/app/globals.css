@@ -526,3 +526,38 @@ select {
     animation: none;
   }
 }
+
+/* Date inputs (.date-input): the browser's native calendar indicator renders
+   near-invisible on some platforms (dark glyph, or hidden entirely over the
+   dev tunnel), so we overlay our own lucide CalendarDays icon on the right and
+   stretch the native indicator across that spot — transparent but clickable —
+   so tapping the icon still opens the native picker. */
+input.date-input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 2.5rem;   /* matches the pr-10 icon gutter */
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0;      /* hide the native glyph; our lucide icon shows instead */
+  cursor: pointer;
+}
+input.date-input {
+  position: relative;
+}
+
+/* Browser autofill paints inputs with a grey/yellow background that overrides
+   our bg-white + text-slate-900, making filled fields look washed-out (e.g. the
+   kiosk booking form's name/email). Pin autofilled inputs back to white bg +
+   dark text via the inset-shadow trick (autofill bg can't be set directly). */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: #0f172a;               /* slate-900 */
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;  /* force white field bg */
+  box-shadow: 0 0 0 1000px #ffffff inset;
+  caret-color: #0f172a;
+}

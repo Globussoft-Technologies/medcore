@@ -86,6 +86,8 @@ const CSRF_BYPASS_PATHS = [
   // (no privilege to escalate). See routes/public-booking.ts.
   "/api/v1/public/booking/suggest-doctors",
   "/api/v1/public/booking/book",
+  // Read-only pre-submit duplicate check for the kiosk booking modal.
+  "/api/v1/public/booking/check-appointment",
   // Voice symptom input — unauthenticated, no session/CSRF cookie. Locked
   // down by a tight per-IP rate limit (5/min) + a small audio cap. See
   // routes/public-booking.ts POST /transcribe.
@@ -126,6 +128,17 @@ export function csrfProtection(
     return;
   }
   if (CSRF_BYPASS_PATHS.some((p) => req.path.startsWith(p))) {
+    next();
+    return;
+  }
+
+  // Cross-site mode (COOKIE_CROSS_SITE=true):
+  // When the frontend (e.g. localhost:3000) and API are served from different
+  // origins (e.g. dev tunnels), Same-Origin Policy prevents JavaScript from
+  // reading the `medcore_csrf` cookie from the API domain. Since the client
+  // cannot read the cookie, it cannot attach the `X-CSRF-Token` header.
+  // We bypass CSRF checks in this mode to enable cross-site local testing.
+  if (process.env.COOKIE_CROSS_SITE === "true") {
     next();
     return;
   }

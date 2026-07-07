@@ -212,5 +212,19 @@ describeIfDB("Auth cookies + CSRF (Issue #477)", () => {
         .send({ email: "a", password: "b" });
       expect(res.status).toBe(200);
     });
+
+    it("bypasses CSRF checking when COOKIE_CROSS_SITE environment variable is true", async () => {
+      const originalValue = process.env.COOKIE_CROSS_SITE;
+      process.env.COOKIE_CROSS_SITE = "true";
+      try {
+        const res = await request(csrfApp)
+          .post("/api/v1/probe")
+          .send({});
+        expect(res.status).toBe(200);
+        expect(res.body?.ok).toBe(true);
+      } finally {
+        process.env.COOKIE_CROSS_SITE = originalValue;
+      }
+    });
   });
 });

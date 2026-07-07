@@ -9,9 +9,28 @@
 // the plastic.
 
 import { Router, Request, Response, NextFunction } from "express";
+import QRCode from "qrcode";
 import { prisma } from "@medcore/db";
+import { siteBaseUrl } from "../lib/site-link";
 
 export const publicPatientRouter = Router();
+
+// Shared hospital-info lookup (name/address/phone) for public confirmation views.
+async function hospitalInfoForTenant(tenantId: string | null) {
+  const cfg = await prisma.systemConfig.findMany({
+    where: { key: { in: ["hospital_name", "hospital_address", "hospital_phone"] } },
+  });
+  const map: Record<string, string> = {};
+  cfg.forEach((r) => (map[r.key] = r.value));
+  const tenant = tenantId
+    ? await prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } })
+    : null;
+  return {
+    name: tenant?.name || map.hospital_name || "Hospital",
+    address: map.hospital_address || "",
+    phone: map.hospital_phone || "",
+  };
+}
 
 publicPatientRouter.get(
   "/verify/patient/:id",
@@ -66,6 +85,83 @@ publicPatientRouter.get(
       next(err);
     }
   }
+);
+
+// GET /api/v1/public/verify/appointment/:id — public, redacted appointment
+// confirmation reached via the Appointment QR the patient gets after booking.
+// Safe-by-construction: only the doctor/department/date/token/status +
+// hospital contact — no clinical data, no other-patient data, no PII beyond
+// the booking itself. Mirrors /verify/patient/:id.
+publicPatientRouter.get(
+  "/verify/appointment/:id",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const appt = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        include: {
+          doctor: {
+            include: { user: { select: { name: true } } },
+          },
+          patient: { include: { user: { select: { name: true } } } },
+        },
+      });
+      if (!appt) {
+        res.status(404).json({ ok: false, error: "Appointment not found" });
+        return;
+      }
+      const hospital = await hospitalInfoForTenant(appt.tenantId ?? null);
+      const displayToken =
+        appt.tokenNumber != null
+          ? `${appt.doctor.tokenPrefix ?? ""}${appt.tokenNumber}`
+          : null;
+      res.json({
+        ok: true,
+        appointmentId: appt.id,
+        status: appt.status,
+        date: appt.date.toISOString().slice(0, 10),
+        slotStart: appt.slotStart,
+        tokenNumber: appt.tokenNumber,
+        arrivalSeq: appt.arrivalSeq,
+        displayToken,
+        department: appt.doctor.specialization,
+        doctorName: appt.doctor.user.name,
+        patientName: appt.patient?.user.name ?? null,
+        hospital,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/public/appointments/:id/qr — the scannable Appointment QR shown
+// on the booking confirmation. Encodes the public verify URL above so a scan
+// (by the patient or front desk) pulls up the confirmation. No PHI in the QR
+// itself — just a URL. Reuses the qrcode lib already used for patient/Rx QRs.
+publicPatientRouter.get(
+  "/appointments/:id/qr",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const appt = await prisma.appointment.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!appt) {
+        res.status(404).json({ ok: false, error: "Appointment not found" });
+        return;
+      }
+      const url = `${siteBaseUrl(req)}/verify/appointment/${appt.id}`;
+      const qrDataUrl = await QRCode.toDataURL(url, {
+        type: "image/png",
+        errorCorrectionLevel: "M",
+        width: 320,
+        margin: 1,
+      });
+      res.json({ ok: true, url, qrDataUrl });
+    } catch (err) {
+      next(err);
+    }
+  },
 );
 
 // GET /api/v1/public/hospitals — list of active tenants for the public

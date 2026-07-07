@@ -29,6 +29,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { api } from "@/lib/api";
+import { HospitalQrScanner } from "@/components/HospitalQrScanner";
 
 interface MeResponse {
   success: boolean;
@@ -117,6 +118,11 @@ export default function PatientLandingPage() {
             >
               Create account
             </Link>
+          </div>
+          {/* Scan the hospital's QR to jump straight into its booking /
+              check-in kiosk — no account needed to browse. */}
+          <div className="mt-4 flex justify-center">
+            <HospitalQrScanner className="inline-flex h-12 items-center justify-center gap-2 rounded-full border border-blue-300 bg-white/70 px-7 text-base font-medium text-blue-700 shadow-sm transition hover:bg-white dark:border-blue-800 dark:bg-gray-800/70 dark:text-blue-300" />
           </div>
           <p className="mt-6 inline-flex items-center justify-center gap-1.5 text-xs text-gray-500 dark:text-gray-500">
             <Shield className="h-3.5 w-3.5 text-emerald-500" />

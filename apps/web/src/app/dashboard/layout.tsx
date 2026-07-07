@@ -97,6 +97,7 @@ import {
   Workflow,
   Globe,
   ShieldCheck,
+  QrCode,
   Radio,
   Languages,
   ScanLine,
@@ -177,6 +178,7 @@ const navByRole: Record<
     { href: "/dashboard/appointments", label: "Appointments", icon: Calendar },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
     { href: "/dashboard/queue", label: "Queue", icon: Monitor },
+    { href: "/dashboard/hospital-qr", label: "Hospital QR", icon: QrCode },
     { href: "/dashboard/wards", label: "Wards", icon: Hotel },
     { href: "/dashboard/admissions", label: "Admissions", icon: BedDouble },
     { href: "/dashboard/medicines", label: "Medicines", icon: Pill },
@@ -291,6 +293,7 @@ const navByRole: Record<
     { href: "/dashboard/walk-in", label: "Walk-in", icon: UserPlus },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
     { href: "/dashboard/queue", label: "Queue", icon: Monitor },
+    { href: "/dashboard/hospital-qr", label: "Hospital QR", icon: QrCode },
     { href: "/dashboard/wards", label: "Wards", icon: Hotel },
     { href: "/dashboard/admissions", label: "Admissions", icon: BedDouble },
     // Issue #839: Pharmacy + Controlled Register removed — both routes

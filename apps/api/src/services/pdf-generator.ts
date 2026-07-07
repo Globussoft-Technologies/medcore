@@ -748,13 +748,18 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
     balance > 0 ? "#dc2626" : "#16a34a");
   doc.y = ty + 8;
 
-  // Amount in words
-  doc.rect(40, doc.y, 515, 28).fill("#f1f5f9");
-  doc.fillColor("#475569").font("Helvetica-Bold").fontSize(9)
-    .text("AMOUNT IN WORDS", 48, doc.y - 24);
+  // Amount in words. Anchor everything to a single base Y and draw with
+  // POSITIVE offsets inside the box — the old code used negative offsets
+  // (doc.y - 24 / doc.y - 12) which put the label and the words ~12pt apart
+  // and overlapped them when the totals block ended at certain heights.
+  const wordsBoxY = doc.y;
+  const wordsBoxH = 36;
+  doc.rect(40, wordsBoxY, 515, wordsBoxH).fill("#f1f5f9");
+  doc.fillColor("#475569").font("Helvetica-Bold").fontSize(8)
+    .text("AMOUNT IN WORDS", 48, wordsBoxY + 6);
   doc.fillColor("#1e293b").font("Helvetica").fontSize(10)
-    .text(numberToWordsIndian(displayTotal), 48, doc.y - 12, { width: 500 });
-  doc.y = doc.y + 12;
+    .text(numberToWordsIndian(displayTotal), 48, wordsBoxY + 18, { width: 500 });
+  doc.y = wordsBoxY + wordsBoxH + 8;
 
   if (inv.payments.length > 0) {
     drawSectionTitle(doc, "Payment History");
@@ -784,8 +789,15 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
     .text("2. Payments are non-refundable except as per hospital policy.")
     .text("3. Subject to local jurisdiction.");
 
+  // Authorised-signatory line. Place it just below the Terms in the normal
+  // content flow (with a small gap) instead of a hard Y=800 — that fixed
+  // coordinate sat BELOW the A4 printable area (~770pt), so PDFKit pushed it
+  // onto a second, otherwise-empty page. Clamp to the printable bottom so it
+  // still sits near the foot of the page when the invoice is long.
+  const signatoryBottom = doc.page.height - doc.page.margins.bottom - 10;
+  const signatoryY = Math.min(doc.y + 24, signatoryBottom);
   doc.font("Helvetica").fontSize(7).fillColor("#94a3b8")
-    .text(`For ${h.name} - Authorised Signatory`, 40, 800, {
+    .text(`For ${h.name} - Authorised Signatory`, 40, signatoryY, {
       align: "right",
       width: 515,
     });

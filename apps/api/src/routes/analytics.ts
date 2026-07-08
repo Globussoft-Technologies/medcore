@@ -77,7 +77,21 @@ function parseRange(req: Request): { from: Date; to: Date } {
   const defaultTo = new Date(istMidnightUtc(1).getTime() - 1); // 23:59:59.999 IST today
 
   const from = fromStr ? new Date(fromStr) : defaultFrom;
-  const to = toStr ? new Date(toStr) : defaultTo;
+
+  // A date-ONLY `to` (e.g. "2026-07-07", no time component) parses to midnight
+  // UTC, which excludes everything that happened later that same day — so a
+  // report exported with `to=2026-07-07` silently dropped every payment made
+  // after 00:00 UTC on the 7th (the CSV came back header-only). Extend a
+  // date-only `to` to the END of that day. A full ISO timestamp (callers that
+  // already send `...T23:59:59.999Z`) is honoured verbatim.
+  let to: Date;
+  if (!toStr) {
+    to = defaultTo;
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(toStr.trim())) {
+    to = new Date(toStr.trim() + "T23:59:59.999Z");
+  } else {
+    to = new Date(toStr);
+  }
 
   return { from, to };
 }
@@ -661,6 +675,445 @@ router.get("/doctors", async (req: Request, res: Response, next: NextFunction) =
     next(err);
   }
 });
+
+// ─── GET /analytics/departments ────────────────────
+//
+// Department-wise operational report (admin only). A "department" is the
+// doctor's `specialization` — MedCore has no first-class Department entity, so
+// we roll up every doctor's appointments/revenue/patients under their
+// specialization (null/blank → "Unassigned"). Same date-range + revenue
+// definition as /analytics/doctors so the two never drift. Aggregating in JS
+// (not prisma.groupBy) because revenue lives on Payment rows two joins away and
+// must be date-windowed the same way the doctor report windows it.
+const DEPT_UNASSIGNED = "Unassigned";
+
+function normaliseDept(spec: string | null | undefined): string {
+  const s = (spec ?? "").trim();
+  return s.length > 0 ? s : DEPT_UNASSIGNED;
+}
+
+interface DeptRow {
+  department: string;
+  doctorCount: number;
+  appointmentCount: number;
+  completedCount: number;
+  patientCount: number;
+  revenue: number;
+  avgConsultMinutes: number;
+}
+
+async function computeDepartmentReport(from: Date, to: Date): Promise<DeptRow[]> {
+  const MAX_CONSULT_MINUTES_DEPT = 240; // align with /overview + /doctors cap
+  const doctors = await prisma.doctor.findMany({
+    include: {
+      appointments: {
+        where: { date: { gte: from, lte: to } },
+        include: { invoice: { include: { payments: true } } },
+      },
+    },
+  });
+
+  // dept -> accumulator
+  const acc = new Map<
+    string,
+    {
+      doctorCount: number;
+      appointmentCount: number;
+      completedCount: number;
+      patientIds: Set<string>;
+      revenue: number;
+      durationsMin: number[];
+    }
+  >();
+
+  for (const doc of doctors) {
+    const dept = normaliseDept(doc.specialization);
+    let bucket = acc.get(dept);
+    if (!bucket) {
+      bucket = {
+        doctorCount: 0,
+        appointmentCount: 0,
+        completedCount: 0,
+        patientIds: new Set<string>(),
+        revenue: 0,
+        durationsMin: [],
+      };
+      acc.set(dept, bucket);
+    }
+    bucket.doctorCount += 1;
+    for (const a of doc.appointments) {
+      bucket.appointmentCount += 1;
+      if (a.status === "COMPLETED") bucket.completedCount += 1;
+      bucket.patientIds.add(a.patientId);
+      if (a.consultationStartedAt && a.consultationEndedAt) {
+        const ms =
+          new Date(a.consultationEndedAt).getTime() -
+          new Date(a.consultationStartedAt).getTime();
+        if (Number.isFinite(ms) && ms > 0) {
+          bucket.durationsMin.push(Math.min(ms / 60000, MAX_CONSULT_MINUTES_DEPT));
+        }
+      }
+      if (a.invoice) {
+        for (const p of a.invoice.payments) {
+          if (p.paidAt >= from && p.paidAt <= to) bucket.revenue += p.amount;
+        }
+      }
+    }
+  }
+
+  // Also attribute PRESCRIPTION / pharmacy invoice revenue to the prescribing
+  // doctor's department. These invoices have `prescriptionId` set and
+  // `appointmentId` null, so the appointment walk above misses them entirely —
+  // pharmacy revenue would otherwise never show up in the department report
+  // even though the prescription carries a doctorId → department.
+  const doctorDept = new Map<string, string>();
+  for (const doc of doctors) doctorDept.set(doc.id, normaliseDept(doc.specialization));
+  const rxInvoices = await prisma.invoice.findMany({
+    where: { prescriptionId: { not: null }, payments: { some: { paidAt: { gte: from, lte: to } } } },
+    select: {
+      prescriptionId: true,
+      payments: { select: { amount: true, paidAt: true } },
+    },
+  });
+  if (rxInvoices.length > 0) {
+    const rxIds = rxInvoices
+      .map((i) => i.prescriptionId)
+      .filter((v): v is string => !!v);
+    const rxDoctors = await prisma.prescription.findMany({
+      where: { id: { in: rxIds } },
+      select: { id: true, doctorId: true },
+    });
+    const rxToDoctor = new Map(rxDoctors.map((r) => [r.id, r.doctorId]));
+    for (const inv of rxInvoices) {
+      const docId = inv.prescriptionId ? rxToDoctor.get(inv.prescriptionId) : undefined;
+      const dept = docId ? doctorDept.get(docId) : undefined;
+      if (!dept) continue; // prescription by a doctor not in our set — skip
+      const bucket = acc.get(dept);
+      if (!bucket) continue;
+      for (const p of inv.payments) {
+        if (p.paidAt >= from && p.paidAt <= to) bucket.revenue += p.amount;
+      }
+    }
+  }
+
+  const rows: DeptRow[] = Array.from(acc.entries()).map(([department, b]) => ({
+    department,
+    doctorCount: b.doctorCount,
+    appointmentCount: b.appointmentCount,
+    completedCount: b.completedCount,
+    patientCount: b.patientIds.size,
+    revenue: b.revenue,
+    avgConsultMinutes:
+      b.durationsMin.length > 0
+        ? Math.round(
+            b.durationsMin.reduce((sum, d) => sum + d, 0) / b.durationsMin.length
+          )
+        : 0,
+  }));
+
+  rows.sort((a, b) => b.appointmentCount - a.appointmentCount);
+  return rows;
+}
+
+router.get(
+  "/departments",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to } = parseRange(req);
+      const data = await computeDepartmentReport(from, to);
+      await auditLog(req, "ANALYTICS_DEPARTMENT_REPORT", "Analytics", undefined, {
+        from: from.toISOString(),
+        to: to.toISOString(),
+        departments: data.length,
+      });
+      res.json({ success: true, data, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  "/export/departments.csv",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to } = parseRange(req);
+      const rows = await computeDepartmentReport(from, to);
+      const csvRows = rows.map((r) => ({
+        department: r.department,
+        doctorCount: String(r.doctorCount),
+        appointmentCount: String(r.appointmentCount),
+        completedCount: String(r.completedCount),
+        patientCount: String(r.patientCount),
+        avgConsultMinutes: String(r.avgConsultMinutes),
+        revenue: r.revenue.toFixed(2),
+      }));
+      const csv = toCsv(csvRows, [
+        "department",
+        "doctorCount",
+        "appointmentCount",
+        "completedCount",
+        "patientCount",
+        "avgConsultMinutes",
+        "revenue",
+      ]);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="departments-${from.toISOString().split("T")[0]}-to-${to
+          .toISOString()
+          .split("T")[0]}.csv"`
+      );
+      res.send(csv);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── GET /analytics/departments/:department ────────
+//
+// Expanded, single-department report (admin only) powering the drill-down
+// detail page. A "department" is the doctor's `specialization`; we resolve the
+// set of doctorIds in that department once, then aggregate six dimensions over
+// the date range, all attributed via those doctorIds:
+//   • appointmentsByDay  — IST-day time series (count + completed)
+//   • statusBreakdown    — appointment status counts
+//   • revenueByDay       — IST-day payment sums
+//   • topDoctors         — the department's doctors ranked by appointment count
+//   • topMedicines       — most-prescribed medicines (PrescriptionItem.medicineName)
+//   • topLabTests        — most-ordered lab tests (LabOrderItem -> LabTest.name)
+//   • topDiagnoses       — most-frequent Consultation/Prescription diagnoses
+// Everything shares the same from/to window so the detail page's filter is
+// consistent across every card.
+
+// IST-day bucket key (YYYY-MM-DD in Asia/Kolkata) for time-series grouping.
+function istDayKey(d: Date): string {
+  // Shift to IST (+5:30) then take the UTC date parts of the shifted instant.
+  const ist = new Date(d.getTime() + 330 * 60_000);
+  return ist.toISOString().slice(0, 10);
+}
+
+// Build a zero-filled ordered list of IST-day keys spanning [from, to] so the
+// chart shows continuous days (no gaps) even when a day had no activity.
+function istDaySpan(from: Date, to: Date): string[] {
+  const days: string[] = [];
+  const start = new Date(istDayKey(from) + "T00:00:00.000Z");
+  const end = new Date(istDayKey(to) + "T00:00:00.000Z");
+  for (let t = start.getTime(); t <= end.getTime(); t += 86_400_000) {
+    days.push(new Date(t).toISOString().slice(0, 10));
+  }
+  // Guard against absurd spans (e.g. "all" over years) blowing up the payload —
+  // cap at 366 buckets; callers asking for more get the most recent 366 days.
+  return days.length > 366 ? days.slice(days.length - 366) : days;
+}
+
+function bumpTop(map: Map<string, number>, key: string, by = 1): void {
+  const k = key.trim();
+  if (!k) return;
+  map.set(k, (map.get(k) ?? 0) + by);
+}
+
+function topN(map: Map<string, number>, n: number): Array<{ name: string; count: number }> {
+  return Array.from(map.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, n);
+}
+
+router.get(
+  "/departments/:department",
+  authorize(Role.ADMIN),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { from, to } = parseRange(req);
+      const rawDept = decodeURIComponent(req.params.department || "").trim();
+      if (!rawDept) {
+        res.status(400).json({ success: false, data: null, error: "Department is required" });
+        return;
+      }
+
+      // Resolve the department's doctors. "Unassigned" == doctors with a null/
+      // blank specialization.
+      const isUnassigned = rawDept.toLowerCase() === DEPT_UNASSIGNED.toLowerCase();
+      const doctors = await prisma.doctor.findMany({
+        where: isUnassigned
+          ? { OR: [{ specialization: null }, { specialization: "" }] }
+          : { specialization: { equals: rawDept, mode: "insensitive" } },
+        include: { user: { select: { name: true } } },
+      });
+      const doctorIds = doctors.map((d) => d.id);
+
+      if (doctorIds.length === 0) {
+        res.json({
+          success: true,
+          data: {
+            department: rawDept,
+            doctorCount: 0,
+            appointmentsByDay: istDaySpan(from, to).map((day) => ({ day, count: 0, completed: 0 })),
+            statusBreakdown: {},
+            revenueByDay: istDaySpan(from, to).map((day) => ({ day, revenue: 0 })),
+            totals: { appointments: 0, completed: 0, patients: 0, revenue: 0 },
+            topDoctors: [],
+            topMedicines: [],
+            topLabTests: [],
+            topDiagnoses: [],
+          },
+          error: null,
+        });
+        return;
+      }
+
+      // Pull the four source datasets for these doctors within the window.
+      const [appointments, prescriptions, labOrders, consultations] = await Promise.all([
+        prisma.appointment.findMany({
+          where: { doctorId: { in: doctorIds }, date: { gte: from, lte: to } },
+          include: { invoice: { include: { payments: true } } },
+        }),
+        prisma.prescription.findMany({
+          where: { doctorId: { in: doctorIds }, createdAt: { gte: from, lte: to } },
+          select: { diagnosis: true, items: { select: { medicineName: true } } },
+        }),
+        prisma.labOrder.findMany({
+          where: { doctorId: { in: doctorIds }, orderedAt: { gte: from, lte: to } },
+          select: { items: { select: { test: { select: { name: true } } } } },
+        }),
+        prisma.consultation.findMany({
+          where: { doctorId: { in: doctorIds }, createdAt: { gte: from, lte: to } },
+          select: { assessment: true },
+        }),
+      ]);
+
+      // Appointments-by-day + status + revenue-by-day + per-doctor tallies.
+      const span = istDaySpan(from, to);
+      const daySet = new Set(span);
+      const apptByDay = new Map<string, { count: number; completed: number }>();
+      const revByDay = new Map<string, number>();
+      const statusBreakdown: Record<string, number> = {};
+      const perDoctorAppts = new Map<string, number>();
+      const patientIds = new Set<string>();
+      let totalAppts = 0;
+      let totalCompleted = 0;
+      let totalRevenue = 0;
+
+      for (const day of span) {
+        apptByDay.set(day, { count: 0, completed: 0 });
+        revByDay.set(day, 0);
+      }
+
+      for (const a of appointments) {
+        totalAppts += 1;
+        patientIds.add(a.patientId);
+        statusBreakdown[a.status] = (statusBreakdown[a.status] ?? 0) + 1;
+        perDoctorAppts.set(a.doctorId, (perDoctorAppts.get(a.doctorId) ?? 0) + 1);
+        const dk = istDayKey(new Date(a.date));
+        if (daySet.has(dk)) {
+          const b = apptByDay.get(dk)!;
+          b.count += 1;
+          if (a.status === "COMPLETED") b.completed += 1;
+        }
+        if (a.status === "COMPLETED") totalCompleted += 1;
+        if (a.invoice) {
+          for (const p of a.invoice.payments) {
+            if (p.paidAt >= from && p.paidAt <= to) {
+              totalRevenue += p.amount;
+              const pk = istDayKey(new Date(p.paidAt));
+              if (daySet.has(pk)) revByDay.set(pk, (revByDay.get(pk) ?? 0) + p.amount);
+            }
+          }
+        }
+      }
+
+      // Add prescription/pharmacy invoice revenue for THIS department's doctors
+      // (invoices with prescriptionId set + appointmentId null — missed by the
+      // appointment walk above). `Invoice.prescriptionId` is a scalar (no FK
+      // relation), so resolve this department's prescription ids first, then
+      // find their invoices.
+      const deptRxIds = (
+        await prisma.prescription.findMany({
+          where: { doctorId: { in: doctorIds } },
+          select: { id: true },
+        })
+      ).map((r) => r.id);
+      if (deptRxIds.length > 0) {
+        const rxInvoices = await prisma.invoice.findMany({
+          where: {
+            prescriptionId: { in: deptRxIds },
+            payments: { some: { paidAt: { gte: from, lte: to } } },
+          },
+          select: { payments: { select: { amount: true, paidAt: true } } },
+        });
+        for (const inv of rxInvoices) {
+          for (const p of inv.payments) {
+            if (p.paidAt >= from && p.paidAt <= to) {
+              totalRevenue += p.amount;
+              const pk = istDayKey(new Date(p.paidAt));
+              if (daySet.has(pk)) revByDay.set(pk, (revByDay.get(pk) ?? 0) + p.amount);
+            }
+          }
+        }
+      }
+
+      // Top medicines / lab tests / diagnoses.
+      const medicines = new Map<string, number>();
+      for (const rx of prescriptions) {
+        for (const it of rx.items) bumpTop(medicines, it.medicineName);
+      }
+      const labTests = new Map<string, number>();
+      for (const o of labOrders) {
+        for (const it of o.items) if (it.test?.name) bumpTop(labTests, it.test.name);
+      }
+      const diagnoses = new Map<string, number>();
+      for (const rx of prescriptions) if (rx.diagnosis) bumpTop(diagnoses, rx.diagnosis);
+      for (const c of consultations) if (c.assessment) bumpTop(diagnoses, c.assessment);
+
+      const topDoctors = doctors
+        .map((d) => ({
+          doctorId: d.id,
+          doctorName: d.user.name,
+          appointmentCount: perDoctorAppts.get(d.id) ?? 0,
+        }))
+        .sort((a, b) => b.appointmentCount - a.appointmentCount)
+        .slice(0, 10);
+
+      await auditLog(req, "ANALYTICS_DEPARTMENT_DETAIL", "Analytics", undefined, {
+        department: rawDept,
+        from: from.toISOString(),
+        to: to.toISOString(),
+      });
+
+      res.json({
+        success: true,
+        data: {
+          department: rawDept,
+          doctorCount: doctors.length,
+          appointmentsByDay: span.map((day) => ({
+            day,
+            count: apptByDay.get(day)!.count,
+            completed: apptByDay.get(day)!.completed,
+          })),
+          statusBreakdown,
+          revenueByDay: span.map((day) => ({ day, revenue: revByDay.get(day) ?? 0 })),
+          totals: {
+            appointments: totalAppts,
+            completed: totalCompleted,
+            patients: patientIds.size,
+            revenue: totalRevenue,
+          },
+          topDoctors,
+          topMedicines: topN(medicines, 10),
+          topLabTests: topN(labTests, 10),
+          topDiagnoses: topN(diagnoses, 10),
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ─── GET /analytics/top-diagnoses ──────────────────
 

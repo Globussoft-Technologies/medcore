@@ -1332,6 +1332,106 @@ abdmRouter.post(
   },
 );
 
+// POST /abha/enrol/link-self — bind an OTP-verified ABHA to the CALLER's own
+// Patient row. This is the patient self-service step the M1 verify routes were
+// missing: /abha/enrol/verify-otp and /abha/login/verify-otp create/authenticate
+// the ABHA and stash the X-Token server-side (returning an opaque sessionId),
+// but never persist it. Here a logged-in PATIENT posts that sessionId; we
+// re-fetch the profile via the stored X-Token (never trusting a client-sent
+// ABHA number), write abhaId + aadhaarMasked onto their Patient row, and record
+// a LINKED AbhaLink. Staff use the separate patientId-taking /abha/link.
+abdmRouter.post(
+  "/abha/enrol/link-self",
+  authorize(Role.PATIENT),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = abhaSessionQuerySchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "A valid sessionId is required",
+        });
+        return;
+      }
+      const patientId = await callerPatientId(req);
+      if (!patientId) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "Patient profile not found",
+        });
+        return;
+      }
+      const xToken = getAbhaXToken(parsed.data.sessionId);
+      if (!xToken) {
+        res.status(401).json({
+          success: false,
+          data: null,
+          error: "Your ABHA session has expired. Please verify the OTP again.",
+        });
+        return;
+      }
+      // Authoritative profile from the ABDM X-Token — never the request body.
+      const profile = await getPatientProfile(xToken);
+      const abhaAddress = profile.abhaAddress ?? null;
+      const abhaNumber = profile.abhaNumber ?? null;
+      if (!abhaAddress && !abhaNumber) {
+        res.status(502).json({
+          success: false,
+          data: null,
+          error: "ABDM did not return a valid ABHA for this session.",
+        });
+        return;
+      }
+
+      // Persist onto the patient's own record + record a LINKED AbhaLink.
+      await prisma.patient.update({
+        where: { id: patientId },
+        data: { abhaId: abhaNumber ?? abhaAddress },
+      });
+      if (abhaAddress) {
+        const existing = await prisma.abhaLink.findFirst({
+          where: { patientId, abhaAddress },
+          select: { id: true },
+        });
+        if (existing) {
+          await prisma.abhaLink.update({
+            where: { id: existing.id },
+            data: {
+              abhaNumber,
+              status: "LINKED",
+              linkedAt: new Date(),
+              failureReason: null,
+              revokedAt: null,
+            },
+          });
+        } else {
+          await prisma.abhaLink.create({
+            data: {
+              patientId,
+              abhaAddress,
+              abhaNumber,
+              status: "LINKED",
+              linkedAt: new Date(),
+              tenantId: req.tenantId ?? null,
+            },
+          });
+        }
+      }
+
+      await auditLog(req, "ABDM_ABHA_LINK_SELF", "AbhaLink", patientId, {
+        abhaNumber: abhaNumber ?? undefined,
+        abhaAddress: abhaAddress ?? undefined,
+      });
+
+      res.json({ success: true, data: { profile }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // GET /abha/enrol/profile?sessionId= — re-fetch the ABHA profile.
 abdmRouter.get(
   "/abha/enrol/profile",

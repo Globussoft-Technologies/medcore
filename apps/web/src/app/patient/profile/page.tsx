@@ -977,8 +977,9 @@ export default function PatientProfilePage() {
               Link ABHA (Aadhaar OTP)
             </Link>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              ABHA linking via Aadhaar OTP is coming soon. For now you can paste
-              an existing ABHA number to attach to your record.
+              Link your ABHA securely with an Aadhaar OTP — create a new ABHA or
+              connect an existing one. You can also paste an existing ABHA number
+              above to attach it to your record.
             </p>
           </div>
         </div>

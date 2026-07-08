@@ -533,7 +533,8 @@ describe("ReportsPage — Report History tab", () => {
     await waitFor(() => expect(screen.getByTestId("report-export-run1")).toBeInTheDocument());
     fireEvent.click(screen.getByTestId("report-export-run1"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(String(fetchMock.mock.calls[0][0])).toContain("/analytics/export/revenue.csv");
+    const [csvUrl] = fetchMock.mock.calls[0] as any[];
+    expect(String(csvUrl)).toContain("/analytics/export/revenue.csv");
     clickSpy.mockRestore();
   });
 

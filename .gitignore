@@ -60,3 +60,10 @@ AI_GAP_ANALYSIS.md
 env_bkp
 firebase.json
 apps/api/firebase.json
+
+# Local-only demo/mock seeding scripts — throwaway data fillers used to make
+# dashboards look populated during demos. Not part of the product; kept out of
+# the repo so they never get pushed.
+scripts/provision-demo-hospital.ts
+scripts/seed-sourav-mock-cleanup.ts
+scripts/seed-sourav-mock.ts

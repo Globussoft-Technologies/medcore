@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
+import { RankedBars } from "./_charts";
 
 const REPORT_TYPES = [
   { value: "DAILY_CENSUS", label: "Daily Census" },
@@ -74,6 +75,26 @@ interface ReportRun {
   error?: string | null;
 }
 
+interface DepartmentRow {
+  department: string;
+  doctorCount: number;
+  appointmentCount: number;
+  completedCount: number;
+  patientCount: number;
+  revenue: number;
+  avgConsultMinutes: number;
+}
+
+type QuickRange = "today" | "7d" | "1mo" | "1yr" | "all";
+
+const QUICK_RANGES: Array<{ key: QuickRange; label: string }> = [
+  { key: "today", label: "Today" },
+  { key: "7d", label: "7 days" },
+  { key: "1mo", label: "1 month" },
+  { key: "1yr", label: "1 year" },
+  { key: "all", label: "All" },
+];
+
 export default function ReportsPage() {
   // Issue #347 — wrap the body in an ErrorBoundary so a single render-time
   // TypeError can't take down the whole client. The inner body keeps its
@@ -91,7 +112,21 @@ function ReportsPageBody() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [report, setReport] = useState<DailyReport | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"daily" | "history">("daily");
+  const [tab, setTab] = useState<"daily" | "departments" | "history">("daily");
+
+  // Department-wise report (admin). Grouped by doctor specialization; date-range
+  // filterable (default last 30 days). Served by GET /analytics/departments.
+  const [deptRows, setDeptRows] = useState<DepartmentRow[]>([]);
+  const [deptLoading, setDeptLoading] = useState(false);
+  const [deptFrom, setDeptFrom] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split("T")[0];
+  });
+  const [deptTo, setDeptTo] = useState<string>(
+    () => new Date().toISOString().split("T")[0]
+  );
+  const [deptPreset, setDeptPreset] = useState<QuickRange | null>("1mo");
 
   // Report history
   const [runs, setRuns] = useState<ReportRun[]>([]);
@@ -185,13 +220,62 @@ function ReportsPageBody() {
     setRunsLoading(false);
   }, [typeFilter]);
 
+  const loadDepartments = useCallback(async () => {
+    if (deptFrom && deptTo && new Date(deptFrom) > new Date(deptTo)) {
+      toast.error("'From' date must be before 'To' date");
+      return;
+    }
+    setDeptLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      if (deptFrom) qs.set("from", new Date(deptFrom).toISOString());
+      if (deptTo) {
+        // Include the whole 'to' day (end-of-day) so same-day rows are counted.
+        const end = new Date(deptTo);
+        end.setHours(23, 59, 59, 999);
+        qs.set("to", end.toISOString());
+      }
+      const res = await api.get<{ data: DepartmentRow[] }>(
+        `/analytics/departments?${qs.toString()}`
+      );
+      setDeptRows(Array.isArray(res?.data) ? res.data : []);
+    } catch {
+      setDeptRows([]);
+    }
+    setDeptLoading(false);
+  }, [deptFrom, deptTo]);
+
+  // Quick-range presets. These set the From/To pickers (so the two work
+  // together — "both" mode), which re-triggers loadDepartments via its deps.
+  const applyQuickRange = useCallback((preset: QuickRange) => {
+    setDeptPreset(preset);
+    const today = new Date();
+    const to = today.toISOString().split("T")[0];
+    const start = new Date(today);
+    if (preset === "today") {
+      // from == to == today
+    } else if (preset === "7d") {
+      start.setDate(start.getDate() - 6);
+    } else if (preset === "1mo") {
+      start.setMonth(start.getMonth() - 1);
+    } else if (preset === "1yr") {
+      start.setFullYear(start.getFullYear() - 1);
+    } else if (preset === "all") {
+      start.setFullYear(2000, 0, 1); // effectively "everything"
+    }
+    setDeptFrom(start.toISOString().split("T")[0]);
+    setDeptTo(to);
+  }, []);
+
   useEffect(() => {
     if (tab === "daily") {
       loadReport();
+    } else if (tab === "departments") {
+      loadDepartments();
     } else {
       loadRuns();
     }
-  }, [tab, loadReport, loadRuns]);
+  }, [tab, loadReport, loadRuns, loadDepartments]);
 
   // ── Generate handler ─────────────────────────────────
   const submitGenerate = useCallback(async () => {
@@ -285,6 +369,9 @@ function ReportsPageBody() {
     try {
       const apiBase =
         process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+      // Issue #477: auth is on the httpOnly `medcore_at` cookie, NOT in
+      // localStorage — send `credentials: "include"` so the cookie attaches.
+      // The stale Bearer fallback stays only for test fixtures.
       const token =
         typeof window !== "undefined"
           ? localStorage.getItem("medcore_token")
@@ -298,6 +385,7 @@ function ReportsPageBody() {
         if (params.to) qs.set("to", params.to);
         const url = `${apiBase}${csvPath}${qs.toString() ? "?" + qs.toString() : ""}`;
         const res = await fetch(url, {
+          credentials: "include",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (!res.ok) throw new Error(`Export failed (${res.status})`);
@@ -328,6 +416,48 @@ function ReportsPageBody() {
       toast.error(err instanceof Error ? err.message : "Failed to export report");
     }
   }, []);
+
+  // ── Department report CSV export ─────────────────────
+  // Same authed fetch+blob pattern as exportRunCsv; hits the new
+  // /analytics/export/departments.csv with the current date range.
+  const downloadDeptCsv = useCallback(async () => {
+    try {
+      const apiBase =
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+      // Issue #477: auth moved to httpOnly cookies (medcore_at) — the token is
+      // NOT in localStorage anymore. Send `credentials: "include"` so the
+      // cookie auto-attaches; the stale Bearer fallback stays only for test
+      // fixtures that still inject a token.
+      const token =
+        typeof window !== "undefined"
+          ? localStorage.getItem("medcore_token")
+          : null;
+      const qs = new URLSearchParams();
+      if (deptFrom) qs.set("from", new Date(deptFrom).toISOString());
+      if (deptTo) {
+        const end = new Date(deptTo);
+        end.setHours(23, 59, 59, 999);
+        qs.set("to", end.toISOString());
+      }
+      const url = `${apiBase}/analytics/export/departments.csv?${qs.toString()}`;
+      const res = await fetch(url, {
+        credentials: "include",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const dl = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = dl;
+      a.download = `departments-${deptFrom}-to-${deptTo}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(dl);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to export report");
+    }
+  }, [deptFrom, deptTo]);
 
   if (user && user.role !== "ADMIN" && user.role !== "RECEPTION") return null;
 
@@ -367,6 +497,17 @@ function ReportsPageBody() {
           Daily Collection
         </button>
         <button
+          onClick={() => setTab("departments")}
+          data-testid="reports-tab-departments"
+          className={`px-4 py-2 text-sm font-medium ${
+            tab === "departments"
+              ? "border-b-2 border-primary text-primary dark:border-blue-400 dark:text-blue-400"
+              : "text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
+          }`}
+        >
+          <TrendingUp size={14} className="mr-1 inline" /> Departments
+        </button>
+        <button
           onClick={() => setTab("history")}
           className={`px-4 py-2 text-sm font-medium ${
             tab === "history"
@@ -377,6 +518,158 @@ function ReportsPageBody() {
           <History size={14} className="mr-1 inline" /> Report History
         </button>
       </div>
+
+      {tab === "departments" && (
+        <div data-testid="reports-departments-panel">
+          {/* Quick-range presets */}
+          <div className="mb-3 flex flex-wrap gap-2" data-testid="dept-quick-ranges">
+            {QUICK_RANGES.map((q) => (
+              <button
+                key={q.key}
+                type="button"
+                onClick={() => applyQuickRange(q.key)}
+                data-testid={`dept-range-${q.key}`}
+                aria-pressed={deptPreset === q.key}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                  deptPreset === q.key
+                    ? "bg-primary text-white"
+                    : "border bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+                }`}
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Date range + export toolbar */}
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">
+                  From
+                </label>
+                <input
+                  type="date"
+                  value={deptFrom}
+                  max={deptTo || new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => {
+                    setDeptPreset(null);
+                    setDeptFrom(e.target.value);
+                  }}
+                  data-testid="dept-from"
+                  className="rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-gray-500 dark:text-gray-400">
+                  To
+                </label>
+                <input
+                  type="date"
+                  value={deptTo}
+                  min={deptFrom}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={(e) => {
+                    setDeptPreset(null);
+                    setDeptTo(e.target.value);
+                  }}
+                  data-testid="dept-to"
+                  className="rounded-lg border px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void downloadDeptCsv()}
+              disabled={deptLoading || deptRows.length === 0}
+              data-testid="dept-export-csv"
+              className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700"
+            >
+              <Download size={14} /> Export CSV
+            </button>
+          </div>
+
+          {/* Appointments-by-department bar chart */}
+          {!deptLoading && deptRows.length > 0 && (
+            <div className="mb-4 rounded-xl bg-white p-5 shadow-sm dark:border dark:border-gray-700 dark:bg-gray-800">
+              <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
+                Appointments by department
+              </h2>
+              <RankedBars
+                items={deptRows.map((r) => ({
+                  label: r.department,
+                  value: r.appointmentCount,
+                }))}
+                color="#6366f1"
+                emptyLabel="No appointments in this range"
+              />
+            </div>
+          )}
+
+          <div className="rounded-xl bg-white shadow-sm dark:border dark:border-gray-700 dark:bg-gray-800">
+            {deptLoading ? (
+              <div className="p-4" data-testid="dept-loading" aria-busy="true">
+                <SkeletonTable rows={5} columns={6} />
+              </div>
+            ) : deptRows.length === 0 ? (
+              <div className="p-8 text-center text-gray-500" data-testid="dept-empty">
+                No department activity in this date range.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full" data-testid="dept-table">
+                  <thead>
+                    <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                      <th className="px-4 py-3">Department</th>
+                      <th className="px-4 py-3 text-right">Doctors</th>
+                      <th className="px-4 py-3 text-right">Appointments</th>
+                      <th className="px-4 py-3 text-right">Completed</th>
+                      <th className="px-4 py-3 text-right">Patients</th>
+                      <th className="px-4 py-3 text-right">Avg consult (min)</th>
+                      <th className="px-4 py-3 text-right">Revenue (₹)</th>
+                      <th className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deptRows.map((r) => (
+                      <tr
+                        key={r.department}
+                        data-testid="dept-row"
+                        onClick={() =>
+                          router.push(
+                            `/dashboard/reports/departments/${encodeURIComponent(
+                              r.department
+                            )}?from=${deptFrom}&to=${deptTo}`
+                          )
+                        }
+                        className="cursor-pointer border-b text-sm last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/40"
+                      >
+                        <td className="px-4 py-3 font-medium text-primary dark:text-blue-400">
+                          {r.department}
+                        </td>
+                        <td className="px-4 py-3 text-right">{r.doctorCount}</td>
+                        <td className="px-4 py-3 text-right">{r.appointmentCount}</td>
+                        <td className="px-4 py-3 text-right">{r.completedCount}</td>
+                        <td className="px-4 py-3 text-right">{r.patientCount}</td>
+                        <td className="px-4 py-3 text-right">{r.avgConsultMinutes}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {r.revenue.toLocaleString("en-IN", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
+                        </td>
+                        <td className="px-4 py-3 text-right text-xs text-gray-400">
+                          View →
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {tab === "history" && (
         <div>

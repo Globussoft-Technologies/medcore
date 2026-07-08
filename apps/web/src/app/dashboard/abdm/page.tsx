@@ -599,6 +599,8 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
   const [expiresAt, setExpiresAt] = useState(inOneYear());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Consent id currently mid-fetch (HIU data-transfer request in flight).
+  const [fetchingId, setFetchingId] = useState<string | null>(null);
 
   const canRequest = useMemo(
     () => !!patient && !!abhaAddress && hiTypes.length > 0,
@@ -671,6 +673,29 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
       );
     } catch (err) {
       toast.error((err as Error).message);
+    }
+  }
+
+  // HIU pull: for a GRANTED consent, ask ABDM to have the remote HIP push the
+  // patient's records back to our /abdm/hiu/data-push callback (built from
+  // PUBLIC_API_URL). The fetch is asynchronous — the gateway 202-accepts the
+  // request and the records land as HIU_EXTERNAL MedicalRecord rows once the
+  // HIP pushes. Surfaced under the Records tab as they arrive.
+  async function fetchRecords(id: string) {
+    setFetchingId(id);
+    try {
+      const res = await api.post<{ data: { transactionId: string } }>(
+        "/abdm/hiu/fetch",
+        { consentId: id }
+      );
+      toast.success(
+        `Data-transfer requested (txn ${res.data.transactionId.slice(0, 8)}…). ` +
+          "Records will appear under the Records tab once the provider pushes them."
+      );
+    } catch (err) {
+      toast.error((err as Error).message || "Fetch request failed");
+    } finally {
+      setFetchingId(null);
     }
   }
 
@@ -845,12 +870,28 @@ function ConsentsTab({ patient }: { patient: PatientOpt | null }) {
               </p>
             </div>
             {c.status !== "REVOKED" && (
-              <button
-                onClick={() => revoke(c.id)}
-                className="flex items-center gap-1 rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950/40"
-              >
-                <Trash2 className="h-3 w-3" /> Revoke
-              </button>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                {c.status === "GRANTED" && (
+                  <button
+                    onClick={() => fetchRecords(c.id)}
+                    disabled={fetchingId === c.id}
+                    className="flex items-center gap-1 rounded-lg border border-indigo-200 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 dark:border-indigo-900 dark:text-indigo-300 dark:hover:bg-indigo-950/40"
+                  >
+                    {fetchingId === c.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Download className="h-3 w-3" />
+                    )}
+                    Fetch records
+                  </button>
+                )}
+                <button
+                  onClick={() => revoke(c.id)}
+                  className="flex items-center gap-1 rounded-lg border border-red-200 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:border-red-900 dark:hover:bg-red-950/40"
+                >
+                  <Trash2 className="h-3 w-3" /> Revoke
+                </button>
+              </div>
             )}
           </li>
         ))}

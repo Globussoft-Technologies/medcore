@@ -1249,7 +1249,7 @@ describe("SettingsPage — Integrations tab (ADMIN, Issue #716)", () => {
           data: {
             integrations: [
               { key: "sendgrid", enabled: true, configured: true },
-              { key: "twilio", enabled: false, configured: false },
+              { key: "whatsapp", enabled: false, configured: false },
               { key: "unknown-key", enabled: false, configured: false },
             ],
           },
@@ -1262,7 +1262,7 @@ describe("SettingsPage — Integrations tab (ADMIN, Issue #716)", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Integrations$/i }));
 
     await screen.findByText(/SendGrid \(email\)/i);
-    expect(screen.getByText(/Twilio/i)).toBeInTheDocument();
+    expect(screen.getByText(/WhatsApp/i)).toBeInTheDocument();
     // Unknown keys render with the raw key fallback.
     expect(screen.getByText("unknown-key")).toBeInTheDocument();
     expect(screen.getByText(/Credentials present/i)).toBeInTheDocument();
@@ -1278,7 +1278,7 @@ describe("SettingsPage — Integrations tab (ADMIN, Issue #716)", () => {
         return Promise.resolve({
           data: {
             integrations: [
-              { key: "twilio", enabled: false, configured: true },
+              { key: "whatsapp", enabled: false, configured: true },
             ],
           },
         });
@@ -1290,17 +1290,15 @@ describe("SettingsPage — Integrations tab (ADMIN, Issue #716)", () => {
     await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
     fireEvent.click(screen.getByRole("button", { name: /^Integrations$/i }));
 
-    await screen.findByTestId("integration-row-twilio");
-    fireEvent.click(screen.getByTestId("integration-toggle-twilio"));
+    await screen.findByTestId("integration-row-whatsapp");
+    fireEvent.click(screen.getByTestId("integration-toggle-whatsapp"));
 
     await waitFor(() =>
       expect(apiMock.patch).toHaveBeenCalledWith("/settings/integrations", {
-        integrations: [{ key: "twilio", enabled: true }],
+        integrations: [{ key: "whatsapp", enabled: true }],
       }),
     );
-    expect(toastMock.success).toHaveBeenCalledWith(
-      "Twilio (SMS / WhatsApp) enabled",
-    );
+    expect(toastMock.success).toHaveBeenCalledWith("WhatsApp enabled");
   });
 
   it("toggle PATCH rejection rolls back state + surfaces toast.error", async () => {

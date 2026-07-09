@@ -38,7 +38,8 @@ import { Role } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
-import { decryptCredentials } from "../services/whatsapp-crypto";
+import { decryptCredentials, resolveActiveCredentials } from "../services/whatsapp-crypto";
+import { isIntegrationEnabled } from "../services/integration-flags";
 import {
   sendOutboundMessage,
   type DecryptedProviderConfig,
@@ -406,6 +407,17 @@ router.post(
         return;
       }
 
+      // Settings → Integrations master switch for WhatsApp.
+      if (!(await isIntegrationEnabled(tenantId, "whatsapp"))) {
+        res.status(503).json({
+          success: false,
+          data: null,
+          error:
+            "WhatsApp is turned off for this hospital. Enable it under Settings → Integrations.",
+        });
+        return;
+      }
+
       // Load the per-tenant provider config; without it we can't dispatch.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const config = await (prisma as any).whatsAppConfig.findUnique({
@@ -428,9 +440,13 @@ router.post(
 
       let creds: DecryptedProviderConfig;
       try {
-        creds = decryptCredentials(
-          config.credentialsEncrypted,
-        ) as DecryptedProviderConfig;
+        // Active provider's creds from the per-provider vault (legacy flat ok).
+        const active = resolveActiveCredentials(
+          decryptCredentials(config.credentialsEncrypted),
+          config.provider,
+        );
+        if (!active) throw new Error(`no creds for active provider ${config.provider}`);
+        creds = active as DecryptedProviderConfig;
       } catch (e) {
         console.error("[wa-inbox reply] decrypt failed", e);
         res.status(503).json({

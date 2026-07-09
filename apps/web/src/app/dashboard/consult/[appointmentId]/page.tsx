@@ -1170,6 +1170,15 @@ function serializeMedicationRows(rows: MedRow[]): string {
     .join("\n");
 }
 
+// One hit from the medicines catalog typeahead (GET /medicines?search=).
+interface MedicineHit {
+  id: string;
+  name: string;
+  genericName?: string | null;
+  strength?: string | null;
+  form?: string | null;
+}
+
 function MedicationsEditor({
   value,
   disabled,
@@ -1191,6 +1200,15 @@ function MedicationsEditor({
     }
   }, [value]);
 
+  // Medicine typeahead: which row's name box is searching, its results, and
+  // whether the dropdown is open. Debounced so we don't fire per keystroke.
+  const [search, setSearch] = useState<{
+    row: number;
+    results: MedicineHit[];
+    open: boolean;
+  }>({ row: -1, results: [], open: false });
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   function commit(next: MedRow[]) {
     setRows(next);
     const serialized = serializeMedicationRows(next);
@@ -1199,6 +1217,46 @@ function MedicationsEditor({
   }
   const setField = (i: number, key: keyof MedRow, v: string) =>
     commit(rows.map((r, idx) => (idx === i ? { ...r, [key]: v } : r)));
+  // Patch several fields on a row in ONE commit (used when a search result
+  // fills name + strength together).
+  const setRowFields = (i: number, patch: Partial<MedRow>) =>
+    commit(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  // Type in the name box → update the row AND (debounced) query the catalog.
+  function onNameChange(i: number, v: string) {
+    setField(i, "name", v);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    const q = v.trim();
+    if (q.length < 2) {
+      setSearch({ row: -1, results: [], open: false });
+      return;
+    }
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const res = await api.get<{ data: MedicineHit[] }>(
+          `/medicines?search=${encodeURIComponent(q)}&limit=8`,
+        );
+        setSearch({ row: i, results: res.data ?? [], open: true });
+      } catch {
+        setSearch({ row: -1, results: [], open: false });
+      }
+    }, 250);
+  }
+
+  // Pick a catalog medicine → fill the name, and its strength/form if the
+  // strength box is still empty (never clobber what the doctor typed).
+  function pickMedicine(i: number, med: MedicineHit) {
+    const strengthForm = [med.strength, med.form]
+      .map((x) => (x ?? "").trim())
+      .filter(Boolean)
+      .join(" ");
+    setRowFields(i, {
+      name: med.name,
+      ...(rows[i].strength.trim() || !strengthForm ? {} : { strength: strengthForm }),
+    });
+    setSearch({ row: -1, results: [], open: false });
+  }
+
   const addRow = () => commit([...rows, { ...EMPTY_MED_ROW }]);
   const removeRow = (i: number) =>
     commit(
@@ -1230,14 +1288,69 @@ function MedicationsEditor({
             )}
           </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <input
-              type="text"
-              value={row.name}
-              disabled={disabled}
-              onChange={(e) => setField(i, "name", e.target.value)}
-              placeholder="Drug name"
-              className={`sm:col-span-2 ${inputCls}`}
-            />
+            {/* Searchable drug-name field — typeahead against the medicines
+                catalog. Picking a result fills the name (+ strength/form). */}
+            <div className="relative sm:col-span-2">
+              <input
+                type="text"
+                value={row.name}
+                disabled={disabled}
+                autoComplete="off"
+                onChange={(e) => onNameChange(i, e.target.value)}
+                onFocus={() =>
+                  setSearch((s) =>
+                    s.row === i && s.results.length > 0
+                      ? { ...s, open: true }
+                      : s,
+                  )
+                }
+                onBlur={() =>
+                  // Delay so a mousedown on a result registers before we close.
+                  setTimeout(
+                    () =>
+                      setSearch((s) => (s.row === i ? { ...s, open: false } : s)),
+                    150,
+                  )
+                }
+                placeholder="Search medicine (e.g. para)…"
+                className={inputCls}
+              />
+              {search.open &&
+                search.row === i &&
+                search.results.length > 0 && (
+                  <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-800">
+                    {search.results.map((m) => {
+                      const sub = [
+                        m.genericName,
+                        [m.strength, m.form].filter(Boolean).join(" "),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
+                      return (
+                        <li key={m.id}>
+                          <button
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              pickMedicine(i, m);
+                            }}
+                            className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-indigo-50 dark:hover:bg-gray-700"
+                          >
+                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {m.name}
+                            </span>
+                            {sub && (
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {sub}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+            </div>
             <input
               type="text"
               value={row.strength}

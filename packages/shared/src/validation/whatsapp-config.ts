@@ -84,7 +84,14 @@ export type WhatsAppCredentials = z.infer<typeof whatsappCredentialsSchema>;
 // ── PUT /api/v1/wa/config payload ────────────────────────────────────
 export const whatsappConfigPutSchema = z
   .object({
+    // The provider whose creds are in `credentials` — this call saves/updates
+    // THIS provider in the tenant's per-provider vault.
     credentials: whatsappCredentialsSchema,
+    // Which provider should be ACTIVE (used to send/receive) after this save.
+    // Optional — defaults to the provider in `credentials`. Lets an admin flip
+    // the active provider (among ones they've already saved) without re-typing
+    // creds. Must be a provider the tenant has creds for (enforced server-side).
+    activeProvider: whatsappProviderSchema.optional(),
     defaultProductId: z.string().trim().max(120).optional().nullable(),
     autoReply: z.boolean().optional(),
     active: z.boolean().optional(),

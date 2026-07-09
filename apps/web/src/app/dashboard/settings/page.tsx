@@ -1526,7 +1526,8 @@ interface IntegrationsResponse {
 
 const INTEGRATION_LABELS: Record<string, string> = {
   sendgrid: "SendGrid (email)",
-  twilio: "Twilio (SMS / WhatsApp)",
+  sms: "SMS (Twilio)",
+  whatsapp: "WhatsApp",
   razorpay: "Razorpay (payments)",
   abdm: "ABDM (national health stack)",
   fhir: "FHIR R4 export",
@@ -1713,6 +1714,9 @@ interface WaConfigResponse {
     config: null | {
       provider: WaProvider;
       credentials: Record<string, string> | null;
+      // The full per-provider vault: every provider the tenant has saved creds
+      // for. `provider` above is the ACTIVE one (used to send/receive).
+      credentialsByProvider?: Record<string, Record<string, string>>;
       defaultProductId: string | null;
       autoReply: boolean;
       active: boolean;
@@ -1721,23 +1725,38 @@ interface WaConfigResponse {
   };
 }
 
+type WaCredVault = Partial<Record<WaProvider, Record<string, string>>>;
+
 function WhatsAppTab() {
+  // `provider` = the provider currently being VIEWED/edited in the dropdown.
+  // `activeProvider` = the ONE provider actually used to send/receive.
+  // `vault` = saved creds per provider, so switching the dropdown never wipes
+  // what you entered for another provider.
   const [provider, setProvider] = useState<WaProvider>("META");
-  const [creds, setCreds] = useState<Record<string, string>>({});
+  const [activeProvider, setActiveProvider] = useState<WaProvider>("META");
+  const [vault, setVault] = useState<WaCredVault>({});
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [autoReply, setAutoReply] = useState(true);
-  const [active, setActive] = useState(true);
-  const [configured, setConfigured] = useState(false);
   const [plaintextWarning, setPlaintextWarning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const creds = vault[provider] ?? {};
   // Show inbound (webhook) creds only when Auto-reply is on — a send-only
-  // setup doesn't need App secret / Verify token. This drives BOTH the
-  // rendered inputs and the required-field check in save().
+  // setup doesn't need App secret / Verify token.
   const fields = WA_PROVIDER_FIELDS[provider].filter(
     (f) => !f.inboundOnly || autoReply,
   );
+
+  // Is provider `p` fully filled for its required (autoReply-gated) fields?
+  const isComplete = (p: WaProvider): boolean => {
+    const c = vault[p] ?? {};
+    return WA_PROVIDER_FIELDS[p]
+      .filter((f) => !f.inboundOnly || autoReply)
+      .every((f) => (c[f.key] ?? "").trim().length > 0);
+  };
+  const hasCreds = (p: WaProvider): boolean =>
+    Object.values(vault[p] ?? {}).some((v) => (v ?? "").trim().length > 0);
 
   useEffect(() => {
     (async () => {
@@ -1745,17 +1764,19 @@ function WhatsAppTab() {
         const res = await api.get<WaConfigResponse>("/wa/config");
         const cfg = res.data?.config;
         if (cfg) {
+          const map =
+            cfg.credentialsByProvider ??
+            (cfg.credentials ? { [cfg.provider]: cfg.credentials } : {});
+          const normalized: WaCredVault = {};
+          for (const [p, c] of Object.entries(map)) {
+            normalized[p as WaProvider] = Object.fromEntries(
+              Object.entries(c ?? {}).map(([k, v]) => [k, String(v ?? "")]),
+            );
+          }
+          setVault(normalized);
+          setActiveProvider(cfg.provider);
           setProvider(cfg.provider);
-          setCreds(
-            cfg.credentials
-              ? Object.fromEntries(
-                  Object.entries(cfg.credentials).map(([k, v]) => [k, String(v ?? "")]),
-                )
-              : {},
-          );
           setAutoReply(cfg.autoReply);
-          setActive(cfg.active);
-          setConfigured(true);
           setPlaintextWarning(!!cfg.plaintextWarning);
         }
       } catch {
@@ -1767,29 +1788,54 @@ function WhatsAppTab() {
   }, []);
 
   function changeProvider(next: WaProvider) {
+    // Switch the VIEW only — the vault keeps every provider's creds so
+    // flipping the dropdown back shows what you already entered.
     setProvider(next);
-    // A provider switch invalidates the previous provider's cred fields.
-    setCreds({});
     setShowSecret({});
   }
 
+  function setCredField(key: string, value: string) {
+    setVault((prev) => ({
+      ...prev,
+      [provider]: { ...(prev[provider] ?? {}), [key]: value },
+    }));
+  }
+
+  const providerLabel = (p: WaProvider) =>
+    WA_PROVIDER_OPTIONS.find((o) => o.value === p)?.label ?? p;
+
   async function save() {
-    // Mirror the server's discriminated-union: every field for the chosen
-    // provider must be non-empty.
+    // The provider being saved must be complete.
     const missing = fields.filter((f) => !(creds[f.key] ?? "").trim());
     if (missing.length > 0) {
       toast.warning(`Please fill: ${missing.map((f) => f.label).join(", ")}`);
       return;
     }
+    // The active provider must itself be fully configured (you can't route
+    // traffic to a provider with missing creds).
+    if (activeProvider !== provider && !isComplete(activeProvider)) {
+      toast.warning(
+        `Fill in ${providerLabel(activeProvider)} before making it the active provider.`,
+      );
+      return;
+    }
     setSaving(true);
     try {
+      // Saves THIS provider into the vault (server merges) and sets which
+      // provider is active. Configure other providers by switching the
+      // dropdown and saving again — the vault accumulates.
       await api.put("/wa/config", {
         credentials: { provider, ...creds },
+        activeProvider,
         autoReply,
-        active,
+        // WhatsApp on/off is governed by Settings → Integrations → WhatsApp
+        // now (no per-config Enabled checkbox here). Keep the row active so the
+        // integration toggle is the single source of truth.
+        active: true,
       });
-      toast.success("WhatsApp configuration saved");
-      setConfigured(true);
+      toast.success(
+        `Saved ${providerLabel(provider)} · active: ${providerLabel(activeProvider)}`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -1827,7 +1873,7 @@ function WhatsAppTab() {
       )}
 
       <div className="grid gap-4">
-        <Field label="Provider">
+        <Field label="Provider (switch to configure — each keeps its own creds)">
           <select
             value={provider}
             onChange={(e) => changeProvider(e.target.value as WaProvider)}
@@ -1837,10 +1883,34 @@ function WhatsAppTab() {
             {WA_PROVIDER_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
+                {o.value === activeProvider
+                  ? " • active"
+                  : hasCreds(o.value)
+                    ? " • saved"
+                    : ""}
               </option>
             ))}
           </select>
         </Field>
+
+        {/* Active-provider selector: only ONE provider sends/receives at a time.
+            Checking this makes the currently-viewed provider the active one. */}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={activeProvider === provider}
+            disabled={activeProvider === provider}
+            onChange={(e) => {
+              if (e.target.checked) setActiveProvider(provider);
+            }}
+            data-testid="wa-set-active"
+            className="h-4 w-4"
+          />
+          Use this provider to send &amp; receive
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+            Active: {providerLabel(activeProvider)}
+          </span>
+        </label>
 
         {fields.map((f) => {
           const visible = showSecret[f.key];
@@ -1852,7 +1922,7 @@ function WhatsAppTab() {
                   autoComplete="off"
                   placeholder={f.placeholder}
                   value={creds[f.key] ?? ""}
-                  onChange={(e) => setCreds((p) => ({ ...p, [f.key]: e.target.value }))}
+                  onChange={(e) => setCredField(f.key, e.target.value)}
                   data-testid={`wa-field-${f.key}`}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
                 />
@@ -1871,39 +1941,38 @@ function WhatsAppTab() {
           );
         })}
 
-        <div className="flex flex-wrap gap-6">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={autoReply}
-              onChange={(e) => setAutoReply(e.target.checked)}
-              className="h-4 w-4"
-            />
-            Auto-reply
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={active}
-              onChange={(e) => setActive(e.target.checked)}
-              className="h-4 w-4"
-            />
-            Active
-          </label>
-        </div>
+        {/* Auto-reply = RECEIVE incoming messages + let the AI agent answer
+            them (the webhook path — needs App secret + Verify token on Meta).
+            The overall on/off for WhatsApp now lives in Settings → Integrations
+            → WhatsApp, so there's no per-config "Enabled" checkbox here. */}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={autoReply}
+            onChange={(e) => setAutoReply(e.target.checked)}
+            className="h-4 w-4"
+          />
+          Auto-reply to incoming messages
+        </label>
 
-        {provider === "META" && (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {autoReply
-              ? "Auto-reply is on — App secret and Verify token are required so the WhatsApp webhook can receive and verify incoming messages."
-              : "Sending messages only? Leave Auto-reply off — App secret and Verify token aren't needed. Turn Auto-reply on to also receive messages."}
-          </p>
-        )}
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {autoReply
+            ? provider === "META"
+              ? "Auto-reply is on, so the app RECEIVES messages and the AI agent answers them — this needs the App secret + Verify token above (the webhook)."
+              : "Auto-reply is on, so the app receives messages and the AI agent answers them."
+            : "Sending only (confirmations, reminders, Rx shares). Turn on Auto-reply to also RECEIVE messages and have the AI agent answer them."}
+          {" "}Turn WhatsApp on/off for this hospital under Settings → Integrations.
+        </p>
       </div>
 
       <div className="mt-6 flex items-center justify-between">
         <span className="text-xs text-gray-400">
-          {configured ? "Configured" : "Not configured yet"}
+          {(() => {
+            const saved = WA_PROVIDER_OPTIONS.filter((o) => hasCreds(o.value)).length;
+            return saved > 0
+              ? `${saved} provider${saved > 1 ? "s" : ""} saved · active: ${providerLabel(activeProvider)}`
+              : "Not configured yet";
+          })()}
         </span>
         <button
           onClick={save}

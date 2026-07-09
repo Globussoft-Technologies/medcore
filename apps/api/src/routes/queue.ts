@@ -4,6 +4,11 @@ import { Router, Request, Response, NextFunction } from "express";
 // tenant-scoped models (see services/tenant-prisma.ts). We alias it to
 // `prisma` so every existing call site keeps working without edits.
 import { tenantScopedPrisma as prisma } from "../services/tenant-prisma";
+// Base (unscoped) client + tenant-context runner for the PUBLIC display board:
+// a tenant-targeted lobby TV (`/queue/display?tenant=…`) has no auth context,
+// so we resolve the tenant with the unscoped client and then run the board
+// inside `runWithTenant` so every scoped sub-query filters to that hospital.
+import { prisma as basePrisma, runWithTenant } from "@medcore/db";
 import { authenticate, authorize } from "../middleware/auth";
 import { Role } from "@medcore/shared";
 import {
@@ -24,9 +29,47 @@ const router = Router();
 // call in runWithTenant().
 router.get(
   "/display",
-  async (_req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      res.json({ success: true, data: await buildDisplayBoard(), error: null });
+      // Multi-tenant lobby TV: a specific hospital can be targeted by putting
+      // its id OR subdomain on the URL, e.g. `/display?tenant=kokata-sadar`.
+      // When present we (a) filter the board to that hospital's doctors and
+      // (b) return its name so the board header shows the right hospital
+      // instead of a hardcoded one. With no param the board stays unscoped
+      // (single-hospital deploy / all-tenants overview) and `hospitalName` is
+      // null so the client falls back to a neutral default.
+      const tenantParam =
+        typeof req.query.tenant === "string" ? req.query.tenant.trim() : "";
+      if (tenantParam) {
+        // Resolve the hospital by id OR subdomain with the UNSCOPED client
+        // (a public board has no auth/tenant context of its own).
+        const tenant = await basePrisma.tenant.findFirst({
+          where: { OR: [{ id: tenantParam }, { subdomain: tenantParam }] },
+          select: { id: true, name: true },
+        });
+        if (tenant) {
+          // Run the whole board build inside the tenant's context so EVERY
+          // scoped sub-query (doctors + their appointments/queue) filters to
+          // this hospital — a bare `where: { tenantId }` on the doctor query
+          // alone isn't enough, and with no context the scoped client resolves
+          // to the wrong (default) tenant, which showed "No doctors on duty".
+          const data = await runWithTenant(tenant.id, () => buildDisplayBoard());
+          res.json({
+            success: true,
+            data,
+            hospitalName: tenant.name,
+            error: null,
+          });
+          return;
+        }
+      }
+      // No tenant param (or not found): legacy unscoped board + neutral title.
+      res.json({
+        success: true,
+        data: await buildDisplayBoard(),
+        hospitalName: null,
+        error: null,
+      });
     } catch (err) {
       next(err);
     }
@@ -465,11 +508,24 @@ router.get(
         tenantIdParam.trim().length > 0
           ? { tenantId: tenantIdParam.trim() }
           : {};
+      // Resolve the caller's hospital name so the display board header shows
+      // it (per-tenant) instead of a hardcoded name. Tenant.name is the
+      // canonical hospital name (kept in sync by Settings → Branding).
+      let hospitalName: string | null = null;
+      const nameTenantId = req.tenantId ?? tenantFilter.tenantId ?? null;
+      if (nameTenantId) {
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: nameTenantId },
+          select: { name: true },
+        });
+        hospitalName = tenant?.name ?? null;
+      }
       // Authenticated staff board → show full patient names (the public
       // /display variant stays redacted to "First L.").
       res.json({
         success: true,
         data: await buildDisplayBoard(tenantFilter, { fullNames: true }),
+        hospitalName,
         error: null,
       });
     } catch (err) {

@@ -31,26 +31,35 @@ function TokenDisplayInner() {
   // The public lobby-TV path (/display with no param) is unscoped and has no
   // close button — it's meant to run unattended full-screen.
   const scoped = searchParams.get("scoped") === "1";
+  // Public lobby-TV can target a specific hospital by id or subdomain, e.g.
+  // `/display?tenant=kokata-sadar`. Drives both the queue scope and the header
+  // hospital name. Ignored when `scoped=1` (the authenticated staff board
+  // already resolves the caller's own tenant).
+  const tenant = searchParams.get("tenant");
 
-  const { doctors, currentTime, connected, offline, lastUpdate } =
-    useDisplayData(scoped);
+  const { doctors, hospitalName, hydrated, currentTime, connected, offline, lastUpdate } =
+    useDisplayData(scoped, tenant);
 
-  // Esc closes the scoped board and returns to the dashboard.
+  // A board opened from the dashboard — either the auth-scoped view (?scoped=1)
+  // or a tenant-targeted view (?tenant=…) — gets a close affordance back to the
+  // dashboard (Esc + the X button). The plain public lobby board (/display with
+  // no param) stays unattended with no close button.
+  const closable = scoped || !!tenant;
   useEffect(() => {
-    if (!scoped) return;
+    if (!closable) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") router.push("/dashboard");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [scoped, router]);
+  }, [closable, router]);
 
   return (
     // The board is a dark waiting-area display. The root app/layout's light
     // <body> wins over the display layout, so we set the dark theme on the page
     // container itself to guarantee readable contrast.
     <div className="relative flex min-h-screen flex-col bg-slate-950 px-8 py-6 text-white">
-      {scoped && (
+      {closable && (
         <button
           type="button"
           onClick={() => router.push("/dashboard")}
@@ -67,13 +76,19 @@ function TokenDisplayInner() {
         connected={connected}
         offline={offline}
         lastUpdate={lastUpdate}
+        hospitalName={hospitalName}
+        loading={!hydrated}
       />
 
       <main className="flex-1">
         {doctors.length === 0 ? (
           <div className="flex h-64 items-center justify-center">
             <p className="text-2xl text-slate-500">
-              {offline ? "No cached data available" : "No doctors on duty today"}
+              {!hydrated
+                ? "Loading…"
+                : offline
+                  ? "No cached data available"
+                  : "No doctors on duty today"}
             </p>
           </div>
         ) : (
@@ -89,7 +104,9 @@ function TokenDisplayInner() {
                   href={
                     scoped
                       ? `/display/${doc.doctorId}?scoped=1`
-                      : `/display/${doc.doctorId}`
+                      : tenant
+                        ? `/display/${doc.doctorId}?tenant=${encodeURIComponent(tenant)}`
+                        : `/display/${doc.doctorId}`
                   }
                   aria-label={`Open ${doc.doctorName}'s board`}
                   className="block h-full rounded-2xl transition hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
@@ -104,7 +121,7 @@ function TokenDisplayInner() {
       <footer className="mt-8 text-center text-sm text-slate-600">
         Token Display Board &mdash; Auto-refreshes every{" "}
         {offline ? "30s (offline)" : "10s"}
-        {scoped && " · Press Esc to close"}
+        {closable && " · Press Esc to close"}
       </footer>
     </div>
   );

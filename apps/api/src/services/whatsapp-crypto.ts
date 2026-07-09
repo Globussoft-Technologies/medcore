@@ -107,3 +107,53 @@ export function decryptCredentials(stored: string): Record<string, unknown> {
   const pt = Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
   return JSON.parse(pt) as Record<string, unknown>;
 }
+
+// ── Multi-provider credential vault ─────────────────────────────────────────
+// A tenant can save creds for SEVERAL WhatsApp providers and mark ONE active
+// (WhatsAppConfig.provider). To avoid a schema migration we keep storing a
+// single encrypted blob, but its shape is now a per-provider map:
+//   { byProvider: { META: {...}, GUPSHUP: {...} } }
+// Legacy rows hold a FLAT object (just the one provider's creds). The helpers
+// below read/write both shapes so nothing that decrypts existing rows breaks.
+
+/** A decrypted blob is the new multi shape when it has a `byProvider` object. */
+export function isMultiProviderBlob(
+  decrypted: Record<string, unknown> | null | undefined,
+): boolean {
+  return (
+    !!decrypted &&
+    typeof (decrypted as { byProvider?: unknown }).byProvider === "object" &&
+    (decrypted as { byProvider?: unknown }).byProvider !== null
+  );
+}
+
+/** Return every provider's creds as a map, normalising the legacy flat shape
+ *  (which belongs to `activeProvider`) into a one-entry map. */
+export function credentialsMap(
+  decrypted: Record<string, unknown> | null | undefined,
+  activeProvider: string,
+): Record<string, Record<string, unknown>> {
+  if (!decrypted) return {};
+  if (isMultiProviderBlob(decrypted)) {
+    return (decrypted as { byProvider: Record<string, Record<string, unknown>> })
+      .byProvider;
+  }
+  // Legacy flat blob → the whole object is the active provider's creds.
+  return { [activeProvider]: decrypted };
+}
+
+/** The flat creds for the ACTIVE provider — what senders/receivers consume.
+ *  Handles both the multi map and the legacy flat blob. */
+export function resolveActiveCredentials(
+  decrypted: Record<string, unknown> | null | undefined,
+  activeProvider: string,
+): Record<string, unknown> | null {
+  if (!decrypted) return null;
+  if (isMultiProviderBlob(decrypted)) {
+    const map = (decrypted as {
+      byProvider: Record<string, Record<string, unknown>>;
+    }).byProvider;
+    return map[activeProvider] ?? null;
+  }
+  return decrypted; // legacy flat → already the active provider's creds
+}

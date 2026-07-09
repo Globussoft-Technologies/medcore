@@ -240,16 +240,16 @@ export async function sendNotification(params: SendNotificationParams): Promise<
   // integration-flags.ts) so untouched tenants and transient DB errors never
   // silently lose notifications.
   if (user.tenantId) {
-    const [emailOn, twilioOn] = await Promise.all([
+    const [emailOn, smsOn, whatsappOn] = await Promise.all([
       isIntegrationEnabled(user.tenantId, "sendgrid"),
-      isIntegrationEnabled(user.tenantId, "twilio"),
+      isIntegrationEnabled(user.tenantId, "sms"),
+      isIntegrationEnabled(user.tenantId, "whatsapp"),
     ]);
     enabledChannels = enabledChannels.filter((ch) => {
       const gatedOff =
         (ch === NotificationChannel.EMAIL && !emailOn) ||
-        ((ch === NotificationChannel.SMS ||
-          ch === NotificationChannel.WHATSAPP) &&
-          !twilioOn);
+        (ch === NotificationChannel.SMS && !smsOn) ||
+        (ch === NotificationChannel.WHATSAPP && !whatsappOn);
       if (gatedOff) {
         console.info(
           "notification_channel_skipped",

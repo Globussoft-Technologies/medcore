@@ -169,9 +169,13 @@ const updateIntegrationsSchema = z.object({
 
 // Known integrations the UI knows how to render. Anything outside this
 // list is rejected so a stray write can't pollute the SystemConfig table.
+// `twilio` was split into `sms` + `whatsapp` so each channel toggles
+// independently (a hospital may run WhatsApp via Meta/Gupshup while using
+// Twilio only for SMS, or run one channel and not the other).
 const KNOWN_INTEGRATIONS = [
   "sendgrid",
-  "twilio",
+  "sms",
+  "whatsapp",
   "razorpay",
   "abdm",
   "fhir",
@@ -342,22 +346,43 @@ router.get(
       if (!tenantId) return;
 
       const map = await readConfigMap(tenantId, "integration_");
-      const integrations = KNOWN_INTEGRATIONS.map((key) => {
-        const enabledRaw = map[`${key}_enabled`];
-        return {
-          key,
-          // DEFAULT ON: enabled unless explicitly turned off. This matches the
-          // runtime enforcement in services/integration-flags.ts — the toggle
-          // now MEANS something (a disabled connector stops working), so an
-          // untouched connector must read as enabled, not off. Turning a toggle
-          // off writes "false" and disables the connector for this tenant.
-          enabled: enabledRaw !== "false",
-          // Surface a non-secret status hint — never the credential itself.
-          configured: Object.keys(map).some(
-            (k) => k.startsWith(`${key}_`) && k !== `${key}_enabled`,
-          ),
-        };
-      });
+
+      // "Configured" (has creds on file) is stored in DIFFERENT places per
+      // integration, so we can't just look in SystemConfig for all of them:
+      //   - whatsapp → the WhatsAppConfig table (per-tenant provider vault)
+      //   - razorpay → Tenant.razorpayKeyId + razorpayKeySecret
+      //   - everything else → tenant-scoped `integration_<key>_*` rows
+      // Without this, WhatsApp/Razorpay always read "Not yet configured" even
+      // after the admin set them up in the WhatsApp / Payments tabs.
+      const [waRow, tenant] = await Promise.all([
+        prisma.whatsAppConfig.findUnique({
+          where: { tenantId },
+          select: { id: true },
+        }),
+        prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { razorpayKeyId: true, razorpayKeySecret: true },
+        }),
+      ]);
+      const configuredByKey: Record<string, boolean> = {
+        whatsapp: !!waRow,
+        razorpay: !!(tenant?.razorpayKeyId && tenant?.razorpayKeySecret),
+      };
+
+      const integrations = KNOWN_INTEGRATIONS.map((key) => ({
+        key,
+        // DEFAULT ON: enabled unless explicitly turned off. Matches the runtime
+        // enforcement in services/integration-flags.ts — a disabled toggle
+        // actually stops the connector, so an untouched one reads as enabled.
+        enabled: map[`${key}_enabled`] !== "false",
+        // Non-secret status hint — never the credential itself.
+        configured:
+          key in configuredByKey
+            ? configuredByKey[key]
+            : Object.keys(map).some(
+                (k) => k.startsWith(`${key}_`) && k !== `${key}_enabled`,
+              ),
+      }));
 
       res.json({
         success: true,

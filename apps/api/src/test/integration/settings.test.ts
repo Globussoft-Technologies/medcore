@@ -502,8 +502,22 @@ describeIfDB("Tenant Settings API (integration)", () => {
     expect(res.body.data.hospitalName).not.toMatch(/Tenant A/);
   });
 
-  it("Tenant A's enabled integration is NOT visible from Tenant B's GET", async () => {
-    // Pre-condition: an earlier test enabled sendgrid+twilio for Tenant A.
+  it("Tenant A disabling an integration does NOT disable it for Tenant B", async () => {
+    // Integrations are DEFAULT-ON (a disabled toggle is the meaningful signal),
+    // so isolation is verified via the disable direction: Tenant A turns
+    // sendgrid + twilio OFF, and Tenant B — which never touched them — must
+    // still see the default-ON state.
+    const patchA = await request(app)
+      .patch("/api/v1/settings/integrations")
+      .set("Authorization", `Bearer ${adminAToken}`)
+      .send({
+        integrations: [
+          { key: "sendgrid", enabled: false },
+          { key: "twilio", enabled: false },
+        ],
+      });
+    expect(patchA.status).toBe(200);
+
     const res = await request(app)
       .get("/api/v1/settings/integrations")
       .set("Authorization", `Bearer ${adminBToken}`);
@@ -511,40 +525,40 @@ describeIfDB("Tenant Settings API (integration)", () => {
     const sg = res.body.data.integrations.find(
       (i: any) => i.key === "sendgrid",
     );
-    expect(sg?.enabled).toBe(false);
+    expect(sg?.enabled).toBe(true);
     const tw = res.body.data.integrations.find(
       (i: any) => i.key === "twilio",
     );
-    expect(tw?.enabled).toBe(false);
+    expect(tw?.enabled).toBe(true);
   });
 
-  it("Tenant B can independently enable its own integration without affecting Tenant A's state", async () => {
+  it("Tenant B disabling its own integration does not affect Tenant A's state", async () => {
     const prisma = await getPrisma();
     const patchB = await request(app)
       .patch("/api/v1/settings/integrations")
       .set("Authorization", `Bearer ${adminBToken}`)
       .send({
-        integrations: [{ key: "razorpay", enabled: true }],
+        integrations: [{ key: "razorpay", enabled: false }],
       });
     expect(patchB.status).toBe(200);
 
-    // Tenant B sees razorpay=true.
+    // Tenant B sees razorpay=false (it explicitly disabled it).
     const getB = await request(app)
       .get("/api/v1/settings/integrations")
       .set("Authorization", `Bearer ${adminBToken}`);
     const rzB = getB.body.data.integrations.find(
       (i: any) => i.key === "razorpay",
     );
-    expect(rzB?.enabled).toBe(true);
+    expect(rzB?.enabled).toBe(false);
 
-    // Tenant A still sees razorpay=false.
+    // Tenant A still sees razorpay=true (default-on, untouched by B).
     const getA = await request(app)
       .get("/api/v1/settings/integrations")
       .set("Authorization", `Bearer ${adminAToken}`);
     const rzA = getA.body.data.integrations.find(
       (i: any) => i.key === "razorpay",
     );
-    expect(rzA?.enabled).toBe(false);
+    expect(rzA?.enabled).toBe(true);
 
     // SystemConfig rows are physically separated by the `tenant:<id>:` prefix.
     const aRow = await prisma.systemConfig.findUnique({
@@ -552,16 +566,16 @@ describeIfDB("Tenant Settings API (integration)", () => {
         key: tenantConfigKey(tenantAId, "integration_razorpay_enabled"),
       },
     });
-    // Tenant A's row either doesn't exist or is explicitly false; assert
-    // not-true so either shape passes (cross-tenant isolation is the
-    // contract under test, not the absence of the row itself).
-    expect(aRow?.value).not.toBe("true");
+    // Tenant A's row either doesn't exist or is not the disable flag; assert
+    // not-"false" so either shape passes (cross-tenant isolation is the
+    // contract under test, not the presence of the row itself).
+    expect(aRow?.value).not.toBe("false");
     const bRow = await prisma.systemConfig.findUnique({
       where: {
         key: tenantConfigKey(tenantBId, "integration_razorpay_enabled"),
       },
     });
-    expect(bRow?.value).toBe("true");
+    expect(bRow?.value).toBe("false");
   });
 
   // Silence unused-token lint — doctorToken used above; pin once for clarity.

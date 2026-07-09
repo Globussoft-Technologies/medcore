@@ -781,7 +781,9 @@ export default function TenantsAdminPage() {
                 <th className="px-4 py-3">
                   {t("tenants.col.status", "Status")}
                 </th>
-                <th className="px-4 py-3"></th>
+                <th className="px-4 py-3 text-center">
+                  {t("tenants.col.actions", "Actions")}
+                </th>
               </tr>
             </thead>
             <tbody>

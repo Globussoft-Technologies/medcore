@@ -4,8 +4,9 @@
  *
  * What / which modules / why:
  *   - Exercises apps/web/src/app/dashboard/settings/page.tsx — the multi-tab
- *     settings hub. Six tabs gated by role allowlist (ADMIN gets the full
- *     six, all other roles see four personal-settings tabs). Endpoints:
+ *     settings hub. Eight tabs gated by role allowlist (ADMIN gets the full
+ *     eight — incl. WhatsApp + Payments credential panels; all other roles
+ *     see four personal-settings tabs). Endpoints:
  *       GET   /auth/me                                      (profile load)
  *       PATCH /auth/me                                      (profile + prefs save)
  *       POST  /uploads                                      (profile photo)

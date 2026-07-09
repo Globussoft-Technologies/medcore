@@ -80,6 +80,34 @@ export function invalidateRazorpayCacheForTenant(tenantId: string): void {
   instanceByTenant.delete(tenantId);
   credsByTenant.delete(tenantId);
 }
+
+/**
+ * Whether online payments are usable for a tenant — i.e. resolvable Razorpay
+ * credentials exist (the tenant's OWN keys first, else the env fallback).
+ * Mirrors the exact resolution the payment endpoints use, so the UI's
+ * "is Pay Online available?" answer can never disagree with what actually
+ * happens when the button is pressed.
+ */
+export async function hasRazorpayCredentials(
+  tenantId: string | null | undefined,
+): Promise<boolean> {
+  return (await getCreds(tenantId)) !== null;
+}
+
+/**
+ * Public, non-secret Razorpay status for a tenant, used by the billing UI:
+ * whether it's enabled and whether the active key is a test key. Never returns
+ * the key/secret themselves.
+ */
+export async function getRazorpayPublicConfig(
+  tenantId: string | null | undefined,
+): Promise<{ enabled: boolean; isTestMode: boolean }> {
+  const creds = await getCreds(tenantId);
+  return {
+    enabled: creds !== null,
+    isTestMode: creds?.keyId.startsWith("rzp_test_") ?? false,
+  };
+}
 export function __resetRazorpayCacheForTests(): void {
   instanceByTenant.clear();
   credsByTenant.clear();

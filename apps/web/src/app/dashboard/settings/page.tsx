@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { useThemeStore } from "@/lib/theme";
@@ -23,6 +25,11 @@ import {
   LogOut,
   Palette,
   Plug,
+  CreditCard,
+  MessageCircle,
+  Eye,
+  EyeOff,
+  ArrowLeft,
 } from "lucide-react";
 
 // Issues #716/#717 (2026-05-08): admins reported four "ghost" tabs they
@@ -36,7 +43,9 @@ type Tab =
   | "notifications"
   | "preferences"
   | "branding"
-  | "integrations";
+  | "integrations"
+  | "whatsapp"
+  | "payments";
 
 // Issue #437 (Apr 30 2026): Settings page exposed admin-only sections
 // (organization profile, user list, billing/integrations) to nurses, leaking
@@ -57,6 +66,12 @@ const ALLOWED_TABS_BY_ROLE: Record<string, ReadonlyArray<Tab>> = {
   // which are themselves ADMIN-gated server-side, so leakage to other roles
   // would only ever produce empty 403 responses anyway — but we filter at
   // the UI layer too so non-admins don't even see the tabs.
+  // NOTE: "whatsapp" + "payments" are intentionally NOT listed here. They are
+  // TENANT-level credential panels (a hospital's own WhatsApp provider +
+  // Razorpay account) and must be hidden from the platform super-admin, who is
+  // a tenant-less ADMIN (role coerced to ADMIN with tenantId == null — see
+  // lib/store coerceUser). The component appends those two tabs only when the
+  // caller is a real tenant admin (ADMIN with a tenantId). See `allowed` below.
   ADMIN: [
     "profile",
     "security",
@@ -79,6 +94,7 @@ function allowedTabsForRole(role: string | undefined): ReadonlyArray<Tab> {
   if (!role) return ALLOWED_TABS_BY_ROLE.__DEFAULT__;
   return ALLOWED_TABS_BY_ROLE[role] || ALLOWED_TABS_BY_ROLE.__DEFAULT__;
 }
+
 
 interface MeResponse {
   data: {
@@ -158,27 +174,56 @@ export default function SettingsPage() {
   // is actually allowed to see — protects against deep links to e.g.
   // #organization that should never render for a nurse.
   const { user } = useAuthStore();
-  const allowed = allowedTabsForRole(user?.role);
-  const [tab, setTab] = useState<Tab>(allowed[0] ?? "profile");
+  // WhatsApp + Payments are per-hospital credential panels. Only a real tenant
+  // admin should see them — the platform super-admin is a tenant-less ADMIN
+  // (tenantId == null; see lib/store coerceUser) and manages tenant creds via
+  // the super-admin surfaces instead, so we withhold both tabs from them.
+  const isTenantAdmin = user?.role === "ADMIN" && !!user?.tenantId;
+  const allowed: ReadonlyArray<Tab> = isTenantAdmin
+    ? [...allowedTabsForRole(user?.role), "whatsapp", "payments"]
+    : allowedTabsForRole(user?.role);
+  const [tab, setTab] = useState<Tab>("profile");
 
-  // Read URL hash for tab persistence
+  // When the admin arrived here from the tenant onboarding checklist (its
+  // "Open WhatsApp / payment settings" buttons append ?from=onboarding), show
+  // a link back to their onboarding page so they can continue the checklist
+  // after saving credentials. The onboarding route is keyed by the caller's
+  // own tenantId; fall back to the dashboard if it's somehow absent.
+  const searchParams = useSearchParams();
+  const fromOnboarding = searchParams?.get("from") === "onboarding";
+  const onboardingHref = user?.tenantId
+    ? `/dashboard/tenants/${user.tenantId}/onboarding`
+    : "/dashboard";
+
+  // Read the deep-link hash into the active tab — the ONLY thing that drives
+  // the tab from the URL. There is deliberately NO effect mirroring tab → hash:
+  // that mirror was racing this reader and, on a deep load of `#whatsapp`, wrote
+  // the default `#profile` back into the URL in the same commit — so the
+  // onboarding "Open WhatsApp settings" / "Open payment settings" deep links
+  // always bounced to Profile. The hash is now written ONLY on an explicit tab
+  // click (see selectTab), so nothing competes with this reader.
+  //
+  // Runs on mount and again whenever role/tenantId changes, because the
+  // WhatsApp + Payments tabs only enter `allowed` once tenant-admin status is
+  // known — a `#whatsapp` deep link must re-resolve after the store hydrates.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !user) return;
     const hash = window.location.hash.replace("#", "") as Tab;
-    // Issue #437: only honour the hash if the role is allowed to access it.
-    // Falling back to the first allowed tab prevents a `#billing` deep link
-    // from rendering an admin-only tab for a nurse.
-    if (allowed.includes(hash)) {
-      setTab(hash);
-    } else if (hash) {
-      setTab(allowed[0] ?? "profile");
-    }
+    // Issue #437: only honour the hash if the role is allowed to access it, so
+    // a nurse deep-linking `#branding` just stays on the default tab.
+    if (hash && allowed.includes(hash)) setTab(hash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.role]);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.location.hash = tab;
-  }, [tab]);
+  }, [user?.role, user?.tenantId]);
+
+  // Explicit tab selection: update state AND the URL hash together.
+  // replaceState keeps the URL shareable without pushing a history entry or
+  // triggering the browser's hash-scroll jump.
+  const selectTab = useCallback((next: Tab) => {
+    setTab(next);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${next}`);
+    }
+  }, []);
 
   const allTabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "profile", label: "Profile", icon: UserIcon },
@@ -189,6 +234,8 @@ export default function SettingsPage() {
     // the per-role allowlist above.
     { id: "branding", label: "Branding", icon: Palette },
     { id: "integrations", label: "Integrations", icon: Plug },
+    { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
+    { id: "payments", label: "Payments", icon: CreditCard },
   ];
   // Issue #437: filter the visible tab list down to what this role is
   // allowed to interact with. Hiding the tab in the nav AND skipping the
@@ -199,6 +246,15 @@ export default function SettingsPage() {
 
   return (
     <div>
+      {fromOnboarding && (
+        <Link
+          href={onboardingHref}
+          data-testid="settings-back-to-onboarding"
+          className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+        >
+          <ArrowLeft size={16} /> Back to onboarding
+        </Link>
+      )}
       <h1 className="mb-6 text-2xl font-bold">Settings</h1>
 
       <div className="flex flex-col gap-6 md:flex-row">
@@ -207,7 +263,7 @@ export default function SettingsPage() {
           {tabs.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setTab(id)}
+              onClick={() => selectTab(id)}
               className={
                 "flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition " +
                 (tab === id
@@ -237,6 +293,8 @@ export default function SettingsPage() {
           {tab === "branding" && allowed.includes("branding") && <BrandingTab />}
           {tab === "integrations" &&
             allowed.includes("integrations") && <IntegrationsTab />}
+          {tab === "whatsapp" && allowed.includes("whatsapp") && <WhatsAppTab />}
+          {tab === "payments" && allowed.includes("payments") && <PaymentsTab />}
         </div>
       </div>
     </div>
@@ -1176,6 +1234,10 @@ interface BrandingResponse {
     hospitalName: string;
     primaryColor: string;
     logoUrl: string;
+    hospitalPhone?: string;
+    hospitalEmail?: string;
+    hospitalGstin?: string;
+    hospitalAddress?: string;
   };
 }
 
@@ -1183,6 +1245,10 @@ function BrandingTab() {
   const [hospitalName, setHospitalName] = useState("");
   const [primaryColor, setPrimaryColor] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [hospitalPhone, setHospitalPhone] = useState("");
+  const [hospitalEmail, setHospitalEmail] = useState("");
+  const [hospitalGstin, setHospitalGstin] = useState("");
+  const [hospitalAddress, setHospitalAddress] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -1194,6 +1260,10 @@ function BrandingTab() {
         setHospitalName(res.data.hospitalName || "");
         setPrimaryColor(res.data.primaryColor || "");
         setLogoUrl(res.data.logoUrl || "");
+        setHospitalPhone(res.data.hospitalPhone || "");
+        setHospitalEmail(res.data.hospitalEmail || "");
+        setHospitalGstin(res.data.hospitalGstin || "");
+        setHospitalAddress(res.data.hospitalAddress || "");
       } catch {
         // Ignore — keep the panel rendered with empty fields so the admin
         // can populate from scratch.
@@ -1218,6 +1288,18 @@ function BrandingTab() {
     ) {
       errs.primaryColor = "Primary color must be a hex like #1e40af";
     }
+    if (
+      hospitalEmail.trim().length > 0 &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hospitalEmail.trim())
+    ) {
+      errs.hospitalEmail = "Enter a valid email address";
+    }
+    if (
+      hospitalGstin.trim().length > 0 &&
+      !/^[0-9A-Za-z]{15}$/.test(hospitalGstin.trim())
+    ) {
+      errs.hospitalGstin = "GSTIN must be 15 letters/digits";
+    }
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) {
       toast.warning("Please fix the highlighted fields");
@@ -1229,6 +1311,11 @@ function BrandingTab() {
         hospitalName: hospitalName.trim(),
         primaryColor: primaryColor.trim() || undefined,
         logoUrl: logoUrl.trim() || undefined,
+        // Send these unconditionally (trimmed) so clearing a field persists.
+        hospitalPhone: hospitalPhone.trim(),
+        hospitalEmail: hospitalEmail.trim(),
+        hospitalGstin: hospitalGstin.trim().toUpperCase(),
+        hospitalAddress: hospitalAddress.trim(),
       });
       toast.success("Branding saved");
     } catch (err) {
@@ -1327,6 +1414,85 @@ function BrandingTab() {
           />
         </Field>
       </div>
+
+      {/* Hospital contact / legal details — rendered on invoices,
+          prescriptions and receipts. */}
+      <div className="mt-6 border-t border-gray-100 pt-5 dark:border-gray-700">
+        <h3 className="mb-1 text-sm font-semibold">Hospital details</h3>
+        <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
+          Contact &amp; legal info shown on invoices, prescriptions and receipts.
+        </p>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Phone">
+            <input
+              type="tel"
+              value={hospitalPhone}
+              onChange={(e) => setHospitalPhone(e.target.value)}
+              placeholder="+91 98765 43210"
+              data-testid="branding-hospital-phone"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              type="email"
+              value={hospitalEmail}
+              onChange={(e) => {
+                setHospitalEmail(e.target.value);
+                if (fieldErrors.hospitalEmail)
+                  setFieldErrors((p) => ({ ...p, hospitalEmail: "" }));
+              }}
+              placeholder="hello@hospital.in"
+              data-testid="branding-hospital-email"
+              aria-invalid={fieldErrors.hospitalEmail ? "true" : undefined}
+              className={
+                "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+                (fieldErrors.hospitalEmail
+                  ? "border-red-500 bg-red-50 dark:bg-red-900/20"
+                  : "border-gray-300 dark:border-gray-600")
+              }
+            />
+            {fieldErrors.hospitalEmail && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.hospitalEmail}</p>
+            )}
+          </Field>
+          <Field label="GSTIN">
+            <input
+              type="text"
+              value={hospitalGstin}
+              onChange={(e) => {
+                setHospitalGstin(e.target.value.toUpperCase());
+                if (fieldErrors.hospitalGstin)
+                  setFieldErrors((p) => ({ ...p, hospitalGstin: "" }));
+              }}
+              placeholder="22AAAAA0000A1Z5"
+              maxLength={15}
+              data-testid="branding-hospital-gstin"
+              aria-invalid={fieldErrors.hospitalGstin ? "true" : undefined}
+              className={
+                "w-full rounded-lg border px-3 py-2 uppercase dark:bg-gray-900 " +
+                (fieldErrors.hospitalGstin
+                  ? "border-red-500 bg-red-50 dark:bg-red-900/20"
+                  : "border-gray-300 dark:border-gray-600")
+              }
+            />
+            {fieldErrors.hospitalGstin && (
+              <p className="mt-1 text-xs text-red-600">{fieldErrors.hospitalGstin}</p>
+            )}
+          </Field>
+          <Field label="Address">
+            <textarea
+              value={hospitalAddress}
+              onChange={(e) => setHospitalAddress(e.target.value)}
+              rows={2}
+              placeholder="Street, City, State, PIN"
+              data-testid="branding-hospital-address"
+              className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+            />
+          </Field>
+        </div>
+      </div>
+
       <div className="mt-6 flex justify-end">
         <button
           onClick={save}
@@ -1483,6 +1649,515 @@ function IntegrationsTab() {
             No integrations configured.
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── WHATSAPP ──────────────────────────────────────────
+//
+// Per-tenant WhatsApp provider credentials. Backed by the existing
+// tenant-scoped, ADMIN-only, AES-256-GCM-encrypted API at /api/v1/wa/config
+// (there is also a standalone page at /dashboard/settings/whatsapp; this tab
+// surfaces the same config inside the main Settings screen). Five providers,
+// each with its own credential field set. Secrets render masked with a
+// per-field show/hide toggle; they are write-only — the server returns the
+// decrypted creds only to the ADMIN who owns the tenant.
+
+type WaProvider = "GUPSHUP" | "WATI" | "AISENSEI" | "INTERAKT" | "META";
+
+interface WaFieldSpec {
+  key: string;
+  label: string;
+  secret: boolean;
+  placeholder?: string;
+  // Only needed to RECEIVE messages (webhook). Hidden + not required unless
+  // Auto-reply is enabled — a send-only setup doesn't need these.
+  inboundOnly?: boolean;
+}
+
+const WA_PROVIDER_FIELDS: Record<WaProvider, WaFieldSpec[]> = {
+  GUPSHUP: [
+    { key: "apiKey", label: "API key (token)", secret: true },
+    { key: "appName", label: "App name", secret: false, placeholder: "e.g. hospital_prod" },
+    { key: "sourcePhone", label: "WhatsApp number (E.164)", secret: false, placeholder: "+919876543210" },
+  ],
+  WATI: [
+    { key: "bearerToken", label: "Bearer token", secret: true },
+    { key: "tenantUrl", label: "Tenant URL", secret: false, placeholder: "https://live-server-xxxx.wati.io" },
+  ],
+  AISENSEI: [
+    { key: "apiKey", label: "API key (token)", secret: true },
+    { key: "baseUrl", label: "Base URL", secret: false, placeholder: "https://app.aisensei.ai" },
+  ],
+  INTERAKT: [{ key: "apiKey", label: "API key (token)", secret: true }],
+  META: [
+    { key: "accessToken", label: "Access token", secret: true },
+    { key: "phoneNumberId", label: "Phone number ID", secret: false, placeholder: "1234567890123456" },
+    // Webhook (receive) creds — only for auto-reply.
+    { key: "appSecret", label: "App secret", secret: true, inboundOnly: true },
+    { key: "verifyToken", label: "Verify token", secret: true, inboundOnly: true },
+  ],
+};
+
+const WA_PROVIDER_OPTIONS: Array<{ value: WaProvider; label: string }> = [
+  { value: "GUPSHUP", label: "Gupshup" },
+  { value: "WATI", label: "WATI" },
+  { value: "AISENSEI", label: "AiSensei" },
+  { value: "INTERAKT", label: "Interakt" },
+  { value: "META", label: "Meta Cloud API" },
+];
+
+interface WaConfigResponse {
+  data: {
+    config: null | {
+      provider: WaProvider;
+      credentials: Record<string, string> | null;
+      defaultProductId: string | null;
+      autoReply: boolean;
+      active: boolean;
+      plaintextWarning?: boolean;
+    };
+  };
+}
+
+function WhatsAppTab() {
+  const [provider, setProvider] = useState<WaProvider>("META");
+  const [creds, setCreds] = useState<Record<string, string>>({});
+  const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
+  const [autoReply, setAutoReply] = useState(true);
+  const [active, setActive] = useState(true);
+  const [configured, setConfigured] = useState(false);
+  const [plaintextWarning, setPlaintextWarning] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Show inbound (webhook) creds only when Auto-reply is on — a send-only
+  // setup doesn't need App secret / Verify token. This drives BOTH the
+  // rendered inputs and the required-field check in save().
+  const fields = WA_PROVIDER_FIELDS[provider].filter(
+    (f) => !f.inboundOnly || autoReply,
+  );
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<WaConfigResponse>("/wa/config");
+        const cfg = res.data?.config;
+        if (cfg) {
+          setProvider(cfg.provider);
+          setCreds(
+            cfg.credentials
+              ? Object.fromEntries(
+                  Object.entries(cfg.credentials).map(([k, v]) => [k, String(v ?? "")]),
+                )
+              : {},
+          );
+          setAutoReply(cfg.autoReply);
+          setActive(cfg.active);
+          setConfigured(true);
+          setPlaintextWarning(!!cfg.plaintextWarning);
+        }
+      } catch {
+        // Keep the panel rendered with empty fields so the admin can set up.
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  function changeProvider(next: WaProvider) {
+    setProvider(next);
+    // A provider switch invalidates the previous provider's cred fields.
+    setCreds({});
+    setShowSecret({});
+  }
+
+  async function save() {
+    // Mirror the server's discriminated-union: every field for the chosen
+    // provider must be non-empty.
+    const missing = fields.filter((f) => !(creds[f.key] ?? "").trim());
+    if (missing.length > 0) {
+      toast.warning(`Please fill: ${missing.map((f) => f.label).join(", ")}`);
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.put("/wa/config", {
+        credentials: { provider, ...creds },
+        autoReply,
+        active,
+      });
+      toast.success("WhatsApp configuration saved");
+      setConfigured(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+        <Skeleton variant="text" width="30%" height={20} className="mb-2" />
+        <Skeleton variant="text" width="60%" className="mb-4" />
+        <div className="space-y-4">
+          <SkeletonText lines={2} />
+          <SkeletonText lines={2} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+      <h2 className="mb-1 text-lg font-semibold">WhatsApp</h2>
+      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+        Per-hospital WhatsApp provider used to send and receive messages.
+        Credentials are encrypted at rest and never shared with other hospitals.
+      </p>
+
+      {plaintextWarning && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          Credentials are being stored in plaintext — the encryption key
+          (WHATSAPP_CREDS_KEY) is not set on the server. Set it and re-save
+          before going live.
+        </div>
+      )}
+
+      <div className="grid gap-4">
+        <Field label="Provider">
+          <select
+            value={provider}
+            onChange={(e) => changeProvider(e.target.value as WaProvider)}
+            data-testid="wa-provider"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+          >
+            {WA_PROVIDER_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        {fields.map((f) => {
+          const visible = showSecret[f.key];
+          return (
+            <Field key={f.key} label={f.label}>
+              <div className="flex items-stretch gap-2">
+                <input
+                  type={f.secret && !visible ? "password" : "text"}
+                  autoComplete="off"
+                  placeholder={f.placeholder}
+                  value={creds[f.key] ?? ""}
+                  onChange={(e) => setCreds((p) => ({ ...p, [f.key]: e.target.value }))}
+                  data-testid={`wa-field-${f.key}`}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+                />
+                {f.secret && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSecret((p) => ({ ...p, [f.key]: !p[f.key] }))}
+                    aria-label={visible ? "Hide" : "Show"}
+                    className="inline-flex min-w-[44px] items-center justify-center rounded-lg border border-gray-300 px-3 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+                  >
+                    {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                )}
+              </div>
+            </Field>
+          );
+        })}
+
+        <div className="flex flex-wrap gap-6">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={autoReply}
+              onChange={(e) => setAutoReply(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Auto-reply
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={active}
+              onChange={(e) => setActive(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Active
+          </label>
+        </div>
+
+        {provider === "META" && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {autoReply
+              ? "Auto-reply is on — App secret and Verify token are required so the WhatsApp webhook can receive and verify incoming messages."
+              : "Sending messages only? Leave Auto-reply off — App secret and Verify token aren't needed. Turn Auto-reply on to also receive messages."}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-6 flex items-center justify-between">
+        <span className="text-xs text-gray-400">
+          {configured ? "Configured" : "Not configured yet"}
+        </span>
+        <button
+          onClick={save}
+          disabled={saving}
+          data-testid="wa-save"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save WhatsApp"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── PAYMENTS (Razorpay) ───────────────────────────────
+//
+// Per-tenant Razorpay gateway credentials. Backed by the tenant-scoped,
+// ADMIN-only API at /api/v1/settings/payment, which writes onto the caller's
+// OWN Tenant row and busts the per-tenant Razorpay client cache. Each hospital
+// charges patients through its own merchant account. The Key Secret is
+// write-only — the server returns only a masked key-id prefix + a "hasSecret"
+// flag, so re-saving mode/webhook without re-typing the secret keeps it.
+
+interface PaymentResponse {
+  data: {
+    configured: boolean;
+    razorpayKeyId: string;
+    razorpayMode: "test" | "live";
+    hasSecret: boolean;
+    hasWebhookSecret: boolean;
+  };
+}
+
+function PaymentsTab() {
+  const [keyId, setKeyId] = useState("");
+  const [keySecret, setKeySecret] = useState("");
+  const [mode, setMode] = useState<"test" | "live">("test");
+  const [webhookSecret, setWebhookSecret] = useState("");
+  const [hasSecret, setHasSecret] = useState(false);
+  const [hasWebhookSecret, setHasWebhookSecret] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+  const [showWebhook, setShowWebhook] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<PaymentResponse>("/settings/payment");
+        setKeyId(res.data.razorpayKeyId || "");
+        setMode(res.data.razorpayMode || "test");
+        setHasSecret(res.data.hasSecret);
+        setHasWebhookSecret(res.data.hasWebhookSecret);
+      } catch {
+        // Keep the panel rendered with empty fields for first-time setup.
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function save() {
+    const errs: Record<string, string> = {};
+    if (!/^rzp_(test|live)_[A-Za-z0-9]{6,}$/.test(keyId.trim())) {
+      errs.keyId = "Key ID must look like rzp_test_XXXX or rzp_live_XXXX";
+    }
+    // Secret required only when none is stored yet (rotation may leave blank).
+    if (!hasSecret && !keySecret.trim()) {
+      errs.keySecret = "Key Secret is required for first-time setup";
+    }
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      toast.warning("Please fix the highlighted fields");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.patch("/settings/payment", {
+        razorpayKeyId: keyId.trim(),
+        // Omit the secret when left blank so the stored one is kept.
+        ...(keySecret.trim() ? { razorpayKeySecret: keySecret.trim() } : {}),
+        razorpayMode: mode,
+        ...(webhookSecret.trim()
+          ? { razorpayWebhookSecret: webhookSecret.trim() }
+          : {}),
+      });
+      toast.success("Payment settings saved");
+      setHasSecret(true);
+      if (webhookSecret.trim()) setHasWebhookSecret(true);
+      // Clear the write-only fields after a successful save — they're never
+      // read back, and blanking them avoids the illusion the secret is shown.
+      setKeySecret("");
+      setWebhookSecret("");
+    } catch (err) {
+      const fields = extractFieldErrors(err);
+      if (fields) {
+        setFieldErrors(fields);
+        toast.error(Object.values(fields)[0] || "Save failed");
+      } else {
+        toast.error(err instanceof Error ? err.message : "Save failed");
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+        <Skeleton variant="text" width="30%" height={20} className="mb-2" />
+        <Skeleton variant="text" width="60%" className="mb-4" />
+        <div className="space-y-4">
+          <SkeletonText lines={2} />
+          <SkeletonText lines={2} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+      <h2 className="mb-1 text-lg font-semibold">Payments (Razorpay)</h2>
+      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+        This hospital&apos;s own Razorpay account. Patient payments are charged
+        through these keys — every hospital keeps its own, kept separate from
+        all others.
+      </p>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Razorpay Key ID">
+          <input
+            type="text"
+            value={keyId}
+            onChange={(e) => {
+              setKeyId(e.target.value);
+              if (fieldErrors.keyId) setFieldErrors((p) => ({ ...p, keyId: "" }));
+            }}
+            placeholder="rzp_live_XXXXXXXXXXXX"
+            data-testid="pay-key-id"
+            aria-invalid={fieldErrors.keyId ? "true" : undefined}
+            className={
+              "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+              (fieldErrors.keyId
+                ? "border-red-500 bg-red-50 dark:bg-red-900/20"
+                : "border-gray-300 dark:border-gray-600")
+            }
+          />
+          {fieldErrors.keyId && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.keyId}</p>
+          )}
+        </Field>
+
+        <Field label="Mode">
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value as "test" | "live")}
+            data-testid="pay-mode"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+          >
+            <option value="test">Test</option>
+            <option value="live">Live</option>
+          </select>
+        </Field>
+
+        <Field
+          label={
+            hasSecret
+              ? "Razorpay Key Secret (leave blank to keep current)"
+              : "Razorpay Key Secret"
+          }
+        >
+          <div className="flex items-stretch gap-2">
+            <input
+              type={showSecret ? "text" : "password"}
+              autoComplete="off"
+              value={keySecret}
+              onChange={(e) => {
+                setKeySecret(e.target.value);
+                if (fieldErrors.keySecret)
+                  setFieldErrors((p) => ({ ...p, keySecret: "" }));
+              }}
+              placeholder={hasSecret ? "•••••••• (stored)" : "Key secret"}
+              data-testid="pay-key-secret"
+              aria-invalid={fieldErrors.keySecret ? "true" : undefined}
+              className={
+                "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+                (fieldErrors.keySecret
+                  ? "border-red-500 bg-red-50 dark:bg-red-900/20"
+                  : "border-gray-300 dark:border-gray-600")
+              }
+            />
+            <button
+              type="button"
+              onClick={() => setShowSecret((v) => !v)}
+              aria-label={showSecret ? "Hide" : "Show"}
+              className="inline-flex min-w-[44px] items-center justify-center rounded-lg border border-gray-300 px-3 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+            >
+              {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          {fieldErrors.keySecret && (
+            <p className="mt-1 text-xs text-red-600">{fieldErrors.keySecret}</p>
+          )}
+        </Field>
+
+        <Field
+          label={
+            hasWebhookSecret
+              ? "Webhook Secret (leave blank to keep current)"
+              : "Webhook Secret (optional)"
+          }
+        >
+          <div className="flex items-stretch gap-2">
+            <input
+              type={showWebhook ? "text" : "password"}
+              autoComplete="off"
+              value={webhookSecret}
+              onChange={(e) => setWebhookSecret(e.target.value)}
+              placeholder={hasWebhookSecret ? "•••••••• (stored)" : "Webhook signing secret"}
+              data-testid="pay-webhook-secret"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+            />
+            <button
+              type="button"
+              onClick={() => setShowWebhook((v) => !v)}
+              aria-label={showWebhook ? "Hide" : "Show"}
+              className="inline-flex min-w-[44px] items-center justify-center rounded-lg border border-gray-300 px-3 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+            >
+              {showWebhook ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </Field>
+      </div>
+
+      {mode === "live" && (
+        <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          Live mode charges real money. Double-check the keys belong to this
+          hospital&apos;s Razorpay account before saving.
+        </p>
+      )}
+
+      <div className="mt-6 flex items-center justify-between">
+        <span className="text-xs text-gray-400">
+          {hasSecret ? "Credentials on file" : "Not configured yet"}
+        </span>
+        <button
+          onClick={save}
+          disabled={saving}
+          data-testid="pay-save"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save Payments"}
+        </button>
       </div>
     </div>
   );

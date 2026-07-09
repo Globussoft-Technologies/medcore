@@ -68,7 +68,10 @@ import {
   verifyPayment,
   fetchOrderAmount,
   verifyWebhookSignature,
+  getRazorpayPublicConfig,
+  hasRazorpayCredentials,
 } from "../services/razorpay";
+import { isIntegrationEnabled } from "../services/integration-flags";
 import { onBillGenerated, onPaymentReceived } from "../services/notification-triggers";
 import { auditLog } from "../middleware/audit";
 import { splitGst } from "../services/ops-helpers";
@@ -791,17 +794,20 @@ router.get(
 );
 
 // GET /api/v1/billing/hospital-profile
-// Surfaces the hospital identity rows (name, address, phone, email, GSTIN,
-// registration, tagline) from SystemConfig so invoice views (web + PDF)
-// render the same source of truth. Seeded by
-// `packages/db/src/seed-hospital-config.ts`; production deploys override
-// via env-driven reseed. Falls back to sensible demo defaults so QA envs
-// never show "+91-XXXXXXXXXX" or similar placeholders.
+// The "seller" identity printed on every invoice (web + PDF): name, address,
+// phone, email, GSTIN, tagline, logo. This is PER TENANT — sourced from the
+// hospital's own config (Settings → Branding), which the tenant admin edits
+// and which is stored under tenant-scoped SystemConfig keys
+// `tenant:<id>:hospital_*` (+ `tenant:<id>:branding_logo_url`). Tenant.name is
+// the canonical hospital name and is preferred over the mirror. Previously this
+// read GLOBAL `hospital_*` keys, so every tenant's invoice showed the seeded
+// demo hospital ("MedCore Hospital …") instead of its own details.
 router.get(
   "/hospital-profile",
-  async (_req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const keys = [
+      const tenantId = req.tenantId ?? null;
+      const suffixes = [
         "hospital_name",
         "hospital_address",
         "hospital_phone",
@@ -809,24 +815,53 @@ router.get(
         "hospital_gstin",
         "hospital_registration",
         "hospital_tagline",
-        "hospital_logo_url",
+        "branding_logo_url",
       ];
-      const rows = await prisma.systemConfig.findMany({ where: { key: { in: keys } } });
       const map: Record<string, string> = {};
-      rows.forEach((r) => (map[r.key] = r.value));
+      let tenantName: string | null = null;
+      let isDefaultTenant = false;
+
+      if (tenantId) {
+        const prefix = `tenant:${tenantId}:`;
+        const rows = await prisma.systemConfig.findMany({
+          where: { key: { in: suffixes.map((s) => `${prefix}${s}`) } },
+        });
+        rows.forEach((r) => (map[r.key.slice(prefix.length)] = r.value));
+
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { name: true, subdomain: true },
+        });
+        tenantName = tenant?.name ?? null;
+        isDefaultTenant = tenant?.subdomain === "default";
+      }
+
+      // Fallback to the seeded GLOBAL hospital config ONLY for the platform's
+      // default/demo tenant (whose identity lives in global keys, not
+      // tenant-scoped) or when there's no tenant context. A real tenant does
+      // NOT inherit the demo — an unconfigured field stays blank so its invoice
+      // never prints another hospital's address / GSTIN.
+      if (isDefaultTenant || !tenantId) {
+        const globalRows = await prisma.systemConfig.findMany({
+          where: { key: { in: suffixes } },
+        });
+        globalRows.forEach((r) => {
+          if (map[r.key] === undefined) map[r.key] = r.value;
+        });
+      }
+
       res.json({
         success: true,
         data: {
-          name: map.hospital_name || "MedCore Hospital & Diagnostics",
-          address:
-            map.hospital_address ||
-            "42 Linking Road, Bandra West, Mumbai, Maharashtra 400050",
-          phone: map.hospital_phone || "+91-80-2345-6789",
-          email: map.hospital_email || "info@medcorehospital.in",
-          gstin: map.hospital_gstin || "27AAACM1234Z1Z5",
+          // Canonical Tenant.name first, then the config mirror, then neutral.
+          name: tenantName || map.hospital_name || "Hospital",
+          address: map.hospital_address || "",
+          phone: map.hospital_phone || "",
+          email: map.hospital_email || "",
+          gstin: map.hospital_gstin || "",
           registration: map.hospital_registration || "",
-          tagline: map.hospital_tagline || "Hospital Operations Automation",
-          logoUrl: map.hospital_logo_url || "",
+          tagline: map.hospital_tagline || "",
+          logoUrl: map.branding_logo_url || "",
         },
         error: null,
       });
@@ -1114,17 +1149,26 @@ router.get(
 router.get(
   "/razorpay-config",
   authorize(Role.ADMIN, Role.RECEPTION, Role.PATIENT, Role.DOCTOR, Role.NURSE),
-  async (_req: Request, res: Response) => {
-    const keyId = process.env.RAZORPAY_KEY_ID ?? "";
-    const enabled = Boolean(keyId && process.env.RAZORPAY_KEY_SECRET);
-    res.json({
-      success: true,
-      data: {
-        enabled,
-        isTestMode: keyId.startsWith("rzp_test_"),
-      },
-      error: null,
-    });
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // Per-tenant: resolve THIS hospital's own Razorpay keys (env only as a
+      // last-resort fallback), exactly as the payment endpoints do. Previously
+      // this read env vars only, so a tenant with no keys was told "enabled"
+      // (if the platform env happened to have a key) and then hit an opaque
+      // failure at pay-online — the bug behind "no proper message".
+      const status = await getRazorpayPublicConfig(req.tenantId);
+      // Respect the Settings → Integrations "Razorpay" master switch: if the
+      // admin turned it off, report disabled even when keys are on file, so the
+      // UI hides/greys the Pay Online action.
+      const gatewayOn = await isIntegrationEnabled(req.tenantId, "razorpay");
+      res.json({
+        success: true,
+        data: { ...status, enabled: status.enabled && gatewayOn },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
   }
 );
 
@@ -1165,6 +1209,40 @@ router.post(
       // this check a patient could create payment orders against a
       // stranger's invoice and stamp razorpayOrderId on it.
       if (!(await assertPatientOwnsResource(req, res, invoice.patientId))) return;
+
+      // Settings → Integrations master switch. If the admin turned Razorpay
+      // OFF, block online payments regardless of whether keys exist — with a
+      // message that points at exactly the toggle to flip.
+      if (!(await isIntegrationEnabled(req.tenantId, "razorpay"))) {
+        res.status(503).json({
+          success: false,
+          data: null,
+          error:
+            "Online payments are turned off for this hospital. An administrator can re-enable Razorpay under Settings → Integrations.",
+        });
+        return;
+      }
+
+      // Per-tenant gateway guard. Online payments use THIS hospital's own
+      // Razorpay keys (see services/razorpay.ts). If none are configured for
+      // the tenant (and no platform env fallback), fail fast with a clear,
+      // actionable message instead of letting createPaymentOrder throw a
+      // generic 500 (whose real cause the prod error handler hides). This is
+      // the "show a proper message to the tenant" path: the admin is told
+      // exactly where to fix it. Only in production — non-prod keeps the mock
+      // order so dev/CI can exercise the checkout flow without real keys.
+      if (
+        process.env.NODE_ENV === "production" &&
+        !(await hasRazorpayCredentials(req.tenantId))
+      ) {
+        res.status(503).json({
+          success: false,
+          data: null,
+          error:
+            "Online payments aren't set up for this hospital yet. An administrator can add the Razorpay keys under Settings → Payments.",
+        });
+        return;
+      }
 
       // Legacy seed path: some Invoice.totalAmount rows were persisted as
       // subtotal (pre-GST). The detail page renders the GST-corrected total

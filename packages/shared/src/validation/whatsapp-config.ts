@@ -59,10 +59,17 @@ const interaktCredentialsSchema = z.object({
 
 const metaCredentialsSchema = z.object({
   provider: z.literal("META"),
+  // Outbound (send-only) creds — always required for Meta.
   accessToken: trimmed("Meta Cloud API access token is required"),
   phoneNumberId: trimmed("Meta Cloud API phone-number id is required"),
-  appSecret: trimmed("Meta Cloud API app secret is required"),
-  verifyToken: trimmed("Meta Cloud API verify token is required"),
+  // Inbound (webhook) creds — the App secret verifies Meta's request signature
+  // and the Verify token completes the subscription handshake. They are ONLY
+  // needed to RECEIVE messages (i.e. auto-reply). A hospital that just wants to
+  // SEND confirmations/reminders doesn't need them, so they're optional here
+  // and conditionally required by the superRefine on whatsappConfigPutSchema
+  // when autoReply is enabled.
+  appSecret: z.string().trim().max(512).optional().or(z.literal("")),
+  verifyToken: z.string().trim().max(512).optional().or(z.literal("")),
 });
 
 export const whatsappCredentialsSchema = z.discriminatedUnion("provider", [
@@ -75,10 +82,32 @@ export const whatsappCredentialsSchema = z.discriminatedUnion("provider", [
 export type WhatsAppCredentials = z.infer<typeof whatsappCredentialsSchema>;
 
 // ── PUT /api/v1/wa/config payload ────────────────────────────────────
-export const whatsappConfigPutSchema = z.object({
-  credentials: whatsappCredentialsSchema,
-  defaultProductId: z.string().trim().max(120).optional().nullable(),
-  autoReply: z.boolean().optional(),
-  active: z.boolean().optional(),
-});
+export const whatsappConfigPutSchema = z
+  .object({
+    credentials: whatsappCredentialsSchema,
+    defaultProductId: z.string().trim().max(120).optional().nullable(),
+    autoReply: z.boolean().optional(),
+    active: z.boolean().optional(),
+  })
+  // Meta's inbound webhook creds are required ONLY when auto-reply (receiving)
+  // is on. Send-only configs (autoReply false/omitted) skip them. Enforced here
+  // rather than on the field so it can read the sibling `autoReply` flag.
+  .superRefine((val, ctx) => {
+    if (val.credentials.provider !== "META" || val.autoReply !== true) return;
+    const c = val.credentials as { appSecret?: string; verifyToken?: string };
+    if (!c.appSecret || c.appSecret.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["credentials", "appSecret"],
+        message: "App secret is required to receive messages / auto-reply",
+      });
+    }
+    if (!c.verifyToken || c.verifyToken.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["credentials", "verifyToken"],
+        message: "Verify token is required to receive messages / auto-reply",
+      });
+    }
+  });
 export type WhatsAppConfigPutInput = z.infer<typeof whatsappConfigPutSchema>;

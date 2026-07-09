@@ -8,6 +8,7 @@ import { sendWhatsApp } from "./channels/whatsapp";
 import { sendSMS } from "./channels/sms";
 import { sendEmail } from "./channels/email";
 import { sendPush } from "./channels/push";
+import { isIntegrationEnabled } from "./integration-flags";
 import type { ChannelResult } from "./channels/whatsapp";
 import { isWithinQuietHours } from "./ops-helpers";
 
@@ -159,7 +160,7 @@ export async function sendNotification(params: SendNotificationParams): Promise<
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, phone: true, name: true, role: true },
+    select: { id: true, email: true, phone: true, name: true, role: true, tenantId: true },
   });
   if (!user) {
     console.warn(`[Notification] User not found: ${userId}`);
@@ -228,6 +229,35 @@ export async function sendNotification(params: SendNotificationParams): Promise<
         JSON.stringify({ userId, channel: ch, reason: "pref_off", type })
       );
       return false;
+    });
+  }
+
+  // Settings → Integrations master switches (per tenant). A connector the
+  // admin turned OFF cannot deliver, so drop the channels it powers: EMAIL when
+  // SendGrid is off, and SMS + WhatsApp when Twilio is off. Applies even under
+  // bypassPreferences (a disabled connector is a capability fact, not a user
+  // preference) — remaining channels still fire. Default-on + fail-open (see
+  // integration-flags.ts) so untouched tenants and transient DB errors never
+  // silently lose notifications.
+  if (user.tenantId) {
+    const [emailOn, twilioOn] = await Promise.all([
+      isIntegrationEnabled(user.tenantId, "sendgrid"),
+      isIntegrationEnabled(user.tenantId, "twilio"),
+    ]);
+    enabledChannels = enabledChannels.filter((ch) => {
+      const gatedOff =
+        (ch === NotificationChannel.EMAIL && !emailOn) ||
+        ((ch === NotificationChannel.SMS ||
+          ch === NotificationChannel.WHATSAPP) &&
+          !twilioOn);
+      if (gatedOff) {
+        console.info(
+          "notification_channel_skipped",
+          JSON.stringify({ userId, channel: ch, reason: "integration_off", type })
+        );
+        return false;
+      }
+      return true;
     });
   }
 

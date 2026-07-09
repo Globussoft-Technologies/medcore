@@ -172,7 +172,11 @@ const STEPS: Step[] = [
     descriptionKey: "tenants.onb.whatsapp.desc",
     descriptionDefault:
       "Drop the Gupshup app name + API key so appointment confirmations, lab-ready alerts and prescription shares actually deliver over WhatsApp.",
-    linkHref: "/dashboard/whatsapp",
+    // Points at the tenant-admin WhatsApp credential panel in Settings (the
+    // page opens the matching tab from the URL hash). That tab is shown only
+    // to a real tenant admin — the platform super-admin doesn't get it — which
+    // is why this deep-links to Settings rather than the WhatsApp inbox.
+    linkHref: "/dashboard/settings?from=onboarding#whatsapp",
     linkLabelKey: "tenants.onb.whatsapp.link",
     linkLabelDefault: "Open WhatsApp settings",
     checklistItems: [
@@ -193,7 +197,10 @@ const STEPS: Step[] = [
     descriptionKey: "tenants.onb.payment.desc",
     descriptionDefault:
       "Add Razorpay or Cashfree key + secret so patient billing can capture online payments and the discount-approval flow can issue refunds.",
-    linkHref: "/dashboard/payment-plans",
+    // Points at the tenant-admin Payments (Razorpay) credential panel in
+    // Settings (opened via the URL hash). Tenant-admin-only tab, so this
+    // deep-links to Settings rather than the payment-plans catalogue.
+    linkHref: "/dashboard/settings?from=onboarding#payments",
     linkLabelKey: "tenants.onb.payment.link",
     linkLabelDefault: "Open payment settings",
     checklistItems: [

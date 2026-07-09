@@ -420,8 +420,13 @@ describe("VitalsPage — patient selection + baseline panel", () => {
       pulse: { baseline: 72, sampleSize: 5 },
       spO2: { baseline: 98, sampleSize: 5 },
     });
+    // The baseline strip renders after the async /vitals-baseline fetch
+    // resolves — await it (findByText) rather than a synchronous getByText,
+    // which can run before the fetch's setState lands and flake.
     expect(
-      screen.getByText(/Patient Baseline \(median of non-abnormal readings\)/),
+      await screen.findByText(
+        /Patient Baseline \(median of non-abnormal readings\)/,
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText(/118\/76/)).toBeInTheDocument();
     expect(screen.getByText(/n=\s*5/)).toBeInTheDocument();
@@ -442,8 +447,10 @@ describe("VitalsPage — patient selection + baseline panel", () => {
       bpSystolic: { baseline: 120, sampleSize: 3 },
       bpDiastolic: { baseline: 80, sampleSize: 3 },
     });
-    // The "baseline 120" tiny label next to the BP systolic label
-    expect(screen.getByText(/baseline 120/)).toBeInTheDocument();
+    // The "baseline 120" tiny label next to the BP systolic label. Await the
+    // async /vitals-baseline fetch (findByText) before asserting — a
+    // synchronous getByText can run before the fetch's setState lands and flake.
+    expect(await screen.findByText(/baseline 120/)).toBeInTheDocument();
     expect(screen.getByText(/baseline 80/)).toBeInTheDocument();
   });
 });

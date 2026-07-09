@@ -30,21 +30,25 @@ function DoctorDisplayInner({ doctorId }: { doctorId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const scoped = searchParams.get("scoped") === "1";
+  // Public board can target a hospital by id/subdomain (mirrors the full board).
+  const tenant = searchParams.get("tenant");
 
-  const { doctors, currentTime, connected, offline, lastUpdate } =
-    useDisplayData(scoped);
+  const { doctors, hospitalName, hydrated, currentTime, connected, offline, lastUpdate } =
+    useDisplayData(scoped, tenant);
 
   const doc = doctors.find((d) => d.doctorId === doctorId) ?? null;
 
-  // Esc returns the scoped board to the dashboard (mirrors the full board).
+  // Esc returns a dashboard-launched board (scoped OR tenant-targeted) to the
+  // dashboard (mirrors the full board).
+  const closable = scoped || !!tenant;
   useEffect(() => {
-    if (!scoped) return;
+    if (!closable) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") router.push("/dashboard");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [scoped, router]);
+  }, [closable, router]);
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-950 px-8 py-6 text-white">
@@ -53,6 +57,8 @@ function DoctorDisplayInner({ doctorId }: { doctorId: string }) {
         connected={connected}
         offline={offline}
         lastUpdate={lastUpdate}
+        hospitalName={hospitalName}
+        loading={!hydrated}
       />
 
       <main className="flex flex-1 items-stretch justify-center pb-4">
@@ -78,7 +84,13 @@ function DoctorDisplayInner({ doctorId }: { doctorId: string }) {
 
       <footer className="mt-8 flex flex-col items-center gap-2 pt-8 text-center text-sm text-slate-600">
         <Link
-          href={scoped ? "/display?scoped=1" : "/display"}
+          href={
+            scoped
+              ? "/display?scoped=1"
+              : tenant
+                ? `/display?tenant=${encodeURIComponent(tenant)}`
+                : "/display"
+          }
           className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 transition hover:text-white"
         >
           <ArrowLeft size={12} aria-hidden="true" />
@@ -87,7 +99,7 @@ function DoctorDisplayInner({ doctorId }: { doctorId: string }) {
         <span>
           Token Display Board &mdash; Auto-refreshes every{" "}
           {offline ? "30s (offline)" : "10s"}
-          {scoped && " · Press Esc to close"}
+          {closable && " · Press Esc to close"}
         </span>
       </footer>
     </div>

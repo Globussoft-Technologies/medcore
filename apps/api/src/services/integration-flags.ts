@@ -24,10 +24,13 @@
 import { prisma } from "@medcore/db";
 import { tenantConfigKey } from "./tenant-provisioning";
 
-/** Canonical integration keys mirrored from routes/settings.ts KNOWN_INTEGRATIONS. */
+/** Canonical integration keys mirrored from routes/settings.ts KNOWN_INTEGRATIONS.
+ *  `twilio` was split into independent `sms` and `whatsapp` toggles so a
+ *  hospital can enable one channel without the other. */
 export type IntegrationKey =
   | "sendgrid"
-  | "twilio"
+  | "sms"
+  | "whatsapp"
   | "razorpay"
   | "abdm"
   | "fhir"

@@ -958,10 +958,12 @@ export default function DashboardPage() {
             />
             {/* Token Display board launcher. RECEPTION has an empty 6th KPI
                 slot (Today's Revenue is ADMIN-only), so the live waiting-room
-                token board lives here. `?scoped=1` makes the board fetch the
-                authenticated, tenant-scoped queue so the receptionist only
-                sees their own hospital's doctors. Opens in the same tab;
-                Esc / the X button on the board return here. */}
+                token board lives here. The URL carries THIS hospital's tenant
+                id (`?tenant=<id>`) so the board is filtered to their own
+                doctors and titled with their hospital name — and the link is a
+                shareable, tenant-identified board URL you can put on a lobby
+                TV. Falls back to the legacy `?scoped=1` (auth-scoped board)
+                when the tenant id isn't known (e.g. a tenant-less session). */}
             {isReception && (
               <StatCard
                 title="Display Board"
@@ -969,7 +971,11 @@ export default function DashboardPage() {
                 subtitle="Live waiting-room board"
                 icon={Monitor}
                 color="bg-blue-600"
-                href="/display?scoped=1"
+                href={
+                  user?.tenantId
+                    ? `/display?tenant=${encodeURIComponent(user.tenantId)}`
+                    : "/display?scoped=1"
+                }
               />
             )}
           </div>

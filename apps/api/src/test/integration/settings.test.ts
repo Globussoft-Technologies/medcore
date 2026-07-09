@@ -348,7 +348,8 @@ describeIfDB("Tenant Settings API (integration)", () => {
     expect(keys).toEqual(
       expect.arrayContaining([
         "sendgrid",
-        "twilio",
+        "sms",
+        "whatsapp",
         "razorpay",
         "abdm",
         "fhir",
@@ -388,7 +389,7 @@ describeIfDB("Tenant Settings API (integration)", () => {
       .send({
         integrations: [
           { key: "sendgrid", enabled: true },
-          { key: "twilio", enabled: true },
+          { key: "whatsapp", enabled: true },
         ],
       });
     expect(res.status).toBe(200);
@@ -459,7 +460,7 @@ describeIfDB("Tenant Settings API (integration)", () => {
       .patch("/api/v1/settings/integrations")
       .set("Authorization", `Bearer ${adminAToken}`)
       .send({
-        integrations: [{ key: "twilio", enabled: "yes" }],
+        integrations: [{ key: "sms", enabled: "yes" }],
       });
     expect(res.status).toBe(400);
   });
@@ -505,7 +506,7 @@ describeIfDB("Tenant Settings API (integration)", () => {
   it("Tenant A disabling an integration does NOT disable it for Tenant B", async () => {
     // Integrations are DEFAULT-ON (a disabled toggle is the meaningful signal),
     // so isolation is verified via the disable direction: Tenant A turns
-    // sendgrid + twilio OFF, and Tenant B — which never touched them — must
+    // sendgrid + whatsapp OFF, and Tenant B — which never touched them — must
     // still see the default-ON state.
     const patchA = await request(app)
       .patch("/api/v1/settings/integrations")
@@ -513,7 +514,7 @@ describeIfDB("Tenant Settings API (integration)", () => {
       .send({
         integrations: [
           { key: "sendgrid", enabled: false },
-          { key: "twilio", enabled: false },
+          { key: "whatsapp", enabled: false },
         ],
       });
     expect(patchA.status).toBe(200);
@@ -526,10 +527,10 @@ describeIfDB("Tenant Settings API (integration)", () => {
       (i: any) => i.key === "sendgrid",
     );
     expect(sg?.enabled).toBe(true);
-    const tw = res.body.data.integrations.find(
-      (i: any) => i.key === "twilio",
+    const wa = res.body.data.integrations.find(
+      (i: any) => i.key === "whatsapp",
     );
-    expect(tw?.enabled).toBe(true);
+    expect(wa?.enabled).toBe(true);
   });
 
   it("Tenant B disabling its own integration does not affect Tenant A's state", async () => {

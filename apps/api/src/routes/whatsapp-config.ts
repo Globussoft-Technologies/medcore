@@ -32,6 +32,8 @@ import { tenantConfigKey } from "../services/tenant-provisioning";
 import {
   encryptCredentials,
   decryptCredentials,
+  credentialsMap,
+  resolveActiveCredentials,
 } from "../services/whatsapp-crypto";
 
 const router = Router();
@@ -65,15 +67,22 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
+    // `credentials` = the ACTIVE provider's flat creds (backward-compatible
+    // with the standalone /dashboard/settings/whatsapp page). `credentialsByProvider`
+    // = the full per-provider vault, so the multi-provider Settings tab can show
+    // every saved provider and let the admin flip the active one.
     let credentials: Record<string, unknown> | null = null;
+    let credentialsByProvider: Record<string, Record<string, unknown>> = {};
     let plaintextWarning = false;
     if (row.credentialsEncrypted) {
       try {
         const decoded = decryptCredentials(row.credentialsEncrypted);
-        if (decoded && decoded.__plaintext === true) {
+        // Plaintext-mode marker lives on the OUTER blob; unwrap for the flag.
+        if (decoded && (decoded as { __plaintext?: boolean }).__plaintext === true) {
           plaintextWarning = true;
         }
-        credentials = decoded;
+        credentialsByProvider = credentialsMap(decoded, row.provider);
+        credentials = resolveActiveCredentials(decoded, row.provider);
       } catch (err) {
         // Tamper / missing-key path — surface a 200 with the metadata
         // but without creds. Logged so ops can investigate.
@@ -91,6 +100,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
           id: row.id,
           provider: row.provider,
           credentials,
+          credentialsByProvider,
           defaultProductId: row.defaultProductId,
           autoReply: row.autoReply,
           active: row.active,
@@ -117,36 +127,71 @@ router.put(
 
       const body = req.body as {
         credentials: { provider: string } & Record<string, unknown>;
+        activeProvider?: string;
         defaultProductId?: string | null;
         autoReply?: boolean;
         active?: boolean;
       };
 
       const { provider, ...credFields } = body.credentials;
-      const credentialsEncrypted = encryptCredentials(credFields);
+
+      // Merge into the per-provider vault: load whatever the tenant already has
+      // saved, upsert THIS provider's creds, and keep the rest untouched. This
+      // is what lets a hospital store several providers and switch between them
+      // without re-entering the others.
+      const existing = await prisma.whatsAppConfig.findUnique({
+        where: { tenantId },
+        select: { provider: true, credentialsEncrypted: true },
+      });
+      let byProvider: Record<string, Record<string, unknown>> = {};
+      if (existing?.credentialsEncrypted) {
+        try {
+          byProvider = {
+            ...credentialsMap(
+              decryptCredentials(existing.credentialsEncrypted),
+              existing.provider,
+            ),
+          };
+        } catch {
+          // Unreadable prior blob (tamper / rotated key) — start fresh rather
+          // than block the admin from re-saving.
+          byProvider = {};
+        }
+      }
+      byProvider[provider] = credFields;
+
+      // Which provider is ACTIVE after this save. Defaults to the one just
+      // saved; an explicit `activeProvider` must be one we now hold creds for.
+      const activeProvider = body.activeProvider ?? provider;
+      if (!byProvider[activeProvider]) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: `Cannot set ${activeProvider} active — no credentials saved for it yet.`,
+        });
+        return;
+      }
+
+      const credentialsEncrypted = encryptCredentials({ byProvider });
+      const activeEnum = activeProvider as
+        | "GUPSHUP"
+        | "WATI"
+        | "AISENSEI"
+        | "INTERAKT"
+        | "META";
 
       const row = await prisma.whatsAppConfig.upsert({
         where: { tenantId },
         create: {
           tenantId,
-          provider: provider as
-            | "GUPSHUP"
-            | "WATI"
-            | "AISENSEI"
-            | "INTERAKT"
-            | "META",
+          provider: activeEnum,
           credentialsEncrypted,
           defaultProductId: body.defaultProductId ?? null,
           autoReply: body.autoReply ?? true,
           active: body.active ?? true,
         },
         update: {
-          provider: provider as
-            | "GUPSHUP"
-            | "WATI"
-            | "AISENSEI"
-            | "INTERAKT"
-            | "META",
+          provider: activeEnum,
           credentialsEncrypted,
           defaultProductId: body.defaultProductId ?? null,
           ...(body.autoReply !== undefined ? { autoReply: body.autoReply } : {}),

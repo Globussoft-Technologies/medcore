@@ -86,8 +86,14 @@ export function displayActivity(d: DoctorQueue): number {
 //     helper (which attaches X-Tenant-Id from the logged-in user). Used when a
 //     staff member (e.g. a receptionist) opens the board from the dashboard —
 //     they only ever see their own hospital's doctors.
-export function useDisplayData(scoped = false) {
+export function useDisplayData(scoped = false, tenant: string | null = null) {
   const [doctors, setDoctors] = useState<DoctorQueue[]>([]);
+  const [hospitalName, setHospitalName] = useState<string | null>(null);
+  // False until the first fetch settles. Used to suppress the "MedCore
+  // Hospital" title + "No doctors" empty-state FLASH on (re)load — before the
+  // API responds we don't yet know the real hospital name or its doctors, so
+  // showing the generic fallback made a tenant board look wrong on refresh.
+  const [hydrated, setHydrated] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [connected, setConnected] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -98,19 +104,30 @@ export function useDisplayData(scoped = false) {
   const fetchQueue = useCallback(async () => {
     try {
       let data: DoctorQueue[];
+      let name: string | null = null;
       if (scoped) {
         // Authenticated, tenant-scoped board. `api.get` returns the unwrapped
         // envelope ({ data, ... }); X-Tenant-Id is added by the api helper.
-        const json = await api.get<{ data: DoctorQueue[] }>("/queue");
+        const json = await api.get<{ data: DoctorQueue[]; hospitalName?: string | null }>(
+          "/queue",
+        );
         if (!json?.data) throw new Error("Invalid response");
         data = json.data;
+        name = json.hospitalName ?? null;
       } else {
-        const res = await fetch(`${API_BASE}/queue/display`);
+        // Public board. When `tenant` is set (id or subdomain), the board is
+        // scoped to that hospital and the response carries its name.
+        const url = tenant
+          ? `${API_BASE}/queue/display?tenant=${encodeURIComponent(tenant)}`
+          : `${API_BASE}/queue/display`;
+        const res = await fetch(url);
         const json = await res.json();
         if (!json.success || !json.data) throw new Error("Invalid response");
         data = json.data;
+        name = json.hospitalName ?? null;
       }
       setDoctors(data);
+      setHospitalName(name);
       setOffline(false);
       setLastUpdate(Date.now());
       writeCache(data);
@@ -121,8 +138,12 @@ export function useDisplayData(scoped = false) {
         setLastUpdate(cached.ts);
       }
       setOffline(true);
+    } finally {
+      // First fetch has settled — the board now reflects real data (or the
+      // offline/empty truth), so the loading placeholders can step aside.
+      setHydrated(true);
     }
-  }, [scoped]);
+  }, [scoped, tenant]);
 
   // Cached data immediately on mount so we never show blank on reload.
   useEffect(() => {
@@ -171,7 +192,7 @@ export function useDisplayData(scoped = false) {
     };
   }, [fetchQueue]);
 
-  return { doctors, currentTime, connected, offline, lastUpdate };
+  return { doctors, hospitalName, hydrated, currentTime, connected, offline, lastUpdate };
 }
 
 // Shared board header: hospital name + live date/time + offline banner.
@@ -180,11 +201,20 @@ export function DisplayHeader({
   connected,
   offline,
   lastUpdate,
+  hospitalName,
+  loading = false,
 }: {
   currentTime: Date | null;
   connected: boolean;
   offline: boolean;
   lastUpdate: number | null;
+  // Per-tenant hospital name for the board title. Falls back to a neutral
+  // default when the board is unscoped (no tenant on the URL / no login).
+  hospitalName?: string | null;
+  // True until the first fetch settles — while loading we DON'T show the
+  // generic "MedCore Hospital" fallback (it flashed on refresh before the real
+  // per-tenant name arrived); we render a blank, height-preserving title.
+  loading?: boolean;
 }) {
   const dateStr = currentTime
     ? currentTime.toLocaleDateString("en-IN", {
@@ -223,7 +253,7 @@ export function DisplayHeader({
       )}
       <header className="mb-10 text-center">
         <h1 className="mc-title-glow text-6xl font-black tracking-tight md:text-7xl">
-          MedCore Hospital
+          {hospitalName || (loading ? " " : "MedCore Hospital")}
         </h1>
         <div className="mt-4 flex items-center justify-center gap-8 text-2xl text-slate-400">
           <span>{dateStr}</span>

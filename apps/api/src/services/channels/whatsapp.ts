@@ -17,7 +17,8 @@
 //   WHATSAPP_API_KEY  — bearer token / API key
 
 import { prisma } from "@medcore/db";
-import { decryptCredentials } from "../whatsapp-crypto";
+import { decryptCredentials, resolveActiveCredentials } from "../whatsapp-crypto";
+import { isIntegrationEnabled } from "../integration-flags";
 import {
   sendOutboundMessage,
   type DecryptedProviderConfig,
@@ -62,6 +63,12 @@ async function trySendViaTenantConfig(
   to: string,
   text: string,
 ): Promise<ChannelResult | null> {
+  // Settings → Integrations master switch. WhatsApp no longer has its own
+  // per-config "Enabled" checkbox — the tenant's `whatsapp` integration toggle
+  // is the single on/off. Off → skip the tenant path (falls back to env, which
+  // is unset in per-tenant deployments, so effectively no send).
+  if (!(await isIntegrationEnabled(tenantId, "whatsapp"))) return null;
+
   let row: ConfigRow | null = null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,9 +91,16 @@ async function trySendViaTenantConfig(
 
   let creds: DecryptedProviderConfig;
   try {
-    creds = decryptCredentials(
-      row.credentialsEncrypted,
-    ) as DecryptedProviderConfig;
+    // Resolve the ACTIVE provider's creds from the per-provider vault (falls
+    // back cleanly to the legacy flat blob for older rows).
+    const active = resolveActiveCredentials(
+      decryptCredentials(row.credentialsEncrypted),
+      row.provider,
+    );
+    if (!active) {
+      return { ok: false, error: `no credentials stored for active provider ${row.provider}` };
+    }
+    creds = active as DecryptedProviderConfig;
   } catch (e) {
     return { ok: false, error: `decrypt failed: ${String(e)}` };
   }

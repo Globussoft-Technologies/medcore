@@ -33,7 +33,8 @@ import { Router, Request, Response } from "express";
 import express from "express";
 import { prisma } from "@medcore/db";
 import { auditLog } from "../middleware/audit";
-import { decryptCredentials } from "../services/whatsapp-crypto";
+import { decryptCredentials, resolveActiveCredentials } from "../services/whatsapp-crypto";
+import { isIntegrationEnabled } from "../services/integration-flags";
 import {
   verifyInboundSignature,
   parseInboundMessage,
@@ -102,9 +103,17 @@ async function resolveTenantConfig(
 
   for (const row of rows) {
     if (!row.credentialsEncrypted) continue;
+    // Settings → Integrations master switch: ignore inbound for tenants whose
+    // WhatsApp integration is turned off.
+    if (!(await isIntegrationEnabled(row.tenantId, "whatsapp"))) continue;
     let creds: DecryptedProviderConfig;
     try {
-      creds = decryptCredentials(row.credentialsEncrypted) as DecryptedProviderConfig;
+      const active = resolveActiveCredentials(
+        decryptCredentials(row.credentialsEncrypted),
+        row.provider,
+      );
+      if (!active) continue;
+      creds = active as DecryptedProviderConfig;
     } catch (err) {
       console.error(
         `[wa-webhook] decrypt failed for tenant=${row.tenantId}: ${String(err)}`,
@@ -166,10 +175,11 @@ router.get("/:provider", async (req: Request, res: Response) => {
   for (const row of rows) {
     if (!row.credentialsEncrypted) continue;
     try {
-      const creds = decryptCredentials(
-        row.credentialsEncrypted,
-      ) as DecryptedProviderConfig;
-      if (creds.verifyToken && creds.verifyToken === verifyToken) {
+      const creds = resolveActiveCredentials(
+        decryptCredentials(row.credentialsEncrypted),
+        row.provider,
+      ) as DecryptedProviderConfig | null;
+      if (creds && creds.verifyToken && creds.verifyToken === verifyToken) {
         res.status(200).type("text/plain").send(challenge);
         return;
       }

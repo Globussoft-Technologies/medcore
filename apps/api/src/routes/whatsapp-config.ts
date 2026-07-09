@@ -28,6 +28,7 @@ import { Role, whatsappConfigPutSchema } from "@medcore/shared";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { tenantConfigKey } from "../services/tenant-provisioning";
 import {
   encryptCredentials,
   decryptCredentials,
@@ -151,6 +152,22 @@ router.put(
           ...(body.autoReply !== undefined ? { autoReply: body.autoReply } : {}),
           ...(body.active !== undefined ? { active: body.active } : {}),
         },
+      });
+
+      // Stamp the onboarding wizard step so the "WhatsApp Business" item flips
+      // to completed in BOTH the super-admin tenant checklist and the tenant's
+      // own onboarding page. Previously only the super-admin route stamped it,
+      // so a tenant admin configuring WhatsApp themselves left the checklist
+      // reading "Not started" even though messaging was live.
+      const stampKey = tenantConfigKey(
+        tenantId,
+        "onboarding_step_whatsapp_completed_at",
+      );
+      const stampVal = new Date().toISOString();
+      await prisma.systemConfig.upsert({
+        where: { key: stampKey },
+        create: { key: stampKey, value: stampVal },
+        update: { value: stampVal },
       });
 
       // Critically — log ONLY the metadata, never the creds.

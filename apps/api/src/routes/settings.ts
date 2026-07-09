@@ -26,6 +26,7 @@ import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { tenantConfigKey } from "../services/tenant-provisioning";
+import { invalidateRazorpayCacheForTenant } from "../services/razorpay";
 
 const router = Router();
 router.use(authenticate);
@@ -70,6 +71,84 @@ const updateBrandingSchema = z.object({
     .refine((v) => v === "" || !containsHtmlOrScript(v), {
       message: "Logo URL cannot contain HTML or script tags",
     })
+    .optional()
+    .or(z.literal("")),
+  // Hospital contact / legal identity — rendered on invoices, prescriptions,
+  // receipts and the super-admin "Hospital Config" panel. All optional; empty
+  // string clears the stored value. HTML/script rejected (stored-XSS guard,
+  // Issue #938) since these strings land in PDFs + notification templates.
+  hospitalPhone: z
+    .string()
+    .trim()
+    .max(20, "Phone is too long")
+    .refine((v) => v === "" || /^[+\d][\d\s()\-]{4,}$/.test(v), {
+      message: "Enter a valid phone number",
+    })
+    .optional()
+    .or(z.literal("")),
+  hospitalEmail: z
+    .string()
+    .trim()
+    .max(120, "Email is too long")
+    .refine((v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), {
+      message: "Enter a valid email address",
+    })
+    .optional()
+    .or(z.literal("")),
+  hospitalGstin: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || /^[0-9A-Za-z]{15}$/.test(v), {
+      message: "GSTIN must be 15 letters/digits",
+    })
+    .optional()
+    .or(z.literal("")),
+  hospitalAddress: z
+    .string()
+    .trim()
+    .max(500, "Address is too long")
+    .refine((v) => v === "" || !containsHtmlOrScript(v), {
+      message: "Address cannot contain HTML or script tags",
+    })
+    .optional()
+    .or(z.literal("")),
+});
+
+// Per-tenant Razorpay payment credentials.
+//
+// Until now the ONLY write path for a tenant's Razorpay creds was the
+// super-admin route (`PATCH /api/v1/tenants/:id`, gated by requireSuperAdmin),
+// so a normal tenant ADMIN could not self-serve their own gateway keys. This
+// schema backs the in-band tenant-admin route below. It operates strictly on
+// the caller's OWN tenantId (never a path param), so it can never widen into
+// cross-tenant access — the same boundary as the branding/integrations writes.
+//
+// keyId must look like Razorpay's `rzp_test_…` / `rzp_live_…`. keySecret is
+// WRITE-ONLY: the GET route returns only a masked prefix + a `hasSecret` flag,
+// and omitting keySecret on PATCH LEAVES the stored secret unchanged (so an
+// admin can re-save mode/webhook without re-typing the secret they can't read
+// back). webhookSecret lands in SystemConfig (`razorpay_webhook_secret`) to
+// mirror where the super-admin onboarding flow stores it.
+const updatePaymentSchema = z.object({
+  razorpayKeyId: z
+    .string()
+    .trim()
+    .regex(
+      /^rzp_(test|live)_[A-Za-z0-9]{6,}$/,
+      "Key ID must look like rzp_test_XXXX or rzp_live_XXXX",
+    ),
+  razorpayKeySecret: z
+    .string()
+    .trim()
+    .min(8, "Key Secret looks too short")
+    .max(128)
+    .optional()
+    .or(z.literal("")),
+  razorpayMode: z.enum(["test", "live"]),
+  razorpayWebhookSecret: z
+    .string()
+    .trim()
+    .max(256)
     .optional()
     .or(z.literal("")),
 });
@@ -161,17 +240,21 @@ router.get("/branding", async (req: Request, res: Response, next: NextFunction) 
     }
 
     const branding = await readConfigMap(tenantId, "branding_");
-    const hospitalNameMirror =
-      (await prisma.systemConfig.findUnique({
-        where: { key: tenantConfigKey(tenantId, "hospital_name") },
-      }))?.value ?? null;
+    // hospital_* keys hold the name mirror plus contact/legal identity
+    // (phone/email/gstin/address). readConfigMap strips the `hospital_`
+    // prefix, so `hospital_phone` → `phone`, etc.
+    const hospital = await readConfigMap(tenantId, "hospital_");
 
     res.json({
       success: true,
       data: {
-        hospitalName: tenant.name || hospitalNameMirror || "",
+        hospitalName: tenant.name || hospital.name || "",
         primaryColor: branding.primary_color || "",
         logoUrl: branding.logo_url || "",
+        hospitalPhone: hospital.phone || "",
+        hospitalEmail: hospital.email || "",
+        hospitalGstin: hospital.gstin || "",
+        hospitalAddress: hospital.address || "",
       },
       error: null,
     });
@@ -211,6 +294,22 @@ router.patch(
         await upsertConfig(tenantId, "branding_logo_url", body.logoUrl);
       }
 
+      // Hospital contact / legal fields. Upsert whenever the field was sent
+      // (including "" so the admin can CLEAR a value); GSTIN is normalised to
+      // uppercase to match the canonical government format.
+      if (body.hospitalPhone !== undefined) {
+        await upsertConfig(tenantId, "hospital_phone", body.hospitalPhone);
+      }
+      if (body.hospitalEmail !== undefined) {
+        await upsertConfig(tenantId, "hospital_email", body.hospitalEmail);
+      }
+      if (body.hospitalGstin !== undefined) {
+        await upsertConfig(tenantId, "hospital_gstin", body.hospitalGstin.toUpperCase());
+      }
+      if (body.hospitalAddress !== undefined) {
+        await upsertConfig(tenantId, "hospital_address", body.hospitalAddress);
+      }
+
       auditLog(req, "TENANT_BRANDING_UPDATE", "tenant", tenantId, {
         hospitalName: body.hospitalName,
       }).catch(console.error);
@@ -221,6 +320,10 @@ router.patch(
           hospitalName: body.hospitalName,
           primaryColor: body.primaryColor || "",
           logoUrl: body.logoUrl || "",
+          hospitalPhone: body.hospitalPhone ?? "",
+          hospitalEmail: body.hospitalEmail ?? "",
+          hospitalGstin: (body.hospitalGstin ?? "").toUpperCase(),
+          hospitalAddress: body.hospitalAddress ?? "",
         },
         error: null,
       });
@@ -243,7 +346,12 @@ router.get(
         const enabledRaw = map[`${key}_enabled`];
         return {
           key,
-          enabled: enabledRaw === "true",
+          // DEFAULT ON: enabled unless explicitly turned off. This matches the
+          // runtime enforcement in services/integration-flags.ts — the toggle
+          // now MEANS something (a disabled connector stops working), so an
+          // untouched connector must read as enabled, not off. Turning a toggle
+          // off writes "false" and disables the connector for this tenant.
+          enabled: enabledRaw !== "false",
           // Surface a non-secret status hint — never the credential itself.
           configured: Object.keys(map).some(
             (k) => k.startsWith(`${key}_`) && k !== `${key}_enabled`,
@@ -294,6 +402,147 @@ router.patch(
       }).catch(console.error);
 
       res.json({ success: true, data: { ok: true }, error: null });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// GET /api/v1/settings/payment — read this tenant's Razorpay config (masked).
+//
+// Never returns the secret. Surfaces only what the UI needs to render current
+// state: whether keys are configured, the (non-secret) key-id prefix, the
+// mode, and boolean flags for whether a secret / webhook secret is on file.
+router.get("/payment", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = requireTenantId(req, res);
+    if (!tenantId) return;
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { razorpayKeyId: true, razorpayKeySecret: true, razorpayMode: true },
+    });
+    if (!tenant) {
+      res.status(404).json({ success: false, data: null, error: "Tenant not found" });
+      return;
+    }
+
+    const webhook = await prisma.systemConfig.findUnique({
+      where: { key: tenantConfigKey(tenantId, "razorpay_webhook_secret") },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        provider: "razorpay",
+        configured: !!(tenant.razorpayKeyId && tenant.razorpayKeySecret),
+        razorpayKeyId: tenant.razorpayKeyId || "",
+        // Mask the id defensively — the key id is not itself a secret, but we
+        // only need enough for the admin to recognise which key is on file.
+        razorpayKeyIdMasked: tenant.razorpayKeyId
+          ? `${tenant.razorpayKeyId.slice(0, 12)}…`
+          : "",
+        razorpayMode: tenant.razorpayMode || "test",
+        hasSecret: !!tenant.razorpayKeySecret,
+        hasWebhookSecret: !!webhook?.value,
+      },
+      error: null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PATCH /api/v1/settings/payment — set/rotate this tenant's Razorpay creds.
+//
+// Writes razorpayKeyId / razorpayKeySecret / razorpayMode onto the caller's
+// OWN Tenant row (scoped by req.user.tenantId — no path param, no cross-tenant
+// reach), upserts the webhook secret into SystemConfig, and busts the
+// per-tenant Razorpay client cache so the very next payment uses the new keys.
+// The audit row records ONLY the mode + a short key-id prefix — never the
+// secret. Payments then resolve per-tenant automatically via
+// services/razorpay.ts getCreds(tenantId).
+router.patch(
+  "/payment",
+  validate(updatePaymentSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const tenantId = requireTenantId(req, res);
+      if (!tenantId) return;
+
+      const body = req.body as z.infer<typeof updatePaymentSchema>;
+
+      // Guard: a brand-new config MUST include the secret; a rotation may omit
+      // it to keep the existing one. So only allow an omitted secret when one
+      // is already stored.
+      const existing = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { razorpayKeySecret: true },
+      });
+      const secretProvided = !!body.razorpayKeySecret && body.razorpayKeySecret.length > 0;
+      if (!secretProvided && !existing?.razorpayKeySecret) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: "Key Secret is required when saving Razorpay credentials for the first time",
+        });
+        return;
+      }
+
+      await prisma.tenant.update({
+        where: { id: tenantId },
+        data: {
+          razorpayKeyId: body.razorpayKeyId,
+          razorpayMode: body.razorpayMode,
+          // Only overwrite the secret when the admin actually typed a new one.
+          ...(secretProvided ? { razorpayKeySecret: body.razorpayKeySecret } : {}),
+        },
+      });
+
+      if (body.razorpayWebhookSecret && body.razorpayWebhookSecret.length > 0) {
+        await upsertConfig(
+          tenantId,
+          "razorpay_webhook_secret",
+          body.razorpayWebhookSecret,
+        );
+      }
+
+      // Stamp the onboarding wizard step so the "Payment gateway" item flips to
+      // completed in BOTH the super-admin tenant checklist and the tenant's own
+      // onboarding page. Previously only the super-admin route stamped this, so
+      // a tenant admin configuring their own gateway left the checklist reading
+      // "Not started" even though payments were live.
+      await upsertConfig(
+        tenantId,
+        "onboarding_step_payment_gateway_completed_at",
+        new Date().toISOString(),
+      );
+
+      // Bust the creds cache so the next createPaymentOrder/verifyPayment for
+      // this tenant picks up the rotated keys immediately (60s TTL otherwise).
+      try {
+        invalidateRazorpayCacheForTenant(tenantId);
+      } catch {
+        /* non-fatal — cache will expire on its own within the TTL */
+      }
+
+      auditLog(req, "TENANT_PAYMENT_GATEWAY_SET", "tenant", tenantId, {
+        provider: "razorpay",
+        mode: body.razorpayMode,
+        keyIdPrefix: body.razorpayKeyId.slice(0, 12),
+        secretRotated: secretProvided,
+      }).catch(console.error);
+
+      res.json({
+        success: true,
+        data: {
+          provider: "razorpay",
+          razorpayKeyId: body.razorpayKeyId,
+          razorpayMode: body.razorpayMode,
+          hasSecret: secretProvided || !!existing?.razorpayKeySecret,
+        },
+        error: null,
+      });
     } catch (err) {
       next(err);
     }

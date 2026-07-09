@@ -52,25 +52,56 @@ interface HospitalInfo {
   registration: string;
 }
 
-async function getHospitalInfo(): Promise<HospitalInfo> {
-  const rows = await prisma.systemConfig.findMany({
-    where: {
-      key: {
-        in: [
-          "hospital_name",
-          "hospital_address",
-          "hospital_phone",
-          "hospital_email",
-          "hospital_gstin",
-          "hospital_registration",
-        ],
-      },
-    },
-  });
+// The "seller" identity on a printed document. When a `tenantId` is supplied,
+// it's sourced PER TENANT from the hospital's own config (Settings → Branding),
+// stored under tenant-scoped SystemConfig keys `tenant:<id>:hospital_*`, with
+// Tenant.name as the canonical name. Without a tenantId it falls back to the
+// legacy GLOBAL `hospital_*` keys (unchanged behaviour for callers not yet
+// migrated), so this stays backward-compatible.
+const HOSPITAL_KEYS = [
+  "hospital_name",
+  "hospital_address",
+  "hospital_phone",
+  "hospital_email",
+  "hospital_gstin",
+  "hospital_registration",
+] as const;
+
+async function getHospitalInfo(
+  tenantId?: string | null,
+): Promise<HospitalInfo> {
   const map: Record<string, string> = {};
-  rows.forEach((r) => (map[r.key] = r.value));
+  let tenantName: string | null = null;
+  let isDefaultTenant = false;
+
+  if (tenantId) {
+    const prefix = `tenant:${tenantId}:`;
+    const rows = await prisma.systemConfig.findMany({
+      where: { key: { in: HOSPITAL_KEYS.map((s) => `${prefix}${s}`) } },
+    });
+    rows.forEach((r) => (map[r.key.slice(prefix.length)] = r.value));
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, subdomain: true },
+    });
+    tenantName = tenant?.name ?? null;
+    isDefaultTenant = tenant?.subdomain === "default";
+  }
+
+  // Backfill from the legacy GLOBAL keys for the platform default/demo tenant
+  // or a no-tenant caller. Real tenants keep their unset fields blank so a
+  // document never shows another hospital's identity.
+  if (isDefaultTenant || !tenantId) {
+    const rows = await prisma.systemConfig.findMany({
+      where: { key: { in: [...HOSPITAL_KEYS] } },
+    });
+    rows.forEach((r) => {
+      if (map[r.key] === undefined) map[r.key] = r.value;
+    });
+  }
+
   return {
-    name: map.hospital_name || "Hospital",
+    name: tenantName || map.hospital_name || "Hospital",
     address: map.hospital_address || "",
     phone: map.hospital_phone || "",
     email: map.hospital_email || "",
@@ -638,7 +669,7 @@ export async function generateInvoicePDF(invoiceId: string): Promise<string> {
   });
   if (!inv) throw new Error("Invoice not found");
 
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(inv.tenantId);
   const p = inv.patient;
 
   // Issue #901: Invoice money columns are now Prisma.Decimal. Coerce

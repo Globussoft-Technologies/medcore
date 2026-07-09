@@ -856,6 +856,25 @@ router.get(
         }
       }
 
+      // Backfill from real config so a tenant admin who configured WhatsApp /
+      // Razorpay from their own Settings (which may predate the step stamp we
+      // now write) still sees the checklist reflect reality. Cover BOTH step-key
+      // spellings used across the two checklist surfaces: "whatsapp" on the
+      // super-admin tenant-detail page and "whatsapp_setup" on this onboarding
+      // page.
+      const waCfg = await prisma.whatsAppConfig.findUnique({
+        where: { tenantId: tenant.id },
+        select: { updatedAt: true },
+      });
+      if (waCfg) {
+        const ts = waCfg.updatedAt.toISOString();
+        if (!steps["whatsapp"]) steps["whatsapp"] = ts;
+        if (!steps["whatsapp_setup"]) steps["whatsapp_setup"] = ts;
+      }
+      if (tenant.razorpayKeyId && !steps["payment_gateway"]) {
+        steps["payment_gateway"] = (tenant.updatedAt ?? new Date()).toISOString();
+      }
+
       res.json({
         success: true,
         data: { tenantId: tenant.id, steps, skipped },

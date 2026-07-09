@@ -251,7 +251,11 @@ export default function InvoiceDetailPage() {
     async (amount?: number) => {
       if (!invoice) return;
       if (!razorpay.enabled) {
-        toast.error("Online payments are not configured. Use Cash or Card.");
+        // Per-tenant: this hospital has no Razorpay keys on file. Point staff
+        // at where to fix it rather than a dead-end "not configured".
+        toast.error(
+          "Online payments aren't set up for this hospital yet. An administrator can add the Razorpay keys in Settings → Payments. For now, use Cash or Card.",
+        );
         return;
       }
       setPayingOnline(true);
@@ -275,8 +279,13 @@ export default function InvoiceDetailPage() {
             if (reason !== "Payment cancelled") toast.error(reason);
           },
         });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Online payment failed");
+      } catch (err: any) {
+        // Prefer the server's actionable message (e.g. gateway-not-configured)
+        // over a generic one so the tenant sees exactly what's wrong.
+        toast.error(
+          err?.payload?.error ||
+            (err instanceof Error ? err.message : "Online payment failed"),
+        );
       } finally {
         setPayingOnline(false);
       }

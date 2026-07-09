@@ -337,7 +337,7 @@ describeIfDB("Tenant Settings API (integration)", () => {
 
   // ─── GET /integrations ─────────────────────────────────────
 
-  it("GET /integrations returns the KNOWN_INTEGRATIONS list with default-disabled", async () => {
+  it("GET /integrations returns the KNOWN_INTEGRATIONS list default-enabled", async () => {
     const res = await request(app)
       .get("/api/v1/settings/integrations")
       .set("Authorization", `Bearer ${adminAToken}`);
@@ -356,9 +356,12 @@ describeIfDB("Tenant Settings API (integration)", () => {
         "sentry",
       ]),
     );
-    // No config rows yet — every entry must be disabled + not configured.
+    // DEFAULT ON (the toggle is now enforced at runtime — see
+    // services/integration-flags.ts — so an untouched connector must read as
+    // enabled, not off; only an explicit toggle-off writes "false"). No creds
+    // configured yet, so `configured` is still false.
     for (const entry of res.body.data.integrations) {
-      expect(entry.enabled).toBe(false);
+      expect(entry.enabled).toBe(true);
       expect(entry.configured).toBe(false);
     }
   });

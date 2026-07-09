@@ -53,25 +53,59 @@ interface HospitalInfo {
   registration: string;
 }
 
-async function getHospitalInfo(): Promise<HospitalInfo> {
-  const rows = await prisma.systemConfig.findMany({
-    where: {
-      key: {
-        in: [
-          "hospital_name",
-          "hospital_address",
-          "hospital_phone",
-          "hospital_email",
-          "hospital_gstin",
-          "hospital_registration",
-        ],
-      },
-    },
-  });
+// The "seller" identity printed on a document is PER TENANT — sourced from
+// the hospital's own config (Settings → Branding), stored under tenant-scoped
+// SystemConfig keys `tenant:<id>:hospital_*`, with Tenant.name as the canonical
+// hospital name. Previously read GLOBAL `hospital_*` keys, so every tenant's
+// PDF showed the seeded demo hospital instead of its own. No tenant context →
+// neutral fallback (never another tenant's details).
+const HOSPITAL_KEYS = [
+  "hospital_name",
+  "hospital_address",
+  "hospital_phone",
+  "hospital_email",
+  "hospital_gstin",
+  "hospital_registration",
+] as const;
+
+async function getHospitalInfo(
+  tenantId?: string | null,
+): Promise<HospitalInfo> {
   const map: Record<string, string> = {};
-  rows.forEach((r: { key: string; value: string }) => (map[r.key] = r.value));
+  let tenantName: string | null = null;
+  let isDefaultTenant = false;
+
+  if (tenantId) {
+    const prefix = `tenant:${tenantId}:`;
+    const rows = await prisma.systemConfig.findMany({
+      where: { key: { in: HOSPITAL_KEYS.map((s) => `${prefix}${s}`) } },
+    });
+    rows.forEach(
+      (r: { key: string; value: string }) =>
+        (map[r.key.slice(prefix.length)] = r.value),
+    );
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, subdomain: true },
+    });
+    tenantName = tenant?.name ?? null;
+    isDefaultTenant = tenant?.subdomain === "default";
+  }
+
+  // Seeded GLOBAL config only backfills the platform default/demo tenant (or a
+  // no-tenant context). Real tenants never inherit the demo — unset fields stay
+  // blank rather than printing another hospital's details.
+  if (isDefaultTenant || !tenantId) {
+    const globalRows = await prisma.systemConfig.findMany({
+      where: { key: { in: [...HOSPITAL_KEYS] } },
+    });
+    globalRows.forEach((r: { key: string; value: string }) => {
+      if (map[r.key] === undefined) map[r.key] = r.value;
+    });
+  }
+
   return {
-    name: map.hospital_name || "Hospital",
+    name: tenantName || map.hospital_name || "Hospital",
     address: map.hospital_address || "",
     phone: map.hospital_phone || "",
     email: map.hospital_email || "",
@@ -421,7 +455,7 @@ export async function generatePrescriptionPDFBuffer(
   });
   if (!prescription) throw new Error("Prescription not found");
 
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(prescription.tenantId);
   const patient = prescription.patient;
   const doctor = prescription.doctor;
   const items = prescription.items;
@@ -602,7 +636,7 @@ export async function generateInvoicePDFBuffer(invoiceId: string): Promise<Buffe
   });
   if (!inv) throw new Error("Invoice not found");
 
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(inv.tenantId);
   const p = inv.patient;
   // Issue #202 / #236: derive the canonical totals from the line items so
   // the footer Total = Subtotal + GST holds even when the persisted
@@ -832,7 +866,7 @@ export async function generateDischargeSummaryPDFBuffer(
   });
   if (!admission) throw new Error("Admission not found");
 
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(admission.tenantId);
   const p = admission.patient;
 
   const doc = new PDFDocument({ size: "A4", margin: 40 });

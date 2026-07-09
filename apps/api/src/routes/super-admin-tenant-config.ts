@@ -757,6 +757,28 @@ router.get(
         },
       });
 
+      // Wizard-step completion map, from the stamped keys. Then BACKFILL from
+      // real config: a tenant admin can configure WhatsApp / Razorpay from
+      // their own Settings, and older saves predate the step-stamp we now
+      // write — so without deriving from the actual stored config the checklist
+      // wrongly reads "Not started" even though the integration is live.
+      const steps: Record<string, string> = Object.fromEntries(
+        Object.entries(config)
+          .filter(([k]) => k.startsWith("onboarding_step_"))
+          .map(([k, v]) => [
+            k.replace(/^onboarding_step_/, "").replace(/_completed_at$/, ""),
+            v,
+          ]),
+      );
+      if (!steps["whatsapp"] && wa) {
+        steps["whatsapp"] = wa.updatedAt.toISOString();
+      }
+      if (!steps["payment_gateway"] && fullTenant?.razorpayKeyId) {
+        steps["payment_gateway"] = (
+          fullTenant.updatedAt ?? new Date()
+        ).toISOString();
+      }
+
       res.json({
         success: true,
         data: {
@@ -804,14 +826,7 @@ router.get(
               : null,
             businessName: config["payment_business_name"] ?? null,
           },
-          steps: Object.fromEntries(
-            Object.entries(config)
-              .filter(([k]) => k.startsWith("onboarding_step_"))
-              .map(([k, v]) => [
-                k.replace(/^onboarding_step_/, "").replace(/_completed_at$/, ""),
-                v,
-              ]),
-          ),
+          steps,
         },
         error: null,
       });

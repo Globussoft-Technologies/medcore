@@ -319,27 +319,20 @@ describe("whatsappCredentialsSchema — META variant", () => {
       ).toBe(true);
     }
   });
-  it("rejects empty appSecret", () => {
-    const r = whatsappCredentialsSchema.safeParse({ ...valid, appSecret: "" });
-    expect(r.success).toBe(false);
-    if (!r.success) {
-      expect(
-        r.error.issues.some((i) =>
-          /Meta Cloud API app secret is required/.test(i.message)
-        )
-      ).toBe(true);
-    }
+  // appSecret + verifyToken are INBOUND (webhook) creds — only needed to
+  // RECEIVE messages / auto-reply. On the credentials union alone they are
+  // OPTIONAL (send-only configs skip them); they're conditionally required by
+  // whatsappConfigPutSchema when autoReply is true (see the put-schema block
+  // below). So the credentials schema accepts them empty / absent.
+  it("accepts empty appSecret (webhook cred — required only with auto-reply)", () => {
+    expect(
+      whatsappCredentialsSchema.safeParse({ ...valid, appSecret: "" }).success
+    ).toBe(true);
   });
-  it("rejects empty verifyToken", () => {
-    const r = whatsappCredentialsSchema.safeParse({ ...valid, verifyToken: "" });
-    expect(r.success).toBe(false);
-    if (!r.success) {
-      expect(
-        r.error.issues.some((i) =>
-          /Meta Cloud API verify token is required/.test(i.message)
-        )
-      ).toBe(true);
-    }
+  it("accepts empty verifyToken (webhook cred — required only with auto-reply)", () => {
+    expect(
+      whatsappCredentialsSchema.safeParse({ ...valid, verifyToken: "" }).success
+    ).toBe(true);
   });
   it("rejects missing accessToken field", () => {
     const { accessToken: _a, ...rest } = valid;
@@ -349,13 +342,13 @@ describe("whatsappCredentialsSchema — META variant", () => {
     const { phoneNumberId: _p, ...rest } = valid;
     expect(whatsappCredentialsSchema.safeParse(rest).success).toBe(false);
   });
-  it("rejects missing appSecret field", () => {
+  it("accepts missing appSecret field (webhook cred — required only with auto-reply)", () => {
     const { appSecret: _s, ...rest } = valid;
-    expect(whatsappCredentialsSchema.safeParse(rest).success).toBe(false);
+    expect(whatsappCredentialsSchema.safeParse(rest).success).toBe(true);
   });
-  it("rejects missing verifyToken field", () => {
+  it("accepts missing verifyToken field (webhook cred — required only with auto-reply)", () => {
     const { verifyToken: _v, ...rest } = valid;
-    expect(whatsappCredentialsSchema.safeParse(rest).success).toBe(false);
+    expect(whatsappCredentialsSchema.safeParse(rest).success).toBe(true);
   });
   it("rejects payload mixing META provider with GUPSHUP-only fields", () => {
     // Discriminator says META → expects accessToken/phoneNumberId/appSecret/
@@ -529,5 +522,56 @@ describe("whatsappConfigPutSchema", () => {
     for (const credentials of variants) {
       expect(whatsappConfigPutSchema.safeParse({ credentials }).success).toBe(true);
     }
+  });
+
+  // Meta webhook creds (appSecret / verifyToken) are required ONLY when
+  // auto-reply (receiving) is enabled. Send-only configs may omit them.
+  const sendOnlyMeta = {
+    provider: "META" as const,
+    accessToken: "EAAGm0live_token",
+    phoneNumberId: "112233445566778",
+  };
+  it("accepts META send-only (no appSecret/verifyToken) when autoReply is off", () => {
+    expect(
+      whatsappConfigPutSchema.safeParse({ credentials: sendOnlyMeta }).success
+    ).toBe(true);
+    expect(
+      whatsappConfigPutSchema.safeParse({
+        credentials: sendOnlyMeta,
+        autoReply: false,
+      }).success
+    ).toBe(true);
+  });
+  it("rejects META with autoReply on but missing appSecret", () => {
+    const r = whatsappConfigPutSchema.safeParse({
+      credentials: { ...sendOnlyMeta, verifyToken: "verify-2026" },
+      autoReply: true,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(
+        r.error.issues.some((i) => /App secret is required/.test(i.message))
+      ).toBe(true);
+    }
+  });
+  it("rejects META with autoReply on but missing verifyToken", () => {
+    const r = whatsappConfigPutSchema.safeParse({
+      credentials: { ...sendOnlyMeta, appSecret: "secret" },
+      autoReply: true,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(
+        r.error.issues.some((i) => /Verify token is required/.test(i.message))
+      ).toBe(true);
+    }
+  });
+  it("accepts META with autoReply on when both webhook creds are present", () => {
+    expect(
+      whatsappConfigPutSchema.safeParse({
+        credentials: validCredentials,
+        autoReply: true,
+      }).success
+    ).toBe(true);
   });
 });

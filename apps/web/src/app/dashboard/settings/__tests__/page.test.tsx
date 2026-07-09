@@ -1161,6 +1161,12 @@ describe("SettingsPage — Branding tab (ADMIN, Issues #716 / #717)", () => {
         hospitalName: "MedCore",
         primaryColor: "#abcdef",
         logoUrl: undefined,
+        // Hospital contact/legal fields are always sent (trimmed) so an admin
+        // can clear a value; empty when untouched in this test.
+        hospitalPhone: "",
+        hospitalEmail: "",
+        hospitalGstin: "",
+        hospitalAddress: "",
       }),
     );
     expect(toastMock.success).toHaveBeenCalledWith("Branding saved");

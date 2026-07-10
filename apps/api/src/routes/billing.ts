@@ -841,7 +841,8 @@ router.get(
       // tenant-scoped) or when there's no tenant context. A real tenant does
       // NOT inherit the demo — an unconfigured field stays blank so its invoice
       // never prints another hospital's address / GSTIN.
-      if (isDefaultTenant || !tenantId) {
+      const useDemo = isDefaultTenant || !tenantId;
+      if (useDemo) {
         const globalRows = await prisma.systemConfig.findMany({
           where: { key: { in: suffixes } },
         });
@@ -850,17 +851,29 @@ router.get(
         });
       }
 
+      // Demo placeholders — used ONLY for the default/platform (or tenant-less)
+      // context so QA/single-hospital deploys never show raw blanks. Real
+      // tenants fall back to empty (rendered rows are hidden) rather than
+      // another hospital's demo details.
+      const demo = (val: string): string => (useDemo ? val : "");
+
       res.json({
         success: true,
         data: {
           // Canonical Tenant.name first, then the config mirror, then neutral.
-          name: tenantName || map.hospital_name || "Hospital",
-          address: map.hospital_address || "",
-          phone: map.hospital_phone || "",
-          email: map.hospital_email || "",
-          gstin: map.hospital_gstin || "",
+          name:
+            tenantName ||
+            map.hospital_name ||
+            (useDemo ? "MedCore Hospital & Diagnostics" : "Hospital"),
+          address:
+            map.hospital_address ||
+            demo("42 Linking Road, Bandra West, Mumbai, Maharashtra 400050"),
+          phone: map.hospital_phone || demo("+91-80-2345-6789"),
+          email: map.hospital_email || demo("info@medcorehospital.in"),
+          gstin: map.hospital_gstin || demo("27AAACM1234Z1Z5"),
           registration: map.hospital_registration || "",
-          tagline: map.hospital_tagline || "",
+          tagline:
+            map.hospital_tagline || demo("Hospital Operations Automation"),
           logoUrl: map.branding_logo_url || "",
         },
         error: null,

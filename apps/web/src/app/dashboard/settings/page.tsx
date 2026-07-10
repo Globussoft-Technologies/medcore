@@ -1907,7 +1907,10 @@ function WhatsAppTab() {
             className="h-4 w-4"
           />
           Use this provider to send &amp; receive
-          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+          <span
+            data-testid="wa-active-badge"
+            className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+          >
             Active: {providerLabel(activeProvider)}
           </span>
         </label>

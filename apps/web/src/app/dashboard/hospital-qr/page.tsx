@@ -16,6 +16,20 @@ import { api } from "@/lib/api";
 
 const QR_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
+// A cross-tenant super-admin has no single "own hospital", so the hospital QR
+// (a per-tenant reception display) is meaningless for them. Recognise BOTH
+// super-admin shapes — the dedicated SUPER_ADMIN role, and the tenant-admin
+// role with a null tenantId — mirroring the layout's `isSuperAdmin` gate.
+function isCrossTenantSuperAdmin(user: {
+  role: string;
+  tenantId?: string | null;
+}): boolean {
+  return (
+    user.role === "SUPER_ADMIN" ||
+    (user.role === "ADMIN" && (user.tenantId ?? null) === null)
+  );
+}
+
 interface HospitalQr {
   tenantId: string;
   hospitalName: string | null;
@@ -33,14 +47,18 @@ export default function HospitalQrPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  // RBAC: only reception + admin may display the hospital QR.
+  // RBAC: only a tenant-scoped ADMIN or RECEPTION may display the hospital QR.
+  // Cross-tenant super-admins are excluded — they have no single own hospital.
+  const allowed =
+    !!user && QR_ALLOWED.has(user.role) && !isCrossTenantSuperAdmin(user);
+
   useEffect(() => {
-    if (!authLoading && user && !QR_ALLOWED.has(user.role)) {
+    if (!authLoading && user && !allowed) {
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/hospital-qr")}`,
       );
     }
-  }, [authLoading, user, router, pathname]);
+  }, [authLoading, user, allowed, router, pathname]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,9 +74,9 @@ export default function HospitalQrPage() {
   }, []);
 
   useEffect(() => {
-    if (authLoading || !user || !QR_ALLOWED.has(user.role)) return;
+    if (authLoading || !allowed) return;
     void load();
-  }, [authLoading, user, load]);
+  }, [authLoading, allowed, load]);
 
   async function copyLink() {
     if (!data?.url) return;

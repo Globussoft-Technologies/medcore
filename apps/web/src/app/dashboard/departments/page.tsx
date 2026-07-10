@@ -310,9 +310,16 @@ export default function DepartmentsPage() {
   );
 
   // Debounce the member search so we don't fire a request per keystroke.
+  // Only search once the admin types — an empty query returns every addable
+  // staff member, which is noisy. Clear results when the box is emptied.
   useEffect(() => {
     if (!membersFor) return;
-    const id = setTimeout(() => void searchStaff(membersFor.id, memberQuery), 300);
+    if (!memberQuery.trim()) {
+      setMemberResults([]);
+      setSearching(false);
+      return;
+    }
+    const id = setTimeout(() => void searchStaff(membersFor.id, memberQuery.trim()), 300);
     return () => clearTimeout(id);
   }, [membersFor, memberQuery, searchStaff]);
 
@@ -901,7 +908,7 @@ export default function DepartmentsPage() {
                 />
               </div>
               {/* Search results */}
-              {(searching || memberResults.length > 0) && (
+              {memberQuery.trim().length > 0 && (searching || memberResults.length > 0) && (
                 <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border dark:border-gray-700">
                   {searching ? (
                     <p className="p-3 text-sm text-gray-400">Searching…</p>

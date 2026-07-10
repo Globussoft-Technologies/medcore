@@ -130,8 +130,16 @@ export default function DepartmentDetailPage() {
     [id],
   );
 
+  // Only search once the admin actually types — an empty query would return
+  // every addable staff member and (as an absolute dropdown) cover the real
+  // members list below. Clear results when the box is emptied.
   useEffect(() => {
-    const t = setTimeout(() => void searchStaff(memberQuery), 300);
+    if (!memberQuery.trim()) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    const t = setTimeout(() => void searchStaff(memberQuery.trim()), 300);
     return () => clearTimeout(t);
   }, [memberQuery, searchStaff]);
 
@@ -250,7 +258,7 @@ export default function DepartmentDetailPage() {
               placeholder="Search staff to add…"
               className={`${FIELD} pl-9`}
             />
-            {(searching || results.length > 0) && (
+            {memberQuery.trim().length > 0 && (searching || results.length > 0) && (
               <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800">
                 {searching ? (
                   <p className="p-3 text-sm text-gray-400">Searching…</p>

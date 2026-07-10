@@ -227,6 +227,12 @@ enum StockMovementType {
   EXPIRED
   ADJUSTMENT
   DAMAGED
+  // Requisition module (2026-07): store → department issuance (ISSUE, stock
+  // out) and the department-side confirmation (RECEIVE). TRANSFER covers
+  // location-to-location moves surfaced through the same ledger.
+  ISSUE
+  RECEIVE
+  TRANSFER
 }
 
 // ─── PHASE 3 ENUMS ──────────────────────────────────────
@@ -891,6 +897,14 @@ model Tenant {
   notificationPreferences  NotificationPreference[]
   userDashboardPreferences UserDashboardPreference[]
 
+  // Requisition module (2026-07)
+  departments       Department[]
+  requisitions      Requisition[]
+  requisitionItems  RequisitionItem[]
+  departmentMembers DepartmentMember[]
+  materials         Material[]
+  materialMovements MaterialMovement[]
+
   @@map("tenants")
 }
 
@@ -1480,6 +1494,18 @@ model User {
 
   // Pearl §S2.2 row 92 (closure 2026-05-25) — implants this user registered.
   implantsRegistered Implant[] @relation("ImplantRegisteredBy")
+
+  // Requisition module (2026-07) — requester back-relation. approvedById /
+  // issuedById / receivedById on Requisition are audit-only scalar FKs (no
+  // back-relation needed).
+  requisitionsRequested Requisition[] @relation("RequisitionRequestedBy")
+
+  // Department membership (2026-07) — a user may belong to many departments
+  // (a doctor covering OPD + Emergency). Join rows live in DepartmentMember.
+  departmentMemberships DepartmentMember[]
+
+  // Material catalog (2026-07) — movement ledger rows this user performed.
+  materialMovements MaterialMovement[]
 
   @@index([email])
   @@index([phone])
@@ -3113,7 +3139,11 @@ model InventoryItem {
   id              String    @id @default(uuid())
   medicineId      String
   batchNumber     String
-  quantity        Int // current stock
+  quantity        Int // current stock (on-hand)
+  // Requisition module (2026-07): units promised to APPROVED-but-not-yet-
+  // ISSUED requisitions. Available-to-promise = quantity - reservedStock.
+  // Incremented on approval, decremented + deducted from quantity on issue.
+  reservedStock   Int       @default(0)
   unitCost        Float
   sellingPrice    Float
   expiryDate      DateTime  @db.Date
@@ -3131,10 +3161,11 @@ model InventoryItem {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  medicine  Medicine         @relation(fields: [medicineId], references: [id])
-  movements StockMovement[]
-  returns   PharmacyReturn[]
-  transfers StockTransfer[]
+  medicine         Medicine          @relation(fields: [medicineId], references: [id])
+  movements        StockMovement[]
+  returns          PharmacyReturn[]
+  transfers        StockTransfer[]
+  requisitionItems RequisitionItem[]
 
   @@unique([medicineId, batchNumber])
   @@index([expiryDate])
@@ -3163,6 +3194,204 @@ model StockMovement {
   @@index([createdAt])
   @@index([tenantId])
   @@map("stock_movements")
+}
+
+// ═══════════════════════════════════════════════════════
+// REQUISITION MODULE (2026-07) — store → department material issuance via a
+// Request → Approval → Issuance → Receipt workflow. No department consumes
+// central stock directly; every movement is gated and audited. Phase 1 of the
+// larger inventory-requisition prompt (satisfies client requirement #15).
+// ═══════════════════════════════════════════════════════
+
+// A hospital department (Dental, OMR, Radiology, Pharmacy, OT, …). First-class
+// entity — the rest of the app models "department" as a doctor's free-text
+// specialization; this is the real thing requisitions are raised for.
+model Department {
+  id        String   @id @default(uuid())
+  name      String
+  code      String // short code, unique per tenant (e.g. "DENTAL")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  requisitions Requisition[]
+  members      DepartmentMember[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("departments")
+}
+
+// Department membership (2026-07) — many-to-many User ↔ Department. A user can
+// belong to several departments; a department has several staff. The join row
+// is what the admin "Members" panel adds/removes and what pre-fills a user's
+// department when they raise a requisition.
+model DepartmentMember {
+  id           String   @id @default(uuid())
+  departmentId String
+  userId       String
+  createdAt    DateTime @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, userId]) // a user is in a department at most once
+  @@index([tenantId])
+  @@index([userId])
+  @@index([departmentId])
+  @@map("department_members")
+}
+
+enum RequisitionStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PARTIALLY_APPROVED
+  READY_FOR_ISSUE
+  PARTIALLY_ISSUED
+  ISSUED
+  RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+// A department's material request against the central store.
+model Requisition {
+  id                String            @id @default(uuid())
+  requisitionNumber String            @unique // REQ000001
+  departmentId      String
+  status            RequisitionStatus @default(DRAFT)
+  notes             String?
+  remarks           String? // store-manager review remarks (approve/reject reason)
+
+  requestedById String // department staff who raised it
+  approvedById  String? // store manager who approved/rejected
+  issuedById    String? // store staff who issued
+  receivedById  String? // department staff who confirmed receipt
+
+  submittedAt DateTime?
+  approvedAt  DateTime?
+  issuedAt    DateTime?
+  receivedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  department  Department        @relation(fields: [departmentId], references: [id])
+  requestedBy User              @relation("RequisitionRequestedBy", fields: [requestedById], references: [id])
+  items       RequisitionItem[]
+
+  @@index([departmentId])
+  @@index([status])
+  @@index([tenantId])
+  @@map("requisitions")
+}
+
+// One requested item on a requisition. Tracks requested/approved/issued/
+// received quantities independently so partial approval + partial issue +
+// back-orders are all expressible on the same row.
+model RequisitionItem {
+  id            String  @id @default(uuid())
+  requisitionId String
+  // A requisition line points at EXACTLY ONE source: either a pharmacy
+  // InventoryItem (medicine batch) OR a Material (general catalog). Both are
+  // nullable; the app enforces "exactly one set" at write time. inventoryItemId
+  // stays for back-compat with the pre-Materials requisitions.
+  inventoryItemId String?
+  materialId      String?
+  requestedQty    Int
+  approvedQty     Int     @default(0)
+  issuedQty       Int     @default(0)
+  receivedQty     Int     @default(0)
+  remarks         String?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  requisition   Requisition    @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+  material      Material?      @relation(fields: [materialId], references: [id])
+
+  @@index([requisitionId])
+  @@index([inventoryItemId])
+  @@index([materialId])
+  @@index([tenantId])
+  @@map("requisition_items")
+}
+
+// Material catalog (2026-07) — general materials a department can requisition:
+// medicines, consumables (gloves/syringes), equipment (X-ray), instruments
+// (scalpel/knife), machines. Self-contained stock: quantity + reservedStock on
+// the row (available-to-promise = quantity - reservedStock), same reserve-on-
+// approve / deduct-on-issue model as pharmacy InventoryItem.
+enum MaterialCategory {
+  MEDICINE
+  CONSUMABLE
+  EQUIPMENT
+  INSTRUMENT
+  MACHINE
+}
+
+model Material {
+  id            String           @id @default(uuid())
+  name          String
+  sku           String? // optional stock-keeping code, unique per tenant when set
+  category      MaterialCategory @default(CONSUMABLE)
+  unit          String           @default("unit") // box, piece, pack, vial, set …
+  quantity      Int              @default(0) // on-hand
+  reservedStock Int              @default(0) // promised to APPROVED, not-yet-ISSUED reqs
+  reorderLevel  Int              @default(10)
+  unitCost      Float?
+  location      String?
+  active        Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  movements        MaterialMovement[]
+  requisitionItems RequisitionItem[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+  @@index([category])
+  @@map("materials")
+}
+
+// Movement ledger for Material stock (analogue of StockMovement, but bound to
+// Material instead of the medicine-only InventoryItem). Positive = in,
+// negative = out. Written on stock add, issue (via requisition) and adjustment.
+model MaterialMovement {
+  id          String            @id @default(uuid())
+  materialId  String
+  type        StockMovementType
+  quantity    Int
+  referenceId String? // requisition id, PO id, …
+  reason      String?
+  performedBy String
+  createdAt   DateTime          @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  material Material @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [performedBy], references: [id])
+
+  @@index([materialId])
+  @@index([tenantId])
+  @@map("material_movements")
 }
 
 // ═══════════════════════════════════════════════════════

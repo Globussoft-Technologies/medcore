@@ -20,7 +20,9 @@ import {
   resetTour,
 } from "@/components/OnboardingTour";
 import { LanguageDropdown } from "@/components/LanguageDropdown";
-import { BranchPicker } from "@/components/BranchPicker";
+// Branch picker temporarily hidden from the sidebar (2026-07) — re-enable the
+// two <BranchPicker/> usages + this import together.
+// import { BranchPicker } from "@/components/BranchPicker";
 import { SidebarNav } from "@/components/SidebarNav";
 import { useBranchStore } from "@/lib/branch-store";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -196,6 +198,9 @@ const navByRole: Record<
     { href: "/dashboard/packages", label: "Packages", icon: Gift },
     { href: "/dashboard/suppliers", label: "Suppliers", icon: Truck },
     { href: "/dashboard/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+    { href: "/dashboard/requisitions", label: "Requisitions", icon: ClipboardList },
+    { href: "/dashboard/departments", label: "Departments", icon: Building2 },
+    { href: "/dashboard/materials", label: "Materials", icon: Package },
     { href: "/dashboard/expenses", label: "Expenses", icon: Wallet },
     { href: "/dashboard/prescriptions", label: "Prescriptions", icon: FileText },
     { href: "/dashboard/doctors", label: "Doctors", icon: Stethoscope },
@@ -261,6 +266,7 @@ const navByRole: Record<
     { href: "/dashboard/patients", label: "Patients", icon: Users },
     { href: "/dashboard/cohorts", label: "Care Cohorts", icon: Users2 },
     { href: "/dashboard/medicines", label: "Medicines", icon: Pill },
+    { href: "/dashboard/requisitions", label: "Requisitions", icon: ClipboardList },
     { href: "/dashboard/lab", label: "Lab", icon: FlaskConical },
     { href: "/dashboard/immunization-schedule", label: "Immunizations", icon: Syringe },
     { href: "/dashboard/referrals", label: "Referrals", icon: ArrowRightLeft },
@@ -305,6 +311,7 @@ const navByRole: Record<
     { href: "/dashboard/preauth", label: "Pre-Authorization", icon: FileCheck },
     { href: "/dashboard/packages", label: "Packages", icon: Gift },
     { href: "/dashboard/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+    { href: "/dashboard/requisitions", label: "Requisitions", icon: ClipboardList },
     { href: "/dashboard/expenses", label: "Expenses", icon: Wallet },
     { href: "/dashboard/telemedicine", label: "Telemedicine", icon: Video },
     { href: "/dashboard/emergency", label: "Emergency", icon: Siren },
@@ -333,6 +340,7 @@ const navByRole: Record<
     { href: "/dashboard/wards", label: "Wards", icon: Hotel },
     { href: "/dashboard/admissions", label: "Admissions", icon: BedDouble },
     { href: "/dashboard/medication-dashboard", label: "Medication", icon: Syringe },
+    { href: "/dashboard/requisitions", label: "Requisitions", icon: ClipboardList },
     { href: "/dashboard/lab", label: "Lab", icon: FlaskConical },
     { href: "/dashboard/immunization-schedule", label: "Immunizations", icon: Syringe },
     { href: "/dashboard/surgery", label: "Surgery", icon: Scissors },
@@ -389,6 +397,7 @@ const navByRole: Record<
     { href: "/dashboard/controlled-substances", label: "Controlled Register", icon: ShieldAlert },
     { href: "/dashboard/suppliers", label: "Suppliers", icon: Truck },
     { href: "/dashboard/purchase-orders", label: "Purchase Orders", icon: ShoppingCart },
+    { href: "/dashboard/requisitions", label: "Requisitions", icon: ClipboardList },
     { href: "/dashboard/patients", label: "Patients", icon: Users },
     { href: "/dashboard/chat", label: "Chat", icon: MessageCircle },
     { href: "/dashboard/my-schedule", label: "My Schedule", icon: CalendarDays },
@@ -1127,6 +1136,10 @@ export default function DashboardLayout({
   // OWN bill; super-admins see everyone's via Platform Billing.
   const TENANT_ADMIN_ONLY_ROUTES = new Set<string>([
     "/dashboard/my-subscription",
+    // Hospital QR is a per-hospital reception display (patient scans it to open
+    // THIS hospital's kiosk). Meaningless for a cross-tenant super-admin, who
+    // has no single "own hospital" — hide it. Tenant ADMIN + RECEPTION keep it.
+    "/dashboard/hospital-qr",
   ]);
   const nav = rawNav.filter((item) => {
     if (MAIN_SUPER_ADMIN_ONLY_ROUTES.has(item.href) && !isMainSuperAdmin)
@@ -1287,10 +1300,11 @@ export default function DashboardLayout({
                 Renders only when the tenant has >1 active branch (the
                 component itself returns null otherwise), so single-
                 branch tenants get no extra topbar chrome. */}
-            <BranchPicker
+            {/* Branch picker temporarily hidden from the sidebar (2026-07). */}
+            {/* <BranchPicker
               instanceId="mc-branch-sidebar"
               className="text-slate-700 dark:text-gray-300"
-            />
+            /> */}
             {/* Issue #485 + #508: theme toggle extracted into its own
                 component. Inlined version was missing both `type="button"`
                 (could submit if ever wrapped in a form) and `aria-pressed`
@@ -1421,7 +1435,8 @@ export default function DashboardLayout({
             {/* Pearl ERP Stage 1 gap #2 piece 3 — branch picker
                 (mobile mirror). Same auto-hide rule on single-branch
                 tenants applies. */}
-            <BranchPicker instanceId="mc-branch-mobile" />
+            {/* Branch picker temporarily hidden from the sidebar (2026-07). */}
+            {/* <BranchPicker instanceId="mc-branch-mobile" /> */}
             <button
               type="button"
               onClick={() => setSearchOpen(true)}

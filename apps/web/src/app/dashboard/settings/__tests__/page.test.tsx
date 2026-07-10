@@ -1345,3 +1345,380 @@ describe("SettingsPage — Integrations tab (ADMIN, Issue #716)", () => {
     ).toBeInTheDocument();
   });
 });
+
+// ─── Shared helpers for the tenant-admin-only credential tabs ───────────
+// WhatsApp + Payments render only for an ADMIN WITH a tenantId (the platform
+// super-admin — tenant-less ADMIN — doesn't get them).
+function asTenantAdmin(tenantId = "t-1") {
+  authMock.mockReturnValue({
+    user: {
+      id: "u-self",
+      email: "me@medcore.test",
+      name: "Me Myself",
+      role: "ADMIN",
+      tenantId,
+      preferredLanguage: "en",
+      defaultLandingPage: "/dashboard",
+    },
+    refreshUser: refreshUserMock,
+  });
+}
+
+// Route GETs by URL: /auth/me → meFixture, then the caller's map, else [].
+function mockGets(map: Record<string, () => Promise<unknown>>) {
+  apiMock.get.mockImplementation((url: string) => {
+    if (url === "/auth/me") return Promise.resolve(meFixture);
+    for (const k of Object.keys(map)) {
+      if (url === k || url.startsWith(k)) return map[k]();
+    }
+    return Promise.resolve({ data: [] });
+  });
+}
+
+const waConfig = (over: Record<string, unknown> = {}) => ({
+  data: {
+    config: {
+      provider: "META",
+      credentials: { accessToken: "tok-1", phoneNumberId: "111222333" },
+      credentialsByProvider: {
+        META: { accessToken: "tok-1", phoneNumberId: "111222333" },
+      },
+      defaultProductId: null,
+      autoReply: false,
+      active: true,
+      plaintextWarning: false,
+      ...over,
+    },
+  },
+});
+
+describe("SettingsPage — WhatsApp tab (multi-provider vault)", () => {
+  it("loads the active provider's creds + active badge", async () => {
+    asTenantAdmin();
+    mockGets({ "/wa/config": () => Promise.resolve(waConfig()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^WhatsApp$/i }));
+    const token = (await screen.findByTestId(
+      "wa-field-accessToken",
+    )) as HTMLInputElement;
+    expect(token.value).toBe("tok-1");
+    expect(screen.getByTestId("wa-active-badge")).toHaveTextContent(
+      "Active: Meta Cloud API",
+    );
+  });
+
+  it("Auto-reply reveals Meta App secret + Verify token", async () => {
+    asTenantAdmin();
+    mockGets({ "/wa/config": () => Promise.resolve(waConfig({ autoReply: false })) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^WhatsApp$/i }));
+    await screen.findByTestId("wa-field-accessToken");
+    expect(screen.queryByTestId("wa-field-appSecret")).toBeNull();
+    fireEvent.click(screen.getByLabelText(/Auto-reply to incoming messages/i));
+    expect(await screen.findByTestId("wa-field-appSecret")).toBeInTheDocument();
+    expect(screen.getByTestId("wa-field-verifyToken")).toBeInTheDocument();
+  });
+
+  it("keeps each provider's creds when switching, and saves the current one", async () => {
+    asTenantAdmin();
+    mockGets({ "/wa/config": () => Promise.resolve(waConfig()) });
+    apiMock.put.mockResolvedValue({ data: { config: {} } });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^WhatsApp$/i }));
+    await screen.findByTestId("wa-field-accessToken");
+    // Fill Gupshup then switch back to Meta — Meta creds survive.
+    fireEvent.change(screen.getByTestId("wa-provider"), {
+      target: { value: "GUPSHUP" },
+    });
+    fireEvent.change(await screen.findByTestId("wa-field-apiKey"), {
+      target: { value: "gs-key" },
+    });
+    fireEvent.change(screen.getByTestId("wa-field-appName"), {
+      target: { value: "app" },
+    });
+    fireEvent.change(screen.getByTestId("wa-field-sourcePhone"), {
+      target: { value: "+919990001112" },
+    });
+    fireEvent.change(screen.getByTestId("wa-provider"), {
+      target: { value: "META" },
+    });
+    expect(
+      ((await screen.findByTestId("wa-field-accessToken")) as HTMLInputElement)
+        .value,
+    ).toBe("tok-1");
+    fireEvent.click(screen.getByTestId("wa-save"));
+    await waitFor(() =>
+      expect(apiMock.put).toHaveBeenCalledWith(
+        "/wa/config",
+        expect.objectContaining({
+          credentials: expect.objectContaining({
+            provider: "META",
+            accessToken: "tok-1",
+          }),
+          activeProvider: "META",
+          active: true,
+        }),
+      ),
+    );
+  });
+
+  it("can switch the active provider then save it", async () => {
+    asTenantAdmin();
+    mockGets({ "/wa/config": () => Promise.resolve(waConfig()) });
+    apiMock.put.mockResolvedValue({ data: { config: {} } });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^WhatsApp$/i }));
+    await screen.findByTestId("wa-field-accessToken");
+    fireEvent.change(screen.getByTestId("wa-provider"), {
+      target: { value: "GUPSHUP" },
+    });
+    fireEvent.change(await screen.findByTestId("wa-field-apiKey"), {
+      target: { value: "gs" },
+    });
+    fireEvent.change(screen.getByTestId("wa-field-appName"), {
+      target: { value: "app" },
+    });
+    fireEvent.change(screen.getByTestId("wa-field-sourcePhone"), {
+      target: { value: "+919990001112" },
+    });
+    const setActive = screen.getByTestId("wa-set-active") as HTMLInputElement;
+    expect(setActive.disabled).toBe(false);
+    fireEvent.click(setActive);
+    expect(screen.getByTestId("wa-active-badge")).toHaveTextContent(
+      "Active: Gupshup",
+    );
+    fireEvent.click(screen.getByTestId("wa-save"));
+    await waitFor(() =>
+      expect(apiMock.put).toHaveBeenCalledWith(
+        "/wa/config",
+        expect.objectContaining({
+          activeProvider: "GUPSHUP",
+          credentials: expect.objectContaining({ provider: "GUPSHUP", apiKey: "gs" }),
+        }),
+      ),
+    );
+  });
+
+  it("blocks save when required fields are missing (and GET error is swallowed)", async () => {
+    asTenantAdmin();
+    mockGets({ "/wa/config": () => Promise.reject(new Error("load boom")) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^WhatsApp$/i }));
+    await screen.findByTestId("wa-save");
+    fireEvent.click(screen.getByTestId("wa-save"));
+    await waitFor(() => expect(toastMock.warning).toHaveBeenCalled());
+    expect(apiMock.put).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a save error toast", async () => {
+    asTenantAdmin();
+    mockGets({ "/wa/config": () => Promise.resolve(waConfig()) });
+    apiMock.put.mockRejectedValue(new Error("save boom"));
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^WhatsApp$/i }));
+    await screen.findByTestId("wa-save");
+    fireEvent.click(screen.getByTestId("wa-save"));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith("save boom"));
+  });
+
+  it("shows the plaintext-storage warning when flagged", async () => {
+    asTenantAdmin();
+    mockGets({ "/wa/config": () => Promise.resolve(waConfig({ plaintextWarning: true })) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^WhatsApp$/i }));
+    expect(await screen.findByText(/plaintext/i)).toBeInTheDocument();
+  });
+
+  it("secret field toggles visibility", async () => {
+    asTenantAdmin();
+    mockGets({ "/wa/config": () => Promise.resolve(waConfig()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^WhatsApp$/i }));
+    const tokenField = (await screen.findByTestId(
+      "wa-field-accessToken",
+    )) as HTMLInputElement;
+    expect(tokenField.type).toBe("password");
+    fireEvent.click(screen.getAllByRole("button", { name: /show|hide/i })[0]);
+    expect(tokenField.type).toBe("text");
+  });
+});
+
+const payConfig = (over: Record<string, unknown> = {}) => ({
+  data: {
+    configured: true,
+    razorpayKeyId: "rzp_test_abc123",
+    razorpayMode: "test",
+    hasSecret: true,
+    hasWebhookSecret: false,
+    ...over,
+  },
+});
+
+describe("SettingsPage — Payments tab (Razorpay)", () => {
+  it("loads config and shows the key id", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/payment": () => Promise.resolve(payConfig()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Payments$/i }));
+    const keyId = (await screen.findByTestId("pay-key-id")) as HTMLInputElement;
+    expect(keyId.value).toBe("rzp_test_abc123");
+    expect(screen.getByText(/Credentials on file/i)).toBeInTheDocument();
+  });
+
+  it("rejects an invalid Key ID", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/payment": () => Promise.resolve(payConfig()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Payments$/i }));
+    fireEvent.change(await screen.findByTestId("pay-key-id"), {
+      target: { value: "not-a-key" },
+    });
+    fireEvent.click(screen.getByTestId("pay-save"));
+    await waitFor(() => expect(toastMock.warning).toHaveBeenCalled());
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  it("requires a secret on first-time setup (GET error swallowed)", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/payment": () => Promise.reject(new Error("load boom")) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Payments$/i }));
+    fireEvent.change(await screen.findByTestId("pay-key-id"), {
+      target: { value: "rzp_live_abcdef12" },
+    });
+    fireEvent.click(screen.getByTestId("pay-save"));
+    await waitFor(() => expect(toastMock.warning).toHaveBeenCalled());
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  it("saves happily and warns in live mode", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/payment": () => Promise.resolve(payConfig()) });
+    apiMock.patch.mockResolvedValue({ data: {} });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Payments$/i }));
+    await screen.findByTestId("pay-key-id");
+    fireEvent.change(screen.getByTestId("pay-mode"), { target: { value: "live" } });
+    expect(screen.getByText(/Live mode charges real money/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("pay-key-secret"), {
+      target: { value: "sekret123" },
+    });
+    fireEvent.click(screen.getByTestId("pay-save"));
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith(
+        "/settings/payment",
+        expect.objectContaining({
+          razorpayKeyId: "rzp_test_abc123",
+          razorpayMode: "live",
+          razorpayKeySecret: "sekret123",
+        }),
+      ),
+    );
+    expect(toastMock.success).toHaveBeenCalledWith("Payment settings saved");
+  });
+
+  it("surfaces a save error", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/payment": () => Promise.resolve(payConfig()) });
+    apiMock.patch.mockRejectedValue(new Error("pay boom"));
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Payments$/i }));
+    await screen.findByTestId("pay-key-id");
+    fireEvent.click(screen.getByTestId("pay-save"));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+  });
+
+  it("toggles the Key Secret visibility", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/payment": () => Promise.resolve(payConfig()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Payments$/i }));
+    const secret = (await screen.findByTestId(
+      "pay-key-secret",
+    )) as HTMLInputElement;
+    expect(secret.type).toBe("password");
+    fireEvent.click(screen.getAllByRole("button", { name: /show|hide/i })[0]);
+    expect(secret.type).toBe("text");
+  });
+});
+
+describe("SettingsPage — Branding hospital details", () => {
+  const brandingResp = (over: Record<string, unknown> = {}) => ({
+    data: {
+      hospitalName: "MedCore",
+      primaryColor: "",
+      logoUrl: "",
+      hospitalPhone: "",
+      hospitalEmail: "",
+      hospitalGstin: "",
+      hospitalAddress: "",
+      ...over,
+    },
+  });
+
+  it("rejects a bad email and GSTIN", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/branding": () => Promise.resolve(brandingResp()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Branding$/i }));
+    await screen.findByTestId("branding-hospital-name");
+    fireEvent.change(screen.getByTestId("branding-hospital-email"), {
+      target: { value: "not-an-email" },
+    });
+    fireEvent.change(screen.getByTestId("branding-hospital-gstin"), {
+      target: { value: "short" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save Branding/i }));
+    await waitFor(() => expect(toastMock.warning).toHaveBeenCalled());
+    expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  it("saves hospital contact + legal fields", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/branding": () => Promise.resolve(brandingResp()) });
+    apiMock.patch.mockResolvedValue({ data: {} });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Branding$/i }));
+    await screen.findByTestId("branding-hospital-name");
+    fireEvent.change(screen.getByTestId("branding-hospital-phone"), {
+      target: { value: "+91 22 1234 5678" },
+    });
+    fireEvent.change(screen.getByTestId("branding-hospital-email"), {
+      target: { value: "info@x.in" },
+    });
+    fireEvent.change(screen.getByTestId("branding-hospital-gstin"), {
+      target: { value: "22AAAAA0000A1Z5" },
+    });
+    fireEvent.change(screen.getByTestId("branding-hospital-address"), {
+      target: { value: "Street, City" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save Branding/i }));
+    await waitFor(() =>
+      expect(apiMock.patch).toHaveBeenCalledWith(
+        "/settings/branding",
+        expect.objectContaining({
+          hospitalEmail: "info@x.in",
+          hospitalGstin: "22AAAAA0000A1Z5",
+          hospitalPhone: "+91 22 1234 5678",
+          hospitalAddress: "Street, City",
+        }),
+      ),
+    );
+  });
+});

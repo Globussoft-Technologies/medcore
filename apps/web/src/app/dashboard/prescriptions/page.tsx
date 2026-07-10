@@ -632,13 +632,19 @@ export default function PrescriptionsPage() {
             data: {
               slotStart: string | null;
               tokenNumber: number | null;
+              doctor?: { user?: { name?: string | null } | null } | null;
             };
           }>(`/appointments/${aid}`)
           .then((r) => {
-            const slot = r.data?.slotStart ?? "—";
+            // Prefer the DOCTOR NAME as the label (token/calling appointments
+            // have no slotStart, which showed a bare "—"); fall back to the
+            // slot time, then a dash.
+            const doctorName = r.data?.doctor?.user?.name ?? null;
+            const slot = r.data?.slotStart ?? null;
             const token = r.data?.tokenNumber;
+            const main = doctorName || slot || "—";
             setInitialAppointmentLabel(
-              token != null ? `${slot} · T-${token}` : slot,
+              token != null ? `${main} · T-${token}` : main,
             );
           })
           .catch(() => {});
@@ -1694,8 +1700,8 @@ export default function PrescriptionsPage() {
                     new Date().toISOString().split("T")[0]
                   }&status=BOOKED,CHECKED_IN,IN_CONSULTATION`}
                   searchParam="search"
-                  labelField="slotStart"
-                  subtitleField="doctor.user.name"
+                  labelField="doctor.user.name"
+                  subtitleField="slotStart"
                   hintField="tokenNumber"
                   value={form.appointmentId}
                   onChange={(id) => {

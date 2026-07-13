@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { usePrompt } from "@/lib/use-dialog";
@@ -104,6 +105,7 @@ const TPAS = [
   "FHPL",
   "ICICI_LOMBARD",
   "STAR_HEALTH",
+  "PMJAY",
   "MOCK",
 ];
 
@@ -921,6 +923,15 @@ function NewClaimModal({
             {tpa === "MOCK" && (
               <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
                 Using the mock TPA adapter — no external request is made.
+              </p>
+            )}
+            {tpa === "PMJAY" && (
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                PM-JAY requires a verified, eligible beneficiary — check the{" "}
+                <Link href="/dashboard/pmjay" className="underline">
+                  PM-JAY console
+                </Link>{" "}
+                first, and enter the HBP <strong>package code</strong> as the procedure.
               </p>
             )}
           </div>

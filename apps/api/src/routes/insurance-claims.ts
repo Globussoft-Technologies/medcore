@@ -22,6 +22,8 @@ import { auditLog } from "../middleware/audit";
 import { uploadFile } from "../services/storage";
 import { getAdapter } from "../services/insurance-claims/registry";
 import { reconcilePendingClaims } from "../services/insurance-claims/reconciliation";
+import { postInsurancePayment } from "../services/invoice-status";
+import { getEligibleBeneficiary } from "../services/pmjay/beneficiary.service";
 import {
   ClaimDocumentType,
   NormalisedClaimStatus,
@@ -57,6 +59,7 @@ const TPA_PROVIDERS = [
   "FHPL",
   "ICICI_LOMBARD",
   "STAR_HEALTH",
+  "PMJAY",
   "MOCK",
 ] as const;
 
@@ -185,6 +188,23 @@ router.post(
           error: "patientId does not match the invoice owner",
         });
         return;
+      }
+
+      // PM-JAY beneficiary gate: a PM-JAY claim requires a verified, ELIGIBLE
+      // Ayushman beneficiary on file for this patient. Blocks claim creation
+      // (422) otherwise — the eligibility check must happen first (Phase 4).
+      if (body.tpaProvider === "PMJAY") {
+        const eligible = await getEligibleBeneficiary(body.patientId);
+        if (!eligible) {
+          res.status(422).json({
+            success: false,
+            data: null,
+            error:
+              "PM-JAY beneficiary not verified as eligible for this patient — run beneficiary verification first",
+            code: "PMJAY_NOT_ELIGIBLE",
+          });
+          return;
+        }
       }
 
       // Optional pre-auth lookup for linkage.
@@ -389,6 +409,31 @@ router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
             note: ev.note ?? null,
           })),
         });
+
+        // Financial write-back: if this sync just settled the claim, post the
+        // insurer's payment against the invoice. Idempotent + provider-agnostic
+        // (see services/invoice-status.ts). Non-fatal — a settlement hiccup
+        // must not fail the read.
+        if (result.data.status === "SETTLED" && row.status !== "SETTLED") {
+          const amount = result.data.amountApproved ?? row.amountApproved ?? 0;
+          if (amount > 0) {
+            try {
+              await postInsurancePayment({
+                invoiceId: row.billId,
+                amount,
+                provider: String(row.tpaProvider),
+                claimId: row.id,
+                claimRef: row.providerClaimRef,
+                createdBy: req.user?.userId ?? null,
+              });
+            } catch (err) {
+              console.warn(
+                `[claims] settlement write-back failed for ${row.id} (non-fatal):`,
+                (err as Error)?.message ?? err
+              );
+            }
+          }
+        }
       }
     }
 

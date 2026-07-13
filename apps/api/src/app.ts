@@ -144,6 +144,7 @@ import { fhirRouter } from "./routes/fhir";
 import { abdmRouter } from "./routes/abdm";
 import { insuranceClaimsRouter } from "./routes/insurance-claims";
 import { insuranceProvidersRouter } from "./routes/insurance-providers";
+import { pmjayRouter } from "./routes/pmjay";
 import { calendarEventsRouter } from "./routes/calendar-events";
 import { hl7v2Router } from "./routes/hl7v2";
 import { aiRadiologyRouter } from "./routes/ai-radiology";
@@ -500,6 +501,9 @@ export function buildApp() {
   // migration 20260508000002.
   app.use("/api/v1/calendar-events", calendarEventsRouter);
   app.use("/api/v1/insurance-providers", insuranceProvidersRouter);
+  // PM-JAY (Ayushman Bharat): beneficiary eligibility, HBP packages, stats, and
+  // the inbound TMS webhook. Rides the shared /claims + /preauth engine.
+  app.use("/api/v1/pmjay", pmjayRouter);
   app.use("/api/v1/hl7v2", hl7v2Router);
   app.use("/api/v1/ai/radiology", aiRadiologyRouter);
   app.use("/api/v1/ai/admin", aiAdminRouter);

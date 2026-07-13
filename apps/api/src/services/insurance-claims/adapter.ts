@@ -56,6 +56,7 @@ export type TpaProvider =
   | "FHPL"
   | "ICICI_LOMBARD"
   | "STAR_HEALTH"
+  | "PMJAY"
   | "MOCK";
 
 /** Normalised claim lifecycle status across all TPAs. */

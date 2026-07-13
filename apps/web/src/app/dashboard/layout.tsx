@@ -253,6 +253,7 @@ const navByRole: Record<
     { href: "/dashboard/abdm", label: "ABHA", icon: ShieldCheck },
     { href: "/dashboard/fhir-export", label: "FHIR Export", icon: FileJson },
     { href: "/dashboard/insurance-claims", label: "Insurance Claims", icon: Workflow },
+    { href: "/dashboard/pmjay", label: "PM-JAY", icon: ShieldCheck },
     { href: "/dashboard/support", label: "Support", icon: MessageCircleQuestion },
   ],
   DOCTOR: [
@@ -330,6 +331,7 @@ const navByRole: Record<
     // Issue #839: AI Booking + No-Show Predictions removed — both routes
     // 403 for RECEPTION (DOCTOR/ADMIN-only per the API authorize()).
     { href: "/dashboard/insurance-claims", label: "Insurance Claims", icon: Workflow },
+    { href: "/dashboard/pmjay", label: "PM-JAY", icon: ShieldCheck },
     { href: "/dashboard/abdm", label: "ABHA", icon: ShieldCheck },
   ],
   NURSE: [

@@ -889,6 +889,10 @@ model Tenant {
   grnItems                 GrnItem[]
   claimDocuments           ClaimDocument[]
   claimStatusEvents        ClaimStatusEvent[]
+  pmjayBeneficiaries       PmjayBeneficiary[]
+  pmjayVerifications       PmjayVerificationHistory[]
+  pmjayPackages            PmjayPackage[]
+  pmjayDocumentUploads     PmjayDocumentUpload[]
   platformInvoiceLineItems PlatformInvoiceLineItem[]
   supportTicketMessages    SupportTicketMessage[]
   refreshTokens            RefreshToken[]
@@ -1853,6 +1857,8 @@ model Patient {
   medicalRecords       MedicalRecord[]
   recordUploads        RecordUpload[]
   insuranceClaimsV2    InsuranceClaim2[]
+  pmjayBeneficiaries   PmjayBeneficiary[]
+  pmjayVerifications   PmjayVerificationHistory[]
   doseLogs             AdherenceDoseLog[]
 
   // ── Back-relations merged from .prisma-models-patient-tools.md ───────
@@ -2916,6 +2922,11 @@ model Admission {
   isolationEndDate     DateTime?
   // Expected LOS (Apr 2026)
   expectedLosDays      Int?
+  // PM-JAY (Ayushman Bharat) admission mapping — set when an approved PM-JAY
+  // pre-auth turns into a hospital admission. Nullable; non-PM-JAY unaffected.
+  pmjayAdmissionId      String?
+  pmjayAdmissionDate    DateTime?
+  hospitalTransactionId String?
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
@@ -5461,6 +5472,14 @@ model PreAuthRequest {
   createdBy            String
   notes                String?
 
+  // PM-JAY (Ayushman Bharat) linkage — populated only for PM-JAY pre-auths.
+  // `packageCode` references a PmjayPackage; the ids/number come back from the
+  // SHA/TMS gateway. Nullable so non-PM-JAY pre-auths are unaffected.
+  pmjayRequestId     String?
+  pmjayTransactionId String?
+  packageCode        String?
+  approvalNumber     String?
+
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -6296,6 +6315,7 @@ enum TpaProvider {
   FHPL
   ICICI_LOMBARD
   STAR_HEALTH
+  PMJAY
   MOCK
 }
 
@@ -6344,11 +6364,12 @@ model InsuranceClaim2 {
   tenantId String?
   tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  invoice        Invoice            @relation(fields: [billId], references: [id])
-  patient        Patient            @relation(fields: [patientId], references: [id])
-  preAuthRequest PreAuthRequest?    @relation(fields: [preAuthRequestId], references: [id])
+  invoice        Invoice               @relation(fields: [billId], references: [id])
+  patient        Patient               @relation(fields: [patientId], references: [id])
+  preAuthRequest PreAuthRequest?       @relation(fields: [preAuthRequestId], references: [id])
   documents      ClaimDocument[]
   events         ClaimStatusEvent[]
+  pmjayUploads   PmjayDocumentUpload[]
 
   @@index([billId])
   @@index([patientId])
@@ -6395,6 +6416,126 @@ model ClaimStatusEvent {
   @@index([claimId, timestamp])
   @@index([tenantId])
   @@map("claim_status_events")
+}
+
+// ─── PM-JAY (AYUSHMAN BHARAT) ───────────────────────────
+// PM-JAY rides the shared TPA claim engine (InsuranceClaim2 / ClaimDocument /
+// ClaimStatusEvent) but adds scheme-specific surfaces: beneficiary eligibility
+// (BIS), the HBP package master, an eligibility-check audit trail, and an async
+// document-upload queue. See services/pmjay/* and routes/pmjay.ts.
+
+enum PmjayEligibility {
+  PENDING
+  ELIGIBLE
+  NOT_ELIGIBLE
+}
+
+enum PmjayUploadStatus {
+  PENDING
+  UPLOADING
+  SUCCESS
+  FAILED
+}
+
+/// Latest-known eligibility for a patient's Ayushman card. One row per
+/// (patient, card); the full check history lives in PmjayVerificationHistory.
+model PmjayBeneficiary {
+  id                 String           @id @default(uuid())
+  patientId          String
+  ayushmanCardNumber String
+  beneficiaryId      String?
+  familyId           String?
+  eligibilityStatus  PmjayEligibility @default(PENDING)
+  verifiedAt         DateTime?
+  rawResponse        Json?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient  Patient @relation(fields: [patientId], references: [id])
+
+  @@unique([patientId, ayushmanCardNumber])
+  @@index([patientId])
+  @@index([eligibilityStatus])
+  @@index([tenantId])
+  @@map("pmjay_beneficiaries")
+}
+
+/// Append-only audit trail of every BIS eligibility check (refinement #5).
+model PmjayVerificationHistory {
+  id                 String           @id @default(uuid())
+  patientId          String
+  ayushmanCardNumber String?
+  beneficiaryId      String?
+  eligibilityStatus  PmjayEligibility
+  checkedBy          String?
+  rawResponse        Json?
+  createdAt          DateTime         @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  patient  Patient @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, createdAt])
+  @@index([tenantId])
+  @@map("pmjay_verification_history")
+}
+
+/// Local mirror of the PM-JAY HBP package master. Synced from the gateway;
+/// `checksum` + `packageVersion` + `lastSyncedAt` let a sync skip unchanged
+/// data (refinement #3). Claims must reference a packageCode, not free text.
+model PmjayPackage {
+  id                String    @id @default(uuid())
+  packageCode       String
+  packageName       String
+  specialty         String?
+  amount            Decimal   @db.Decimal(12, 2)
+  hospitalType      String?
+  documentsRequired Json?
+  packageVersion    String?
+  checksum          String?
+  lastSyncedAt      DateTime?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, packageCode])
+  @@index([packageCode])
+  @@index([specialty])
+  @@index([tenantId])
+  @@map("pmjay_packages")
+}
+
+/// Async document-upload queue (refinement #6): a claim doc is enqueued PENDING,
+/// a worker moves it UPLOADING → SUCCESS/FAILED with retry, so large/flaky
+/// uploads don't block the request path.
+model PmjayDocumentUpload {
+  id            String            @id @default(uuid())
+  claimId       String
+  docType       String
+  fileKey       String
+  filename      String
+  contentType   String
+  sizeBytes     Int?
+  status        PmjayUploadStatus @default(PENDING)
+  attempts      Int               @default(0)
+  lastError     String?
+  providerDocId String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  tenantId String?
+  tenant   Tenant?         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  claim    InsuranceClaim2 @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+  @@index([status])
+  @@index([tenantId])
+  @@map("pmjay_document_uploads")
 }
 
 // ─── RAG INGEST LOG ─────────────────────────────────────

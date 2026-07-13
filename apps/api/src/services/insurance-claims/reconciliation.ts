@@ -17,6 +17,49 @@
 import { prisma } from "@medcore/db";
 import { getAdapter } from "./registry";
 import { NormalisedClaimStatus, TpaProvider } from "./adapter";
+import { postInsurancePayment } from "../invoice-status";
+
+/**
+ * When a claim has just moved into SETTLED, post the insurer's payment against
+ * the linked Invoice (provider-agnostic — works for every TPA, not just
+ * PM-JAY). Idempotent, so a double tick / manual sync overlap is harmless.
+ * Settlement failures are collected into `result.errors` rather than thrown so
+ * one bad invoice can't poison the whole reconciliation run.
+ */
+async function settleInvoiceForClaim(
+  claim: {
+    id: string;
+    billId: string | null;
+    tpaProvider: string;
+    providerClaimRef: string | null;
+    tenantId: string | null;
+    amountApproved: unknown;
+  },
+  amountApproved: number | null | undefined,
+  result: ReconcileResult
+): Promise<void> {
+  if (!claim.billId) return;
+  const amount =
+    amountApproved ??
+    (claim.amountApproved == null ? 0 : Number(claim.amountApproved));
+  if (!(amount > 0)) return;
+  try {
+    await postInsurancePayment({
+      invoiceId: claim.billId,
+      amount,
+      provider: String(claim.tpaProvider),
+      claimId: claim.id,
+      claimRef: claim.providerClaimRef,
+      tenantId: claim.tenantId,
+      createdBy: null,
+    });
+  } catch (err) {
+    result.errors.push({
+      claimId: claim.id,
+      error: `settlement: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+}
 
 /**
  * Statuses we consider "still open" — anything else (APPROVED, DENIED,
@@ -190,6 +233,11 @@ export async function reconcilePendingClaims(
       });
 
       if (statusChanged) result.updated += 1;
+
+      // Financial write-back: a claim that just settled pays down its invoice.
+      if (statusChanged && tpaStatus === "SETTLED") {
+        await settleInvoiceForClaim(claim, statusRes.data.amountApproved, result);
+      }
     } catch (err) {
       result.errors.push({
         claimId: claim.id,
@@ -322,6 +370,11 @@ export async function reconcileTerminalClaims(
       });
 
       if (statusChanged) result.updated += 1;
+
+      // Late settlement caught by the weekly sweep still pays down the invoice.
+      if (statusChanged && tpaStatus === "SETTLED") {
+        await settleInvoiceForClaim(claim, statusRes.data.amountApproved, result);
+      }
     } catch (err) {
       result.errors.push({
         claimId: claim.id,

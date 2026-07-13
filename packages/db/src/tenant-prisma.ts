@@ -284,6 +284,11 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   "AbhaLink",
   "CareContext",
   "InsuranceClaim2",
+  // PM-JAY (Ayushman Bharat) — migration 20260713000002
+  "PmjayBeneficiary",
+  "PmjayVerificationHistory",
+  "PmjayPackage",
+  "PmjayDocumentUpload",
   // Radiology Report Drafting (PRD §7.2, 2026-04-24)
   "RadiologyStudy",
   "RadiologyReport",

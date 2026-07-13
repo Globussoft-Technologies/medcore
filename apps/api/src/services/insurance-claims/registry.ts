@@ -8,11 +8,15 @@ import { ClaimsAdapter, TpaProvider } from "./adapter";
 import { mediAssistAdapter } from "./adapters/medi-assist";
 import { paramountAdapter } from "./adapters/paramount";
 import { mockAdapter } from "./adapters/mock";
+import { pmjayAdapter } from "./adapters/pmjay";
 
 /** Built-in adapter map. */
 const ADAPTERS: Record<TpaProvider, ClaimsAdapter> = {
   MEDI_ASSIST: mediAssistAdapter,
   PARAMOUNT: paramountAdapter,
+  // PM-JAY (Ayushman Bharat) — real adapter with a simulation fallback (see
+  // adapters/pmjay.ts). Fully wired: submit → poll → settle.
+  PMJAY: pmjayAdapter,
   MOCK: mockAdapter,
   // Stubs — not yet implemented. They will fall through to the UNKNOWN branch
   // and callers get a clean 501 until someone wires them up.

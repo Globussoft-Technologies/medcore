@@ -72,10 +72,11 @@ describe("adapter.ts — TpaProvider union (compile-time pin)", () => {
       "FHPL",
       "ICICI_LOMBARD",
       "STAR_HEALTH",
+      "PMJAY",
       "MOCK",
     ];
-    expect(all).toHaveLength(7);
-    expect(new Set(all).size).toBe(7);
+    expect(all).toHaveLength(8);
+    expect(new Set(all).size).toBe(8);
   });
 });
 
@@ -428,16 +429,17 @@ describe("registry.listProviders", () => {
         "FHPL",
         "ICICI_LOMBARD",
         "STAR_HEALTH",
+        "PMJAY",
       ]),
     );
-    expect(providers).toHaveLength(7);
+    expect(providers).toHaveLength(8);
   });
 
   it("does not include overridden-only entries — only built-ins", () => {
     // Sanity: setting an override does not mutate the source-of-truth list.
     setAdapterOverride("MEDI_ASSIST", mockAdapter);
     const providers = listProviders();
-    expect(providers).toHaveLength(7);
+    expect(providers).toHaveLength(8);
     clearAdapterOverrides();
   });
 
@@ -447,6 +449,6 @@ describe("registry.listProviders", () => {
     // Re-fetching gives the original length back (caller mutation does not
     // poison subsequent lookups — registry returns Object.keys() which is a
     // fresh array each call).
-    expect(listProviders()).toHaveLength(7);
+    expect(listProviders()).toHaveLength(8);
   });
 });

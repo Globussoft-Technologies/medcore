@@ -45,10 +45,77 @@ const ALL_TYPES = [
   "admissions",
   "surgeries",
   "lab",
+  // Catalog / operational entities (added 2026-07): searchable by the roles
+  // that own them, gated by ROLE_ALLOWED_TYPES below.
+  "doctors",
+  "medicines",
+  "wards",
+  "blood",
+  "ambulances",
+  "staff",
+  // Super-admin only (platform surface): find a hospital/tenant by name or
+  // subdomain. Gated by isSuperAdmin in the query block, not just the role map.
+  "tenants",
   "labels",
 ] as const;
 
 type SearchType = (typeof ALL_TYPES)[number];
+
+// Per-role searchable surface (ACCESS BASIS). A role can ONLY find the entity
+// types listed for it — a caller can't widen this by passing `?types=`. Roles
+// that are additionally SELF-SCOPED (PATIENT → own records, DOCTOR → own
+// caseload) are narrowed further in each query block below. Unknown/platform
+// roles fall back to module shortcuts only.
+const ROLE_ALLOWED_TYPES: Record<string, readonly SearchType[]> = {
+  ADMIN: ALL_TYPES,
+  SUPER_ADMIN: ALL_TYPES,
+  DOCTOR: [
+    "patients",
+    "appointments",
+    "prescriptions",
+    "admissions",
+    "surgeries",
+    "lab",
+    "doctors",
+    "medicines",
+    "wards",
+    "labels",
+  ],
+  NURSE: [
+    "patients",
+    "appointments",
+    "admissions",
+    "surgeries",
+    "lab",
+    "doctors",
+    "medicines",
+    "wards",
+    "blood",
+    "labels",
+  ],
+  RECEPTION: [
+    "patients",
+    "appointments",
+    "invoices",
+    "admissions",
+    "doctors",
+    "ambulances",
+    "labels",
+  ],
+  PHARMACIST: ["patients", "prescriptions", "medicines", "labels"],
+  LAB_TECH: ["patients", "lab", "labels"],
+  BILLING: ["patients", "invoices", "labels"],
+  PATIENT: [
+    "appointments",
+    "invoices",
+    "prescriptions",
+    "admissions",
+    "lab",
+    "labels",
+  ],
+  PLATFORM_OPERATOR: ["labels"],
+  PLATFORM_BILLING_OPERATOR: ["labels"],
+};
 
 /**
  * GET /api/v1/search?q=&types=patients,appointments,...
@@ -74,20 +141,23 @@ router.get(
 
       const role = req.user!.role as Role;
       const userId = req.user!.userId;
+      // Super-admin = the explicit SUPER_ADMIN role OR the legacy tenant-less
+      // ADMIN pattern (tenantId null). Only they may search across tenants /
+      // reach the platform modules below.
+      const isSuperAdmin =
+        role === Role.SUPER_ADMIN ||
+        (role === Role.ADMIN && !req.tenantId);
 
-      // Issue #612 (May 2026): the global search palette returned the full
-      // appointment history — every doctor, every status — to PHARMACIST
-      // users. Pharmacists only need dispense-relevant info: the patient
-      // (name + MR) and active prescriptions. Whitelist the allowed
-      // entity types per role so any future caller can't expand the
-      // pharmacist surface by passing `?types=appointments,...`.
-      const ROLE_ALLOWED_TYPES: Record<string, readonly SearchType[]> = {
-        PHARMACIST: ["patients", "prescriptions", "labels"],
-      };
-      const allowedForRole = ROLE_ALLOWED_TYPES[role as string];
-      const requestedScoped = allowedForRole
-        ? requested.filter((t) => allowedForRole.includes(t))
-        : requested;
+      // Access-basis gate (Issue #612 + 2026-07 expansion): every role has an
+      // explicit allow-list (ROLE_ALLOWED_TYPES). Intersect the requested types
+      // with it so a caller can never widen their surface via `?types=`.
+      // Unknown roles fall back to module shortcuts only.
+      const allowedForRole =
+        ROLE_ALLOWED_TYPES[role as string] ??
+        (["labels"] as readonly SearchType[]);
+      const requestedScoped = requested.filter((t) =>
+        allowedForRole.includes(t),
+      );
 
       // Resolve scope ids upfront
       let patientId: string | null = null;
@@ -360,9 +430,171 @@ router.get(
         }
       }
 
+      // ── Doctors ──────────────────────────────────────────
+      if (requestedScoped.includes("doctors")) {
+        const docs = await prisma.doctor.findMany({
+          where: {
+            OR: [
+              { user: { name: ci } },
+              { specialization: ci },
+              { subSpecialty: ci },
+            ],
+          },
+          include: { user: { select: { name: true } } },
+          take: LIMIT,
+        });
+        for (const d of docs) {
+          results.push({
+            type: "doctor",
+            id: d.id,
+            title: formatDoctorName(d.user?.name) || "Doctor",
+            subtitle:
+              [d.specialization, d.subSpecialty].filter(Boolean).join(" · ") ||
+              "—",
+            href: `/dashboard/doctors`,
+          });
+        }
+      }
+
+      // ── Medicines (catalog) ──────────────────────────────
+      if (requestedScoped.includes("medicines")) {
+        const meds = await prisma.medicine.findMany({
+          where: {
+            OR: [{ name: ci }, { genericName: ci }, { brand: ci }],
+          },
+          take: LIMIT,
+        });
+        for (const m of meds) {
+          const strengthForm = [m.strength, m.form].filter(Boolean).join(" ");
+          results.push({
+            type: "medicine",
+            id: m.id,
+            title: m.name,
+            subtitle:
+              [m.genericName, strengthForm].filter(Boolean).join(" · ") ||
+              (m.category ?? "—"),
+            href: `/dashboard/medicines`,
+          });
+        }
+      }
+
+      // ── Wards / beds ─────────────────────────────────────
+      if (requestedScoped.includes("wards")) {
+        const wards = await prisma.ward.findMany({
+          where: { OR: [{ name: ci }, { floor: ci }] },
+          take: LIMIT,
+        });
+        for (const w of wards) {
+          results.push({
+            type: "ward",
+            id: w.id,
+            title: w.name,
+            subtitle: `${w.type}${w.floor ? ` · Floor ${w.floor}` : ""}`,
+            href: `/dashboard/wards`,
+          });
+        }
+      }
+
+      // ── Blood units ──────────────────────────────────────
+      if (requestedScoped.includes("blood")) {
+        const units = await prisma.bloodUnit.findMany({
+          where: { OR: [{ unitNumber: ci }, { storageLocation: ci }] },
+          take: LIMIT,
+        });
+        for (const u of units) {
+          results.push({
+            type: "blood",
+            id: u.id,
+            title: `${u.bloodGroup} · ${u.unitNumber}`,
+            subtitle: `${u.volumeMl}ml${u.storageLocation ? ` · ${u.storageLocation}` : ""}`,
+            meta: humanizeStatus(u.status),
+            href: `/dashboard/bloodbank`,
+          });
+        }
+      }
+
+      // ── Ambulances ───────────────────────────────────────
+      if (requestedScoped.includes("ambulances")) {
+        const ambs = await prisma.ambulance.findMany({
+          where: {
+            OR: [
+              { vehicleNumber: ci },
+              { driverName: ci },
+              { make: ci },
+              { model: ci },
+            ],
+          },
+          take: LIMIT,
+        });
+        for (const a of ambs) {
+          results.push({
+            type: "ambulance",
+            id: a.id,
+            title: a.vehicleNumber,
+            subtitle:
+              [a.type, [a.make, a.model].filter(Boolean).join(" "), a.driverName]
+                .filter(Boolean)
+                .join(" · ") || "—",
+            meta: humanizeStatus(a.status),
+            href: `/dashboard/ambulance`,
+          });
+        }
+      }
+
+      // ── Staff / users (ADMIN surface) ────────────────────
+      if (requestedScoped.includes("staff")) {
+        const staff = await prisma.user.findMany({
+          where: {
+            role: { not: Role.PATIENT },
+            OR: [{ name: ci }, { email: ci }, { phone: { contains: q } }],
+          },
+          select: { id: true, name: true, email: true, role: true },
+          take: LIMIT,
+        });
+        for (const s of staff) {
+          results.push({
+            type: "staff",
+            id: s.id,
+            title: s.name,
+            subtitle: `${s.role}${s.email ? ` · ${s.email}` : ""}`,
+            href: `/dashboard/users`,
+          });
+        }
+      }
+
+      // ── Tenants (SUPER-ADMIN platform surface) ───────────
+      if (requestedScoped.includes("tenants") && isSuperAdmin) {
+        const tenants = await prisma.tenant.findMany({
+          where: { OR: [{ name: ci }, { subdomain: ci }] },
+          select: {
+            id: true,
+            name: true,
+            subdomain: true,
+            plan: true,
+            active: true,
+          },
+          take: LIMIT,
+        });
+        for (const t of tenants) {
+          results.push({
+            type: "tenant",
+            id: t.id,
+            title: t.name,
+            subtitle: `${t.subdomain}${t.plan ? ` · ${t.plan}` : ""}`,
+            meta: t.active ? "Active" : "Inactive",
+            href: `/dashboard/tenants/${t.id}`,
+          });
+        }
+      }
+
       // ── Static labels: quick module navigation ──────────
       if (requestedScoped.includes("labels")) {
-        const labels: Array<{ label: string; href: string; roles?: Role[] }> = [
+        const labels: Array<{
+          label: string;
+          href: string;
+          roles?: Role[];
+          superAdmin?: boolean;
+        }> = [
           { label: "Appointments", href: "/dashboard/appointments" },
           { label: "Patients", href: "/dashboard/patients", roles: [Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION] },
           { label: "Queue", href: "/dashboard/queue" },
@@ -386,10 +618,17 @@ router.get(
           { label: "Calendar", href: "/dashboard/calendar" },
           { label: "Workspace", href: "/dashboard/workspace", roles: [Role.DOCTOR] },
           { label: "Workstation", href: "/dashboard/workstation", roles: [Role.NURSE] },
+          // Platform (super-admin) modules — gated by isSuperAdmin so a regular
+          // tenant admin never sees them (they can't reach these routes).
+          { label: "Tenants", href: "/dashboard/tenants", superAdmin: true },
+          { label: "Platform Billing", href: "/dashboard/platform-billing", superAdmin: true },
+          { label: "Observability", href: "/dashboard/observability", superAdmin: true },
+          { label: "Agent Console", href: "/dashboard/agent-console", superAdmin: true },
         ];
         const ql = q.toLowerCase();
         for (const l of labels) {
           if (!l.label.toLowerCase().includes(ql)) continue;
+          if (l.superAdmin && !isSuperAdmin) continue;
           if (l.roles && !l.roles.includes(role)) continue;
           results.push({
             type: "label",

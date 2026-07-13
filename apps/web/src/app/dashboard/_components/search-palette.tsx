@@ -16,6 +16,13 @@ import {
   Tag,
   X,
   Clock,
+  Stethoscope,
+  Pill,
+  Building2,
+  Droplet,
+  Truck,
+  Users,
+  Landmark,
 } from "lucide-react";
 
 interface SearchHit {
@@ -35,6 +42,13 @@ const typeIcon: Record<string, React.ElementType> = {
   admission: BedDouble,
   surgery: Scissors,
   lab: FlaskConical,
+  doctor: Stethoscope,
+  medicine: Pill,
+  ward: Building2,
+  blood: Droplet,
+  ambulance: Truck,
+  staff: Users,
+  tenant: Landmark,
   label: Tag,
 };
 
@@ -46,6 +60,13 @@ const typeLabel: Record<string, string> = {
   admission: "Admissions",
   surgery: "Surgeries",
   lab: "Lab Orders",
+  doctor: "Doctors",
+  medicine: "Medicines",
+  ward: "Wards",
+  blood: "Blood Bank",
+  ambulance: "Ambulances",
+  staff: "Staff",
+  tenant: "Hospitals",
   label: "Modules",
 };
 

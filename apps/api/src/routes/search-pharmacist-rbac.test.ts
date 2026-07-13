@@ -32,7 +32,17 @@ const { prismaMock } = vi.hoisted(() => {
         },
       ]),
     },
-    doctor: { findFirst: vi.fn(async () => null) },
+    doctor: {
+      findFirst: vi.fn(async () => null),
+      findMany: vi.fn(async () => []),
+    },
+    // Catalog/operational models added with the 2026-07 search expansion.
+    medicine: { findMany: vi.fn(async () => []) },
+    ward: { findMany: vi.fn(async () => []) },
+    bloodUnit: { findMany: vi.fn(async () => []) },
+    ambulance: { findMany: vi.fn(async () => []) },
+    user: { findMany: vi.fn(async () => []) },
+    tenant: { findMany: vi.fn(async () => []) },
     appointment: {
       findMany: vi.fn(async () => [
         {
@@ -140,9 +150,17 @@ describe("GET /search — Issue #612 (PHARMACIST role allowlist)", () => {
     expect(prismaMock.admission.findMany).not.toHaveBeenCalled();
     expect(prismaMock.surgery.findMany).not.toHaveBeenCalled();
     expect(prismaMock.labOrder.findMany).not.toHaveBeenCalled();
+    // PHARMACIST DOES get medicines (dispense-relevant), but NOT the
+    // staff-only catalog surfaces (doctors / wards / blood / ambulances / users).
+    expect(prismaMock.medicine.findMany).toHaveBeenCalled();
+    expect(prismaMock.doctor.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.ward.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.bloodUnit.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.ambulance.findMany).not.toHaveBeenCalled();
+    expect(prismaMock.user.findMany).not.toHaveBeenCalled();
   });
 
-  it("ADMIN still sees the full surface (allowlist only activates for PHARMACIST)", async () => {
+  it("ADMIN still sees the full surface incl. the new catalog entities", async () => {
     await request(buildApp())
       .get("/api/v1/search?q=Fatima")
       .set("Authorization", `Bearer ${tokenFor("ADMIN")}`)
@@ -150,5 +168,11 @@ describe("GET /search — Issue #612 (PHARMACIST role allowlist)", () => {
 
     expect(prismaMock.appointment.findMany).toHaveBeenCalled();
     expect(prismaMock.invoice.findMany).toHaveBeenCalled();
+    expect(prismaMock.doctor.findMany).toHaveBeenCalled();
+    expect(prismaMock.medicine.findMany).toHaveBeenCalled();
+    expect(prismaMock.ward.findMany).toHaveBeenCalled();
+    expect(prismaMock.bloodUnit.findMany).toHaveBeenCalled();
+    expect(prismaMock.ambulance.findMany).toHaveBeenCalled();
+    expect(prismaMock.user.findMany).toHaveBeenCalled();
   });
 });

@@ -17,11 +17,19 @@ export const searchBeneficiarySchema = z
       .trim()
       .regex(AYUSHMAN_CARD_REGEX, "Invalid Ayushman card number")
       .optional(),
+    beneficiaryId: z.string().trim().min(2).max(40).optional(),
+    familyId: z.string().trim().min(2).max(40).optional(),
+    mobile: z.string().trim().regex(/^[0-9]{10}$/, "Mobile must be 10 digits").optional(),
+    abhaNumber: z.string().trim().min(4).max(40).optional(),
     name: z.string().trim().min(2).max(120).optional(),
   })
-  .refine((v) => Boolean(v.ayushmanCardNumber || v.name), {
-    message: "Provide an Ayushman card number or a name to search",
-  });
+  .refine(
+    (v) =>
+      Boolean(
+        v.ayushmanCardNumber || v.beneficiaryId || v.familyId || v.mobile || v.abhaNumber || v.name
+      ),
+    { message: "Provide at least one identifier (card, beneficiary/family id, mobile, ABHA, or name) to search" }
+  );
 export type SearchBeneficiaryInput = z.infer<typeof searchBeneficiarySchema>;
 
 export const verifyBeneficiarySchema = z.object({

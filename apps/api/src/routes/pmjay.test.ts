@@ -41,6 +41,7 @@ const { prismaMock, updateStatusMock, postSettlementMock } = vi.hoisted(() => {
     },
     admission: { count: vi.fn(async () => 0) },
     pmjayDocumentUpload: { count: vi.fn(async () => 0) },
+    preAuthRequest: { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
   };
   return {
     prismaMock: base,
@@ -130,6 +131,49 @@ describe("POST /pmjay/packages/sync", () => {
       .expect(200);
     expect(res.body.data.synced).toBeGreaterThan(0);
     expect(res.body.data.skipped).toBe(false);
+  });
+});
+
+describe("GET /pmjay/beneficiary", () => {
+  it("400s without patientId", async () => {
+    await request(buildApp())
+      .get("/api/v1/pmjay/beneficiary")
+      .set("Authorization", `Bearer ${token("ADMIN")}`)
+      .expect(400);
+  });
+
+  it("returns the patient's ELIGIBLE beneficiary", async () => {
+    prismaMock.pmjayBeneficiary.findFirst.mockResolvedValue({
+      id: "ben-1",
+      ayushmanCardNumber: "PMJAY-CARD-1",
+      beneficiaryId: "BEN9",
+      familyId: "FAM9",
+      eligibilityStatus: "ELIGIBLE",
+      verifiedAt: new Date().toISOString(),
+    });
+    const res = await request(buildApp())
+      .get("/api/v1/pmjay/beneficiary?patientId=p-1")
+      .set("Authorization", `Bearer ${token("RECEPTION")}`)
+      .expect(200);
+    expect(res.body.data.ayushmanCardNumber).toBe("PMJAY-CARD-1");
+    const where = prismaMock.pmjayBeneficiary.findFirst.mock.calls[0][0].where;
+    expect(where).toEqual({ patientId: "p-1", eligibilityStatus: "ELIGIBLE" });
+  });
+});
+
+describe("GET /pmjay/preauth", () => {
+  it("returns the PM-JAY pre-auth queue and filters by status", async () => {
+    prismaMock.preAuthRequest.findMany.mockResolvedValue([
+      { id: "pa-1", requestNumber: "PA-1", procedureName: "Angioplasty", packageCode: "HBP-CARD-001", estimatedCost: 60000, status: "PENDING", approvedAmount: null, submittedAt: new Date().toISOString(), patient: { user: { name: "R K" } } },
+    ]);
+    const res = await request(buildApp())
+      .get("/api/v1/pmjay/preauth?status=PENDING")
+      .set("Authorization", `Bearer ${token("RECEPTION")}`)
+      .expect(200);
+    expect(res.body.data).toHaveLength(1);
+    const where = prismaMock.preAuthRequest.findMany.mock.calls[0][0].where;
+    expect(where.status).toBe("PENDING");
+    expect(where.OR).toBeDefined(); // PM-JAY scope filter applied
   });
 });
 

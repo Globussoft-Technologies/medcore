@@ -753,6 +753,23 @@ function NewClaimModal({
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Non-PMJAY optional member id.
+  const [memberId, setMemberId] = useState("");
+  // Insurer master (InsuranceProvider table) for the non-PMJAY dropdown.
+  const [providers, setProviders] = useState<string[]>([]);
+  // PM-JAY: verified beneficiary (auto-filled) + HBP package selection.
+  const [pmjayBen, setPmjayBen] = useState<{
+    ayushmanCardNumber: string;
+    beneficiaryId: string | null;
+    familyId: string | null;
+  } | null>(null);
+  const [benChecked, setBenChecked] = useState(false);
+  const [packages, setPackages] = useState<{ packageCode: string; packageName: string }[]>([]);
+  const [packageCode, setPackageCode] = useState("");
+
+  const isPmjay = tpa === "PMJAY";
+  const packageName = packages.find((p) => p.packageCode === packageCode)?.packageName ?? "";
+  const insurerOptions = providers.length > 0 ? providers : INDIAN_INSURERS;
 
   // Debounced ICD-10 lookup. Endpoint already exists at
   // GET /api/v1/icd10?q=… (see apps/api/src/routes/icd10.ts).
@@ -782,6 +799,70 @@ function NewClaimModal({
     };
   }, [diagnosis, icd10Code]);
 
+  // Load the insurer master (InsuranceProvider). Falls back to the curated
+  // INDIAN_INSURERS list when the table is empty (no regression).
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get<{ data: { name: string; isActive?: boolean }[] }>("/insurance-providers")
+      .then((r) => {
+        if (!cancelled) setProviders((r.data ?? []).filter((p) => p.isActive !== false).map((p) => p.name));
+      })
+      .catch(() => {
+        if (!cancelled) setProviders([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // PM-JAY: load the HBP package master for the package picker.
+  useEffect(() => {
+    if (!isPmjay) return;
+    let cancelled = false;
+    api
+      .get<{ data: { packageCode: string; packageName: string }[] }>("/pmjay/packages")
+      .then((r) => {
+        if (!cancelled) setPackages(r.data ?? []);
+      })
+      .catch(() => {
+        /* leave empty */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isPmjay]);
+
+  // PM-JAY: auto-fill the patient's verified, eligible beneficiary.
+  useEffect(() => {
+    if (!isPmjay || !patientId) {
+      setPmjayBen(null);
+      setBenChecked(false);
+      return;
+    }
+    let cancelled = false;
+    setBenChecked(false);
+    api
+      .get<{ data: { ayushmanCardNumber: string; beneficiaryId: string | null; familyId: string | null } | null }>(
+        `/pmjay/beneficiary?patientId=${patientId}`
+      )
+      .then((r) => {
+        if (!cancelled) {
+          setPmjayBen(r.data ?? null);
+          setBenChecked(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPmjayBen(null);
+          setBenChecked(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isPmjay, patientId]);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
@@ -801,33 +882,61 @@ function NewClaimModal({
       setErr("Please enter the amount claimed (in INR).");
       return;
     }
-    // Issue #458: these three fields previously relied on HTML5 `required`
-    // (Insurer select, Policy number Input, Diagnosis input). After
-    // adopting `noValidate` on the form, React-side checks own truth.
-    if (!insurer) {
-      setErr("Please pick an insurer.");
-      return;
-    }
-    if (!policy.trim()) {
-      setErr("Please enter the policy number.");
-      return;
-    }
     if (!diagnosis.trim()) {
       setErr("Please enter a diagnosis (ICD-10 recommended).");
       return;
     }
+    // TPA-specific validation. Issue #458: these fields rely on React-side
+    // checks (the form is noValidate).
+    if (isPmjay) {
+      if (!pmjayBen) {
+        setErr(
+          "This patient has no verified, eligible PM-JAY beneficiary. Verify eligibility in the PM-JAY module first."
+        );
+        return;
+      }
+      if (!packageCode) {
+        setErr("Please select an HBP package.");
+        return;
+      }
+    } else {
+      if (!insurer) {
+        setErr("Please pick an insurer.");
+        return;
+      }
+      if (!policy.trim()) {
+        setErr("Please enter the policy number.");
+        return;
+      }
+    }
     setSubmitting(true);
     try {
-      await api.post("/claims", {
+      // PM-JAY maps onto the SAME InsuranceClaim2 fields (no model change):
+      // insurerName = scheme, policyNumber = Ayushman card, memberId =
+      // beneficiary id, procedureName = HBP package code.
+      const base = {
         billId,
         patientId,
         tpaProvider: tpa,
-        insurerName: insurer,
-        policyNumber: policy,
         diagnosis,
         ...(icd10Code ? { icd10Codes: [icd10Code] } : {}),
         amountClaimed: parseFloat(amount),
-      });
+      };
+      const payload = isPmjay
+        ? {
+            ...base,
+            insurerName: "PM-JAY (Ayushman Bharat)",
+            policyNumber: pmjayBen!.ayushmanCardNumber,
+            ...(pmjayBen!.beneficiaryId ? { memberId: pmjayBen!.beneficiaryId } : {}),
+            procedureName: packageCode,
+          }
+        : {
+            ...base,
+            insurerName: insurer,
+            policyNumber: policy,
+            ...(memberId.trim() ? { memberId: memberId.trim() } : {}),
+          };
+      await api.post("/claims", payload);
       onCreated();
     } catch (e) {
       setErr((e as Error).message);
@@ -925,39 +1034,121 @@ function NewClaimModal({
                 Using the mock TPA adapter — no external request is made.
               </p>
             )}
-            {tpa === "PMJAY" && (
-              <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                PM-JAY requires a verified, eligible beneficiary — check the{" "}
+          </div>
+
+          {!isPmjay ? (
+            <>
+              {/* Insurer — from the InsuranceProvider master; falls back to the
+                  curated INDIAN_INSURERS list when the table is empty. */}
+              <div>
+                <label htmlFor="claim-insurer" className="block text-sm font-medium">
+                  Insurer <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="claim-insurer"
+                  value={insurer}
+                  onChange={(e) => setInsurer(e.target.value)}
+                  data-testid="claim-insurer-select"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <option value="">Select insurer...</option>
+                  {insurerOptions.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Input label="Policy number" value={policy} onChange={setPolicy} />
+              <Input label="Member ID (if available)" value={memberId} onChange={setMemberId} />
+            </>
+          ) : (
+            <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/20">
+              <p
+                className="text-xs text-amber-700 dark:text-amber-300"
+                data-testid="claim-pmjay-banner"
+              >
+                PM-JAY beneficiaries must first be verified from the{" "}
                 <Link href="/dashboard/pmjay" className="underline">
-                  PM-JAY console
-                </Link>{" "}
-                first, and enter the HBP <strong>package code</strong> as the procedure.
+                  PM-JAY module
+                </Link>
+                . After eligibility verification, submit the claim using the verified beneficiary
+                and the selected HBP package.
               </p>
-            )}
-          </div>
-          {/* Insurer — bound to the curated INDIAN_INSURERS list (Issue #82).
-              The Insurer DB table is not yet populated, so we hardcode for
-              now in `packages/shared/constants.ts`. */}
-          <div>
-            <label htmlFor="claim-insurer" className="block text-sm font-medium">
-              Insurer <span className="text-red-500">*</span>
-            </label>
-            <select
-              id="claim-insurer"
-              value={insurer}
-              onChange={(e) => setInsurer(e.target.value)}
-              data-testid="claim-insurer-select"
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
-            >
-              <option value="">Select insurer...</option>
-              {INDIAN_INSURERS.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Input label="Policy number" value={policy} onChange={setPolicy} />
+
+              {!patientId ? (
+                <p className="text-xs text-gray-500">
+                  Select a patient to load their verified beneficiary.
+                </p>
+              ) : !benChecked ? (
+                <p className="text-xs text-gray-500">Checking beneficiary eligibility…</p>
+              ) : !pmjayBen ? (
+                <p
+                  className="text-xs font-medium text-red-600 dark:text-red-400"
+                  data-testid="claim-pmjay-noben"
+                >
+                  No verified, eligible PM-JAY beneficiary for this patient. Verify in the{" "}
+                  <Link href="/dashboard/pmjay" className="underline">
+                    PM-JAY module
+                  </Link>{" "}
+                  first.
+                </p>
+              ) : (
+                <dl
+                  className="grid grid-cols-3 gap-y-1 text-xs"
+                  data-testid="claim-pmjay-beneficiary"
+                >
+                  <dt className="text-gray-500">Verified beneficiary</dt>
+                  <dd className="col-span-2 text-right font-medium text-green-700 dark:text-green-400">
+                    Eligible ✓
+                  </dd>
+                  <dt className="text-gray-500">Beneficiary ID</dt>
+                  <dd className="col-span-2 text-right font-mono">{pmjayBen.beneficiaryId ?? "—"}</dd>
+                  <dt className="text-gray-500">Ayushman card</dt>
+                  <dd className="col-span-2 text-right font-mono">{pmjayBen.ayushmanCardNumber}</dd>
+                </dl>
+              )}
+
+              <div>
+                <label htmlFor="claim-pmjay-package" className="block text-sm font-medium">
+                  HBP package code <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="claim-pmjay-package"
+                  value={packageCode}
+                  onChange={(e) => setPackageCode(e.target.value)}
+                  data-testid="claim-pmjay-package-select"
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <option value="">Select HBP package...</option>
+                  {packages.map((p) => (
+                    <option key={p.packageCode} value={p.packageCode}>
+                      {p.packageCode} — {p.packageName}
+                    </option>
+                  ))}
+                </select>
+                {packages.length === 0 && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    No packages loaded — sync the package master in the PM-JAY module.
+                  </p>
+                )}
+              </div>
+              {packageCode && (
+                <div>
+                  <label htmlFor="claim-pmjay-package-name" className="block text-sm font-medium">
+                    HBP package name
+                  </label>
+                  <input
+                    id="claim-pmjay-package-name"
+                    readOnly
+                    value={packageName}
+                    data-testid="claim-pmjay-package-name"
+                    className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800/50"
+                  />
+                </div>
+              )}
+            </div>
+          )}
           {/* Diagnosis — bound to the ICD-10 catalogue. The user may still
               type free text (the API field stays a `String`); when an ICD
               row is picked we additionally send `icd10Codes: [code]`. */}

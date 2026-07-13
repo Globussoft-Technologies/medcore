@@ -697,6 +697,12 @@ export const preAuthRequestSchema = z.object({
     ),
   supportingDocs: z.array(z.string()).max(20).optional(),
   notes: z.string().max(2000).optional(),
+  // PM-JAY (Ayushman Bharat) — optional linkage, set only for PM-JAY pre-auths.
+  // Non-PM-JAY callers omit these and are unaffected.
+  packageCode: z.string().trim().min(2).max(40).optional(),
+  pmjayRequestId: z.string().trim().max(64).optional(),
+  pmjayTransactionId: z.string().trim().max(64).optional(),
+  approvalNumber: z.string().trim().max(64).optional(),
 });
 
 export const updatePreAuthStatusSchema = z

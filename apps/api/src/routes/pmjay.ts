@@ -32,6 +32,21 @@ import type { NormalisedClaimStatus } from "../services/insurance-claims/adapter
 const router = Router();
 router.use(express.json({ limit: "2mb" }));
 
+/**
+ * Identify PM-JAY pre-auths: those carrying a PM-JAY id/package, or whose
+ * free-text insuranceProvider names the scheme. Used by the queue + stats so a
+ * pre-auth created on the generic Pre-Authorization page still surfaces here.
+ */
+const PMJAY_PREAUTH_WHERE = {
+  OR: [
+    { pmjayRequestId: { not: null } },
+    { packageCode: { not: null } },
+    { insuranceProvider: { contains: "PMJAY", mode: "insensitive" as const } },
+    { insuranceProvider: { contains: "PM-JAY", mode: "insensitive" as const } },
+    { insuranceProvider: { contains: "Ayushman", mode: "insensitive" as const } },
+  ],
+};
+
 // ─── Inbound TMS webhook (PUBLIC — no user JWT) ─────────────────────────
 // Declared before `router.use(authenticate)` so it is NOT gated. Auth is a
 // shared secret compared against TPA_PMJAY_WEBHOOK_SECRET (skipped only when the
@@ -165,10 +180,47 @@ router.post(
           eligibilityStatus: result.eligibilityStatus,
           beneficiaryId: result.beneficiaryId,
           familyId: result.familyId,
+          name: result.name,
+          ayushmanCardNumber: result.ayushmanCardNumber,
+          verifiedAt: result.verifiedAt,
           eligible: result.eligibilityStatus === "ELIGIBLE",
         },
         error: null,
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * GET /pmjay/beneficiary?patientId= — the patient's current ELIGIBLE beneficiary
+ * (read-only). Used by the claim form to auto-fill the verified beneficiary when
+ * TPA=PMJAY. 200 with `data: null` when the patient has no eligible record.
+ */
+router.get(
+  "/beneficiary",
+  authorize(Role.ADMIN, Role.RECEPTION, Role.DOCTOR),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const patientId = typeof req.query.patientId === "string" ? req.query.patientId : null;
+      if (!patientId) {
+        res.status(400).json({ success: false, data: null, error: "patientId is required" });
+        return;
+      }
+      const row = await tenantScopedPrisma.pmjayBeneficiary.findFirst({
+        where: { patientId, eligibilityStatus: "ELIGIBLE" },
+        orderBy: { verifiedAt: "desc" },
+        select: {
+          id: true,
+          ayushmanCardNumber: true,
+          beneficiaryId: true,
+          familyId: true,
+          eligibilityStatus: true,
+          verifiedAt: true,
+        },
+      });
+      res.json({ success: true, data: row, error: null });
     } catch (err) {
       next(err);
     }
@@ -187,6 +239,29 @@ router.get(
         return;
       }
       res.json({ success: true, data: result.members, error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** GET /pmjay/preauth — PM-JAY pre-authorisation queue (optional ?status=). */
+router.get(
+  "/preauth",
+  authorize(Role.ADMIN, Role.RECEPTION),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status.toUpperCase() : null;
+      const rows = await tenantScopedPrisma.preAuthRequest.findMany({
+        where: {
+          ...PMJAY_PREAUTH_WHERE,
+          ...(status && status !== "ALL" ? { status } : {}),
+        },
+        orderBy: { submittedAt: "desc" },
+        take: 200,
+        include: { patient: { include: { user: { select: { name: true } } } } },
+      });
+      res.json({ success: true, data: rows, error: null });
     } catch (err) {
       next(err);
     }
@@ -244,6 +319,8 @@ router.get(
         beneficiariesPending,
         claimsByStatus,
         admissions,
+        preAuthPending,
+        preAuthApproved,
         packages,
         lastPackage,
         uploadPending,
@@ -258,6 +335,8 @@ router.get(
           _sum: { amountClaimed: true, amountApproved: true },
         }),
         p.admission.count({ where: { pmjayAdmissionId: { not: null } } }),
+        p.preAuthRequest.count({ where: { ...PMJAY_PREAUTH_WHERE, status: "PENDING" } }),
+        p.preAuthRequest.count({ where: { ...PMJAY_PREAUTH_WHERE, status: "APPROVED" } }),
         p.pmjayPackage.count({ where: { isActive: true } }),
         p.pmjayPackage.findFirst({ orderBy: { lastSyncedAt: "desc" }, select: { lastSyncedAt: true, packageVersion: true } }),
         p.pmjayDocumentUpload.count({ where: { status: "PENDING" } }),
@@ -279,6 +358,7 @@ router.get(
         success: true,
         data: {
           beneficiaries: { eligible: beneficiariesEligible, pendingVerification: beneficiariesPending },
+          preAuth: { pending: preAuthPending, approved: preAuthApproved },
           claims: {
             submitted: byStatus.SUBMITTED ?? 0,
             inReview: (byStatus.IN_REVIEW ?? 0) + (byStatus.QUERY_RAISED ?? 0),

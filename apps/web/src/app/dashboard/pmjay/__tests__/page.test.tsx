@@ -32,8 +32,8 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/components/Skeleton", () => ({ SkeletonTable: () => <div data-testid="skeleton-stub" /> }));
 vi.mock("@/components/EntityPicker", () => ({
-  EntityPicker: ({ onChange }: { onChange: (id: string) => void }) => (
-    <button type="button" data-testid="pick-patient" onClick={() => onChange("p-1")}>
+  EntityPicker: ({ onChange, testIdPrefix }: { onChange: (id: string) => void; testIdPrefix?: string }) => (
+    <button type="button" data-testid={`${testIdPrefix ?? "picker"}-pick`} onClick={() => onChange("p-1")}>
       pick
     </button>
   ),
@@ -43,6 +43,7 @@ import PmjayConsolePage from "../page";
 
 const STATS = {
   beneficiaries: { eligible: 3, pendingVerification: 1 },
+  preAuth: { pending: 2, approved: 1 },
   claims: { submitted: 2, inReview: 1, approved: 1, denied: 0, settled: 4 },
   admissions: 5,
   amounts: { totalClaimed: 100000, totalApproved: 80000, settlementAmount: 60000 },
@@ -52,10 +53,26 @@ const STATS = {
 const PKGS = [
   { id: "pk-1", packageCode: "HBP-CARD-001", packageName: "Angioplasty", specialty: "Cardiology", amount: 60000, hospitalType: "PRIVATE" },
 ];
+const PREAUTHS = [
+  {
+    id: "pa-1",
+    requestNumber: "PA-9001",
+    procedureName: "Angioplasty",
+    packageCode: "HBP-CARD-001",
+    estimatedCost: 60000,
+    status: "PENDING",
+    approvedAmount: null,
+    approvalNumber: null,
+    submittedAt: "2026-07-13T09:00:00Z",
+    patient: { user: { name: "Rajesh Kumar" } },
+  },
+];
 
 function wireGet() {
   apiMock.get.mockImplementation(async (url: string) => {
     if (url.startsWith("/pmjay/stats")) return { data: STATS };
+    if (url.startsWith("/pmjay/beneficiary")) return { data: { ayushmanCardNumber: "PMJAY-C1", beneficiaryId: "BEN1" } };
+    if (url.startsWith("/pmjay/preauth")) return { data: PREAUTHS };
     if (url.startsWith("/pmjay/packages")) return { data: PKGS };
     if (url.startsWith("/pmjay/family")) return { data: [{ beneficiaryId: "B1", name: "Head", ayushmanCardNumber: "C1", familyId: "F1" }] };
     return { data: null };
@@ -89,10 +106,18 @@ describe("PmjayConsolePage", () => {
 
   it("verifies a beneficiary and shows the ELIGIBLE badge", async () => {
     apiMock.post.mockResolvedValue({
-      data: { eligibilityStatus: "ELIGIBLE", beneficiaryId: "BEN123", familyId: "FAM123", eligible: true },
+      data: {
+        eligibilityStatus: "ELIGIBLE",
+        beneficiaryId: "BEN123",
+        familyId: "FAM123",
+        name: "Rajesh Kumar",
+        ayushmanCardNumber: "PMJAY-CARD-1",
+        verifiedAt: "2026-07-13T12:00:00Z",
+        eligible: true,
+      },
     });
     render(<PmjayConsolePage />);
-    fireEvent.click(await screen.findByTestId("pick-patient"));
+    fireEvent.click(await screen.findByTestId("pmjay-patient-picker-pick"));
     fireEvent.change(screen.getByTestId("pmjay-card-input"), { target: { value: "PMJAY-CARD-1" } });
     fireEvent.click(screen.getByTestId("pmjay-verify-btn"));
     await waitFor(() => {
@@ -116,5 +141,60 @@ describe("PmjayConsolePage", () => {
     render(<PmjayConsolePage />);
     await screen.findByText("HBP-CARD-001");
     expect(screen.queryByTestId("pmjay-sync-btn")).not.toBeInTheDocument();
+  });
+
+  it("renders the PM-JAY pre-authorisation queue on mount", async () => {
+    render(<PmjayConsolePage />);
+    expect(await screen.findByText("PA-9001")).toBeInTheDocument();
+    expect(screen.getByText("Rajesh Kumar")).toBeInTheDocument();
+    expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining("/pmjay/preauth?status=PENDING"));
+  });
+
+  it("refetches pre-auths when a tab is clicked", async () => {
+    render(<PmjayConsolePage />);
+    await screen.findByText("PA-9001");
+    fireEvent.click(screen.getByTestId("pmjay-preauth-tab-APPROVED"));
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining("/pmjay/preauth?status=APPROVED"));
+    });
+  });
+
+  it("creates a PM-JAY pre-authorisation from the queue modal", async () => {
+    apiMock.post.mockResolvedValue({ data: { id: "pa-new" } });
+    render(<PmjayConsolePage />);
+    fireEvent.click(await screen.findByTestId("pmjay-new-preauth-btn"));
+    // Pick the patient inside the modal → beneficiary auto-loads (eligible).
+    fireEvent.click(await screen.findByTestId("preauth-patient-picker-pick"));
+    expect(await screen.findByTestId("preauth-ben")).toBeInTheDocument();
+    // Choose a package (auto-fills estimated cost).
+    fireEvent.change(screen.getByTestId("preauth-package-select"), { target: { value: "HBP-CARD-001" } });
+    fireEvent.click(screen.getByTestId("preauth-submit"));
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/preauth",
+        expect.objectContaining({
+          patientId: "p-1",
+          insuranceProvider: "PM-JAY (Ayushman Bharat)",
+          policyNumber: "PMJAY-C1",
+          packageCode: "HBP-CARD-001",
+          estimatedCost: 60000,
+        })
+      );
+    });
+  });
+
+  it("searches by a chosen identifier and 'Use card' fills the card field", async () => {
+    apiMock.post.mockResolvedValue({
+      data: [{ beneficiaryId: "BEN9", name: "Sita Devi", ayushmanCardNumber: "PMJAY-FOUND-9", familyId: "FAM9" }],
+    });
+    render(<PmjayConsolePage />);
+    fireEvent.change(screen.getByTestId("pmjay-search-type"), { target: { value: "mobile" } });
+    fireEvent.change(screen.getByTestId("pmjay-search-value"), { target: { value: "9876543210" } });
+    fireEvent.click(screen.getByTestId("pmjay-search-btn"));
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith("/pmjay/search-beneficiary", { mobile: "9876543210" });
+    });
+    fireEvent.click(await screen.findByTestId("pmjay-use-candidate"));
+    expect((screen.getByTestId("pmjay-card-input") as HTMLInputElement).value).toBe("PMJAY-FOUND-9");
   });
 });

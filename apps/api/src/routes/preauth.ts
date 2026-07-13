@@ -46,6 +46,11 @@ router.post(
               ? JSON.stringify(body.supportingDocs)
               : null,
             notes: body.notes ?? null,
+            // PM-JAY linkage (optional; null for non-PM-JAY pre-auths).
+            packageCode: body.packageCode ?? null,
+            pmjayRequestId: body.pmjayRequestId ?? null,
+            pmjayTransactionId: body.pmjayTransactionId ?? null,
+            approvalNumber: body.approvalNumber ?? null,
             createdBy: req.user!.userId,
           },
         });

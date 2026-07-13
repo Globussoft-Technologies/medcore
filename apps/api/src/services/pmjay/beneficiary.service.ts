@@ -38,10 +38,27 @@ function simEligibility(cardNumber: string): Eligibility {
 
 export interface SearchInput {
   ayushmanCardNumber?: string;
+  beneficiaryId?: string;
+  familyId?: string;
+  mobile?: string;
+  abhaNumber?: string;
   name?: string;
 }
 
-/** Search the BIS for candidate beneficiaries. */
+/** The identifier a search was keyed on — used to seed the sim candidate. */
+function primaryIdentifier(input: SearchInput): string {
+  return (
+    input.ayushmanCardNumber ||
+    input.beneficiaryId ||
+    input.familyId ||
+    input.mobile ||
+    input.abhaNumber ||
+    input.name ||
+    "unknown"
+  );
+}
+
+/** Search the BIS for candidate beneficiaries by any supported identifier. */
 export async function searchBeneficiary(
   input: SearchInput
 ): Promise<{ ok: true; candidates: BeneficiaryCandidate[] } | { ok: false; message: string }> {
@@ -49,15 +66,16 @@ export async function searchBeneficiary(
   if (!cfg.enabled) return { ok: false, message: "PM-JAY integration disabled" };
 
   if (cfg.simulation) {
-    const card = input.ayushmanCardNumber ?? synthId("PMJAY", input.name ?? "unknown");
+    const seed = primaryIdentifier(input);
+    const card = input.ayushmanCardNumber ?? synthId("PMJAY", seed);
     return {
       ok: true,
       candidates: [
         {
-          beneficiaryId: synthId("BEN", card),
+          beneficiaryId: input.beneficiaryId ?? synthId("BEN", seed),
           name: input.name ?? "Ayushman Beneficiary",
           ayushmanCardNumber: card,
-          familyId: synthId("FAM", card),
+          familyId: input.familyId ?? synthId("FAM", seed),
           gender: "OTHER",
         },
       ],
@@ -80,6 +98,9 @@ export interface VerifyResult {
   eligibilityStatus: Eligibility;
   beneficiaryId: string | null;
   familyId: string | null;
+  name: string | null;
+  ayushmanCardNumber: string;
+  verifiedAt: string;
   beneficiary: { id: string };
 }
 
@@ -95,6 +116,7 @@ export async function verifyBeneficiary(input: VerifyInput): Promise<VerifyResul
   let status: Eligibility;
   let beneficiaryId: string | null;
   let familyId: string | null;
+  let name: string | null = null;
   let raw: unknown;
 
   if (cfg.simulation || !cfg.enabled) {
@@ -117,10 +139,12 @@ export async function verifyBeneficiary(input: VerifyInput): Promise<VerifyResul
         eligible?: boolean;
         beneficiaryId?: string;
         familyId?: string;
+        name?: string;
       };
       status = body.eligible ? "ELIGIBLE" : "NOT_ELIGIBLE";
       beneficiaryId = body.beneficiaryId ?? null;
       familyId = body.familyId ?? null;
+      name = body.name ?? null;
       raw = body;
     }
   }
@@ -166,7 +190,15 @@ export async function verifyBeneficiary(input: VerifyInput): Promise<VerifyResul
     },
   });
 
-  return { eligibilityStatus: status, beneficiaryId, familyId, beneficiary };
+  return {
+    eligibilityStatus: status,
+    beneficiaryId,
+    familyId,
+    name,
+    ayushmanCardNumber: input.ayushmanCardNumber,
+    verifiedAt: verifiedAt.toISOString(),
+    beneficiary,
+  };
 }
 
 /** Fetch family members for a beneficiary (BIS family API). */

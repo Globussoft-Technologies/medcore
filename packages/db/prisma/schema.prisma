@@ -893,6 +893,7 @@ model Tenant {
   pmjayVerifications       PmjayVerificationHistory[]
   pmjayPackages            PmjayPackage[]
   pmjayDocumentUploads     PmjayDocumentUpload[]
+  pmjayConfiguration       TenantPmjayConfiguration?
   platformInvoiceLineItems PlatformInvoiceLineItem[]
   supportTicketMessages    SupportTicketMessage[]
   refreshTokens            RefreshToken[]
@@ -6536,6 +6537,35 @@ model PmjayDocumentUpload {
   @@index([status])
   @@index([tenantId])
   @@map("pmjay_document_uploads")
+}
+
+/// Per-tenant PM-JAY connection configuration. Replaces the single global
+/// TPA_PMJAY_* env config so every hospital (tenant) has its own credentials +
+/// endpoints. Exactly one row per tenant (tenantId unique). `clientSecret` is
+/// stored as AES-256-GCM ciphertext and is never returned in API responses.
+model TenantPmjayConfiguration {
+  id             String   @id @default(uuid())
+  tenantId       String   @unique
+  enabled        Boolean  @default(true)
+  simulationMode Boolean  @default(true)
+  hospitalId     String?
+  clientId       String?
+  clientSecret   String? // AES-256-GCM ciphertext — never exposed via API
+  baseUrl        String?
+  authUrl        String?
+  bisUrl         String?
+  tmsUrl         String?
+  packageUrl     String?
+  timeout        Int?
+  retryCount     Int?
+  logging        Boolean?
+  batchSize      Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_pmjay_configurations")
 }
 
 // ─── RAG INGEST LOG ─────────────────────────────────────

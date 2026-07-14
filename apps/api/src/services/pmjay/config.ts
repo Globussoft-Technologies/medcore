@@ -1,11 +1,16 @@
 // PM-JAY (Ayushman Bharat) integration — typed configuration.
 //
-// Every PM-JAY endpoint + behavioural knob is read from the environment so the
-// adapter is portable across state gateways (SHA deployments differ in base
-// URLs and auth flows). NOTHING is hardcoded here. When mandatory live
-// credentials are absent we fall back to `simulation` mode, which lets the
-// whole beneficiary → pre-auth → claim → settle workflow run end-to-end in dev
-// without touching a real government API.
+// Configuration is now PER-TENANT: credentials + endpoints live in the
+// `TenantPmjayConfiguration` table (one row per hospital), NOT in global env.
+// `loadPmjayConfig()` resolves the current tenant (from the request's
+// AsyncLocalStorage context, or an explicit id), reads that tenant's row, and
+// decrypts the client secret. Only behavioural DEFAULTS (timeout / retries /
+// logging / batch size) remain in env as fallbacks. When no tenant/row is
+// resolved (e.g. a background job with no tenant context, or an unconfigured
+// tenant) we return a safe simulation config so the workflow still runs.
+
+import { prisma, getTenantId } from "@medcore/db";
+import { decryptSecret } from "./crypto";
 
 /** Fully-resolved PM-JAY configuration for a single process. */
 export interface PmjayConfig {
@@ -56,40 +61,110 @@ function str(value: string | undefined): string | null {
   return v ? v : null;
 }
 
-/**
- * Read PM-JAY config from `process.env` on every call (cheap; avoids a stale
- * module-scope cache leaking across tests that mutate env). The important
- * derived value is `simulation`: we require a base URL + auth URL + hospital id
- * + client credentials for a live run; anything missing forces simulation.
- */
-export function readPmjayConfig(): PmjayConfig {
-  const urls = {
-    base: str(process.env.TPA_PMJAY_BASE_URL),
-    auth: str(process.env.TPA_PMJAY_AUTH_URL),
-    bis: str(process.env.TPA_PMJAY_BIS_URL),
-    tms: str(process.env.TPA_PMJAY_TMS_URL),
-    package: str(process.env.TPA_PMJAY_PACKAGE_URL),
+/** Global behavioural defaults (env). Only fallbacks — NOT credentials. */
+interface PmjayDefaults {
+  timeoutMs: number;
+  retries: number;
+  logging: boolean;
+  batchSize: number;
+}
+function readDefaults(): PmjayDefaults {
+  return {
+    timeoutMs: int(process.env.PMJAY_DEFAULT_TIMEOUT, 30_000),
+    retries: int(process.env.PMJAY_DEFAULT_RETRIES, 3),
+    logging: bool(process.env.PMJAY_DEFAULT_LOGGING, false),
+    batchSize: int(process.env.PMJAY_DEFAULT_BATCH_SIZE, 200),
   };
-  const hospitalId = str(process.env.TPA_PMJAY_HOSPITAL_ID);
-  const clientId = str(process.env.TPA_PMJAY_CLIENT_ID);
-  const clientSecret = str(process.env.TPA_PMJAY_CLIENT_SECRET);
+}
 
-  const hasLiveCreds = Boolean(
-    urls.base && urls.auth && hospitalId && clientId && clientSecret
-  );
-  // Explicit simulation flag wins; otherwise simulate whenever creds are absent.
-  const simulation = bool(process.env.TPA_PMJAY_SIMULATION, !hasLiveCreds);
+/** Shape of the persisted per-tenant row (subset we consume). */
+interface PmjayConfigRow {
+  enabled: boolean;
+  simulationMode: boolean;
+  hospitalId: string | null;
+  clientId: string | null;
+  clientSecret: string | null; // ciphertext
+  baseUrl: string | null;
+  authUrl: string | null;
+  bisUrl: string | null;
+  tmsUrl: string | null;
+  packageUrl: string | null;
+  timeout: number | null;
+  retryCount: number | null;
+  logging: boolean | null;
+  batchSize: number | null;
+}
 
+/**
+ * Safe fallback used when no tenant/row resolves (background jobs without a
+ * tenant context, or a tenant that hasn't configured PM-JAY yet): simulation
+ * mode, no credentials, env defaults. `enabled` still honours the legacy
+ * `TPA_PMJAY_ENABLED` kill-switch so ops can globally disable if needed.
+ */
+function fallbackConfig(d: PmjayDefaults): PmjayConfig {
   return {
     enabled: bool(process.env.TPA_PMJAY_ENABLED, true),
+    simulation: true,
+    hospitalId: null,
+    clientId: null,
+    clientSecret: null,
+    urls: { base: null, auth: null, bis: null, tms: null, package: null },
+    timeoutMs: d.timeoutMs,
+    retries: d.retries,
+    logging: d.logging,
+    batchSize: d.batchSize,
+  };
+}
+
+/** Build a runtime config from a persisted tenant row (decrypts the secret). */
+function fromRow(row: PmjayConfigRow, d: PmjayDefaults): PmjayConfig {
+  const clientSecret = decryptSecret(row.clientSecret);
+  const urls = {
+    base: str(row.baseUrl ?? undefined),
+    auth: str(row.authUrl ?? undefined),
+    bis: str(row.bisUrl ?? undefined),
+    tms: str(row.tmsUrl ?? undefined),
+    package: str(row.packageUrl ?? undefined),
+  };
+  const hospitalId = str(row.hospitalId ?? undefined);
+  const clientId = str(row.clientId ?? undefined);
+  const hasLiveCreds = Boolean(urls.base && urls.auth && hospitalId && clientId && clientSecret);
+  // Explicit simulation flag wins; otherwise simulate whenever creds incomplete.
+  const simulation = row.simulationMode || !hasLiveCreds;
+  return {
+    enabled: row.enabled,
     simulation,
     hospitalId,
     clientId,
     clientSecret,
     urls,
-    timeoutMs: int(process.env.TPA_PMJAY_TIMEOUT, 30_000),
-    retries: int(process.env.TPA_PMJAY_RETRIES, 3),
-    logging: bool(process.env.TPA_PMJAY_LOGGING, false),
-    batchSize: int(process.env.TPA_PMJAY_BATCH_SIZE, 200),
+    timeoutMs: row.timeout ?? d.timeoutMs,
+    retries: row.retryCount ?? d.retries,
+    logging: row.logging ?? d.logging,
+    batchSize: row.batchSize ?? d.batchSize,
   };
+}
+
+/**
+ * Resolve the effective PM-JAY config for the CURRENT tenant. Reads the tenant
+ * from `explicitTenantId` or the request's ALS context, loads its row, and
+ * merges env defaults. Never throws — falls back to simulation on any miss.
+ */
+export async function loadPmjayConfig(
+  explicitTenantId?: string | null
+): Promise<PmjayConfig> {
+  const d = readDefaults();
+  const tenantId =
+    explicitTenantId ?? (typeof getTenantId === "function" ? getTenantId() : undefined);
+  if (!tenantId) return fallbackConfig(d);
+
+  let row: PmjayConfigRow | null = null;
+  try {
+    row = (await prisma.tenantPmjayConfiguration.findUnique({
+      where: { tenantId },
+    })) as PmjayConfigRow | null;
+  } catch {
+    row = null;
+  }
+  return row ? fromRow(row, d) : fallbackConfig(d);
 }

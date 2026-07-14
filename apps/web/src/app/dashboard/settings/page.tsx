@@ -30,6 +30,7 @@ import {
   Eye,
   EyeOff,
   ArrowLeft,
+  ShieldCheck,
 } from "lucide-react";
 
 // Issues #716/#717 (2026-05-08): admins reported four "ghost" tabs they
@@ -45,7 +46,8 @@ type Tab =
   | "branding"
   | "integrations"
   | "whatsapp"
-  | "payments";
+  | "payments"
+  | "pmjay";
 
 // Issue #437 (Apr 30 2026): Settings page exposed admin-only sections
 // (organization profile, user list, billing/integrations) to nurses, leaking
@@ -180,7 +182,7 @@ export default function SettingsPage() {
   // the super-admin surfaces instead, so we withhold both tabs from them.
   const isTenantAdmin = user?.role === "ADMIN" && !!user?.tenantId;
   const allowed: ReadonlyArray<Tab> = isTenantAdmin
-    ? [...allowedTabsForRole(user?.role), "whatsapp", "payments"]
+    ? [...allowedTabsForRole(user?.role), "whatsapp", "payments", "pmjay"]
     : allowedTabsForRole(user?.role);
   const [tab, setTab] = useState<Tab>("profile");
 
@@ -236,6 +238,7 @@ export default function SettingsPage() {
     { id: "integrations", label: "Integrations", icon: Plug },
     { id: "whatsapp", label: "WhatsApp", icon: MessageCircle },
     { id: "payments", label: "Payments", icon: CreditCard },
+    { id: "pmjay", label: "PM-JAY Configuration", icon: ShieldCheck },
   ];
   // Issue #437: filter the visible tab list down to what this role is
   // allowed to interact with. Hiding the tab in the nav AND skipping the
@@ -295,6 +298,7 @@ export default function SettingsPage() {
             allowed.includes("integrations") && <IntegrationsTab />}
           {tab === "whatsapp" && allowed.includes("whatsapp") && <WhatsAppTab />}
           {tab === "payments" && allowed.includes("payments") && <PaymentsTab />}
+          {tab === "pmjay" && allowed.includes("pmjay") && <PmjayConfigTab />}
         </div>
       </div>
     </div>
@@ -1726,6 +1730,249 @@ interface WaConfigResponse {
 }
 
 type WaCredVault = Partial<Record<WaProvider, Record<string, string>>>;
+
+// ─── PM-JAY Configuration (tenant-admin) ────────────────────────────────────
+// Per-tenant PM-JAY credentials + endpoints. Client secret is write-only: the
+// GET never returns it (only a "set" flag); leaving it blank on save keeps the
+// stored value. When credentials are incomplete the integration runs in
+// simulation mode automatically.
+interface PmjayConfigState {
+  enabled: boolean;
+  simulationMode: boolean;
+  hospitalId: string;
+  clientId: string;
+  clientSecret: string; // input only; never populated from server
+  baseUrl: string;
+  authUrl: string;
+  bisUrl: string;
+  tmsUrl: string;
+  packageUrl: string;
+  timeout: string;
+  retryCount: string;
+  batchSize: string;
+  logging: boolean;
+}
+
+const PMJAY_EMPTY: PmjayConfigState = {
+  enabled: true,
+  simulationMode: true,
+  hospitalId: "",
+  clientId: "",
+  clientSecret: "",
+  baseUrl: "",
+  authUrl: "",
+  bisUrl: "",
+  tmsUrl: "",
+  packageUrl: "",
+  timeout: "",
+  retryCount: "",
+  batchSize: "",
+  logging: false,
+};
+
+function PmjayConfigTab() {
+  const [cfg, setCfg] = useState<PmjayConfigState>(PMJAY_EMPTY);
+  const [secretSet, setSecretSet] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get<{ data: Record<string, unknown> }>("/pmjay/config");
+        const d = res.data ?? {};
+        setSecretSet(Boolean((d as { clientSecretSet?: boolean }).clientSecretSet));
+        setCfg({
+          enabled: (d.enabled as boolean) ?? true,
+          simulationMode: (d.simulationMode as boolean) ?? true,
+          hospitalId: (d.hospitalId as string) ?? "",
+          clientId: (d.clientId as string) ?? "",
+          clientSecret: "",
+          baseUrl: (d.baseUrl as string) ?? "",
+          authUrl: (d.authUrl as string) ?? "",
+          bisUrl: (d.bisUrl as string) ?? "",
+          tmsUrl: (d.tmsUrl as string) ?? "",
+          packageUrl: (d.packageUrl as string) ?? "",
+          timeout: d.timeout != null ? String(d.timeout) : "",
+          retryCount: d.retryCount != null ? String(d.retryCount) : "",
+          batchSize: d.batchSize != null ? String(d.batchSize) : "",
+          logging: (d.logging as boolean) ?? false,
+        });
+      } catch {
+        /* render blank form */
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  function set<K extends keyof PmjayConfigState>(key: K, value: PmjayConfigState[K]) {
+    setCfg((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function save() {
+    setSaving(true);
+    try {
+      const payload: Record<string, unknown> = {
+        enabled: cfg.enabled,
+        simulationMode: cfg.simulationMode,
+        hospitalId: cfg.hospitalId,
+        clientId: cfg.clientId,
+        baseUrl: cfg.baseUrl,
+        authUrl: cfg.authUrl,
+        bisUrl: cfg.bisUrl,
+        tmsUrl: cfg.tmsUrl,
+        packageUrl: cfg.packageUrl,
+        logging: cfg.logging,
+      };
+      // Only send the secret when the admin typed one (blank = keep existing).
+      if (cfg.clientSecret.trim()) payload.clientSecret = cfg.clientSecret.trim();
+      if (cfg.timeout.trim()) payload.timeout = Number(cfg.timeout);
+      if (cfg.retryCount.trim()) payload.retryCount = Number(cfg.retryCount);
+      if (cfg.batchSize.trim()) payload.batchSize = Number(cfg.batchSize);
+
+      const res = await api.put<{ data: { clientSecretSet?: boolean } }>("/pmjay/config", payload);
+      setSecretSet(Boolean(res.data?.clientSecretSet));
+      setCfg((p) => ({ ...p, clientSecret: "" }));
+      toast.success("PM-JAY configuration saved.");
+    } catch (e) {
+      toast.error((e as Error).message || "Could not save configuration.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <SkeletonText lines={6} />;
+
+  const INPUT =
+    "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-900";
+
+  const txt = (label: string, key: keyof PmjayConfigState, placeholder = "") => (
+    <Field label={label}>
+      <input
+        value={cfg[key] as string}
+        onChange={(e) => set(key, e.target.value as never)}
+        placeholder={placeholder}
+        data-testid={`pmjay-cfg-${key}`}
+        // Block browser/password-manager autofill (these are NOT login fields).
+        name={`pmjay-cfg-${key}`}
+        autoComplete="off"
+        data-1p-ignore
+        data-lpignore="true"
+        data-form-type="other"
+        className={INPUT}
+      />
+    </Field>
+  );
+
+  const check = (label: string, key: "enabled" | "simulationMode" | "logging") => (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={cfg[key]}
+        onChange={(e) => set(key, e.target.checked)}
+        data-testid={`pmjay-cfg-${key}`}
+        className="h-4 w-4 rounded border-gray-300"
+      />
+      {label}
+    </label>
+  );
+
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800">
+      {/* Decoy fields absorb browser login-autofill so the real Client ID /
+          Secret fields stay empty (off-screen, non-interactive). */}
+      <input type="text" name="username" autoComplete="username" tabIndex={-1} aria-hidden readOnly value="" style={{ position: "absolute", height: 0, width: 0, opacity: 0, pointerEvents: "none" }} />
+      <input type="password" name="password" autoComplete="current-password" tabIndex={-1} aria-hidden readOnly value="" style={{ position: "absolute", height: 0, width: 0, opacity: 0, pointerEvents: "none" }} />
+
+      <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold">
+        <ShieldCheck className="h-5 w-5 text-primary" /> PM-JAY Configuration
+      </h2>
+      <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+        This hospital&apos;s own PM-JAY connection — kept separate from every other hospital. The
+        client secret is encrypted at rest and never shown back. Leave credentials blank to run in
+        simulation mode.
+      </p>
+
+      {/* Toggles */}
+      <div className="mb-5 flex flex-wrap gap-x-8 gap-y-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+        {check("Enabled", "enabled")}
+        {check("Simulation mode", "simulationMode")}
+        {check("Verbose logging", "logging")}
+      </div>
+
+      {/* Credentials */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {txt("Hospital ID", "hospitalId", "Empanelled hospital id")}
+        {txt("Client ID", "clientId", "OAuth client id")}
+
+        <div className="md:col-span-2">
+          <Field label={secretSet ? "Client Secret (leave blank to keep current)" : "Client Secret"}>
+            <div className="flex items-stretch gap-2">
+              <input
+                type={showSecret ? "text" : "password"}
+                value={cfg.clientSecret}
+                onChange={(e) => set("clientSecret", e.target.value)}
+                placeholder={secretSet ? "•••••••• (stored)" : "OAuth client secret"}
+                data-testid="pmjay-cfg-clientSecret"
+                name="pmjay-cfg-clientSecret"
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-form-type="other"
+                className={INPUT}
+              />
+              <button
+                type="button"
+                onClick={() => setShowSecret((v) => !v)}
+                aria-label={showSecret ? "Hide" : "Show"}
+                className="inline-flex min-w-[44px] items-center justify-center rounded-lg border border-gray-300 px-3 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
+              >
+                {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+          </Field>
+        </div>
+
+        {txt("Base URL", "baseUrl", "Gateway base URL")}
+        {txt("Auth URL", "authUrl", "OAuth token endpoint")}
+        {txt("BIS URL", "bisUrl", "Beneficiary system URL")}
+        {txt("TMS URL", "tmsUrl", "Claims system URL")}
+        {txt("Package URL", "packageUrl", "Package master URL")}
+        {txt("Timeout (ms)", "timeout", "30000")}
+        {txt("Retry count", "retryCount", "3")}
+        {txt("Batch size", "batchSize", "200")}
+      </div>
+
+      {!cfg.simulationMode && (
+        <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
+          Live mode calls the real PM-JAY gateway. Provide all URLs + hospital id + client
+          credentials, or it stays in simulation until they&apos;re complete.
+        </p>
+      )}
+
+      <div className="mt-6 flex items-center justify-between">
+        <span className="text-xs text-gray-400">
+          {cfg.simulationMode
+            ? "Simulation mode"
+            : secretSet
+              ? "Credentials on file"
+              : "Not configured yet"}
+        </span>
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          data-testid="pmjay-cfg-save"
+          className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save configuration"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function WhatsAppTab() {
   // `provider` = the provider currently being VIEWED/edited in the dropdown.

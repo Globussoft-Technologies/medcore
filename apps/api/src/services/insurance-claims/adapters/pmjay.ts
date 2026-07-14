@@ -2,7 +2,7 @@
 //
 // Implements the neutral `ClaimsAdapter` contract so PM-JAY behaves like any
 // other TPA to the rest of the engine (registry, reconciliation poller, store).
-// Two modes, chosen by `readPmjayConfig().simulation`:
+// Two modes, chosen by the current tenant's `loadPmjayConfig().simulation`:
 //   - SIMULATION (default when live creds are absent): a deterministic in-memory
 //     TPA, mirroring `mock.ts`, so the full workflow is demoable/testable.
 //   - LIVE: real HTTP to the SHA/TMS gateway, with the OAuth token supplied by
@@ -23,7 +23,7 @@ import {
   NormalisedClaimStatus,
   ClaimDocumentType,
 } from "../adapter";
-import { readPmjayConfig, PmjayConfig } from "../../pmjay/config";
+import { loadPmjayConfig, PmjayConfig } from "../../pmjay/config";
 import { getAccessToken, invalidateToken } from "../../pmjay/token-manager";
 
 // ─── Simulated TPA-side state (mirror of mock.ts) ──────────────────────
@@ -157,7 +157,7 @@ export const pmjayAdapter: ClaimsAdapter = {
   provider: "PMJAY",
 
   async submitClaim(input: ClaimSubmissionInput): Promise<AdapterResult<SubmitClaimOk>> {
-    const cfg = readPmjayConfig();
+    const cfg = await loadPmjayConfig();
     if (!cfg.enabled) {
       return { ok: false, error: { code: "TPA_UNAVAILABLE", message: "PM-JAY integration disabled" } };
     }
@@ -230,7 +230,7 @@ export const pmjayAdapter: ClaimsAdapter = {
   },
 
   async getClaimStatus(providerRef: string): Promise<AdapterResult<ClaimStatusOk>> {
-    const cfg = readPmjayConfig();
+    const cfg = await loadPmjayConfig();
     if (cfg.simulation) {
       const claim = store.get(providerRef);
       if (!claim) {
@@ -282,7 +282,7 @@ export const pmjayAdapter: ClaimsAdapter = {
     filename: string,
     _contentType: string
   ): Promise<AdapterResult<DocumentUploadOk>> {
-    const cfg = readPmjayConfig();
+    const cfg = await loadPmjayConfig();
     if (buffer.length === 0) {
       return { ok: false, error: { code: "INVALID_INPUT", message: "Empty document buffer" } };
     }
@@ -325,7 +325,7 @@ export const pmjayAdapter: ClaimsAdapter = {
   },
 
   async cancelClaim(providerRef: string, reason: string): Promise<AdapterResult<CancelOk>> {
-    const cfg = readPmjayConfig();
+    const cfg = await loadPmjayConfig();
     if (cfg.simulation) {
       const claim = store.get(providerRef);
       if (!claim) {

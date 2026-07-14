@@ -38,6 +38,8 @@ vi.mock("@medcore/db", () => ({
   tenantScopedPrisma: prismaMock,
   prisma: prismaMock,
   runWithTenant: (_t: string, fn: () => unknown) => fn(),
+  // config.ts reads the tenant from ALS; undefined here → simulation fallback.
+  getTenantId: () => undefined,
 }));
 
 import { verifyBeneficiary, getEligibleBeneficiary } from "./beneficiary.service";

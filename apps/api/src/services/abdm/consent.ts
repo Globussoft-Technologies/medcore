@@ -14,7 +14,12 @@
  * We persist a `ConsentArtefact` row at step 1 (status REQUESTED) and flip
  * it to GRANTED / DENIED / REVOKED from the callback handler.
  *
- * Reference: ABDM Consent Manager APIs v0.5 — `/v0.5/consent-requests/*`.
+ * Reference: ABDM HIE-CM v3 Consent APIs (Milestone 3) —
+ *   POST /api/hiecm/consent/v3/request/init    (this file, requestConsent)
+ *   POST /api/hiecm/consent/v3/request/status  (consentRequestStatus)
+ *   POST /api/hiecm/consent/v3/fetch           (fetchConsentArtefact)
+ * Async results arrive on our bridge callback URL at
+ *   /consent/request/hiu/on-init | /on-status | /on-fetch.
  */
 
 import { Prisma } from "@prisma/client";
@@ -40,9 +45,21 @@ export const CONSENT_PURPOSES = [
   "PUBHLTH", // Public Health
   "HPAYMT",  // Healthcare Payment
   "DSRCH",   // Disease Research
-  "PATRQT",  // Patient Request
+  "PATRQT",  // Patient (Self) Requested
 ] as const;
 export type ConsentPurposeCode = (typeof CONSENT_PURPOSES)[number];
+
+// v3 requires the exact human-readable `purpose.text` (ABDM rejects the code
+// as text — see ABDM-9999 "Invalid purpose text"). These are the only accepted
+// strings, keyed by our code.
+const PURPOSE_TEXT: Record<ConsentPurposeCode, string> = {
+  CAREMGT: "Care Management",
+  BTG: "Break the Glass",
+  PUBHLTH: "Public Health",
+  HPAYMT: "Healthcare Payment",
+  DSRCH: "Disease Specific Healthcare Research",
+  PATRQT: "Self Requested",
+};
 
 export interface RequestConsentInput {
   patientId: string;
@@ -52,9 +69,11 @@ export interface RequestConsentInput {
   abhaAddress: string;
   dateFrom: Date;              // HI data window start
   dateTo: Date;                // HI data window end
-  expiresAt: Date;             // artefact expiry
-  requesterId: string;         // doctor/user id requesting
+  expiresAt: Date;             // artefact expiry (dataEraseAt) — must be future
+  requesterId: string;         // doctor/user registration id
   requesterName: string;
+  /** Optional council-registry system URI for the requester identifier. */
+  requesterSystem?: string;
 }
 
 export interface ConsentArtefactRecord {
@@ -71,9 +90,10 @@ export interface ConsentArtefactRecord {
 // ── requestConsent ────────────────────────────────────────────────────────
 
 /**
- * Step 1: create a consent request with the CM. Persists a REQUESTED row
- * and fires `POST /v0.5/consent-requests/init`. The CM replies 202; the
- * final artefact arrives asynchronously on `/gateway/callback`.
+ * Step 1: create a consent request with the CM (v3). Persists a REQUESTED row
+ * and fires `POST /api/hiecm/consent/v3/request/init`. The CM replies 202; the
+ * granted artefact arrives asynchronously on our bridge callback
+ * (`/consent/request/hiu/on-init` then `/on-notify`).
  */
 export async function requestConsent(
   input: RequestConsentInput
@@ -82,7 +102,7 @@ export async function requestConsent(
     throw new ABDMError("dateTo must be after dateFrom", 400);
   }
   if (input.expiresAt <= new Date()) {
-    throw new ABDMError("expiresAt must be in the future", 400);
+    throw new ABDMError("expiresAt (dataEraseAt) must be a future date", 400);
   }
   if (input.hiTypes.length === 0) {
     throw new ABDMError("At least one hiType is required", 400);
@@ -109,19 +129,31 @@ export async function requestConsent(
     },
   });
 
-  // Kick off the CM init.
+  // v3 consent init — body is just the `consent` object. REQUEST-ID/TIMESTAMP
+  // are sent as headers by the client, not in the body.
   await abdmRequest<void>({
     method: "POST",
-    path: "/v0.5/consent-requests/init",
+    path: "/consent/v3/request/init",
     requestId: consentRequestId,
     body: {
-      requestId: consentRequestId,
-      timestamp: new Date().toISOString(),
       consent: {
-        purpose: { text: input.purpose, code: input.purpose },
+        purpose: {
+          text: PURPOSE_TEXT[input.purpose],
+          code: input.purpose,
+          refUri: "www.abdm.gov.in",
+        },
         patient: { id: input.abhaAddress },
         hiu: { id: input.hiuId },
-        requester: { name: input.requesterName, identifier: { type: "REGNO", value: input.requesterId } },
+        hip: null,
+        careContexts: null,
+        requester: {
+          name: input.requesterName,
+          identifier: {
+            type: "REGNO",
+            value: input.requesterId,
+            system: input.requesterSystem ?? "https://www.nmc.org.in",
+          },
+        },
         hiTypes: input.hiTypes,
         permission: {
           accessMode: "VIEW",
@@ -130,13 +162,53 @@ export async function requestConsent(
             to: input.dateTo.toISOString(),
           },
           dataEraseAt: input.expiresAt.toISOString(),
-          frequency: { unit: "HOUR", value: 1, repeats: 0 },
+          frequency: { unit: "HOUR", value: 0, repeats: 0 },
         },
       },
     },
   });
 
   return { consentRequestId, localId: local.id };
+}
+
+// ── consentRequestStatus (v3) ───────────────────────────────────────────────
+
+/**
+ * Poll the CM for a consent request's status (v3). The synchronous reply is
+ * 202; the actual status lands on the `/consent/request/hiu/on-status`
+ * callback. Requires the X-HIU-ID header.
+ */
+export async function consentRequestStatus(
+  consentRequestId: string,
+  hiuId: string,
+): Promise<void> {
+  await abdmRequest<void>({
+    method: "POST",
+    path: "/consent/v3/request/status",
+    requestId: crypto.randomUUID(),
+    headers: { "X-HIU-ID": hiuId },
+    body: { consentRequestId },
+  });
+}
+
+// ── fetchConsentArtefact (v3) ───────────────────────────────────────────────
+
+/**
+ * Fetch the signed consent artefact by consentId (v3), once the patient has
+ * GRANTED. 202 sync; the artefact arrives on `/consent/on-fetch`. Requires the
+ * X-HIU-ID header.
+ */
+export async function fetchConsentArtefact(
+  consentId: string,
+  hiuId: string,
+): Promise<void> {
+  await abdmRequest<void>({
+    method: "POST",
+    path: "/consent/v3/fetch",
+    requestId: crypto.randomUUID(),
+    headers: { "X-HIU-ID": hiuId },
+    body: { consentId },
+  });
 }
 
 // ── getConsent ────────────────────────────────────────────────────────────
@@ -153,7 +225,12 @@ export async function getConsent(consentRequestId: string): Promise<ConsentArtef
 
 /**
  * Revoke a previously-granted consent. Only works if the artefact is in
- * GRANTED state. Fires `POST /v0.5/consents/revoke` at the CM.
+ * GRANTED state.
+ *
+ * NOTE (v3 migration): revoke is not part of the Milestone-3 Postman
+ * collection, so the exact v3 path is unverified. Using the documented v3
+ * consent revoke path; confirm against the CM spec before relying on it in
+ * production. The local status flip still happens regardless.
  */
 export async function revokeConsent(consentRequestId: string): Promise<void> {
   const row = await prisma.consentArtefact.findUnique({
@@ -166,8 +243,9 @@ export async function revokeConsent(consentRequestId: string): Promise<void> {
 
   await abdmRequest<void>({
     method: "POST",
-    path: "/v0.5/consents/revoke",
+    path: "/consent/v3/revoke",
     requestId: crypto.randomUUID(),
+    headers: { "X-HIU-ID": row.hiuId },
     body: {
       consents: [{ id: consentRequestId }],
     },

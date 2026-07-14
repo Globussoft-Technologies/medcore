@@ -63,6 +63,8 @@ import {
   getConsent,
   revokeConsent,
   handleConsentCallback,
+  consentRequestStatus,
+  fetchConsentArtefact,
   CONSENT_PURPOSES,
   type RequestConsentInput,
 } from "./consent";
@@ -161,7 +163,7 @@ describe("requestConsent", () => {
       requestConsent(
         makeRequestInput({ expiresAt: new Date(Date.now() - 60_000) }),
       ),
-    ).rejects.toThrow(/expiresAt must be in the future/);
+    ).rejects.toThrow(/expiresAt \(dataEraseAt\) must be a future date/);
     expect(prismaMock.consentArtefact.create).not.toHaveBeenCalled();
   });
 
@@ -172,7 +174,7 @@ describe("requestConsent", () => {
     try {
       await expect(
         requestConsent(makeRequestInput({ expiresAt: fixedNow })),
-      ).rejects.toThrow(/expiresAt must be in the future/);
+      ).rejects.toThrow(/expiresAt \(dataEraseAt\) must be a future date/);
     } finally {
       vi.useRealTimers();
     }
@@ -214,42 +216,55 @@ describe("requestConsent", () => {
     });
   });
 
-  it("dispatches the CM init POST with the ABDM v0.5 consent envelope", async () => {
+  it("dispatches the CM init POST with the v3 consent envelope", async () => {
     const input = makeRequestInput();
     await requestConsent(input);
 
     expect(abdmRequestMock).toHaveBeenCalledTimes(1);
     const init = abdmRequestMock.mock.calls[0][0];
     expect(init.method).toBe("POST");
-    expect(init.path).toBe("/v0.5/consent-requests/init");
+    // v3 HIE-CM path (was /v0.5/consent-requests/init).
+    expect(init.path).toBe("/consent/v3/request/init");
     expect(init.requestId).toBeDefined();
-    expect(init.body.requestId).toBe(init.requestId);
-    expect(typeof init.body.timestamp).toBe("string");
+    // v3 body carries only the `consent` object — REQUEST-ID/TIMESTAMP are
+    // sent as headers by the client, not in the body.
+    expect(init.body.requestId).toBeUndefined();
+    expect(init.body.timestamp).toBeUndefined();
 
     const consent = init.body.consent;
-    expect(consent.purpose).toEqual({ text: "CAREMGT", code: "CAREMGT" });
+    // v3 requires the human-readable purpose text + refUri.
+    expect(consent.purpose).toEqual({
+      text: "Care Management",
+      code: "CAREMGT",
+      refUri: "www.abdm.gov.in",
+    });
     expect(consent.patient).toEqual({ id: input.abhaAddress });
     expect(consent.hiu).toEqual({ id: input.hiuId });
+    // v3 identifier carries a `system` URI.
     expect(consent.requester).toEqual({
       name: input.requesterName,
-      identifier: { type: "REGNO", value: input.requesterId },
+      identifier: {
+        type: "REGNO",
+        value: input.requesterId,
+        system: "https://www.nmc.org.in",
+      },
     });
     expect(consent.hiTypes).toEqual(input.hiTypes);
     expect(consent.permission.accessMode).toBe("VIEW");
     expect(consent.permission.dateRange.from).toBe(input.dateFrom.toISOString());
     expect(consent.permission.dateRange.to).toBe(input.dateTo.toISOString());
     expect(consent.permission.dataEraseAt).toBe(input.expiresAt.toISOString());
-    expect(consent.permission.frequency).toEqual({ unit: "HOUR", value: 1, repeats: 0 });
+    expect(consent.permission.frequency).toEqual({ unit: "HOUR", value: 0, repeats: 0 });
   });
 
-  it("uses the same UUID for both the local row id and the CM requestId (correlation key)", async () => {
+  it("uses the same UUID for the local row id and the CM requestId (correlation key)", async () => {
     const input = makeRequestInput();
     await requestConsent(input);
 
     const createArg = prismaMock.consentArtefact.create.mock.calls[0][0];
     const initArg = abdmRequestMock.mock.calls[0][0];
+    // The requestId header value equals the local row id (v3: no body.requestId).
     expect(createArg.data.id).toBe(initArg.requestId);
-    expect(initArg.body.requestId).toBe(createArg.data.id);
   });
 
   it("propagates ABDM gateway failures (CM unreachable) — does not swallow", async () => {
@@ -317,7 +332,7 @@ describe("revokeConsent", () => {
     expect(prismaMock.consentArtefact.update).not.toHaveBeenCalled();
   });
 
-  it("fires POST /v0.5/consents/revoke and flips the row to REVOKED with timestamp", async () => {
+  it("fires POST /consent/v3/revoke and flips the row to REVOKED with timestamp", async () => {
     prismaMock.consentArtefact.findUnique.mockResolvedValueOnce(
       makeArtefactRow({ id: "ca-1", status: "GRANTED" }),
     );
@@ -328,8 +343,10 @@ describe("revokeConsent", () => {
     expect(abdmRequestMock).toHaveBeenCalledTimes(1);
     const init = abdmRequestMock.mock.calls[0][0];
     expect(init.method).toBe("POST");
-    expect(init.path).toBe("/v0.5/consents/revoke");
+    // v3 consent revoke path (was /v0.5/consents/revoke) + X-HIU-ID header.
+    expect(init.path).toBe("/consent/v3/revoke");
     expect(init.requestId).toBeDefined();
+    expect(init.headers).toMatchObject({ "X-HIU-ID": expect.any(String) });
     expect(init.body).toEqual({ consents: [{ id: "ca-1" }] });
 
     expect(prismaMock.consentArtefact.update).toHaveBeenCalledTimes(1);
@@ -525,5 +542,31 @@ describe("Consent state machine (end-to-end through public API)", () => {
     await expect(revokeConsent(consentRequestId)).rejects.toMatchObject({
       statusCode: 409,
     });
+  });
+});
+
+// ─── consentRequestStatus / fetchConsentArtefact (v3, 2026-07) ─────────────
+
+describe("consentRequestStatus (v3)", () => {
+  beforeEach(() => abdmRequestMock.mockReset());
+  it("POSTs /consent/v3/request/status with the X-HIU-ID header", async () => {
+    await consentRequestStatus("creq-1", "MEDCORE-HIU-01");
+    const call = abdmRequestMock.mock.calls[0][0];
+    expect(call.method).toBe("POST");
+    expect(call.path).toBe("/consent/v3/request/status");
+    expect(call.headers).toEqual({ "X-HIU-ID": "MEDCORE-HIU-01" });
+    expect(call.body).toEqual({ consentRequestId: "creq-1" });
+  });
+});
+
+describe("fetchConsentArtefact (v3)", () => {
+  beforeEach(() => abdmRequestMock.mockReset());
+  it("POSTs /consent/v3/fetch with the X-HIU-ID header and consentId", async () => {
+    await fetchConsentArtefact("consent-9", "MEDCORE-HIU-01");
+    const call = abdmRequestMock.mock.calls[0][0];
+    expect(call.method).toBe("POST");
+    expect(call.path).toBe("/consent/v3/fetch");
+    expect(call.headers).toEqual({ "X-HIU-ID": "MEDCORE-HIU-01" });
+    expect(call.body).toEqual({ consentId: "consent-9" });
   });
 });

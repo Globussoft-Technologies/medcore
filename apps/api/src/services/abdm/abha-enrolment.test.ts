@@ -46,7 +46,7 @@ function mockFetch() {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = typeof input === "string" ? input : (input as URL).toString();
     const body = init?.body ? JSON.parse(String(init.body)) : {};
-    if (url.includes("/v0.5/sessions")) {
+    if (url.includes("/gateway/v3/sessions")) {
       return new Response(
         JSON.stringify({ accessToken: "gw-token", expiresIn: 1800 }),
         { status: 200, headers: { "Content-Type": "application/json" } },

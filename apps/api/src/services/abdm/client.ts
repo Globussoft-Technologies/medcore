@@ -53,9 +53,15 @@ function cfg() {
   const clientSecret = process.env.ABDM_CLIENT_SECRET;
   const baseUrl = process.env.ABDM_BASE_URL ?? "https://dev.abdm.gov.in";
   const gatewayUrl = process.env.ABDM_GATEWAY_URL ?? `${baseUrl}/gateway`;
+  // v3 HIE-CM migration (2026-07): the sandbox moved from the old
+  // `/gateway/v0.5/*` surface to `/api/hiecm/*` with per-domain versions
+  // (gateway/v3, consent/v3, data-flow/v3, hiecm/v3). `hiecmUrl` is the new
+  // base; callers pass fully-versioned paths like "/consent/v3/request/init".
+  // Overridable via ABDM_HIECM_URL for the local mock / prod host swap.
+  const hiecmUrl = process.env.ABDM_HIECM_URL ?? `${baseUrl}/api/hiecm`;
   if (!clientId) throw new ABDMConfigError("ABDM_CLIENT_ID");
   if (!clientSecret) throw new ABDMConfigError("ABDM_CLIENT_SECRET");
-  return { clientId, clientSecret, baseUrl, gatewayUrl };
+  return { clientId, clientSecret, baseUrl, gatewayUrl, hiecmUrl };
 }
 
 // ── Observability ─────────────────────────────────────────────────────────
@@ -140,15 +146,23 @@ export async function getAccessToken(): Promise<string> {
     return cached.token;
   }
 
-  const { clientId, clientSecret, gatewayUrl } = cfg();
-  const url = `${gatewayUrl}/v0.5/sessions`;
+  const { clientId, clientSecret, hiecmUrl } = cfg();
+  // v3 HIE-CM session endpoint (was /gateway/v0.5/sessions).
+  const url = `${hiecmUrl}/gateway/v3/sessions`;
   const t0 = now;
 
   let res: Response;
   try {
     res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        // v3 requires these correlation headers even on the session call.
+        "REQUEST-ID": crypto.randomUUID(),
+        TIMESTAMP: new Date().toISOString(),
+        "X-CM-ID": process.env.ABDM_CM_ID ?? "sbx",
+      },
       body: JSON.stringify({
         clientId,
         clientSecret,
@@ -187,27 +201,31 @@ export async function getAccessToken(): Promise<string> {
 // ── Generic request helper ────────────────────────────────────────────────
 
 export interface ABDMRequestInit {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
-  path: string; // e.g. "/v0.5/users/auth/init"
+  method?: "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+  // v3 HIE-CM path, versioned per domain, e.g.
+  //   "/consent/v3/request/init", "/data-flow/v3/health-information/request",
+  //   "/gateway/v3/bridge-services". Prepended with the hiecm base
+  //   (https://dev.abdm.gov.in/api/hiecm) unless `absoluteUrl` is set.
+  path: string;
   body?: unknown;
   /** Optional correlation header required by some ABDM endpoints. */
   requestId?: string;
-  /** Optional extra headers (X-CM-ID, X-HIP-ID, etc.). */
+  /** Optional extra headers (X-CM-ID, X-HIP-ID, X-HIU-ID, etc.). */
   headers?: Record<string, string>;
-  /** When true, skip prepending gateway base URL — use for HIP/HIU direct calls. */
+  /** When true, `path` is used as-is (for the HSP bridge host or callbacks). */
   absoluteUrl?: boolean;
   /** Parse response as JSON (true) or return raw Response (false). Default true. */
   parseJson?: boolean;
 }
 
 /**
- * Make an authenticated request to the ABDM Gateway. Automatically refreshes
- * the OAuth token once on a 401 response.
+ * Make an authenticated request to the ABDM v3 HIE-CM API. Automatically
+ * refreshes the OAuth token once on a 401 response.
  */
 export async function abdmRequest<T = unknown>(init: ABDMRequestInit): Promise<T> {
   const { method = "GET", path, body, requestId, headers = {}, absoluteUrl, parseJson = true } = init;
-  const { gatewayUrl } = cfg();
-  const url = absoluteUrl ? path : `${gatewayUrl}${path}`;
+  const { hiecmUrl } = cfg();
+  const url = absoluteUrl ? path : `${hiecmUrl}${path}`;
 
   const doCall = async (token: string): Promise<Response> => {
     const t0 = Date.now();

@@ -6,7 +6,8 @@
  *   1. requestDataTransfer(consentId)
  *      — for a GRANTED ConsentArtefact, generate an ephemeral X25519 keypair
  *        + 32-byte nonce, persist them (PEM) on an AbdmTransaction row keyed
- *        by transactionId, and POST /v0.5/health-information/cm/request to the
+ *        by transactionId, and POST
+ *        /api/hiecm/data-flow/v3/health-information/request (v3) to the
  *        gateway. The remote HIP later pushes the encrypted bundle to our
  *        data-push callback.
  *
@@ -92,15 +93,16 @@ export async function requestDataTransfer(
     },
   });
 
-  // Build the gateway HI cm/request. Sandbox-tolerant: a non-2xx upstream is
-  // surfaced but the session row already exists for retry/debug.
+  // v3 data-flow HI request (was /v0.5/health-information/cm/request). Body is
+  // just `hiRequest`; REQUEST-ID/TIMESTAMP go as headers, and the v3 endpoint
+  // requires X-HIU-ID. Sandbox-tolerant: a non-2xx upstream is surfaced but the
+  // session row already exists for retry/debug.
   await abdmRequest({
     method: "POST",
-    path: "/v0.5/health-information/cm/request",
+    path: "/data-flow/v3/health-information/request",
     requestId,
+    headers: { "X-HIU-ID": consent.hiuId },
     body: {
-      requestId,
-      timestamp: new Date().toISOString(),
       hiRequest: {
         consent: { id: consentArtefactId },
         dateRange: {

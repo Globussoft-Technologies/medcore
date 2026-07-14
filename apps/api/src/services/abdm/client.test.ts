@@ -133,7 +133,7 @@ describe("abdmRequest", () => {
     let tokenCallCount = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
       const u = String(url);
-      if (u.includes("/v0.5/sessions")) {
+      if (u.includes("/gateway/v3/sessions")) {
         tokenCallCount++;
         return new Response(
           JSON.stringify({ accessToken: `tok-${tokenCallCount}`, expiresIn: 1800 }),
@@ -159,7 +159,7 @@ describe("abdmRequest", () => {
   it("throws ABDMError with upstream body on 4xx (non-401) failure", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
       const u = String(url);
-      if (u.includes("/v0.5/sessions")) {
+      if (u.includes("/gateway/v3/sessions")) {
         return new Response(
           JSON.stringify({ accessToken: "tok-abc", expiresIn: 1800 }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -181,7 +181,7 @@ describe("abdmRequest", () => {
   it("returns {} for 202 async responses", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url: any) => {
       const u = String(url);
-      if (u.includes("/v0.5/sessions")) {
+      if (u.includes("/gateway/v3/sessions")) {
         return new Response(
           JSON.stringify({ accessToken: "tok-abc", expiresIn: 1800 }),
           { status: 200, headers: { "Content-Type": "application/json" } }

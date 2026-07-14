@@ -228,19 +228,35 @@ export async function linkCareContext(args: {
   careContextRef: string;   // opaque local id, e.g. "scribe:<sessionId>"
   display: string;          // human label: "OP Consultation, 23 Apr 2026"
   type: CareContextType;
+  /** hiTypes advertised for this care-context (default: derive from `type`). */
+  hiTypes?: string[];
+  /** X-LINK-TOKEN from the HIP link-token flow (required by v3 for linking). */
+  linkToken?: string;
 }): Promise<{ requestId: string }> {
   const requestId = crypto.randomUUID();
+  const hipId = process.env.ABDM_HIP_ID ?? process.env.ABDM_HIU_ID ?? "";
 
+  // v3 HIP care-context notify (was /v0.5/links/context/notify — now 404).
+  // Requires X-HIP-ID (+ X-LINK-TOKEN once the HIP link flow is wired). The v3
+  // body carries a single `careContext`, hiTypes, date and hip.id.
   await abdmRequest<void>({
     method: "POST",
-    path: "/v0.5/links/context/notify",
+    path: "/hip/v3/link/context/notify",
     requestId,
+    headers: {
+      "X-HIP-ID": hipId,
+      ...(args.linkToken ? { "X-LINK-TOKEN": args.linkToken } : {}),
+    },
     body: {
-      requestId,
-      timestamp: new Date().toISOString(),
       notification: {
-        patient: { id: args.abhaAddress, referenceNumber: args.patientId },
-        careContexts: [{ referenceNumber: args.careContextRef, display: args.display }],
+        patient: { id: args.abhaAddress },
+        careContext: {
+          patientReference: args.abhaAddress,
+          careContextReference: args.careContextRef,
+        },
+        hiTypes: args.hiTypes ?? [String(args.type)],
+        date: new Date().toISOString(),
+        hip: { id: hipId },
       },
     },
   });

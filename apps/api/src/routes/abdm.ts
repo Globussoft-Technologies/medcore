@@ -659,10 +659,15 @@ abdmRouter.post(
 
 abdmRouter.post(
   "/consent/request",
-  authorize(Role.DOCTOR, Role.ADMIN),
+  // PATIENT included: a patient may request consent to fetch their OWN records
+  // via the patient-facing ABHA page (self-service record retrieval).
+  authorize(Role.DOCTOR, Role.ADMIN, Role.PATIENT),
   validate(requestConsentSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // BOLA guard: a PATIENT may only request consent for THEIR OWN records.
+      // Staff (DOCTOR/ADMIN) may act for any patient in their tenant.
+      if (!(await assertPatientOwnsResource(req, res, req.body.patientId))) return;
       const result = await requestConsent(req.body);
       await auditLog(req, "ABDM_CONSENT_REQUEST", "ConsentArtefact", result.consentRequestId, {
         patientId: req.body.patientId,
@@ -680,7 +685,7 @@ abdmRouter.post(
 
 abdmRouter.get(
   "/consent/:id",
-  authorize(Role.DOCTOR, Role.ADMIN),
+  authorize(Role.DOCTOR, Role.ADMIN, Role.PATIENT),
   validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -689,6 +694,8 @@ abdmRouter.get(
         res.status(404).json({ success: false, data: null, error: "Consent not found" });
         return;
       }
+      // BOLA guard: a PATIENT may only view their own consent artefact.
+      if (!(await assertPatientOwnsResource(req, res, row.patientId))) return;
       await auditLog(req, "ABDM_CONSENT_VIEW", "ConsentArtefact", req.params.id);
       res.json({ success: true, data: row, error: null });
     } catch (err) {
@@ -701,10 +708,20 @@ abdmRouter.get(
 
 abdmRouter.post(
   "/consent/:id/revoke",
-  authorize(Role.DOCTOR, Role.ADMIN),
+  authorize(Role.DOCTOR, Role.ADMIN, Role.PATIENT),
   validateUuidParams(["id"]),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // BOLA guard: a PATIENT may only revoke consent they own.
+      const owner = await prisma.consentArtefact.findUnique({
+        where: { id: req.params.id },
+        select: { patientId: true },
+      });
+      if (!owner) {
+        res.status(404).json({ success: false, data: null, error: "Consent not found" });
+        return;
+      }
+      if (!(await assertPatientOwnsResource(req, res, owner.patientId))) return;
       await revokeConsent(req.params.id);
       await auditLog(req, "ABDM_CONSENT_REVOKE", "ConsentArtefact", req.params.id);
       res.json({ success: true, data: { revoked: true }, error: null });

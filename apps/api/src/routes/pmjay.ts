@@ -14,7 +14,9 @@ import {
   searchBeneficiarySchema,
   verifyBeneficiarySchema,
   pmjayWebhookSchema,
+  pmjayConfigSchema,
 } from "@medcore/shared";
+import { encryptSecret } from "../services/pmjay/crypto";
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
@@ -135,6 +137,87 @@ router.post(
 
 // ─── Everything below requires an authenticated staff user ──────────────
 router.use(authenticate);
+
+// ─── Per-tenant configuration (Settings → PM-JAY) — ADMIN only ──────────
+const CONFIG_DEFAULTS = { enabled: true, simulationMode: true, timeout: 30000, retryCount: 3, batchSize: 200, logging: false };
+
+/** Strip the secret from a config row and add a `clientSecretSet` flag. */
+function redactConfig(row: Record<string, unknown> | null) {
+  if (!row) {
+    return { ...CONFIG_DEFAULTS, hospitalId: null, clientId: null, baseUrl: null, authUrl: null, bisUrl: null, tmsUrl: null, packageUrl: null, clientSecretSet: false };
+  }
+  const { clientSecret, tenantId, id, createdAt, updatedAt, ...rest } = row as Record<string, unknown>;
+  void tenantId; void id; void createdAt; void updatedAt;
+  return { ...rest, clientSecretSet: Boolean(clientSecret) };
+}
+
+/** GET /pmjay/config — the current tenant's PM-JAY configuration (secret redacted). */
+router.get(
+  "/config",
+  authorize(Role.ADMIN),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const row = await tenantScopedPrisma.tenantPmjayConfiguration.findFirst();
+      res.json({ success: true, data: redactConfig(row as Record<string, unknown> | null), error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** PUT /pmjay/config — upsert the current tenant's PM-JAY configuration. */
+router.put(
+  "/config",
+  authorize(Role.ADMIN),
+  validate(pmjayConfigSchema),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const body = req.body as Record<string, unknown>;
+      // String fields: an explicit "" clears the value (→ null); undefined = leave as-is.
+      const strField = (k: string) =>
+        k in body ? { [k]: (body[k] as string) === "" ? null : (body[k] as string) } : {};
+      const numField = (k: string) => (k in body ? { [k]: body[k] as number } : {});
+      const boolField = (k: string) => (k in body ? { [k]: body[k] as boolean } : {});
+
+      const data: Record<string, unknown> = {
+        ...boolField("enabled"),
+        ...boolField("simulationMode"),
+        ...strField("hospitalId"),
+        ...strField("clientId"),
+        ...strField("baseUrl"),
+        ...strField("authUrl"),
+        ...strField("bisUrl"),
+        ...strField("tmsUrl"),
+        ...strField("packageUrl"),
+        ...numField("timeout"),
+        ...numField("retryCount"),
+        ...numField("batchSize"),
+        ...boolField("logging"),
+      };
+      // Secret: only overwrite when a non-empty value is supplied (encrypted at
+      // rest). Omitting it keeps the stored secret; passing "" clears it.
+      if (typeof body.clientSecret === "string") {
+        data.clientSecret = body.clientSecret ? encryptSecret(body.clientSecret) : null;
+      }
+
+      const existing = await tenantScopedPrisma.tenantPmjayConfiguration.findFirst({ select: { id: true } });
+      const saved = existing
+        ? await tenantScopedPrisma.tenantPmjayConfiguration.update({ where: { id: existing.id }, data: data as never })
+        : await tenantScopedPrisma.tenantPmjayConfiguration.create({ data: data as never });
+
+      // Audit — never record the secret itself, only whether one was set.
+      auditLog(req, "PMJAY_CONFIG_UPDATE", "tenant_pmjay_configuration", saved.id, {
+        enabled: (saved as { enabled: boolean }).enabled,
+        simulationMode: (saved as { simulationMode: boolean }).simulationMode,
+        clientSecretChanged: typeof body.clientSecret === "string" && body.clientSecret !== "",
+      }).catch((e) => console.warn("[audit] PMJAY_CONFIG_UPDATE", e?.message ?? e));
+
+      res.json({ success: true, data: redactConfig(saved as unknown as Record<string, unknown>), error: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /** POST /pmjay/search-beneficiary — look up candidates in the BIS. */
 router.post(

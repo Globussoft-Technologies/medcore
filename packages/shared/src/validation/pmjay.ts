@@ -55,6 +55,31 @@ export type PmjayPreAuthFields = z.infer<typeof pmjayPreAuthFieldsSchema>;
  * even when async callbacks aren't enabled yet, pinning the shape now keeps the
  * endpoint future-proof.
  */
+/**
+ * Per-tenant PM-JAY configuration (Settings → PM-JAY). All fields optional so
+ * the admin can save partial updates. `clientSecret` is write-only — it is
+ * accepted here but NEVER returned by the GET endpoint; an empty/omitted value
+ * leaves the stored secret unchanged. URLs are plain strings (state gateways
+ * vary and may be non-standard hosts); empty string clears the field.
+ */
+export const pmjayConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  simulationMode: z.boolean().optional(),
+  hospitalId: z.string().trim().max(200).optional(),
+  clientId: z.string().trim().max(200).optional(),
+  clientSecret: z.string().trim().max(1000).optional(),
+  baseUrl: z.string().trim().max(500).optional(),
+  authUrl: z.string().trim().max(500).optional(),
+  bisUrl: z.string().trim().max(500).optional(),
+  tmsUrl: z.string().trim().max(500).optional(),
+  packageUrl: z.string().trim().max(500).optional(),
+  timeout: z.number().int().min(1000).max(120000).optional(),
+  retryCount: z.number().int().min(0).max(10).optional(),
+  batchSize: z.number().int().min(1).max(5000).optional(),
+  logging: z.boolean().optional(),
+});
+export type PmjayConfigInput = z.infer<typeof pmjayConfigSchema>;
+
 export const pmjayWebhookSchema = z.object({
   claimRef: z.string().trim().min(1),
   status: z.string().trim().min(1),

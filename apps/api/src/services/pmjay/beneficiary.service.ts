@@ -9,7 +9,7 @@
 
 import crypto from "crypto";
 import { tenantScopedPrisma as prisma } from "@medcore/db";
-import { readPmjayConfig } from "./config";
+import { loadPmjayConfig } from "./config";
 import { pmjayFetch } from "./gateway";
 
 export type Eligibility = "PENDING" | "ELIGIBLE" | "NOT_ELIGIBLE";
@@ -62,7 +62,7 @@ function primaryIdentifier(input: SearchInput): string {
 export async function searchBeneficiary(
   input: SearchInput
 ): Promise<{ ok: true; candidates: BeneficiaryCandidate[] } | { ok: false; message: string }> {
-  const cfg = readPmjayConfig();
+  const cfg = await loadPmjayConfig();
   if (!cfg.enabled) return { ok: false, message: "PM-JAY integration disabled" };
 
   if (cfg.simulation) {
@@ -111,7 +111,7 @@ export interface VerifyResult {
  * to gate claim creation.
  */
 export async function verifyBeneficiary(input: VerifyInput): Promise<VerifyResult> {
-  const cfg = readPmjayConfig();
+  const cfg = await loadPmjayConfig();
 
   let status: Eligibility;
   let beneficiaryId: string | null;
@@ -205,7 +205,7 @@ export async function verifyBeneficiary(input: VerifyInput): Promise<VerifyResul
 export async function getFamily(
   familyId: string
 ): Promise<{ ok: true; members: BeneficiaryCandidate[] } | { ok: false; message: string }> {
-  const cfg = readPmjayConfig();
+  const cfg = await loadPmjayConfig();
   if (!cfg.enabled) return { ok: false, message: "PM-JAY integration disabled" };
   if (cfg.simulation) {
     return {

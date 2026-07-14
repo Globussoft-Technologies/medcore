@@ -9,7 +9,7 @@
 
 import crypto from "crypto";
 import { tenantScopedPrisma as prisma } from "@medcore/db";
-import { readPmjayConfig } from "./config";
+import { loadPmjayConfig } from "./config";
 import { pmjayFetch } from "./gateway";
 
 export interface PmjayPackageDTO {
@@ -81,7 +81,7 @@ export interface SyncResult {
 export async function syncPackages(): Promise<
   { ok: true; result: SyncResult } | { ok: false; message: string }
 > {
-  const cfg = readPmjayConfig();
+  const cfg = await loadPmjayConfig();
   if (!cfg.enabled) return { ok: false, message: "PM-JAY integration disabled" };
 
   let packages: PmjayPackageDTO[];

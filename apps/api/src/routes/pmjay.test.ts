@@ -42,6 +42,11 @@ const { prismaMock, updateStatusMock, postSettlementMock } = vi.hoisted(() => {
     admission: { count: vi.fn(async () => 0) },
     pmjayDocumentUpload: { count: vi.fn(async () => 0) },
     preAuthRequest: { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
+    tenantPmjayConfiguration: {
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(async (a: any) => ({ id: "cfg-1", ...a.data })),
+      update: vi.fn(async (a: any) => ({ id: a.where.id, ...a.data })),
+    },
   };
   return {
     prismaMock: base,
@@ -131,6 +136,87 @@ describe("POST /pmjay/packages/sync", () => {
       .expect(200);
     expect(res.body.data.synced).toBeGreaterThan(0);
     expect(res.body.data.skipped).toBe(false);
+  });
+});
+
+describe("PM-JAY per-tenant configuration", () => {
+  it("GET /config is ADMIN-only (RECEPTION → 403)", async () => {
+    await request(buildApp())
+      .get("/api/v1/pmjay/config")
+      .set("Authorization", `Bearer ${token("RECEPTION")}`)
+      .expect(403);
+  });
+
+  it("GET /config returns the config WITHOUT the client secret", async () => {
+    prismaMock.tenantPmjayConfiguration.findFirst.mockResolvedValue({
+      id: "cfg-1",
+      tenantId: "t-1",
+      enabled: true,
+      simulationMode: false,
+      hospitalId: "H-1",
+      clientId: "C-1",
+      clientSecret: "ENCRYPTED-BLOB",
+      baseUrl: "https://gw.example",
+      authUrl: "https://gw.example/auth",
+      bisUrl: null,
+      tmsUrl: null,
+      packageUrl: null,
+      timeout: null,
+      retryCount: null,
+      logging: null,
+      batchSize: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    const res = await request(buildApp())
+      .get("/api/v1/pmjay/config")
+      .set("Authorization", `Bearer ${token("ADMIN")}`)
+      .expect(200);
+    expect(res.body.data.hospitalId).toBe("H-1");
+    expect(res.body.data.clientSecretSet).toBe(true);
+    expect(res.body.data.clientSecret).toBeUndefined(); // never exposed
+  });
+
+  it("PUT /config encrypts the secret, never echoes it, and audits the change", async () => {
+    prismaMock.tenantPmjayConfiguration.findFirst.mockResolvedValue(null); // → create
+    const res = await request(buildApp())
+      .put("/api/v1/pmjay/config")
+      .set("Authorization", `Bearer ${token("ADMIN")}`)
+      .send({
+        enabled: true,
+        simulationMode: false,
+        hospitalId: "H-9",
+        clientId: "C-9",
+        clientSecret: "super-secret-value",
+        baseUrl: "https://gw",
+        authUrl: "https://gw/auth",
+      })
+      .expect(200);
+    expect(res.body.data.clientSecret).toBeUndefined();
+    expect(res.body.data.clientSecretSet).toBe(true);
+    const created = prismaMock.tenantPmjayConfiguration.create.mock.calls[0][0].data;
+    // Stored secret must be transformed (encrypted / wrapped), never raw.
+    expect(created.clientSecret).toBeDefined();
+    expect(created.clientSecret).not.toBe("super-secret-value");
+  });
+
+  it("PUT /config leaves the stored secret untouched when omitted", async () => {
+    prismaMock.tenantPmjayConfiguration.findFirst.mockResolvedValue({ id: "cfg-1" });
+    await request(buildApp())
+      .put("/api/v1/pmjay/config")
+      .set("Authorization", `Bearer ${token("ADMIN")}`)
+      .send({ hospitalId: "H-2" })
+      .expect(200);
+    const updated = prismaMock.tenantPmjayConfiguration.update.mock.calls[0][0].data;
+    expect("clientSecret" in updated).toBe(false); // not overwritten
+  });
+
+  it("PUT /config is ADMIN-only (DOCTOR → 403)", async () => {
+    await request(buildApp())
+      .put("/api/v1/pmjay/config")
+      .set("Authorization", `Bearer ${token("DOCTOR")}`)
+      .send({ hospitalId: "H-2" })
+      .expect(403);
   });
 });
 

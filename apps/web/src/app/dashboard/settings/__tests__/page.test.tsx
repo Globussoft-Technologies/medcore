@@ -1656,6 +1656,125 @@ describe("SettingsPage — Payments tab (Razorpay)", () => {
   });
 });
 
+const pmjayCfg = (over: Record<string, unknown> = {}) => ({
+  data: {
+    enabled: true,
+    simulationMode: false,
+    hospitalId: "H-1",
+    clientId: "C-1",
+    baseUrl: "https://gw",
+    authUrl: "https://gw/auth",
+    bisUrl: "",
+    tmsUrl: "",
+    packageUrl: "",
+    timeout: 30000,
+    retryCount: 3,
+    batchSize: 200,
+    logging: false,
+    clientSecretSet: true,
+    ...over,
+  },
+});
+
+describe("SettingsPage — PM-JAY Configuration tab (tenant-admin)", () => {
+  const openTab = () =>
+    fireEvent.click(screen.getByRole("button", { name: /^PM-JAY Configuration$/i }));
+
+  it("loads the tenant config and shows the hospital id + on-file hint", async () => {
+    asTenantAdmin();
+    mockGets({ "/pmjay/config": () => Promise.resolve(pmjayCfg()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    openTab();
+    const hid = (await screen.findByTestId("pmjay-cfg-hospitalId")) as HTMLInputElement;
+    expect(hid.value).toBe("H-1");
+    expect(screen.getByText(/Credentials on file/i)).toBeInTheDocument();
+    // Live mode (simulation off) surfaces the amber warning.
+    expect(screen.getByText(/Live mode calls the real PM-JAY gateway/i)).toBeInTheDocument();
+    // The stored secret is NEVER prefilled into the input.
+    expect((screen.getByTestId("pmjay-cfg-clientSecret") as HTMLInputElement).value).toBe("");
+  });
+
+  it("saves, sending only the fields set (secret omitted when left blank)", async () => {
+    asTenantAdmin();
+    mockGets({ "/pmjay/config": () => Promise.resolve(pmjayCfg()) });
+    apiMock.put.mockResolvedValue({ data: { clientSecretSet: true } });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    openTab();
+    fireEvent.change(await screen.findByTestId("pmjay-cfg-hospitalId"), {
+      target: { value: "H-9" },
+    });
+    fireEvent.click(screen.getByTestId("pmjay-cfg-save"));
+    await waitFor(() =>
+      expect(apiMock.put).toHaveBeenCalledWith(
+        "/pmjay/config",
+        expect.objectContaining({ hospitalId: "H-9" }),
+      ),
+    );
+    const payload = apiMock.put.mock.calls[0][1] as Record<string, unknown>;
+    expect("clientSecret" in payload).toBe(false); // blank → not sent
+    expect(toastMock.success).toHaveBeenCalledWith("PM-JAY configuration saved.");
+  });
+
+  it("includes the client secret in the payload only when typed", async () => {
+    asTenantAdmin();
+    mockGets({ "/pmjay/config": () => Promise.resolve(pmjayCfg()) });
+    apiMock.put.mockResolvedValue({ data: { clientSecretSet: true } });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    openTab();
+    fireEvent.change(await screen.findByTestId("pmjay-cfg-clientSecret"), {
+      target: { value: "new-secret" },
+    });
+    fireEvent.click(screen.getByTestId("pmjay-cfg-save"));
+    await waitFor(() =>
+      expect(apiMock.put).toHaveBeenCalledWith(
+        "/pmjay/config",
+        expect.objectContaining({ clientSecret: "new-secret" }),
+      ),
+    );
+  });
+
+  it("toggles simulation mode and surfaces a save error", async () => {
+    asTenantAdmin();
+    mockGets({ "/pmjay/config": () => Promise.resolve(pmjayCfg({ simulationMode: true })) });
+    apiMock.put.mockRejectedValue(new Error("cfg boom"));
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    openTab();
+    // Starts in simulation → no live-mode warning yet.
+    await screen.findByTestId("pmjay-cfg-hospitalId");
+    expect(screen.queryByText(/Live mode calls the real PM-JAY gateway/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("pmjay-cfg-simulationMode")); // → live
+    expect(screen.getByText(/Live mode calls the real PM-JAY gateway/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("pmjay-cfg-save"));
+    await waitFor(() => expect(toastMock.error).toHaveBeenCalled());
+  });
+
+  it("swallows a load error and still renders an editable form", async () => {
+    asTenantAdmin();
+    mockGets({ "/pmjay/config": () => Promise.reject(new Error("load boom")) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    openTab();
+    const hid = (await screen.findByTestId("pmjay-cfg-hospitalId")) as HTMLInputElement;
+    expect(hid.value).toBe("");
+  });
+
+  it("toggles client-secret visibility", async () => {
+    asTenantAdmin();
+    mockGets({ "/pmjay/config": () => Promise.resolve(pmjayCfg()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    openTab();
+    const secret = (await screen.findByTestId("pmjay-cfg-clientSecret")) as HTMLInputElement;
+    expect(secret.type).toBe("password");
+    fireEvent.click(screen.getAllByRole("button", { name: /show|hide/i })[0]);
+    expect(secret.type).toBe("text");
+  });
+});
+
 describe("SettingsPage — Branding hospital details", () => {
   const brandingResp = (over: Record<string, unknown> = {}) => ({
     data: {

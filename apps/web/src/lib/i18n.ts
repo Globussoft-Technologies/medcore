@@ -1431,6 +1431,8 @@ const hi: Dict = {
   "adminConsole.quickLinks": "त्वरित लिंक",
   "adminConsole.approve": "अनुमोदित करें",
   "adminConsole.approving": "अनुमोदन हो रहा है…",
+  "adminConsole.quickLink.audit": "ऑडिट",
+  "adminConsole.quickLink.roster": "रोस्टर",
   // Tenants page (super-admin)
   "tenants.title": "टेनेंट",
   "tenants.subtitle": "मल्टी-टेनेंट अस्पताल इंस्टॉलेशन प्रबंधित करें।",

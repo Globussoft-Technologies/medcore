@@ -807,12 +807,12 @@ export default function AdminConsolePage() {
               <QuickLink href="/dashboard/users" Icon={UserCog} label={t("dashboard.nav.users")} />
               <QuickLink href="/dashboard/analytics" Icon={TrendingUp} label={t("dashboard.nav.analytics")} />
               <QuickLink href="/dashboard/reports" Icon={FlaskConical} label={t("dashboard.nav.reports")} />
-              <QuickLink href="/dashboard/audit" Icon={Shield} label={t("dashboard.nav.audit")} />
+              <QuickLink href="/dashboard/audit" Icon={Shield} label={t("adminConsole.quickLink.audit", "Audit")} />
               <QuickLink href="/dashboard/suppliers" Icon={Package} label={t("dashboard.nav.suppliers")} />
               <QuickLink href="/dashboard/assets" Icon={Wrench} label={t("dashboard.nav.assets")} />
               <QuickLink href="/dashboard/feedback" Icon={Star} label={t("dashboard.nav.feedback")} />
               <QuickLink href="/dashboard/broadcasts" Icon={CreditCard} label={t("dashboard.nav.broadcasts")} />
-              <QuickLink href="/dashboard/duty-roster" Icon={Users} label={t("dashboard.nav.dutyRoster")} />
+              <QuickLink href="/dashboard/duty-roster" Icon={Users} label={t("adminConsole.quickLink.roster", "Roster")} />
             </div>
           </div>
         </div>

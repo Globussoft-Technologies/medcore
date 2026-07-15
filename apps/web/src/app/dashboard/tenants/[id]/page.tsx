@@ -38,6 +38,7 @@ import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { Skeleton, SkeletonText, SkeletonCard } from "@/components/Skeleton";
 
 interface TenantStats {
@@ -160,6 +161,7 @@ export default function DashboardTenantDetailPage() {
   const router = useRouter();
   const confirm = useConfirm();
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const tenantId = params?.id ?? "";
 
   const [tenant, setTenant] = useState<TenantDetail | null>(null);
@@ -215,16 +217,19 @@ export default function DashboardTenantDetailPage() {
   async function suspendTenant() {
     if (!tenant) return;
     const ok = await confirm({
-      title: `Suspend tenant "${tenant.name}"?`,
-      message:
+      title: `${t("tenantDetail.confirm.suspendTitle", "Suspend tenant")}: ${tenant.name}`,
+      message: t(
+        "tenantDetail.confirm.suspendMsg",
         "Users won't be able to sign in. All active sessions will be signed out at their next refresh. You can restore later.",
-      confirmLabel: "Suspend",
+      ),
+      confirmLabel: t("tenantDetail.suspend", "Suspend"),
+      cancelLabel: t("tenantDetail.cancel", "Cancel"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.post(`/tenants/${tenant.id}/deactivate`);
-      toast.success("Tenant suspended");
+      toast.success(t("tenantDetail.toast.suspended", "Tenant suspended"));
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
@@ -234,14 +239,15 @@ export default function DashboardTenantDetailPage() {
   async function restoreTenant() {
     if (!tenant) return;
     const ok = await confirm({
-      title: `Restore tenant "${tenant.name}"?`,
-      message: "Users of this tenant will be able to sign in again.",
-      confirmLabel: "Restore",
+      title: `${t("tenantDetail.confirm.restoreTitle", "Restore tenant")}: ${tenant.name}`,
+      message: t("tenantDetail.confirm.restoreMsg", "Users of this tenant will be able to sign in again."),
+      confirmLabel: t("tenantDetail.restore", "Restore"),
+      cancelLabel: t("tenantDetail.cancel", "Cancel"),
     });
     if (!ok) return;
     try {
       await api.post(`/tenants/${tenant.id}/restore`);
-      toast.success("Tenant restored");
+      toast.success(t("tenantDetail.toast.restored", "Tenant restored"));
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
@@ -361,7 +367,7 @@ export default function DashboardTenantDetailPage() {
           href="/dashboard/tenants"
           className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
         >
-          <ArrowLeft size={14} aria-hidden="true" /> All tenants
+          <ArrowLeft size={14} aria-hidden="true" /> {t("tenantDetail.allTenants", "All tenants")}
         </Link>
       </div>
 
@@ -380,7 +386,7 @@ export default function DashboardTenantDetailPage() {
               }`}
               data-testid="tenant-detail-status"
             >
-              {tenant.active ? "Active" : "Suspended"}
+              {tenant.active ? t("tenantDetail.active", "Active") : t("tenantDetail.suspended", "Suspended")}
             </span>
             <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-800 dark:bg-gray-700 dark:text-gray-200">
               {tenant.plan}
@@ -408,12 +414,12 @@ export default function DashboardTenantDetailPage() {
               </>
             )}
             <span>•</span>
-            <span>Created {formatDate(tenant.createdAt)}</span>
+            <span>{t("tenantDetail.created", "Created")} {formatDate(tenant.createdAt)}</span>
             {tenant.archivedAt && (
               <>
                 <span>•</span>
                 <span className="text-rose-600 dark:text-rose-400">
-                  Archived {formatDate(tenant.archivedAt)}
+                  {t("tenantDetail.archived", "Archived")} {formatDate(tenant.archivedAt)}
                 </span>
               </>
             )}
@@ -432,7 +438,7 @@ export default function DashboardTenantDetailPage() {
               className={loading ? "animate-spin" : ""}
               aria-hidden="true"
             />
-            Refresh
+            {t("tenantDetail.refresh", "Refresh")}
           </button>
           <Link
             href={`/dashboard/tenants/${tenant.id}/config`}
@@ -440,13 +446,13 @@ export default function DashboardTenantDetailPage() {
             className="inline-flex h-11 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <Settings size={14} aria-hidden="true" />
-            Feature flags
+            {t("tenantDetail.featureFlags", "Feature flags")}
           </Link>
           <Link
             href={`/dashboard/tenants/${tenant.id}/onboarding`}
             className="inline-flex h-11 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
-            Onboarding
+            {t("tenantDetail.onboarding", "Onboarding")}
           </Link>
           {tenant.active ? (
             <button
@@ -462,7 +468,7 @@ export default function DashboardTenantDetailPage() {
               }
             >
               <Pause size={14} aria-hidden="true" />
-              Suspend
+              {t("tenantDetail.suspend", "Suspend")}
             </button>
           ) : (
             <>
@@ -473,7 +479,7 @@ export default function DashboardTenantDetailPage() {
                 className="inline-flex h-11 items-center gap-1 rounded-md border border-emerald-300 bg-white px-3 text-xs font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:bg-gray-800 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
               >
                 <Play size={14} aria-hidden="true" />
-                Restore
+                {t("tenantDetail.restore", "Restore")}
               </button>
               {/* Pearl §8.1 row 233 — manual archive. Visible only on
                   suspended (not active, not yet archived) tenants. */}
@@ -486,7 +492,7 @@ export default function DashboardTenantDetailPage() {
                   title="Ship tenant data to S3 cold storage"
                 >
                   <Archive size={14} aria-hidden="true" />
-                  Archive now
+                  {t("tenantDetail.archiveNow", "Archive now")}
                 </button>
               )}
             </>
@@ -496,24 +502,24 @@ export default function DashboardTenantDetailPage() {
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Users" value={String(tenant.stats.userCount)} />
-        <Stat label="Patients" value={String(tenant.stats.patientCount)} />
+        <Stat label={t("tenantDetail.stat.users", "Users")} value={String(tenant.stats.userCount)} />
+        <Stat label={t("tenantDetail.stat.patients", "Patients")} value={String(tenant.stats.patientCount)} />
         <Stat
-          label="Monthly OPD"
+          label={t("tenantDetail.stat.monthlyOpd", "Monthly OPD")}
           value={String(tenant.stats.monthlyOpdVolume ?? 0)}
         />
-        <Stat label="MRR" value={formatINR(tenant.stats.mrrInPaise)} />
+        <Stat label={t("tenantDetail.stat.mrr", "MRR")} value={formatINR(tenant.stats.mrrInPaise)} />
         <Stat
-          label="Invoices (30d)"
+          label={t("tenantDetail.stat.invoices30", "Invoices (30d)")}
           value={String(tenant.stats.invoicesLast30Days)}
         />
         <Stat
-          label="Storage"
+          label={t("tenantDetail.stat.storage", "Storage")}
           value={formatStorage(tenant.stats.storageBytes)}
         />
-        <Stat label="Billing" value={tenant.stats.billingHealth ?? "—"} />
+        <Stat label={t("tenantDetail.stat.billing", "Billing")} value={tenant.stats.billingHealth ?? "—"} />
         <Stat
-          label="Last login"
+          label={t("tenantDetail.stat.lastLogin", "Last login")}
           value={formatDate(tenant.stats.lastLoginAt)}
         />
       </div>
@@ -534,7 +540,7 @@ export default function DashboardTenantDetailPage() {
         data-testid="tenant-detail-checklist"
         className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
       >
-        <h2 className="mb-3 text-base font-semibold">Onboarding checklist</h2>
+        <h2 className="mb-3 text-base font-semibold">{t("tenantDetail.checklist", "Onboarding checklist")}</h2>
         <ul className="space-y-2 text-sm">
           {WIZARD_STEPS.map((step) => {
             const completedAt = config?.steps?.[step.key];
@@ -565,11 +571,11 @@ export default function DashboardTenantDetailPage() {
                         : "text-gray-500 dark:text-gray-400"
                     }
                   >
-                    {step.label}
+                    {t(`tenantDetail.step.${step.key}`, step.label)}
                   </span>
                 </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {completedAt ? formatDate(completedAt) : "Not started"}
+                  {completedAt ? formatDate(completedAt) : t("tenantDetail.notStarted", "Not started")}
                 </span>
               </li>
             );
@@ -584,14 +590,14 @@ export default function DashboardTenantDetailPage() {
       >
         <div className="mb-3 flex items-center gap-2">
           <Stethoscope size={16} aria-hidden="true" />
-          <h2 className="text-base font-semibold">Default doctor mode</h2>
+          <h2 className="text-base font-semibold">{t("tenantDetail.defaultDoctorMode", "Default doctor mode")}</h2>
         </div>
         <p className="mb-3 text-xs text-gray-600 dark:text-gray-400">
-          Current default:{" "}
+          {t("tenantDetail.currentDefault", "Current default:")}{" "}
           <span className="font-mono">
             {config?.defaultDoctorMode ?? "TOKEN (system default)"}
           </span>
-          . Changing this also updates every doctor in the tenant.
+          . {t("tenantDetail.modeChangeNote", "Changing this also updates every doctor in the tenant.")}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           {(["CALLING", "TOKEN", "SLOT"] as const).map((m) => (
@@ -622,12 +628,12 @@ export default function DashboardTenantDetailPage() {
           rows={
             config?.whatsapp
               ? [
-                  ["Provider", config.whatsapp.provider],
-                  ["Auto reply", config.whatsapp.autoReply ? "On" : "Off"],
-                  ["Active", config.whatsapp.active ? "Yes" : "No"],
-                  ["Updated", formatDate(config.whatsapp.updatedAt)],
+                  [t("tenantDetail.provider", "Provider"), config.whatsapp.provider],
+                  [t("tenantDetail.autoReply", "Auto reply"), config.whatsapp.autoReply ? t("tenantDetail.on", "On") : t("tenantDetail.off", "Off")],
+                  [t("tenantDetail.activeRow", "Active"), config.whatsapp.active ? t("tenantDetail.yes", "Yes") : t("tenantDetail.no", "No")],
+                  [t("tenantDetail.updated", "Updated"), formatDate(config.whatsapp.updatedAt)],
                 ]
-              : [["", "Not configured"]]
+              : [["", t("tenantDetail.notConfigured", "Not configured")]]
           }
         />
         <IntegrationCard
@@ -637,14 +643,14 @@ export default function DashboardTenantDetailPage() {
           rows={
             tenant.razorpayKeyId
               ? [
-                  ["Key ID", tenant.razorpayKeyId.slice(0, 12) + "…"],
-                  ["Mode", tenant.razorpayMode ?? "—"],
+                  [t("tenantDetail.keyId", "Key ID"), tenant.razorpayKeyId.slice(0, 12) + "…"],
+                  [t("tenantDetail.mode", "Mode"), tenant.razorpayMode ?? "—"],
                   [
-                    "Business",
+                    t("tenantDetail.business", "Business"),
                     config?.paymentGateway?.businessName ?? tenant.name,
                   ],
                 ]
-              : [["", "Not configured"]]
+              : [["", t("tenantDetail.notConfigured", "Not configured")]]
           }
         />
         <IntegrationCard
@@ -656,9 +662,9 @@ export default function DashboardTenantDetailPage() {
               ? [
                   ["HFR", config?.abdm?.hfr?.hfrId ?? "—"],
                   ["HPR", config?.abdm?.hpr?.hprId ?? "—"],
-                  ["Facility", config?.abdm?.hfr?.facilityName ?? "—"],
+                  [t("tenantDetail.facility", "Facility"), config?.abdm?.hfr?.facilityName ?? "—"],
                 ]
-              : [["", "Not configured"]]
+              : [["", t("tenantDetail.notConfigured", "Not configured")]]
           }
         />
       </section>
@@ -668,9 +674,9 @@ export default function DashboardTenantDetailPage() {
         data-testid="tenant-detail-admins"
         className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800"
       >
-        <h2 className="mb-3 text-base font-semibold">Admin users</h2>
+        <h2 className="mb-3 text-base font-semibold">{t("tenantDetail.adminUsers", "Admin users")}</h2>
         {tenant.admins.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">No admin users yet.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("tenantDetail.noAdmins", "No admin users yet.")}</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {tenant.admins.map((a) => (

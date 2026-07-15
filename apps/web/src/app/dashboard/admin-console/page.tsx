@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 // Issue #288 (2026-04-30): the Pending-Approvals card swallowed every
 // failure as a generic "Approve failed" toast. We now surface the real
 // API message (and field-level zod errors) so admins can tell a 404
@@ -94,6 +95,7 @@ const ERROR_ACTIONS = [
 export default function AdminConsolePage() {
   const router = useRouter();
   const { user, isLoading } = useAuthStore();
+  const { t } = useTranslation();
   const [loaded, setLoaded] = useState(false);
   const [apiHealth, setApiHealth] = useState<"ok" | "down" | "unknown">("unknown");
   const [overview, setOverview] = useState<any>(null);
@@ -494,8 +496,8 @@ export default function AdminConsolePage() {
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Admin Console</h1>
-          <p className="text-sm text-gray-700 dark:text-gray-300">Command center for hospital operations</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("adminConsole.title")}</h1>
+          <p className="text-sm text-gray-700 dark:text-gray-300">{t("adminConsole.subtitle")}</p>
           {/* Issue #744: render tenant identity by FRIENDLY name + short
               slug rather than the raw UUID `clinicId` that this page used
               to surface in toast errors and debug breadcrumbs. The
@@ -518,7 +520,7 @@ export default function AdminConsolePage() {
                     : "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"
                 }`}
               >
-                {tenant.isDefault ? "Full Access" : tenant.plan}
+                {tenant.isDefault ? t("adminConsole.fullAccess") : tenant.plan}
               </span>
             </p>
           )}
@@ -535,24 +537,24 @@ export default function AdminConsolePage() {
 
       {/* System Health */}
       <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
-        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">System Health</h2>
+        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">{t("adminConsole.systemHealth")}</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <Health
             Icon={Server}
-            label="API"
-            status={apiHealth === "ok" ? "Healthy" : apiHealth === "down" ? "Down" : "—"}
+            label={t("adminConsole.health.api")}
+            status={apiHealth === "ok" ? t("adminConsole.status.healthy") : apiHealth === "down" ? t("adminConsole.status.down") : "—"}
             ok={apiHealth === "ok"}
           />
           <Health
             Icon={Database}
-            label="Database"
-            status={apiHealth === "ok" ? "Connected" : "—"}
+            label={t("adminConsole.health.database")}
+            status={apiHealth === "ok" ? t("adminConsole.status.connected") : "—"}
             ok={apiHealth === "ok"}
           />
-          <Health Icon={Activity} label="Uptime" status="Live" ok={true} />
+          <Health Icon={Activity} label={t("adminConsole.health.uptime")} status={t("adminConsole.status.live")} ok={true} />
           <Health
             Icon={AlertTriangle}
-            label="Errors (1h)"
+            label={t("adminConsole.health.errors1h")}
             status={String(errorCount)}
             ok={errorCount < 10}
             // Issue #47 (2026-05-09): the count now spans the canonical
@@ -566,7 +568,7 @@ export default function AdminConsolePage() {
           />
           <Health
             Icon={UserCheck}
-            label="Active Users"
+            label={t("adminConsole.health.activeUsers")}
             status={String(activeSessions)}
             ok={true}
           />
@@ -653,30 +655,30 @@ export default function AdminConsolePage() {
       {/* Critical Alerts */}
       <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-900/20">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-red-800 dark:text-red-300">
-          <AlertTriangle size={16} /> Critical Alerts
+          <AlertTriangle size={16} /> {t("adminConsole.criticalAlerts")}
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Alert
             Icon={AlertTriangle}
-            label="SLA Overdue Complaints"
+            label={t("adminConsole.alert.slaOverdue")}
             value={overdueComplaints}
             href="/dashboard/complaints"
           />
           <Alert
             Icon={Droplet}
-            label="Low Blood Stock"
+            label={t("adminConsole.alert.lowBlood")}
             value={bloodLow.length}
             href="/dashboard/bloodbank"
           />
           <Alert
             Icon={Pill}
-            label="Expiring Meds"
+            label={t("adminConsole.alert.expiringMeds")}
             value={expiringMeds}
             href="/dashboard/pharmacy"
           />
           <Alert
             Icon={Shield}
-            label="Audit Events (1h)"
+            label={t("adminConsole.alert.auditEvents1h")}
             value={auditCount}
             href="/dashboard/audit"
           />
@@ -685,27 +687,27 @@ export default function AdminConsolePage() {
 
       {/* Today snapshot */}
       <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
-        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Today Snapshot</h2>
+        <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">{t("adminConsole.todaySnapshot")}</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Snap Icon={Users} label="Registered" value={overview?.newPatients ?? 0} />
-          <Snap Icon={BedDouble} label="Admissions" value={overview?.admissions ?? 0} />
-          <Snap Icon={CheckCircle2} label="Discharges" value={overview?.discharges ?? 0} />
-          <Snap Icon={Scissors} label="Surgeries" value={overview?.surgeries ?? 0} />
-          <Snap Icon={Siren} label="ER Cases" value={overview?.erCases ?? 0} />
+          <Snap Icon={Users} label={t("adminConsole.snap.registered")} value={overview?.newPatients ?? 0} />
+          <Snap Icon={BedDouble} label={t("adminConsole.snap.admissions")} value={overview?.admissions ?? 0} />
+          <Snap Icon={CheckCircle2} label={t("adminConsole.snap.discharges")} value={overview?.discharges ?? 0} />
+          <Snap Icon={Scissors} label={t("adminConsole.snap.surgeries")} value={overview?.surgeries ?? 0} />
+          <Snap Icon={Siren} label={t("adminConsole.snap.erCases")} value={overview?.erCases ?? 0} />
           {/* Issue #746: Visitors-Today KPI from the canonical
               /visitors-stats endpoint. The tile shows totalToday with the
               currently-inside count as a sub-line so operators can see
               both numbers at a glance and confirm Inside ⊆ Today. */}
           <Snap
             Icon={UserCheck}
-            label="Visitors Today"
+            label={t("adminConsole.snap.visitorsToday")}
             value={`${visitorsToday}${visitorsActive > 0 ? ` (${visitorsActive} in)` : ""}`}
             isString
             data-testid="admin-console-visitors-today"
           />
           <Snap
             Icon={TrendingUp}
-            label="Revenue"
+            label={t("adminConsole.snap.revenue")}
             value={`Rs. ${(overview?.totalRevenue ?? 0).toLocaleString("en-IN")}`}
             isString
           />
@@ -716,12 +718,12 @@ export default function AdminConsolePage() {
         {/* Pending Approvals */}
         <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
           <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">
-            Pending Approvals
+            {t("adminConsole.pendingApprovals")}
           </h2>
 
           <ApprovalGroup
             Icon={PlaneTakeoff}
-            title={`Leave Requests (${pendingLeaves.length})`}
+            title={`${t("adminConsole.leaveRequests")} (${pendingLeaves.length})`}
             items={pendingLeaves.slice(0, 5).map((l: any) => ({
               id: l.id,
               primary: l.user?.name || "—",
@@ -738,7 +740,7 @@ export default function AdminConsolePage() {
           />
           <ApprovalGroup
             Icon={Wallet}
-            title={`Expenses (${pendingExpenses.length})`}
+            title={`${t("adminConsole.expenses")} (${pendingExpenses.length})`}
             items={pendingExpenses.slice(0, 5).map((e: any) => ({
               id: e.id,
               primary: e.description || e.vendor || "Expense",
@@ -750,7 +752,7 @@ export default function AdminConsolePage() {
           />
           <ApprovalGroup
             Icon={ShoppingCart}
-            title={`Purchase Orders (${pendingPOs.length})`}
+            title={`${t("adminConsole.purchaseOrders")} (${pendingPOs.length})`}
             items={pendingPOs.slice(0, 5).map((p: any) => ({
               id: p.id,
               primary: p.poNumber || p.number || p.id.slice(0, 8),
@@ -764,16 +766,16 @@ export default function AdminConsolePage() {
 
         {/* Resource Usage */}
         <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
-          <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">Resource Usage</h2>
+          <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-200">{t("adminConsole.resourceUsage")}</h2>
           <div className="space-y-3">
             <ResourceBar
-              label="Bed Occupancy"
+              label={t("adminConsole.res.bedOccupancy")}
               used={bedStats.occupied}
               total={bedStats.total}
               color="bg-indigo-500"
             />
             <ResourceBar
-              label="Doctors On Duty"
+              label={t("adminConsole.res.doctorsOnDuty")}
               // Issue #108: real "on duty / total doctors" ratio. The previous
               // implementation used `forceFull` and `total = max(used, 1)`, which
               // rendered the math-impossible "0/1 (100%)". With the directory
@@ -783,13 +785,13 @@ export default function AdminConsolePage() {
               color="bg-blue-700"
             />
             <ResourceBar
-              label="OT Utilization"
+              label={t("adminConsole.res.otUtilization")}
               used={otUtil.used}
               total={Math.max(otUtil.total, 1)}
               color="bg-rose-500"
             />
             <ResourceBar
-              label="Low Stock Items"
+              label={t("adminConsole.res.lowStockItems")}
               used={lowStock}
               total={Math.max(lowStock, 10)}
               color="bg-amber-500"
@@ -799,18 +801,18 @@ export default function AdminConsolePage() {
 
           <div className="mt-4 border-t pt-3 dark:border-gray-700">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-200">
-              Quick Links
+              {t("adminConsole.quickLinks")}
             </h3>
             <div className="grid grid-cols-3 gap-2 text-xs">
-              <QuickLink href="/dashboard/users" Icon={UserCog} label="Users" />
-              <QuickLink href="/dashboard/analytics" Icon={TrendingUp} label="Analytics" />
-              <QuickLink href="/dashboard/reports" Icon={FlaskConical} label="Reports" />
-              <QuickLink href="/dashboard/audit" Icon={Shield} label="Audit" />
-              <QuickLink href="/dashboard/suppliers" Icon={Package} label="Suppliers" />
-              <QuickLink href="/dashboard/assets" Icon={Wrench} label="Assets" />
-              <QuickLink href="/dashboard/feedback" Icon={Star} label="Feedback" />
-              <QuickLink href="/dashboard/broadcasts" Icon={CreditCard} label="Broadcasts" />
-              <QuickLink href="/dashboard/duty-roster" Icon={Users} label="Roster" />
+              <QuickLink href="/dashboard/users" Icon={UserCog} label={t("dashboard.nav.users")} />
+              <QuickLink href="/dashboard/analytics" Icon={TrendingUp} label={t("dashboard.nav.analytics")} />
+              <QuickLink href="/dashboard/reports" Icon={FlaskConical} label={t("dashboard.nav.reports")} />
+              <QuickLink href="/dashboard/audit" Icon={Shield} label={t("dashboard.nav.audit")} />
+              <QuickLink href="/dashboard/suppliers" Icon={Package} label={t("dashboard.nav.suppliers")} />
+              <QuickLink href="/dashboard/assets" Icon={Wrench} label={t("dashboard.nav.assets")} />
+              <QuickLink href="/dashboard/feedback" Icon={Star} label={t("dashboard.nav.feedback")} />
+              <QuickLink href="/dashboard/broadcasts" Icon={CreditCard} label={t("dashboard.nav.broadcasts")} />
+              <QuickLink href="/dashboard/duty-roster" Icon={Users} label={t("dashboard.nav.dutyRoster")} />
             </div>
           </div>
         </div>
@@ -945,6 +947,7 @@ function ApprovalGroup({
   approving?: Set<string>;
   viewAllHref: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="mb-3 last:mb-0">
       <div className="mb-2 flex items-center justify-between">
@@ -952,11 +955,11 @@ function ApprovalGroup({
           <Icon size={13} /> {title}
         </p>
         <Link href={viewAllHref} className="text-[11px] text-primary hover:underline">
-          view all
+          {t("adminConsole.viewAll")}
         </Link>
       </div>
       {items.length === 0 ? (
-        <p className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400">No pending items</p>
+        <p className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400">{t("adminConsole.noPending")}</p>
       ) : (
         <div className="space-y-1.5">
           {items.map((it) => (
@@ -988,7 +991,7 @@ function ApprovalGroup({
                     aria-busy={busy || undefined}
                     className="shrink-0 rounded-md bg-green-700 px-2 py-1 text-[11px] font-medium text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:bg-green-700/60"
                   >
-                    {busy ? "Approving…" : "Approve"}
+                    {busy ? t("adminConsole.approving") : t("adminConsole.approve")}
                   </button>
                 );
               })()}

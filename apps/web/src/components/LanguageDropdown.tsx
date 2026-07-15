@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useI18nStore, useTranslation, Lang } from "@/lib/i18n";
+import { useI18nStore, useTranslation, LANGUAGE_OPTIONS, Lang } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { Languages } from "lucide-react";
 
@@ -77,8 +77,13 @@ export function LanguageDropdown({
         // light and dark themes.
         className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-xs font-medium text-gray-700 focus-visible:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus-visible:ring-offset-gray-900"
       >
-        <option value="en">English</option>
-        <option value="hi">हिन्दी</option>
+        {/* Options derive from the LANGUAGES registry in lib/i18n.ts — adding a
+            language there makes it appear here automatically. */}
+        {LANGUAGE_OPTIONS.map((o) => (
+          <option key={o.code} value={o.code}>
+            {o.label}
+          </option>
+        ))}
       </select>
     </div>
   );

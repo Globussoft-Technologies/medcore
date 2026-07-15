@@ -955,7 +955,7 @@ export default function TenantsAdminPage() {
                       </Link>
                       <Link
                         data-testid={`tenant-config-${tt.subdomain}`}
-                        href={`/dashboard/tenants/${tt.id}/config`}
+                        href={`/dashboard/tenants/${tt.id}/config?from=list`}
                         className="inline-flex h-11 w-11 items-center justify-center rounded text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                         title={t("tenants.view.config", "Feature flags")}
                         aria-label={t("tenants.view.config", "Feature flags")}

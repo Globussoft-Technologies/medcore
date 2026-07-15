@@ -10,8 +10,9 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "@/lib/i18n";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Save,
@@ -54,7 +55,12 @@ interface TenantSummary {
 export default function TenantConfigPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // When arrived from the tenants LIST (?from=list), Back returns to the list;
+  // otherwise it returns to the tenant detail page (the default entry point).
+  const cameFromList = searchParams?.get("from") === "list";
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const tenantId = params?.id ?? "";
 
   const [tenant, setTenant] = useState<TenantSummary | null>(null);
@@ -224,22 +230,26 @@ export default function TenantConfigPage() {
     <div data-testid="tenant-config-page" className="space-y-6">
       <div className="flex items-center gap-2">
         <Link
-          href={`/dashboard/tenants/${tenant.id}`}
+          href={cameFromList ? "/dashboard/tenants" : `/dashboard/tenants/${tenant.id}`}
           className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
         >
-          <ArrowLeft size={14} aria-hidden="true" /> Tenant detail
+          <ArrowLeft size={14} aria-hidden="true" />{" "}
+          {cameFromList
+            ? t("featureFlags.backToTenants", "Back to tenants")
+            : t("featureFlags.back", "Tenant detail")}
         </Link>
       </div>
 
       <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
-            Feature flags — {tenant.name}
+            {t("featureFlags.title", "Feature flags")} — {tenant.name}
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Per-tenant overrides for Stage 2+ surfaces. Pearl-branded
-            tenants typically disable IPD / OT / telemedicine /
-            aiDischarge during the OPD-only Stage 1.
+            {t(
+              "featureFlags.subtitle",
+              "Per-tenant overrides for Stage 2+ surfaces. Pearl-branded tenants typically disable IPD / OT / telemedicine / aiDischarge during the OPD-only Stage 1.",
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -255,7 +265,7 @@ export default function TenantConfigPage() {
               className={loading ? "animate-spin" : ""}
               aria-hidden="true"
             />
-            Refresh
+            {t("featureFlags.refresh", "Refresh")}
           </button>
           <button
             type="button"
@@ -265,7 +275,7 @@ export default function TenantConfigPage() {
             className="inline-flex h-11 items-center gap-1 rounded-md border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
             <RotateCcw size={14} aria-hidden="true" />
-            Clear overrides
+            {t("featureFlags.clearOverrides", "Clear overrides")}
           </button>
           <button
             type="button"
@@ -275,7 +285,7 @@ export default function TenantConfigPage() {
             className="inline-flex h-11 items-center gap-1 rounded-md bg-emerald-700 px-3 text-xs font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
           >
             <Save size={14} aria-hidden="true" />
-            {saving ? "Saving…" : "Save changes"}
+            {saving ? t("featureFlags.saving", "Saving…") : t("featureFlags.save", "Save changes")}
           </button>
         </div>
       </header>
@@ -287,7 +297,7 @@ export default function TenantConfigPage() {
           className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
         >
           <CheckCircle2 size={16} aria-hidden="true" />
-          <span>Feature flags saved.</span>
+          <span>{t("featureFlags.savedBanner", "Feature flags saved.")}</span>
         </div>
       )}
 
@@ -298,8 +308,9 @@ export default function TenantConfigPage() {
           className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
         >
           <AlertCircle size={14} aria-hidden="true" />
-          You have unsaved changes — click <strong>Save changes</strong> to
-          persist.
+          {t("featureFlags.unsavedPre", "You have unsaved changes — click ")}
+          <strong>{t("featureFlags.save", "Save changes")}</strong>
+          {t("featureFlags.unsavedPost", " to persist.")}
         </div>
       )}
 
@@ -311,11 +322,11 @@ export default function TenantConfigPage() {
             setSearch(e.target.value);
             setPage(1);
           }}
-          placeholder="Search features by name, key, or description…"
+          placeholder={t("featureFlags.searchPlaceholder", "Search features by name, key, or description…")}
           className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 sm:max-w-md dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
         />
         <span className="text-xs text-gray-600 dark:text-gray-400" data-testid="tenant-config-total">
-          {totalRows} feature{totalRows === 1 ? "" : "s"}
+          {totalRows} {t("featureFlags.featuresWord", "features")}
         </span>
       </div>
 
@@ -326,11 +337,11 @@ export default function TenantConfigPage() {
         >
           <thead className="bg-gray-50 text-left text-xs font-semibold uppercase text-gray-600 dark:bg-gray-900/50 dark:text-gray-400">
             <tr>
-              <th className="px-3 py-2">Feature</th>
-              <th className="px-3 py-2">Description</th>
-              <th className="px-3 py-2">Default</th>
-              <th className="px-3 py-2">Override</th>
-              <th className="px-3 py-2">Effective</th>
+              <th className="px-3 py-2">{t("featureFlags.col.feature", "Feature")}</th>
+              <th className="px-3 py-2">{t("featureFlags.col.description", "Description")}</th>
+              <th className="px-3 py-2">{t("featureFlags.col.default", "Default")}</th>
+              <th className="px-3 py-2">{t("featureFlags.col.override", "Override")}</th>
+              <th className="px-3 py-2">{t("featureFlags.col.effective", "Effective")}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -340,7 +351,7 @@ export default function TenantConfigPage() {
                   colSpan={5}
                   className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400"
                 >
-                  No features match the current filter.
+                  {t("featureFlags.empty", "No features match the current filter.")}
                 </td>
               </tr>
             )}
@@ -363,7 +374,7 @@ export default function TenantConfigPage() {
                           className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-900/50 dark:text-amber-300"
                           title="Custom or legacy key — not in the canonical catalog"
                         >
-                          Custom
+                          {t("featureFlags.custom", "Custom")}
                         </span>
                       )}
                     </div>
@@ -382,7 +393,7 @@ export default function TenantConfigPage() {
                           : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
                       }`}
                     >
-                      {f.defaultEnabled ? "ON" : "OFF"}
+                      {f.defaultEnabled ? t("featureFlags.on", "ON") : t("featureFlags.off", "OFF")}
                     </span>
                   </td>
                   <td className="px-3 py-2">
@@ -402,9 +413,9 @@ export default function TenantConfigPage() {
                       }}
                       className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                     >
-                      <option value="default">Use default</option>
-                      <option value="true">Force enabled</option>
-                      <option value="false">Force disabled</option>
+                      <option value="default">{t("featureFlags.useDefault", "Use default")}</option>
+                      <option value="true">{t("featureFlags.forceEnabled", "Force enabled")}</option>
+                      <option value="false">{t("featureFlags.forceDisabled", "Force disabled")}</option>
                     </select>
                   </td>
                   <td className="px-3 py-2 text-xs">
@@ -416,7 +427,7 @@ export default function TenantConfigPage() {
                           : "bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-300"
                       }`}
                     >
-                      {effective ? "Enabled" : "Disabled"}
+                      {effective ? t("featureFlags.enabled", "Enabled") : t("featureFlags.disabled", "Disabled")}
                     </span>
                   </td>
                 </tr>
@@ -432,7 +443,7 @@ export default function TenantConfigPage() {
         className="flex items-center justify-between gap-3 rounded-xl bg-white px-4 py-2 text-sm shadow-sm dark:bg-gray-800"
       >
         <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-          <span>Rows:</span>
+          <span>{t("featureFlags.rows", "Rows:")}</span>
           <select
             data-testid="tenant-config-rows-per-page"
             value={rowsPerPage}
@@ -452,7 +463,7 @@ export default function TenantConfigPage() {
         <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
           <span data-testid="tenant-config-page-indicator">
             {totalRows === 0 ? 0 : start + 1}-
-            {Math.min(start + rowsPerPage, totalRows)} of {totalRows}
+            {Math.min(start + rowsPerPage, totalRows)} {t("featureFlags.of", "of")} {totalRows}
           </span>
           <button
             type="button"

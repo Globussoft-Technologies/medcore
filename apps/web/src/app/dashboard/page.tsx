@@ -196,6 +196,7 @@ function ModuleSection({
   children: React.ReactNode;
   viewAllHref?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-xl bg-white dark:bg-gray-800 p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
@@ -210,7 +211,7 @@ function ModuleSection({
             href={viewAllHref}
             className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
           >
-            View all <ArrowRight size={12} />
+            {t("dashboard.home.viewAll")} <ArrowRight size={12} />
           </Link>
         )}
       </div>
@@ -729,7 +730,7 @@ export default function DashboardPage() {
               onClick={() => setShowCustomize(true)}
               className="touch-target rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
             >
-              Customize Dashboard
+              {t("dashboard.home.customize")}
             </button>
           )}
           {role && (
@@ -989,7 +990,7 @@ export default function DashboardPage() {
           {!loading && (isDoctor || isAdmin) && isWidgetVisible(widgets, "clinical_today") && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <ModuleSection
-                title="Clinical — Today"
+                title={t("dashboard.home.section.clinicalToday")}
                 icon={Activity}
                 iconColor="bg-primary"
                 viewAllHref="/dashboard/queue"
@@ -999,35 +1000,35 @@ export default function DashboardPage() {
                     sub-AA on the dark surface. */}
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between rounded-lg bg-blue-50 px-3 py-2 dark:bg-blue-900/30">
-                    <span className="text-gray-800 dark:text-gray-100">In Queue</span>
+                    <span className="text-gray-800 dark:text-gray-100">{t("dashboard.home.kpi.inQueue")}</span>
                     <span className="font-bold text-primary dark:text-blue-300">
                       {fmt(data.inQueueCount)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-indigo-50 px-3 py-2 dark:bg-indigo-900/30">
-                    <span className="text-gray-800 dark:text-gray-100">Admitted</span>
+                    <span className="text-gray-800 dark:text-gray-100">{t("dashboard.home.row.admitted")}</span>
                     <span className="font-bold text-indigo-700 dark:text-indigo-300">
                       {fmt(data.currentlyAdmitted)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-purple-50 px-3 py-2 dark:bg-purple-900/30">
-                    <span className="text-gray-800 dark:text-gray-100">Telemedicine Today</span>
+                    <span className="text-gray-800 dark:text-gray-100">{t("dashboard.home.row.telemedicineToday")}</span>
                     <span className="font-bold text-purple-700 dark:text-purple-300">
                       {fmt(data.telemedicineToday)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-green-50 px-3 py-2 dark:bg-green-900/30">
-                    <span className="text-gray-800 dark:text-gray-100">Surgeries Today</span>
+                    <span className="text-gray-800 dark:text-gray-100">{t("dashboard.home.kpi.surgeryToday")}</span>
                     <span className="font-bold text-green-700 dark:text-green-300">
-                      {fmt(data.surgeriesScheduledToday)} scheduled,{" "}
-                      {fmt(data.surgeriesInProgress)} active
+                      {fmt(data.surgeriesScheduledToday)} {t("dashboard.home.word.scheduled")},{" "}
+                      {fmt(data.surgeriesInProgress)} {t("dashboard.home.word.active")}
                     </span>
                   </div>
                 </div>
               </ModuleSection>
 
               <ModuleSection
-                title="Diagnostics & Labs"
+                title={t("dashboard.home.section.diagnostics")}
                 icon={FlaskConical}
                 iconColor="bg-teal-600"
                 viewAllHref="/dashboard/lab"
@@ -1039,11 +1040,11 @@ export default function DashboardPage() {
                     so both modes clear WCAG AA 4.5:1. */}
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-gray-200">Pending Lab Orders</span>
+                    <span className="text-gray-700 dark:text-gray-200">{t("dashboard.home.kpi.pendingLabs")}</span>
                     <span className="font-bold text-gray-900 dark:text-gray-100">{fmt(data.pendingLabOrders)}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-gray-200">Blood Units Available</span>
+                    <span className="text-gray-700 dark:text-gray-200">{t("dashboard.home.kpi.bloodAvailable")}</span>
                     <Link href="/dashboard/bloodbank" className="font-bold text-red-600 dark:text-red-400">
                       {fmt(data.bloodUnitsAvailable)}
                     </Link>
@@ -1051,11 +1052,11 @@ export default function DashboardPage() {
                   {!!data.bloodUnitsExpiring && (
                     <div className="mt-1 flex items-center gap-2 rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-200">
                       <AlertTriangle size={14} />
-                      {data.bloodUnitsExpiring} blood unit(s) expiring soon
+                      {data.bloodUnitsExpiring} {t("dashboard.home.cap.bloodExpiring")}
                     </div>
                   )}
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-gray-200">Overdue Immunizations</span>
+                    <span className="text-gray-700 dark:text-gray-200">{t("dashboard.home.row.overdueImmunizations")}</span>
                     <Link href="/dashboard/immunization-schedule" className="font-bold text-orange-600 dark:text-orange-400">
                       {fmt(data.overdueImmunizations)}
                     </Link>
@@ -1064,7 +1065,7 @@ export default function DashboardPage() {
               </ModuleSection>
 
               <ModuleSection
-                title="Operations"
+                title={t("dashboard.home.section.operations")}
                 icon={Package}
                 iconColor="bg-amber-600"
                 viewAllHref="/dashboard/pharmacy"
@@ -1072,7 +1073,7 @@ export default function DashboardPage() {
                 {/* Issue #505: same dark-mode contrast fix as Diagnostics. */}
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-gray-200">Low Stock Items</span>
+                    <span className="text-gray-700 dark:text-gray-200">{t("dashboard.home.row.lowStockItems")}</span>
                     <Link
                       href="/dashboard/pharmacy"
                       className={`font-bold ${data.lowStockCount ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
@@ -1081,19 +1082,19 @@ export default function DashboardPage() {
                     </Link>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-gray-200">Staff On Duty</span>
+                    <span className="text-gray-700 dark:text-gray-200">{t("dashboard.home.kpi.staffOnDuty")}</span>
                     <Link href="/dashboard/duty-roster" className="font-bold text-gray-900 dark:text-gray-100">
                       {fmt(data.staffOnDuty)}
                     </Link>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-gray-200">Active Visitors</span>
+                    <span className="text-gray-700 dark:text-gray-200">{t("dashboard.home.row.activeVisitors")}</span>
                     <Link href="/dashboard/visitors" className="font-bold text-gray-900 dark:text-gray-100">
                       {fmt(data.activeVisitors)}
                     </Link>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-gray-700 dark:text-gray-200">Open Complaints</span>
+                    <span className="text-gray-700 dark:text-gray-200">{t("dashboard.home.row.openComplaints")}</span>
                     <Link
                       href="/dashboard/complaints"
                       className={`font-bold ${data.openComplaints ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
@@ -1110,7 +1111,7 @@ export default function DashboardPage() {
           {!loading && isNurse && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
               <ModuleSection
-                title="Medications Due"
+                title={t("dashboard.home.kpi.medsDue")}
                 icon={Pill}
                 iconColor="bg-pink-600"
                 viewAllHref="/dashboard/medication-dashboard"
@@ -1119,12 +1120,12 @@ export default function DashboardPage() {
                   {fmt(data.medicationsDue)}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                  scheduled in the next 30 minutes
+                  {t("dashboard.home.cap.medsDue30")}
                 </p>
               </ModuleSection>
 
               <ModuleSection
-                title="Emergency Queue"
+                title={t("dashboard.home.section.emergencyQueue")}
                 icon={Siren}
                 iconColor="bg-red-600"
                 viewAllHref="/dashboard/emergency"
@@ -1133,12 +1134,12 @@ export default function DashboardPage() {
                   {fmt(data.erWaiting)}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                  {data.erCritical ?? 0} critical awaiting triage
+                  {data.erCritical ?? 0} {t("dashboard.home.cap.erCritical")}
                 </p>
               </ModuleSection>
 
               <ModuleSection
-                title="Admitted Patients"
+                title={t("dashboard.home.section.admittedPatients")}
                 icon={BedDouble}
                 iconColor="bg-indigo-600"
                 viewAllHref="/dashboard/admissions"
@@ -1147,12 +1148,12 @@ export default function DashboardPage() {
                   {fmt(data.currentlyAdmitted)}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                  {data.bedsOccupied}/{data.totalBeds} beds occupied
+                  {data.bedsOccupied}/{data.totalBeds} {t("dashboard.home.cap.bedsOccupied")}
                 </p>
               </ModuleSection>
 
               <ModuleSection
-                title="Overdue Immunizations"
+                title={t("dashboard.home.row.overdueImmunizations")}
                 icon={Syringe}
                 iconColor="bg-orange-600"
                 viewAllHref="/dashboard/immunization-schedule"
@@ -1161,7 +1162,7 @@ export default function DashboardPage() {
                   {fmt(data.overdueImmunizations)}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                  patients need follow-up
+                  {t("dashboard.home.cap.needFollowup")}
                 </p>
               </ModuleSection>
             </div>
@@ -1171,7 +1172,7 @@ export default function DashboardPage() {
           {!loading && isReception && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <ModuleSection
-                title="Pending Billing"
+                title={t("dashboard.home.section.pendingBilling")}
                 icon={CreditCard}
                 iconColor="bg-accent"
                 viewAllHref="/dashboard/billing"
@@ -1180,12 +1181,12 @@ export default function DashboardPage() {
                   {fmt(data.pendingBills)}
                 </p>
                 <p className="mt-1 text-xs text-gray-500">
-                  unpaid invoices
+                  {t("dashboard.home.cap.unpaidInvoices")}
                 </p>
               </ModuleSection>
 
               <ModuleSection
-                title="Today's Queue"
+                title={t("dashboard.home.section.todaysQueue")}
                 icon={Activity}
                 iconColor="bg-primary"
                 viewAllHref="/dashboard/queue"
@@ -1193,11 +1194,11 @@ export default function DashboardPage() {
                 <p className="text-3xl font-bold text-primary">
                   {fmt(data.inQueueCount)}
                 </p>
-                <p className="mt-1 text-xs text-gray-500">patients waiting</p>
+                <p className="mt-1 text-xs text-gray-500">{t("dashboard.home.cap.patientsWaiting")}</p>
               </ModuleSection>
 
               <ModuleSection
-                title="Visitors"
+                title={t("dashboard.home.section.visitors")}
                 icon={UserCheck}
                 iconColor="bg-purple-600"
                 viewAllHref="/dashboard/visitors"
@@ -1205,7 +1206,7 @@ export default function DashboardPage() {
                 <p className="text-3xl font-bold text-purple-700">
                   {fmt(data.activeVisitors)}
                 </p>
-                <p className="mt-1 text-xs text-gray-500">currently in-building</p>
+                <p className="mt-1 text-xs text-gray-500">{t("dashboard.home.cap.inBuilding")}</p>
               </ModuleSection>
             </div>
           )}
@@ -1219,7 +1220,7 @@ export default function DashboardPage() {
               data-testid="pharmacist-sections"
             >
               <ModuleSection
-                title="Dispense Queue"
+                title={t("dashboard.home.section.dispenseQueue")}
                 icon={Pill}
                 iconColor="bg-primary"
                 viewAllHref="/dashboard/pharmacy-kanban"
@@ -1232,7 +1233,7 @@ export default function DashboardPage() {
                         className="flex items-center justify-between gap-2 text-sm"
                       >
                         <span className="truncate text-gray-700 dark:text-gray-200">
-                          {rx.patientLabel || "Patient"}
+                          {rx.patientLabel || t("dashboard.home.word.patient")}
                           {rx.topItem ? ` · ${rx.topItem}` : ""}
                           {rx.extraItems ? ` +${rx.extraItems}` : ""}
                         </span>
@@ -1244,13 +1245,13 @@ export default function DashboardPage() {
                   </ul>
                 ) : (
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    No prescriptions in the queue.
+                    {t("dashboard.home.empty.noRx")}
                   </p>
                 )}
               </ModuleSection>
 
               <ModuleSection
-                title="Ready for Pickup"
+                title={t("dashboard.home.section.readyForPickup")}
                 icon={CheckCircle2}
                 iconColor="bg-green-600"
                 viewAllHref="/dashboard/pharmacy-kanban"
@@ -1263,25 +1264,25 @@ export default function DashboardPage() {
                         className="flex items-center justify-between gap-2 text-sm"
                       >
                         <span className="truncate text-gray-700 dark:text-gray-200">
-                          {rx.patientLabel || "Patient"}
+                          {rx.patientLabel || t("dashboard.home.word.patient")}
                           {rx.topItem ? ` · ${rx.topItem}` : ""}
                           {rx.extraItems ? ` +${rx.extraItems}` : ""}
                         </span>
                         <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/40 dark:text-green-300">
-                          Bagged
+                          {t("dashboard.home.badge.bagged")}
                         </span>
                       </li>
                     ))}
                   </ul>
                 ) : (
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Nothing waiting for pickup.
+                    {t("dashboard.home.empty.nothingPickup")}
                   </p>
                 )}
               </ModuleSection>
 
               <ModuleSection
-                title="Low Stock"
+                title={t("dashboard.home.section.lowStock")}
                 icon={AlertTriangle}
                 iconColor="bg-red-600"
                 viewAllHref="/dashboard/pharmacy?tab=low"
@@ -1294,7 +1295,7 @@ export default function DashboardPage() {
                         className="flex items-center justify-between gap-2 text-sm"
                       >
                         <span className="truncate text-gray-700 dark:text-gray-200">
-                          {it.name || "Medicine"}
+                          {it.name || t("dashboard.home.word.medicine")}
                         </span>
                         <span className="shrink-0 text-xs font-medium text-red-600 dark:text-red-400">
                           {fmt(it.quantity)} / {fmt(it.reorderLevel)}
@@ -1304,7 +1305,7 @@ export default function DashboardPage() {
                   </ul>
                 ) : (
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    All items are above their reorder level.
+                    {t("dashboard.home.empty.aboveReorder")}
                   </p>
                 )}
               </ModuleSection>
@@ -1323,7 +1324,7 @@ export default function DashboardPage() {
                         className="flex items-center justify-between gap-2 text-sm"
                       >
                         <span className="truncate text-gray-700 dark:text-gray-200">
-                          {it.name || "Medicine"}
+                          {it.name || t("dashboard.home.word.medicine")}
                         </span>
                         <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">
                           {it.expiryDate
@@ -1411,14 +1412,14 @@ export default function DashboardPage() {
           {!loading && isAdmin && (
             <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-4">
               <StatCard
-                title="Surgeries In Progress"
+                title={t("dashboard.home.card.surgeriesInProgress")}
                 value={fmt(data.surgeriesInProgress)}
                 icon={Scissors}
                 color="bg-red-600"
                 href="/dashboard/surgery"
               />
               <StatCard
-                title="Patient Rating"
+                title={t("dashboard.home.card.patientRating")}
                 value={
                   data.avgRating
                     ? `${data.avgRating.toFixed(1)} ★`
@@ -1429,15 +1430,15 @@ export default function DashboardPage() {
                 href="/dashboard/feedback"
               />
               <StatCard
-                title="Telemedicine"
+                title={t("dashboard.home.card.telemedicine")}
                 value={fmt(data.telemedicineToday)}
-                subtitle="scheduled today"
+                subtitle={t("dashboard.home.cap.scheduledToday")}
                 icon={Video}
                 color="bg-purple-600"
                 href="/dashboard/telemedicine"
               />
               <StatCard
-                title="Pending Leaves"
+                title={t("dashboard.home.card.pendingLeaves")}
                 value={fmt(data.pendingLeaves)}
                 icon={Clock}
                 color="bg-blue-600"
@@ -1457,14 +1458,14 @@ export default function DashboardPage() {
           {isWidgetVisible(widgets, "quick_actions") && (
           <div className="mt-8" data-testid="quick-actions-panel">
             <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
-              Quick Actions
+              {t("dashboard.home.section.quickActions")}
             </h2>
             {!(isReception || isAdmin || isDoctor || isNurse || isLabTechRole || isPharmacistRole) ? (
               <p
                 className="rounded-xl border border-dashed border-gray-300 bg-white p-4 text-center text-sm text-gray-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400"
                 data-testid="quick-actions-empty"
               >
-                Quick actions will appear here based on your role.
+                {t("dashboard.home.qa.empty")}
               </p>
             ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -1473,62 +1474,62 @@ export default function DashboardPage() {
                   empty-grid render that was confusing users. */}
               {isLabTechRole && (
                 <>
-                  <QuickAction href="/dashboard/lab?stat=true" icon={AlertTriangle} label="STAT Queue" />
-                  <QuickAction href="/dashboard/lab?status=ORDERED" icon={FlaskConical} label="Collect Samples" />
-                  <QuickAction href="/dashboard/lab?status=SAMPLE_COLLECTED" icon={Activity} label="Enter Results" />
-                  <QuickAction href="/dashboard/lab?status=IN_PROGRESS" icon={Clock} label="In Progress" />
-                  <QuickAction href="/dashboard/lab?status=COMPLETED" icon={CheckCircle2} label="Completed" />
-                  <QuickAction href="/dashboard/lab/qc" icon={FileText} label="QC Queue" />
+                  <QuickAction href="/dashboard/lab?stat=true" icon={AlertTriangle} label={t("dashboard.home.action.statQueue")} />
+                  <QuickAction href="/dashboard/lab?status=ORDERED" icon={FlaskConical} label={t("dashboard.home.action.collectSamples")} />
+                  <QuickAction href="/dashboard/lab?status=SAMPLE_COLLECTED" icon={Activity} label={t("dashboard.home.action.enterResults")} />
+                  <QuickAction href="/dashboard/lab?status=IN_PROGRESS" icon={Clock} label={t("dashboard.home.action.inProgress")} />
+                  <QuickAction href="/dashboard/lab?status=COMPLETED" icon={CheckCircle2} label={t("dashboard.home.action.completed")} />
+                  <QuickAction href="/dashboard/lab/qc" icon={FileText} label={t("dashboard.home.action.qcQueue")} />
                 </>
               )}
               {isPharmacistRole && (
                 <>
-                  <QuickAction href="/dashboard/pharmacy-kanban" icon={Pill} label="Dispense Queue" />
-                  <QuickAction href="/dashboard/prescriptions" icon={FileText} label="Prescriptions" />
-                  <QuickAction href="/dashboard/pharmacy" icon={Package} label="Inventory" />
-                  <QuickAction href="/dashboard/pharmacy" icon={AlertTriangle} label="Low Stock" />
-                  <QuickAction href="/dashboard/purchase-orders" icon={CreditCard} label="Purchase Orders" />
-                  <QuickAction href="/dashboard/suppliers" icon={Users} label="Suppliers" />
+                  <QuickAction href="/dashboard/pharmacy-kanban" icon={Pill} label={t("dashboard.home.section.dispenseQueue")} />
+                  <QuickAction href="/dashboard/prescriptions" icon={FileText} label={t("dashboard.home.action.prescriptions")} />
+                  <QuickAction href="/dashboard/pharmacy" icon={Package} label={t("dashboard.home.action.inventory")} />
+                  <QuickAction href="/dashboard/pharmacy" icon={AlertTriangle} label={t("dashboard.home.section.lowStock")} />
+                  <QuickAction href="/dashboard/purchase-orders" icon={CreditCard} label={t("dashboard.home.action.purchaseOrders")} />
+                  <QuickAction href="/dashboard/suppliers" icon={Users} label={t("dashboard.home.action.suppliers")} />
                 </>
               )}
               {(isReception || isAdmin) && (
                 <>
-                  <QuickAction href="/dashboard/walk-in" icon={Users} label="Walk-in" />
-                  <QuickAction href="/dashboard/appointments?book=1" icon={Calendar} label="Book Appt" />
-                  <QuickAction href="/dashboard/billing" icon={CreditCard} label="Bills" />
-                  <QuickAction href="/dashboard/visitors" icon={UserCheck} label="Check-in Visitor" />
-                  <QuickAction href="/dashboard/emergency" icon={Siren} label="ER Intake" />
-                  <QuickAction href="/dashboard/ambulance" icon={AmbulanceIcon} label="Dispatch Ambulance" />
+                  <QuickAction href="/dashboard/walk-in" icon={Users} label={t("dashboard.home.action.walkIn")} />
+                  <QuickAction href="/dashboard/appointments?book=1" icon={Calendar} label={t("dashboard.home.action.bookAppt")} />
+                  <QuickAction href="/dashboard/billing" icon={CreditCard} label={t("dashboard.home.action.bills")} />
+                  <QuickAction href="/dashboard/visitors" icon={UserCheck} label={t("dashboard.home.action.checkinVisitor")} />
+                  <QuickAction href="/dashboard/emergency" icon={Siren} label={t("dashboard.home.action.erIntake")} />
+                  <QuickAction href="/dashboard/ambulance" icon={AmbulanceIcon} label={t("dashboard.home.action.dispatchAmbulance")} />
                 </>
               )}
               {isDoctor && (
                 <>
-                  <QuickAction href="/dashboard/queue" icon={Activity} label="My Queue" />
-                  <QuickAction href="/dashboard/prescriptions" icon={FileText} label="Prescriptions" />
-                  <QuickAction href="/dashboard/telemedicine" icon={Video} label="Telemedicine" />
-                  <QuickAction href="/dashboard/lab" icon={FlaskConical} label="Order Labs" />
-                  <QuickAction href="/dashboard/surgery" icon={Scissors} label="Schedule Surgery" />
-                  <QuickAction href="/dashboard/referrals" icon={Heart} label="Refer Patient" />
+                  <QuickAction href="/dashboard/queue" icon={Activity} label={t("dashboard.home.action.myQueue")} />
+                  <QuickAction href="/dashboard/prescriptions" icon={FileText} label={t("dashboard.home.action.prescriptions")} />
+                  <QuickAction href="/dashboard/telemedicine" icon={Video} label={t("dashboard.home.card.telemedicine")} />
+                  <QuickAction href="/dashboard/lab" icon={FlaskConical} label={t("dashboard.home.action.orderLabs")} />
+                  <QuickAction href="/dashboard/surgery" icon={Scissors} label={t("dashboard.home.action.scheduleSurgery")} />
+                  <QuickAction href="/dashboard/referrals" icon={Heart} label={t("dashboard.home.action.referPatient")} />
                 </>
               )}
               {isNurse && (
                 <>
-                  <QuickAction href="/dashboard/vitals" icon={Activity} label="Record Vitals" />
-                  <QuickAction href="/dashboard/medication-dashboard" icon={Pill} label="Medications" />
-                  <QuickAction href="/dashboard/emergency" icon={Siren} label="ER Triage" />
-                  <QuickAction href="/dashboard/admissions" icon={BedDouble} label="Admissions" />
-                  <QuickAction href="/dashboard/bloodbank" icon={Droplet} label="Blood Bank" />
-                  <QuickAction href="/dashboard/immunization-schedule" icon={Syringe} label="Immunizations" />
+                  <QuickAction href="/dashboard/vitals" icon={Activity} label={t("dashboard.home.action.recordVitals")} />
+                  <QuickAction href="/dashboard/medication-dashboard" icon={Pill} label={t("dashboard.home.action.medications")} />
+                  <QuickAction href="/dashboard/emergency" icon={Siren} label={t("dashboard.home.action.erTriage")} />
+                  <QuickAction href="/dashboard/admissions" icon={BedDouble} label={t("dashboard.home.action.admissions")} />
+                  <QuickAction href="/dashboard/bloodbank" icon={Droplet} label={t("dashboard.home.action.bloodBank")} />
+                  <QuickAction href="/dashboard/immunization-schedule" icon={Syringe} label={t("dashboard.home.action.immunizations")} />
                 </>
               )}
               {isAdmin && (
                 <>
-                  <QuickAction href="/dashboard/analytics" icon={TrendingUp} label="Analytics" />
-                  <QuickAction href="/dashboard/reports" icon={FileText} label="Reports" />
-                  <QuickAction href="/dashboard/users" icon={Users} label="Users" />
-                  <QuickAction href="/dashboard/expenses" icon={CreditCard} label="Expenses" />
-                  <QuickAction href="/dashboard/purchase-orders" icon={Package} label="POs" />
-                  <QuickAction href="/dashboard/audit" icon={CheckCircle2} label="Audit Log" />
+                  <QuickAction href="/dashboard/analytics" icon={TrendingUp} label={t("dashboard.home.action.analytics")} />
+                  <QuickAction href="/dashboard/reports" icon={FileText} label={t("dashboard.home.action.reports")} />
+                  <QuickAction href="/dashboard/users" icon={Users} label={t("dashboard.home.action.users")} />
+                  <QuickAction href="/dashboard/expenses" icon={CreditCard} label={t("dashboard.home.action.expenses")} />
+                  <QuickAction href="/dashboard/purchase-orders" icon={Package} label={t("dashboard.home.action.pos")} />
+                  <QuickAction href="/dashboard/audit" icon={CheckCircle2} label={t("dashboard.home.action.auditLog")} />
                 </>
               )}
             </div>

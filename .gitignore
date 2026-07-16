@@ -7,6 +7,11 @@ dist/
 .env.*.local
 local.env
 
+# npm audit JSON dump — the CI audit gate writes this (npm audit ... > audit.json)
+# and reproducing that gate locally leaves a copy in the repo root. Generated
+# artifact, never committed.
+audit.json
+
 # Local secrets folder — somewhere to keep raw Firebase service-account JSONs
 # and other downloaded credentials on disk. NEVER commit. (The app reads the
 # service account from FIREBASE_ADMIN_CREDENTIALS_JSON inline, not from a file,

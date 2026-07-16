@@ -21,7 +21,10 @@ const { prismaMock } = vi.hoisted(() => {
     inventoryItem: { findMany: vi.fn(async () => []), update: vi.fn(async () => ({})) },
     material: { findMany: vi.fn(async () => []), update: vi.fn(async () => ({})) },
     materialMovement: { create: vi.fn(async () => ({})) },
-    departmentMember: { findMany: vi.fn(async () => []) },
+    departmentMember: {
+      findMany: vi.fn(async () => []),
+      findFirst: vi.fn(async () => null),
+    },
     requisition: {
       findMany: vi.fn(async () => []),
       findUnique: vi.fn(async () => null),
@@ -89,6 +92,12 @@ beforeEach(() => {
   prismaMock.$transaction.mockImplementation(async (fn: any) => fn(prismaMock));
   prismaMock.auditLog.create.mockResolvedValue({ id: "al" });
   prismaMock.systemConfig.upsert.mockResolvedValue({});
+  // Department scoping (2026-07): the JWT fixture user "u1" is a member of D1,
+  // so scoped roles (NURSE/DOCTOR/RECEPTION/PHARMACIST) pass the membership gate
+  // for the D1 fixtures used throughout this suite. ADMIN is unscoped regardless.
+  // Tests that assert the *denial* path override this mock explicitly.
+  prismaMock.departmentMember.findMany.mockResolvedValue([{ departmentId: D1 }]);
+  prismaMock.departmentMember.findFirst.mockResolvedValue({ id: "dm1" });
 });
 
 describe("Requisition RBAC", () => {
@@ -120,6 +129,116 @@ describe("Requisition RBAC", () => {
       .set("Authorization", `Bearer ${tok("PHARMACIST")}`)
       .send({ departmentId: D1, items: [{ inventoryItemId: INV1, requestedQty: 1 }] });
     expect(res.status).toBe(403);
+  });
+});
+
+// ── Department scoping (2026-07) — a non-admin staff member only sees and acts
+// on departments they are a MEMBER of. A member of A must not see or raise
+// requisitions against B; a staff member in no department sees nothing. ADMIN
+// is the sole unscoped role.
+describe("Requisition department scoping", () => {
+  const D2 = "a1b2c3d4-e5f6-4789-a012-3456789abcde"; // a department u1 is NOT in
+
+  it("picker returns only the caller's departments (NURSE member of D1)", async () => {
+    prismaMock.departmentMember.findMany.mockResolvedValue([{ departmentId: D1 }]);
+    prismaMock.department.findMany.mockResolvedValue([
+      { id: D1, name: "Ward A", code: "WA" },
+    ]);
+    const res = await request(buildApp())
+      .get("/api/v1/requisitions/departments")
+      .set("Authorization", `Bearer ${tok("NURSE")}`);
+    expect(res.status).toBe(200);
+    // department.findMany was scoped to the allowed ids.
+    expect(prismaMock.department.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { in: [D1] } }),
+      }),
+    );
+    expect(res.body.data).toEqual([
+      { id: D1, name: "Ward A", code: "WA", isMine: true },
+    ]);
+  });
+
+  it("picker returns empty + notInAnyDepartment when the caller has no memberships", async () => {
+    prismaMock.departmentMember.findMany.mockResolvedValue([]);
+    const res = await request(buildApp())
+      .get("/api/v1/requisitions/departments")
+      .set("Authorization", `Bearer ${tok("NURSE")}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+    expect(res.body.meta?.notInAnyDepartment).toBe(true);
+    // Never queried departments at all — short-circuited.
+    expect(prismaMock.department.findMany).not.toHaveBeenCalled();
+  });
+
+  it("ADMIN picker is unscoped (sees all departments)", async () => {
+    prismaMock.department.findMany.mockResolvedValue([
+      { id: D1, name: "Ward A", code: "WA" },
+      { id: D2, name: "Ward B", code: "WB" },
+    ]);
+    const res = await request(buildApp())
+      .get("/api/v1/requisitions/departments")
+      .set("Authorization", `Bearer ${tok("ADMIN")}`);
+    expect(res.status).toBe(200);
+    // No id filter for admin.
+    const call = (prismaMock.department.findMany as any).mock.calls[0][0];
+    expect(call.where.id).toBeUndefined();
+    expect(res.body.data.length).toBe(2);
+  });
+
+  it("create against a department the caller is NOT a member of → 403", async () => {
+    prismaMock.departmentMember.findFirst.mockResolvedValue(null); // not a member
+    prismaMock.department.findUnique.mockResolvedValue({ id: D2 });
+    const res = await request(buildApp())
+      .post("/api/v1/requisitions")
+      .set("Authorization", `Bearer ${tok("NURSE")}`)
+      .send({ departmentId: D2, items: [{ inventoryItemId: INV1, requestedQty: 1 }] });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/department you belong to/i);
+    expect(prismaMock.requisition.create).not.toHaveBeenCalled();
+  });
+
+  it("list scopes the where clause to the caller's departments", async () => {
+    prismaMock.departmentMember.findMany.mockResolvedValue([{ departmentId: D1 }]);
+    prismaMock.requisition.findMany.mockResolvedValue([]);
+    prismaMock.requisition.count.mockResolvedValue(0);
+    const res = await request(buildApp())
+      .get("/api/v1/requisitions")
+      .set("Authorization", `Bearer ${tok("NURSE")}`);
+    expect(res.status).toBe(200);
+    expect(prismaMock.requisition.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ departmentId: { in: [D1] } }),
+      }),
+    );
+  });
+
+  it("reading a requisition from another department → 404 (no leak)", async () => {
+    prismaMock.departmentMember.findFirst.mockResolvedValue(null); // not a member of its dept
+    prismaMock.requisition.findUnique.mockResolvedValue({
+      id: "r1",
+      departmentId: D2,
+      items: [],
+    });
+    const res = await request(buildApp())
+      .get(`/api/v1/requisitions/${R1}`)
+      .set("Authorization", `Bearer ${tok("NURSE")}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("approving a requisition from another department → 404", async () => {
+    prismaMock.departmentMember.findFirst.mockResolvedValue(null);
+    prismaMock.requisition.findUnique.mockResolvedValue({
+      id: "r1",
+      status: "SUBMITTED",
+      departmentId: D2,
+      items: [],
+    });
+    const res = await request(buildApp())
+      .post("/api/v1/requisitions/r1/approve")
+      .set("Authorization", `Bearer ${tok("PHARMACIST")}`)
+      .send({ items: [{ itemId: LI1, approvedQty: 1 }] });
+    expect(res.status).toBe(404);
   });
 });
 

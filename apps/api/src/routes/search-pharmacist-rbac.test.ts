@@ -175,4 +175,39 @@ describe("GET /search — Issue #612 (PHARMACIST role allowlist)", () => {
     expect(prismaMock.ambulance.findMany).toHaveBeenCalled();
     expect(prismaMock.user.findMany).toHaveBeenCalled();
   });
+
+  // Module shortcuts (2026-07): typing a module name returns a `label` hit that
+  // opens the page — same target as the sidebar tab. Departments/Materials/
+  // Requisitions are gated to the roles whose sidebar carries that tab.
+  it("ADMIN gets Departments / Materials / Requisitions module shortcuts", async () => {
+    const shortcuts = async (q: string) => {
+      const res = await request(buildApp())
+        .get(`/api/v1/search?q=${encodeURIComponent(q)}`)
+        .set("Authorization", `Bearer ${tokenFor("ADMIN")}`)
+        .expect(200);
+      return (res.body.data as Array<any>).filter((h) => h.type === "label");
+    };
+    expect((await shortcuts("department")).map((h) => h.href)).toContain(
+      "/dashboard/departments",
+    );
+    expect((await shortcuts("material")).map((h) => h.href)).toContain(
+      "/dashboard/materials",
+    );
+    expect((await shortcuts("requisition")).map((h) => h.href)).toContain(
+      "/dashboard/requisitions",
+    );
+  });
+
+  it("NURSE gets the Requisitions shortcut but NOT Departments/Materials", async () => {
+    const res = await request(buildApp())
+      .get("/api/v1/search?q=re")
+      .set("Authorization", `Bearer ${tokenFor("NURSE")}`)
+      .expect(200);
+    const hrefs = (res.body.data as Array<any>)
+      .filter((h) => h.type === "label")
+      .map((h) => h.href);
+    expect(hrefs).toContain("/dashboard/requisitions");
+    expect(hrefs).not.toContain("/dashboard/departments");
+    expect(hrefs).not.toContain("/dashboard/materials");
+  });
 });

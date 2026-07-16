@@ -183,9 +183,10 @@ const MATRIX: MatrixRow[] = [
   {
     method: "GET",
     path: "/api/v1/billing/reports/daily",
-    // Tightened by issue #90 — RECEPTION must NOT see financial / collection
-    // totals. ADMIN-only.
-    rolesAllowed: ["ADMIN"],
+    // Policy update (2026-07): RECEPTION collects payments and needs the
+    // "Today's Collection" tile on their billing page (reverses issue #90 for
+    // this endpoint). ADMIN + RECEPTION.
+    rolesAllowed: ["ADMIN", "RECEPTION"],
     label: "daily billing report",
   },
 

@@ -525,19 +525,29 @@ function NewRequisitionModal({
         </div>
 
         <label className="mb-1 block text-sm font-medium">Department</label>
-        <select
-          value={departmentId}
-          onChange={(e) => setDepartmentId(e.target.value)}
-          data-testid="req-department"
-          className={`${MODAL_FIELD} mb-4`}
-        >
-          <option value="">Select department…</option>
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+        {departments.length === 0 ? (
+          <div
+            data-testid="req-no-department"
+            className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+          >
+            You are not added to any department yet. Ask an administrator to add
+            you to a department before raising a requisition.
+          </div>
+        ) : (
+          <select
+            value={departmentId}
+            onChange={(e) => setDepartmentId(e.target.value)}
+            data-testid="req-department"
+            className={`${MODAL_FIELD} mb-4`}
+          >
+            <option value="">Select department…</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        )}
 
         <label className="mb-1 block text-sm font-medium">Items</label>
         <div className="space-y-2">

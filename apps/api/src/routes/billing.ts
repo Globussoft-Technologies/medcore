@@ -1083,11 +1083,14 @@ router.patch(
 );
 
 // GET /api/v1/billing/reports/daily — daily collection summary
-// RBAC (issue #90): RECEPTION must NOT see "Today's Revenue" / collection
-// totals. Restricted to ADMIN.
+// RBAC (2026-07): RECEPTION collects payments at the front desk, so they need
+// the "Today's Collection" tile. Previously ADMIN-only (issue #90), which left
+// the reception billing page's collection tile stuck at Rs. 0.00 (403 → tile
+// fallback) even after they recorded a payment. Now ADMIN + RECEPTION; super-
+// admin passes via the ADMIN gate + tenant scope in resolveBillingReportScope.
 router.get(
   "/reports/daily",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { tenantFilter } = await resolveBillingReportScope(req);
@@ -2542,10 +2545,13 @@ router.get(
 );
 
 // GET /api/v1/billing/reports/revenue?from=&to=&groupBy=day|month&doctorId=
-// RBAC (issue #90): ADMIN-only revenue series. RECEPTION removed.
+// RBAC (2026-07): ADMIN + RECEPTION. Front-desk staff need the "This Month's
+// Revenue" tile on their billing page (was ADMIN-only under issue #90, which
+// left that tile at Rs. 0.00 for reception). Super-admin passes via the ADMIN
+// gate; tenant scoping is applied in resolveBillingReportScope.
 router.get(
   "/reports/revenue",
-  authorize(Role.ADMIN),
+  authorize(Role.ADMIN, Role.RECEPTION),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { tenantFilter } = await resolveBillingReportScope(req);

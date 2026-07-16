@@ -602,6 +602,12 @@ router.get(
           { label: "Admissions", href: "/dashboard/admissions", roles: [Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION] },
           { label: "Pharmacy", href: "/dashboard/pharmacy", roles: [Role.ADMIN, Role.RECEPTION] },
           { label: "Medicines", href: "/dashboard/medicines" },
+          // Department / store module shortcuts — jump to the page, mirroring
+          // the sidebar tabs. Departments + Materials are admin-managed; the
+          // Requisitions tab is on every requisition role's sidebar.
+          { label: "Departments", href: "/dashboard/departments", roles: [Role.ADMIN] },
+          { label: "Materials", href: "/dashboard/materials", roles: [Role.ADMIN, Role.PHARMACIST] },
+          { label: "Requisitions", href: "/dashboard/requisitions", roles: [Role.ADMIN, Role.DOCTOR, Role.NURSE, Role.RECEPTION, Role.PHARMACIST, Role.LAB_TECH] },
           { label: "Lab", href: "/dashboard/lab" },
           { label: "Billing", href: "/dashboard/billing" },
           { label: "Prescriptions", href: "/dashboard/prescriptions" },

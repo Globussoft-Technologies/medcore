@@ -185,18 +185,23 @@ describeIfDB("RBAC hardening — issues #89 (DOCTOR leak) + #90 (RECEPTION leak)
     expect(res.status).toBe(200);
   });
 
-  it("issue #90: RECEPTION cannot GET /billing/reports/daily (today's revenue) (403)", async () => {
+  // Policy update (2026-07): RECEPTION collects payments at the front desk, so
+  // they DO get the billing-page collection tiles (Today's Collection + This
+  // Month's Revenue). This reverses the original issue-#90 restriction for the
+  // two billing-report endpoints. The deeper /analytics/revenue surface below
+  // stays ADMIN-only.
+  it("RECEPTION can GET /billing/reports/daily (today's collection tile) (200)", async () => {
     const res = await request(app)
       .get("/api/v1/billing/reports/daily")
       .set("Authorization", `Bearer ${receptionToken}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
-  it("issue #90: RECEPTION cannot GET /billing/reports/revenue (403)", async () => {
+  it("RECEPTION can GET /billing/reports/revenue (month-revenue tile) (200)", async () => {
     const res = await request(app)
       .get("/api/v1/billing/reports/revenue")
       .set("Authorization", `Bearer ${receptionToken}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   it("issue #90: RECEPTION cannot GET /analytics/revenue (403)", async () => {

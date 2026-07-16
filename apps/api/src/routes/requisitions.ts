@@ -33,6 +33,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { allowedDepartmentIds, isMemberOf } from "../services/department-scope";
 
 const router = Router();
 router.use(authenticate);
@@ -95,29 +96,54 @@ async function nextRequisitionNumber(): Promise<string> {
 }
 
 // ── GET /departments — list departments (for the create form) ─────────────
-// Each row carries `isMine` = the caller is a member of that department, so
-// the create modal can pre-select the requester's own department (they may
-// still change it — pre-fill, not lock).
+// Department-scoped: a non-admin caller only sees departments they are a MEMBER
+// of (a member of A must not see/raise requisitions against B). ADMIN sees all.
+// A staff member with no memberships gets an empty list (`notInAnyDepartment`
+// tells the UI to show "you are not added to any department yet"). Every
+// returned row carries `isMine: true` for the scoped roles (they're all mine by
+// construction) so the create modal keeps pre-selecting the caller's dept.
 router.get(
   "/departments",
   authorize(...READ_ROLES),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.user?.userId;
-      const [departments, memberships] = await Promise.all([
-        prisma.department.findMany({
-          where: { active: true },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, code: true },
-        }),
-        userId
-          ? prisma.departmentMember.findMany({
-              where: { userId },
-              select: { departmentId: true },
-            })
-          : Promise.resolve([] as { departmentId: string }[]),
-      ]);
-      const mine = new Set(memberships.map((m) => m.departmentId));
+      const allowed = await allowedDepartmentIds(userId, req.user?.role);
+
+      // Scoped role with zero memberships → nothing to show.
+      if (allowed !== null && allowed.length === 0) {
+        res.json({
+          success: true,
+          data: [],
+          meta: { notInAnyDepartment: true },
+          error: null,
+        });
+        return;
+      }
+
+      const departments = await prisma.department.findMany({
+        where: {
+          active: true,
+          ...(allowed !== null ? { id: { in: allowed } } : {}),
+        },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, code: true },
+      });
+      // For ADMIN (unscoped) mark which are theirs; for scoped roles every row
+      // is theirs by construction.
+      const mine =
+        allowed !== null
+          ? new Set(allowed)
+          : new Set(
+              userId
+                ? (
+                    await prisma.departmentMember.findMany({
+                      where: { userId },
+                      select: { departmentId: true },
+                    })
+                  ).map((m) => m.departmentId)
+                : [],
+            );
       const data = departments.map((d) => ({ ...d, isMine: mine.has(d.id) }));
       res.json({ success: true, data, error: null });
     } catch (err) {
@@ -137,6 +163,32 @@ router.get(
       const where: Record<string, unknown> = {};
       if (status) where.status = status;
       if (departmentId) where.departmentId = departmentId;
+
+      // Department scoping: non-admin callers only see requisitions from
+      // departments they belong to. An explicit ?departmentId= is intersected
+      // with the allowed set (a scoped caller can't peek at another dept by
+      // passing its id). Zero memberships → empty result.
+      const allowed = await allowedDepartmentIds(req.user?.userId, req.user?.role);
+      if (allowed !== null) {
+        if (allowed.length === 0) {
+          res.json({
+            success: true,
+            data: [],
+            meta: {
+              page: parseInt(page || "1", 10),
+              limit: Math.min(parseInt(limit || "20", 10) || 20, 100),
+              total: 0,
+              notInAnyDepartment: true,
+            },
+            error: null,
+          });
+          return;
+        }
+        const scoped = departmentId
+          ? allowed.filter((id) => id === departmentId)
+          : allowed;
+        where.departmentId = { in: scoped };
+      }
 
       const take = Math.min(parseInt(limit || "20", 10) || 20, 100);
       const skip = ((parseInt(page || "1", 10) || 1) - 1) * take;
@@ -177,6 +229,13 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Requisition not found" });
         return;
       }
+      // Department scoping: a non-admin caller may only read a requisition that
+      // belongs to one of their departments. 404 (not 403) so we don't leak the
+      // existence of other departments' requisitions.
+      if (!(await isMemberOf(req.user?.userId, req.user?.role, row.departmentId))) {
+        res.status(404).json({ success: false, data: null, error: "Requisition not found" });
+        return;
+      }
       res.json({ success: true, data: row, error: null });
     } catch (err) {
       next(err);
@@ -206,6 +265,17 @@ router.post(
       const dept = await prisma.department.findUnique({ where: { id: departmentId } });
       if (!dept) {
         res.status(404).json({ success: false, data: null, error: "Department not found" });
+        return;
+      }
+      // Department scoping: a non-admin requester may only raise a requisition
+      // against a department they are a MEMBER of. This is the core isolation
+      // rule — a member of A cannot request stock for B.
+      if (!(await isMemberOf(req.user?.userId, req.user?.role, departmentId))) {
+        res.status(403).json({
+          success: false,
+          data: null,
+          error: "You can only raise requisitions for a department you belong to",
+        });
         return;
       }
       // Validate referenced sources exist (in this tenant), per source type.
@@ -279,6 +349,10 @@ router.post(
         include: { items: { include: { inventoryItem: true, material: true } } },
       });
       if (!reqn) {
+        res.status(404).json({ success: false, data: null, error: "Requisition not found" });
+        return;
+      }
+      if (!(await isMemberOf(req.user?.userId, req.user?.role, reqn.departmentId))) {
         res.status(404).json({ success: false, data: null, error: "Requisition not found" });
         return;
       }
@@ -387,6 +461,10 @@ router.post(
         res.status(404).json({ success: false, data: null, error: "Requisition not found" });
         return;
       }
+      if (!(await isMemberOf(req.user?.userId, req.user?.role, reqn.departmentId))) {
+        res.status(404).json({ success: false, data: null, error: "Requisition not found" });
+        return;
+      }
       if (reqn.status !== "SUBMITTED" && reqn.status !== "PENDING_APPROVAL") {
         res.status(409).json({
           success: false,
@@ -436,6 +514,10 @@ router.post(
         include: { items: { include: { inventoryItem: true, material: true } } },
       });
       if (!reqn) {
+        res.status(404).json({ success: false, data: null, error: "Requisition not found" });
+        return;
+      }
+      if (!(await isMemberOf(req.user?.userId, req.user?.role, reqn.departmentId))) {
         res.status(404).json({ success: false, data: null, error: "Requisition not found" });
         return;
       }
@@ -577,6 +659,10 @@ router.post(
         res.status(404).json({ success: false, data: null, error: "Requisition not found" });
         return;
       }
+      if (!(await isMemberOf(req.user?.userId, req.user?.role, reqn.departmentId))) {
+        res.status(404).json({ success: false, data: null, error: "Requisition not found" });
+        return;
+      }
       if (reqn.status !== "ISSUED" && reqn.status !== "PARTIALLY_ISSUED") {
         res.status(409).json({
           success: false,
@@ -663,6 +749,10 @@ router.post(
         include: { items: true },
       });
       if (!reqn) {
+        res.status(404).json({ success: false, data: null, error: "Requisition not found" });
+        return;
+      }
+      if (!(await isMemberOf(req.user?.userId, req.user?.role, reqn.departmentId))) {
         res.status(404).json({ success: false, data: null, error: "Requisition not found" });
         return;
       }

@@ -266,7 +266,18 @@ jobs:
             // inherited-from-main transitive deps that cannot be bumped
             // without a breaking parent major (tracked for a future
             // dependency-bump PR). Hardcoded so the gate has no external dep.
-            const allowPackages = new Set(["undici"]);
+            //   - undici        → via expo-server-sdk (mobile stack)
+            //   - websocket-driver / faye-websocket → via
+            //     firebase → @firebase/database (patient phone auth). The
+            //     GHSA-mp7j-qc5w-4988 + GHSA-xv26-6w52-cph6 criticals were
+            //     newly published against websocket-driver<=0.7.4 and can't be
+            //     resolved without a Firebase major bump. Present identically on
+            //     main; added 2026-07 so the gate stays green.
+            const allowPackages = new Set([
+              "undici",
+              "websocket-driver",
+              "faye-websocket",
+            ]);
             const j = JSON.parse(fs.readFileSync("audit.json", "utf8"));
             const vulns = Object.values(j.vulnerabilities || {});
             const offenders = [];

@@ -127,6 +127,23 @@ const KANBAN_TRANSITIONS: Record<string, ReadonlyArray<string>> = {
 const router = Router();
 router.use(authenticate);
 
+// The prescribed dispense quantity for a prescription line. This is the
+// SINGLE source of truth shared by the Kanban display AND every stock
+// decrement, so the number the pharmacist sees ("Qty: 6") is exactly the
+// number deducted from inventory.
+//
+// The doctor's prescribe form encodes the count as `Qty: N` inside the line's
+// free-text `instructions` (e.g. "Route: IV | Qty: 6"). We parse that. We do
+// NOT fall back to the first integer in `duration` — that older heuristic
+// silently deducted the day-count ("3 days" → 3) instead of the real quantity,
+// so an ORS line prescribed as Qty 6 only decremented 3 (bug report 2026-07).
+// When no `Qty:` is present we default to 1 unit (a conservative minimum).
+function prescribedQty(item: { instructions?: string | null }): number {
+  const m = item.instructions?.match(/Qty:\s*(\d+)/i);
+  const n = m ? parseInt(m[1], 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 // Draw down inventory for every line of a prescription when it is dispensed
 // via the Kanban board (Move → Dispensed). Mirrors the FEFO (earliest-expiry-
 // first) decrement + DISPENSED stock-movement that POST /pharmacy/dispense
@@ -156,10 +173,9 @@ async function autoDecrementStockForPrescription(
 
   await prisma.$transaction(async (tx) => {
     for (const item of prescription.items) {
-      // Quantity heuristic matches /pharmacy/dispense: pull the first integer
-      // out of `duration`, default to 1 unit.
-      const qtyMatch = item.duration?.match(/(\d+)/);
-      const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+      // Deduct the SAME quantity the Kanban card shows (Qty: N from
+      // instructions), not the day-count parsed from `duration`.
+      const qty = prescribedQty(item);
 
       const medicine = await tx.medicine.findFirst({
         where: {
@@ -619,9 +635,10 @@ router.post(
 
       await prisma.$transaction(async (tx) => {
         for (const item of prescription.items) {
-          // Parse numeric qty from duration/dosage — assume 1 unit per item if not derivable
-          const qtyMatch = item.duration.match(/(\d+)/);
-          const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+          // Deduct the prescribed quantity (Qty: N from instructions), the same
+          // value the Kanban board + prescribe form use — NOT the day-count
+          // from `duration` (which under-dispensed multi-unit lines).
+          const qty = prescribedQty(item);
 
           // Find matching medicine by name (case insensitive)
           const medicine = await tx.medicine.findFirst({
@@ -1013,8 +1030,7 @@ router.get(
 
         for (const item of row.items) {
           const medId = resolveMedId(item);
-          const qtyMatch = item.instructions?.match(/Qty:\s*(\d+)/i);
-          const requiredQty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+          const requiredQty = prescribedQty(item);
           const availableQty = medId ? stockByMed.get(medId) ?? 0 : 0;
           // Dispensed state is tracked PER LINE ITEM via kanbanStatus — NOT by
           // medicine — so two lines of the same medicine stay independent (one
@@ -1295,8 +1311,7 @@ router.get(
       const items = await Promise.all(
         prescription.items.map(async (item) => {
           // Required qty from the "Qty: N" segment of instructions; default 1.
-          const qtyMatch = item.instructions?.match(/Qty:\s*(\d+)/i);
-          const requiredQty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+          const requiredQty = prescribedQty(item);
 
           const medicine = await prisma.medicine.findFirst({
             where: {
@@ -1507,8 +1522,7 @@ router.patch(
               },
               select: { id: true },
             });
-        const qtyMatch = item.instructions?.match(/Qty:\s*(\d+)/i);
-        const requiredQty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+        const requiredQty = prescribedQty(item);
         let availableQty = 0;
         if (medicine) {
           const agg = await prisma.inventoryItem.aggregate({

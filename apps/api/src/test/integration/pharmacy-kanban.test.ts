@@ -201,6 +201,63 @@ describeIfDB("Pharmacy Kanban — gap row 104 (Pearl §4.3)", () => {
     expect(reloadedInv?.quantity).toBe(95);
   });
 
+  it("deducts the prescribed Qty (6), not the day-count from duration (bug 2026-07)", async () => {
+    // Reported bug: an ORS line prescribed as Qty 6 (Duration "3 days") only
+    // decremented 3 — the old code parsed the first integer out of `duration`
+    // ("3 days" → 3) instead of the real `Qty: 6` from instructions. Pin that
+    // a Qty-6 line now draws down exactly 6 units.
+    const med =
+      (await prisma.medicine.findFirst({ where: { name: "ORS Sachet" } })) ??
+      (await createMedicineFixture({ name: "ORS Sachet" }));
+    const inv = await createInventoryFixture({
+      medicineId: med.id,
+      overrides: { quantity: 100 },
+    });
+
+    const { doctor } = await createDoctorWithToken();
+    const patient = await createPatientFixture();
+    const appt = await createAppointmentFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+    });
+    const rx = await createPrescriptionFixture({
+      patientId: patient.id,
+      doctorId: doctor.id,
+      appointmentId: appt.id,
+      overrides: {
+        items: [
+          {
+            medicineName: "ORS Sachet",
+            dosage: "250mg",
+            frequency: "1-0-1",
+            duration: "3 days", // the trap: old code would deduct 3 from this
+            instructions: "Route: IV | Qty: 6", // real prescribed quantity
+          },
+        ],
+      },
+    });
+    await prisma.prescription.update({
+      where: { id: rx.id },
+      data: { status: "READY" },
+    });
+    const res = await request(app)
+      .patch(`/api/v1/pharmacy/prescriptions/${rx.id}/status`)
+      .set("Authorization", `Bearer ${pharmacistToken}`)
+      .send({ status: "DISPENSED" });
+    expect(res.status).toBe(200);
+
+    // 100 − 6 = 94 (NOT 97, which the "3 days" duration heuristic produced).
+    const reloadedInv = await prisma.inventoryItem.findUnique({
+      where: { id: inv.id },
+    });
+    expect(reloadedInv?.quantity).toBe(94);
+
+    const mv = await prisma.stockMovement.findFirst({
+      where: { type: "DISPENSED", referenceId: rx.id },
+    });
+    expect(mv?.quantity).toBe(-6);
+  });
+
   it("ADMIN can mutate", async () => {
     const rx = await makeRx();
     const res = await request(app)

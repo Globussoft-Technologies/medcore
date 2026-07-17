@@ -77,6 +77,10 @@ export default function AntenatalPage() {
 
   const [patientSearch, setPatientSearch] = useState("");
   const [patientResults, setPatientResults] = useState<PatientSearchResult[]>([]);
+  // Explains an empty dropdown when the search DID match patients but they were
+  // all filtered out for not being female (ANC is female-only). Without this a
+  // male match silently shows nothing and reads as "search is broken".
+  const [patientSearchNote, setPatientSearchNote] = useState<string | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<PatientSearchResult | null>(null);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [form, setForm] = useState({
@@ -109,6 +113,7 @@ export default function AntenatalPage() {
   useEffect(() => {
     if (patientSearch.length < 2) {
       setPatientResults([]);
+      setPatientSearchNote(null);
       return;
     }
     const t = setTimeout(() => searchPatients(patientSearch), 300);
@@ -153,10 +158,20 @@ export default function AntenatalPage() {
       const res = await api.get<{ data: PatientSearchResult[] }>(
         `/patients?search=${encodeURIComponent(q)}&limit=10`
       );
-      // filter only female patients
-      setPatientResults(res.data.filter((p) => p.gender === "FEMALE"));
+      // ANC cases are for pregnant patients — keep only female patients.
+      const female = res.data.filter((p) => p.gender === "FEMALE");
+      setPatientResults(female);
+      // If the search matched patients but NONE were female, say so — otherwise
+      // the dropdown just goes blank and looks broken (a male patient matched
+      // but was correctly hidden).
+      setPatientSearchNote(
+        female.length === 0 && res.data.length > 0
+          ? "Matches found, but none are female. Antenatal cases can only be created for female patients."
+          : null,
+      );
     } catch {
       setPatientResults([]);
+      setPatientSearchNote(null);
     }
   }
 
@@ -439,8 +454,16 @@ export default function AntenatalPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium">
-                  Patient (female only) <span className="text-red-600" aria-hidden="true">*</span>
+                <label className="mb-1 flex items-center gap-2 text-sm font-medium">
+                  <span>
+                    Patient <span className="text-red-600" aria-hidden="true">*</span>
+                  </span>
+                  <span
+                    data-testid="anc-female-only-badge"
+                    className="rounded-full bg-pink-100 px-2 py-0.5 text-[11px] font-semibold text-pink-700 dark:bg-pink-900/30 dark:text-pink-300"
+                  >
+                    Female only
+                  </span>
                 </label>
                 {selectedPatient ? (
                   <div
@@ -473,7 +496,7 @@ export default function AntenatalPage() {
                       // submitCase() guard for actual blocking.
                       aria-required="true"
                       data-testid="anc-patient-search"
-                      placeholder="Search by name or MR number (required)"
+                      placeholder="Search female patient by name or MR number (required)"
                       value={patientSearch}
                       onChange={(e) => setPatientSearch(e.target.value)}
                       className="w-full rounded-lg border px-3 py-2 text-sm"
@@ -495,6 +518,14 @@ export default function AntenatalPage() {
                           </button>
                         ))}
                       </div>
+                    )}
+                    {patientSearchNote && (
+                      <p
+                        data-testid="anc-patient-search-note"
+                        className="mt-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
+                      >
+                        {patientSearchNote}
+                      </p>
                     )}
                   </>
                 )}

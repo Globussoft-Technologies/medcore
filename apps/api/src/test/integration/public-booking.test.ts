@@ -333,6 +333,61 @@ describeIfDB("Public quick-booking API (integration)", () => {
     expect(res.body.success).toBe(false);
   });
 
+  it("rejects the SAME person booking two doctors at the same date+time (409)", async () => {
+    // Reported bug: a patient booked at 09:00 with one doctor could ALSO book
+    // 09:00 with a different doctor. Public identity is keyed on (phone + name
+    // + tenant), so the same person here = the same phone + name.
+    //
+    // Uses TWO fresh SLOT doctors (not the shared `doctorId`) so the test is
+    // independent of other tests' slot usage on the shared doctor.
+    const prisma = await getPrisma();
+    // A DISTINCT specialization so these two doctors don't pollute the
+    // "General Medicine / fever" suggestion ranking other tests assert against.
+    async function freshSlotDoctor() {
+      const d = await createDoctorFixture({ specialization: "Clash Testing Dept" });
+      await prisma.doctor.update({
+        where: { id: d.id },
+        data: { appointmentMode: "SLOT" },
+      });
+      await prisma.doctorSchedule.create({
+        data: {
+          doctorId: d.id,
+          dayOfWeek: FUTURE_DOW,
+          startTime: "09:00",
+          endTime: "12:00",
+          slotDurationMinutes: 15,
+        },
+      });
+      return d.id;
+    }
+    const docA = await freshSlotDoctor();
+    const docB = await freshSlotDoctor();
+
+    const person = {
+      name: "Clash Patient",
+      phone: "9123450088",
+      gender: "MALE" as const,
+      dateOfBirth: "1990-01-01",
+    };
+    const first = await request(app).post("/api/v1/public/booking/book").send({
+      ...person,
+      doctorId: docA,
+      date: FUTURE_ISO,
+      slotId: "11:00",
+    });
+    expect([200, 201]).toContain(first.status);
+
+    // Same person, same date + time, DIFFERENT doctor → rejected.
+    const clash = await request(app).post("/api/v1/public/booking/book").send({
+      ...person,
+      doctorId: docB,
+      date: FUTURE_ISO,
+      slotId: "11:00",
+    });
+    expect(clash.status).toBe(409);
+    expect(clash.body.success).toBe(false);
+  });
+
   it("rejects an invalid booking body (400)", async () => {
     const res = await request(app).post("/api/v1/public/booking/book").send({
       name: "Bad",

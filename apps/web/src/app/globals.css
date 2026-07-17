@@ -561,3 +561,19 @@ select:-webkit-autofill {
   box-shadow: 0 0 0 1000px #ffffff inset;
   caret-color: #0f172a;
 }
+
+/* Dark theme: the white-bg override above turns an autofilled field into a
+   jarring white box on a dark card (e.g. the login email field once Chrome
+   autofills it — bug report 2026-07). Repaint autofilled inputs to the same
+   dark field bg (gray-900) + light text the surrounding inputs use, so an
+   autofilled field is indistinguishable from a typed one in dark mode. */
+.dark input:-webkit-autofill,
+.dark input:-webkit-autofill:hover,
+.dark input:-webkit-autofill:focus,
+.dark textarea:-webkit-autofill,
+.dark select:-webkit-autofill {
+  -webkit-text-fill-color: #f3f4f6;                /* gray-100 */
+  -webkit-box-shadow: 0 0 0 1000px #111827 inset;  /* gray-900 field bg */
+  box-shadow: 0 0 0 1000px #111827 inset;
+  caret-color: #f3f4f6;
+}

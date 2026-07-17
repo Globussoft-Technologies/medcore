@@ -544,6 +544,26 @@ export default function QuickBookPage() {
   // True once the chat is ready for doctors but the patient hasn't picked a
   // hospital yet → the chat shows the hospital chips instead of doctors.
   const [awaitingHospital, setAwaitingHospital] = useState(false);
+  // Infinite scroll for the hospital picker: with many hospitals the list
+  // would grow unbounded and push the page. We cap the panel height + scroll,
+  // and only render `hospitalVisibleCount` rows, revealing another page as the
+  // user nears the bottom. Reset to one page each time the picker (re)opens.
+  const HOSPITAL_PAGE = 8;
+  const [hospitalVisibleCount, setHospitalVisibleCount] = useState(HOSPITAL_PAGE);
+  useEffect(() => {
+    if (awaitingHospital) setHospitalVisibleCount(HOSPITAL_PAGE);
+  }, [awaitingHospital]);
+  // Reveal the next page when the scroll position is within ~120px of the end.
+  function onHospitalScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
+      setHospitalVisibleCount((c) =>
+        c >= hospitals.length
+          ? c
+          : Math.min(c + HOSPITAL_PAGE, hospitals.length),
+      );
+    }
+  }
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1765,8 +1785,16 @@ export default function QuickBookPage() {
                             Which hospital would you like to visit?
                           </p>
                         </div>
-                        <div className="flex flex-col gap-3 p-4">
-                          {hospitals.map((h) => (
+                        {/* Scrollable list — capped height so a long hospital
+                            roster scrolls inside the panel instead of pushing
+                            the page. Rows render incrementally (infinite scroll)
+                            via onHospitalScroll. */}
+                        <div
+                          onScroll={onHospitalScroll}
+                          data-testid="quick-book-hospitals-scroll"
+                          className="flex max-h-[26rem] flex-col gap-3 overflow-y-auto p-4"
+                        >
+                          {hospitals.slice(0, hospitalVisibleCount).map((h) => (
                             <button
                               key={h.id}
                               type="button"
@@ -1779,7 +1807,7 @@ export default function QuickBookPage() {
                                 // must use the fresh id or it scopes to default.
                                 void loadDoctorSuggestions(undefined, date, h.id);
                               }}
-                              className="group flex items-center justify-between rounded-xl border-2 border-gray-200 px-5 py-4 text-left transition hover:border-emerald-500 hover:bg-emerald-50 hover:shadow-md dark:border-gray-700 dark:hover:bg-gray-700"
+                              className="group flex shrink-0 items-center justify-between rounded-xl border-2 border-gray-200 px-5 py-4 text-left transition hover:border-emerald-500 hover:bg-emerald-50 hover:shadow-md dark:border-gray-700 dark:hover:bg-gray-700"
                             >
                               <span className="flex flex-col">
                                 <span className="text-base font-semibold text-gray-900 dark:text-gray-100">
@@ -1799,6 +1827,15 @@ export default function QuickBookPage() {
                               </span>
                             </button>
                           ))}
+                          {hospitalVisibleCount < hospitals.length && (
+                            <p
+                              data-testid="quick-book-hospitals-more"
+                              className="py-1 text-center text-xs text-gray-400 dark:text-gray-500"
+                            >
+                              Scroll for more — showing {hospitalVisibleCount} of{" "}
+                              {hospitals.length}
+                            </p>
+                          )}
                         </div>
                       </div>
                     )}

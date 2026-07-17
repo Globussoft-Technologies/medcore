@@ -72,3 +72,4 @@ apps/api/firebase.json
 scripts/provision-demo-hospital.ts
 scripts/seed-sourav-mock-cleanup.ts
 scripts/seed-sourav-mock.ts
+scripts/seed-demo-hospitals.ts

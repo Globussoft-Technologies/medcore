@@ -448,13 +448,18 @@ export async function createPrescriptionFixture(args: {
       diagnosis: args.overrides?.diagnosis || "Acute pharyngitis",
       advice: args.overrides?.advice || "Rest and fluids",
       items: {
-        create: [
+        create: args.overrides?.items ?? [
           {
             medicineName: "Paracetamol 500mg",
             dosage: "500mg",
             frequency: "TID",
             duration: "5 days",
-            instructions: "After food",
+            // Dispense quantity is read from `Qty: N` in instructions (the
+            // prescribe form encodes it there). TID × 5 days = 15 doses, but
+            // the doctor dispenses whole units — keep the historical default of
+            // 5 so existing stock-decrement assertions stay valid, now sourced
+            // from the correct field rather than the old duration heuristic.
+            instructions: "After food | Qty: 5",
           },
         ],
       },

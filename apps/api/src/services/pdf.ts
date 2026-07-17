@@ -278,7 +278,7 @@ export async function generatePrescriptionPDF(
 
   if (!prescription) throw new Error("Prescription not found");
 
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(prescription.tenantId);
   const patient = prescription.patient;
   const doctor = prescription.doctor;
   const items = prescription.items;
@@ -426,7 +426,7 @@ export async function generateDischargeSummaryHTML(
   });
   if (!admission) throw new Error("Admission not found");
 
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(admission.tenantId);
   const p = admission.patient;
 
   const labRows = admission.labOrders
@@ -564,7 +564,11 @@ export async function generateLabReportHTML(
   });
   if (!order) throw new Error("Lab order not found");
 
-  const h = await getHospitalInfo();
+  // Per-tenant letterhead: resolve THIS hospital's identity from the lab
+  // order's tenant, mirroring the invoice PDF. Passing no tenantId here made
+  // every lab report print the platform-default "MedCore Hospital &
+  // Diagnostics" header regardless of which hospital ran the test (bug 2026-07).
+  const h = await getHospitalInfo(order.tenantId);
   const p = order.patient;
 
   const flagColor = (flag: string): string => {
@@ -914,7 +918,7 @@ export async function generatePaySlipHTML(
 ): Promise<string> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("User not found");
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(user.tenantId);
 
   const [yearStr, monthStr] = monthYYYYMM.split("-");
   const year = parseInt(yearStr, 10);
@@ -1024,7 +1028,7 @@ export async function generatePatientIdCardHTML(
     include: { user: { select: { name: true, phone: true, photoUrl: true } } },
   });
   if (!patient) throw new Error("Patient not found");
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(patient.tenantId);
 
   // Resolve the photo to a displayable URL — from the Patient row first,
   // then the linked User row (Settings-set photo). The ID card is served
@@ -1130,7 +1134,7 @@ export async function generateVitalsHistoryHTML(
     prisma.vitals.findMany({ where: where as any, orderBy: { recordedAt: "asc" } }),
   ]);
   if (!patient) throw new Error("Patient not found");
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(patient.tenantId);
 
   const rows = vitals
     .map((v) => {
@@ -1243,7 +1247,7 @@ export async function generateFitnessCertificateHTML(
     include: { user: { select: { name: true } } },
   });
   if (!patient) throw new Error("Patient not found");
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(patient.tenantId);
 
   const latestVitals = await prisma.vitals.findFirst({
     where: { patientId },
@@ -1337,7 +1341,7 @@ export async function generateDeathCertificateHTML(
     },
   });
   if (!patient) throw new Error("Patient not found");
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(patient.tenantId);
   const lastAdmission = patient.admissions[0];
 
   const body = `
@@ -1404,7 +1408,7 @@ export async function generateBirthCertificateHTML(
   });
   if (!anc) throw new Error("ANC case not found");
   if (!anc.deliveredAt) throw new Error("Delivery has not been recorded yet");
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(anc.tenantId);
 
   const body = `
   ${letterhead(h)}
@@ -1465,7 +1469,7 @@ export async function generateLeaveLetterHTML(
     },
   });
   if (!leave) throw new Error("Leave request not found");
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(leave.tenantId);
 
   const statusColor =
     leave.status === "APPROVED" ? "#16a34a" : leave.status === "REJECTED" ? "#dc2626" : "#f59e0b";
@@ -1516,7 +1520,7 @@ export async function generateServiceCertificateHTML(
 ): Promise<string> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new Error("User not found");
-  const h = await getHospitalInfo();
+  const h = await getHospitalInfo(user.tenantId);
 
   const joined = formatDate(user.createdAt);
   const today = formatDate(new Date());
@@ -1575,7 +1579,10 @@ export async function generatePrescriptionVerifyHTML(
       doctor: { include: { user: { select: { name: true } } } },
     },
   });
-  const h = await getHospitalInfo();
+  // rx may be null (the not-found branch below still prints a letterhead);
+  // source the tenant from it when present so a valid verify shows the right
+  // hospital, and fall back to the default identity for an unknown code.
+  const h = await getHospitalInfo(rx?.tenantId ?? null);
 
   if (!rx) {
     const body = `

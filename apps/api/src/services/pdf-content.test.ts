@@ -601,13 +601,35 @@ describe("generateBirthCertificateHTML — content quality", () => {
     prismaMock.antenatalCase.findUnique.mockResolvedValueOnce(ancFixture());
     const html = await generateBirthCertificateHTML("anc-1");
     expectWellFormedHtml(html);
-    expect(html).toContain("Birth Certificate");
+    // Redesigned certificate (2026-07): "Certificate of Live Birth" layout.
+    expect(html).toContain("CERTIFICATE OF LIVE BIRTH");
     expect(html).toContain("Sita Devi");
-    expect(html).toContain("FEMALE");
+    // Baby name is derived as "Baby of <mother>".
+    expect(html).toContain("Baby of Sita Devi");
+    // Gender is title-cased for display.
+    expect(html).toContain("Female");
     expect(html).toContain("VAGINAL");
     expect(html).toContain("ANC-2024-005");
     expect(html).toContain("3.1 kg");
     expect(html).toContain("Dr. OB-Singh");
+    // Newborn / mother section headers present.
+    expect(html).toContain("NEWBORN DETAILS");
+    expect(html).toContain("MOTHER DETAILS");
+  });
+
+  it("prettifies an enum blood group (A_POS → A+) and embeds the SVG emblem", async () => {
+    // Real ANC rows carry the enum form (A_POS) which used to print verbatim on
+    // the certificate. It must render as "A+". Also assert the inline SVG logo
+    // is present (header + seal) so the certificate isn't a bare text block.
+    prismaMock.antenatalCase.findUnique.mockResolvedValueOnce({
+      ...ancFixture(),
+      bloodGroup: "A_POS",
+    });
+    const html = await generateBirthCertificateHTML("anc-1");
+    expect(html).toContain("A+");
+    expect(html).not.toContain("A_POS");
+    // Inline SVG emblem is embedded (used for the logo + the seal).
+    expect(html).toContain("<svg");
   });
 
   it("edge case: 60-char mother name", async () => {

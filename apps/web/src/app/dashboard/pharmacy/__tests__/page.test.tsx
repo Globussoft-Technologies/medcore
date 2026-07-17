@@ -267,6 +267,34 @@ describe("PharmacyPage (inventory dashboard — full surface)", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(3);
   });
 
+  it("shows 'Expired' instead of the date for a past-expiry batch, and the date for a future one", async () => {
+    apiMock.get.mockResolvedValue({
+      data: [
+        invFixture({
+          id: "inv-exp",
+          batchNumber: "B-EXP",
+          expiryDate: PAST,
+          medicine: { id: "m-x", name: "Expired Med" },
+        }),
+        invFixture({
+          id: "inv-ok",
+          batchNumber: "B-OK",
+          expiryDate: FUTURE,
+          medicine: { id: "m-y", name: "Fresh Med" },
+        }),
+      ],
+    });
+
+    render(<PharmacyPage />);
+    await screen.findByText("Expired Med");
+
+    // The past batch reads "Expired" (not a date).
+    expect(screen.getByText("Expired")).toBeInTheDocument();
+    // The future batch still shows its formatted date, not "Expired".
+    const futureLabel = new Date(FUTURE).toLocaleDateString();
+    expect(screen.getByText(futureLabel)).toBeInTheDocument();
+  });
+
   it("renders 'No inventory items.' when the inventory list is empty", async () => {
     apiMock.get.mockResolvedValue({ data: [] });
 

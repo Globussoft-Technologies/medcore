@@ -8,6 +8,7 @@ import {
   computeLineItemTax,
   derivePaymentStatus,
   formatQuantityWithUnit,
+  prettyBloodGroup,
 } from "@medcore/shared";
 import { computePayroll, daysInMonth as daysInMonthFor } from "./payroll";
 import { formatDoctorName } from "../lib/format-doctor-name";
@@ -1402,7 +1403,11 @@ export async function generateBirthCertificateHTML(
   const anc = await prisma.antenatalCase.findUnique({
     where: { id: ancCaseId },
     include: {
-      patient: { include: { user: { select: { name: true } } } },
+      patient: {
+        include: {
+          user: { select: { name: true, phone: true } },
+        },
+      },
       doctor: { include: { user: { select: { name: true } } } },
     },
   });
@@ -1410,49 +1415,202 @@ export async function generateBirthCertificateHTML(
   if (!anc.deliveredAt) throw new Error("Delivery has not been recorded yet");
   const h = await getHospitalInfo(anc.tenantId);
 
+  // ── Derived / formatted values ──────────────────────────────────────────
+  const born = new Date(anc.deliveredAt);
+  const birthDateLabel = born.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const birthTimeLabel = born.toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+  // Gestation in completed weeks, from LMP → delivery (falls back to "—").
+  const gestationWeeks =
+    anc.lmpDate && anc.deliveredAt
+      ? Math.max(
+          0,
+          Math.floor(
+            (born.getTime() - new Date(anc.lmpDate).getTime()) /
+              (7 * 24 * 3600 * 1000),
+          ),
+        )
+      : null;
+  const deliveryLabel = ({
+    NORMAL: "Normal",
+    C_SECTION: "Caesarean (C-Section)",
+    INSTRUMENTAL: "Instrumental",
+  } as Record<string, string>)[anc.deliveryType ?? ""] ??
+    (anc.deliveryType ? escapeHtml(anc.deliveryType) : "—");
+  const babyGenderLabel = anc.babyGender
+    ? anc.babyGender.charAt(0).toUpperCase() +
+      anc.babyGender.slice(1).toLowerCase()
+    : "—";
+  const certNo = `${escapeHtml(anc.caseNumber)}`;
+  const issueDate = new Date().toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  // Father / next-of-kin from the mother's emergency-contact fields (the ANC
+  // model has no dedicated father record). Rows are omitted when unknown so the
+  // certificate never shows fabricated details.
+  const p: any = anc.patient;
+  const fatherName = p.emergencyContactName || null;
+  const fatherPhone = p.emergencyContactPhone || p.user?.phone || null;
+  const fatherAddress = p.address || null;
+
+  const row = (label: string, value: string) => `
+    <div style="display:flex;padding:3.5px 0;border-bottom:1px solid #eef1f7;line-height:1.3;">
+      <div style="width:42%;font-weight:600;color:#334155;">${label}</div>
+      <div style="width:5%;color:#94a3b8;">:</div>
+      <div style="width:53%;color:#0f172a;">${value}</div>
+    </div>`;
+  const optRow = (label: string, value: string | null) =>
+    value ? row(label, escapeHtml(value)) : "";
+
+  const cardHead = (bg: string, color: string, text: string) => `
+    <div style="display:inline-block;background:${bg};color:${color};font-weight:700;font-size:11px;letter-spacing:.05em;padding:4px 12px;border-radius:16px;margin-bottom:6px;">${text}</div>`;
+
+  const motherBlood = anc.bloodGroup
+    ? prettyBloodGroup(anc.bloodGroup)
+    : p.bloodGroup
+      ? prettyBloodGroup(p.bloodGroup)
+      : null;
+
+  // Inline mother-and-child medical emblem (SVG) — no external asset, always
+  // renders, scales crisply in print. Used for the header logo + the seal.
+  const babyLogo = (size: number, color: string) => `
+    <svg width="${size}" height="${size}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 12c-6 0-11 5-11 11 0 9 10 18 23 27 13-9 23-18 23-27 0-6-5-11-11-11-4 0-8 2-12 7-4-5-8-7-12-7z" fill="${color}" opacity="0.9"/>
+      <circle cx="32" cy="26" r="7" fill="#ffffff"/>
+      <path d="M22 44c0-6 4-10 10-10s10 4 10 10" fill="#ffffff"/>
+      <path d="M46 6h4v4h4v4h-4v4h-4v-4h-4v-4h4z" fill="#22c55e"/>
+    </svg>`;
+
   const body = `
-  ${letterhead(h)}
-  <h2 class="title">Birth Certificate</h2>
+  <style>
+    @page { size: A4; margin: 6mm; }
+    /* This certificate manages its own outer frame + spacing, so strip the
+       generic .page padding that htmlDoc adds (otherwise the double padding
+       pushes the signatures/footer onto a 2nd sheet). */
+    .page { padding: 0 !important; max-width: 100% !important; }
+    @media print { html, body { margin: 0; } .bc-wrap { page-break-inside: avoid; } }
+  </style>
+  <div class="bc-wrap" style="max-width:800px;margin:0 auto;font-family:'Segoe UI',Arial,sans-serif;color:#0f172a;font-size:12px;">
+    <div style="border:3px double #1e3a8a;border-radius:10px;padding:14px 22px;background:#ffffff;">
 
-  <div class="section" style="font-size:14px;line-height:1.9;">
-    <p>This is to certify that a baby was born at <strong>${escapeHtml(h.name)}</strong> with the following details:</p>
-  </div>
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #e2e8f0;padding-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          ${babyLogo(52, "#2563eb")}
+          <div>
+            <div style="font-size:24px;font-weight:800;color:#1e3a8a;letter-spacing:.02em;line-height:1.05;">${escapeHtml(h.name)}</div>
+            <div style="font-size:11px;color:#0ea5e9;font-weight:600;margin-top:2px;">Care • Compassion • Commitment</div>
+            <div style="font-size:10px;color:#64748b;">Excellence in Mother &amp; Child Care</div>
+          </div>
+        </div>
+        <div style="border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;font-size:11px;min-width:215px;">
+          <div style="display:flex;justify-content:space-between;"><span style="color:#475569;font-weight:600;">Certificate No.</span><span>${certNo}</span></div>
+          <div style="display:flex;justify-content:space-between;margin-top:3px;"><span style="color:#475569;font-weight:600;">Issue Date</span><span>${issueDate}</span></div>
+        </div>
+      </div>
 
-  <div class="section">
-    <h3>Baby Details</h3>
-    <table>
-      <tr><td><strong>Date of Birth</strong></td><td>${formatDate(anc.deliveredAt)}</td></tr>
-      <tr><td><strong>Time of Birth</strong></td><td>${formatDateTime(anc.deliveredAt)}</td></tr>
-      <tr><td><strong>Sex</strong></td><td>${escapeHtml(anc.babyGender || "—")}</td></tr>
-      <tr><td><strong>Birth Weight</strong></td><td>${anc.babyWeight ? anc.babyWeight + " kg" : "—"}</td></tr>
-      <tr><td><strong>Type of Delivery</strong></td><td>${escapeHtml(anc.deliveryType || "—")}</td></tr>
-    </table>
-  </div>
+      <!-- Title -->
+      <div style="text-align:center;margin:12px 0 4px;">
+        <div style="color:#0ea5e9;font-size:13px;">❦ ♛ ❦</div>
+        <h1 style="font-size:28px;font-weight:800;color:#1e3a8a;letter-spacing:.03em;margin:2px 0;">CERTIFICATE OF LIVE BIRTH</h1>
+        <div style="display:inline-block;background:#1e3a8a;color:#fff;font-size:12px;font-weight:600;padding:4px 16px;border-radius:4px;">Private Hospital Birth Record</div>
+      </div>
+      <p style="text-align:center;font-size:12px;color:#334155;margin:10px 0 14px;">
+        This is to certify that a baby was born at <strong>${escapeHtml(h.name)}</strong> with the following details:
+      </p>
 
-  <div class="section">
-    <h3>Mother Details</h3>
-    <table>
-      <tr><td><strong>Name</strong></td><td>${escapeHtml(anc.patient.user.name)}</td></tr>
-      <tr><td><strong>MR No.</strong></td><td>${escapeHtml(anc.patient.mrNumber)}</td></tr>
-      <tr><td><strong>Age</strong></td><td>${anc.patient.age ?? "—"}</td></tr>
-      ${anc.bloodGroup ? `<tr><td><strong>Blood Group</strong></td><td>${escapeHtml(anc.bloodGroup)}</td></tr>` : ""}
-      <tr><td><strong>ANC Case #</strong></td><td>${escapeHtml(anc.caseNumber)}</td></tr>
-    </table>
-  </div>
+      <!-- Newborn + Mother/Father columns -->
+      <div style="display:flex;gap:16px;">
+        <!-- Newborn -->
+        <div style="flex:1;background:#f0f6ff;border:1px solid #dbeafe;border-radius:10px;padding:12px;">
+          ${cardHead("#1e3a8a", "#fff", "👶 NEWBORN DETAILS")}
+          ${row("Baby Name", `Baby of ${escapeHtml(anc.patient.user.name)}`)}
+          ${row("Gender", babyGenderLabel)}
+          ${row("Date of Birth", birthDateLabel)}
+          ${row("Time of Birth", birthTimeLabel)}
+          ${row("Birth Weight", anc.babyWeight ? `${anc.babyWeight} kg` : "—")}
+          ${row("Delivery Type", deliveryLabel)}
+          ${row("Gestation", gestationWeeks != null ? `${gestationWeeks} Weeks` : "—")}
+          ${row("Place of Birth", escapeHtml(h.name))}
+        </div>
 
-  ${anc.outcomeNotes ? `<div class="section"><h3>Notes</h3><p style="font-size:13px;white-space:pre-wrap;">${escapeHtml(anc.outcomeNotes)}</p></div>` : ""}
+        <!-- Mother + Father -->
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px;">
+          <div style="background:#fdf2f6;border:1px solid #fbcfe0;border-radius:10px;padding:12px;">
+            ${cardHead("#db2777", "#fff", "👩 MOTHER DETAILS")}
+            ${row("Name", escapeHtml(anc.patient.user.name))}
+            ${row("Age", anc.patient.age != null ? `${anc.patient.age} Years` : "—")}
+            ${motherBlood ? row("Blood Group", motherBlood) : ""}
+            ${row("MR Number", escapeHtml(anc.patient.mrNumber))}
+            ${row("ANC Case", escapeHtml(anc.caseNumber))}
+          </div>
+          ${
+            fatherName || fatherPhone || fatherAddress
+              ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px;">
+            ${cardHead("#16a34a", "#fff", "👨 FATHER / GUARDIAN DETAILS")}
+            ${optRow("Name", fatherName)}
+            ${optRow("Phone", fatherPhone)}
+            ${optRow("Address", fatherAddress)}
+          </div>`
+              : ""
+          }
+        </div>
+      </div>
 
-  <div class="signblock">
-    <div class="sig">
-      <div class="signline"></div>
-      <p style="font-weight:600;font-size:13px;">${escapeHtml(formatDoctorName(anc.doctor.user.name))}</p>
-      <p style="font-size:11px;color:#64748b;">Attending Obstetrician</p>
+      <!-- Attending staff -->
+      <div style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:10px 12px;margin-top:12px;">
+        ${cardHead("transparent", "#7c3aed", "👥 ATTENDING MEDICAL STAFF")}
+        ${row("Obstetrician", `${escapeHtml(formatDoctorName(anc.doctor.user.name))} <span style="color:#94a3b8;">(Consultant Obstetrician)</span>`)}
+      </div>
+
+      ${anc.outcomeNotes ? `<div style="margin-top:10px;font-size:11px;color:#475569;"><strong>Notes:</strong> ${escapeHtml(anc.outcomeNotes)}</div>` : ""}
+
+      <!-- Signatures -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:24px;">
+        <div style="text-align:center;">
+          <div style="border-top:1px solid #334155;width:170px;padding-top:5px;font-weight:700;font-size:12px;">${escapeHtml(formatDoctorName(anc.doctor.user.name))}</div>
+          <div style="font-size:10px;color:#64748b;">Consultant Obstetrician</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="position:relative;width:78px;height:78px;border:2px solid #1e3a8a;border-radius:50%;display:flex;align-items:center;justify-content:center;">
+            ${babyLogo(40, "#1e3a8a")}
+          </div>
+          <div style="font-size:10px;color:#64748b;margin-top:3px;">Hospital Seal</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="border-top:1px solid #334155;width:170px;padding-top:5px;font-weight:700;font-size:12px;">Authorised Signatory</div>
+          <div style="font-size:10px;color:#64748b;">For ${escapeHtml(h.name)}</div>
+        </div>
+      </div>
+
+      <!-- Footer disclaimer -->
+      <div style="background:#eff6ff;border:1px solid #dbeafe;border-radius:8px;padding:8px 14px;margin-top:16px;text-align:center;font-size:10px;color:#475569;line-height:1.5;">
+        This certificate is issued by ${escapeHtml(h.name)} based on medical records maintained by the hospital.
+        This document is intended for personal and hospital record purposes only.
+        <strong>It is not a government-issued birth certificate.</strong>
+      </div>
+
+      ${h.address || h.phone || h.email ? `<div style="text-align:center;font-size:10px;color:#64748b;margin-top:8px;">
+        ${[h.address, h.phone, h.email].filter(Boolean).map((x) => escapeHtml(x)).join(" &nbsp;•&nbsp; ")}
+      </div>` : ""}
     </div>
   </div>
-
-  <div class="footer">Issued by ${escapeHtml(h.name)} on ${formatDate(new Date())}</div>
   `;
 
+  // autoPrint stays on; disable the base-styles .page wrapper padding by using
+  // the certificate's own full-bleed container. htmlDoc still adds the Print
+  // button + auto-print, which is what the UI relies on.
   return htmlDoc(`Birth Certificate - ${anc.caseNumber}`, body);
 }
 

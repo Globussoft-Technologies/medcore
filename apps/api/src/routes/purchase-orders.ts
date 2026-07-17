@@ -128,9 +128,12 @@ router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST), async
 });
 
 // POST /api/v1/purchase-orders — create DRAFT
+// PHARMACIST is the procurement role (they submit/approve/receive POs), so they
+// must also be able to CREATE the draft — previously only ADMIN + RECEPTION
+// could, which 403'd a pharmacist mid-workflow (bug 2026-07).
 router.post(
   "/",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   validate(createPOSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -219,9 +222,11 @@ router.post(
 );
 
 // PATCH /api/v1/purchase-orders/:id — update items (DRAFT only)
+// Same procurement roles as create — a pharmacist who drafts a PO must be able
+// to edit it before submitting.
 router.patch(
   "/:id",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   validate(updatePOSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -901,9 +906,10 @@ router.get(
 );
 
 // POST /api/v1/purchase-orders/:id/regenerate-recurring — clone as a new DRAFT PO
+// Cloning creates a draft PO, so it takes the same procurement roles as create.
 router.post(
   "/:id/regenerate-recurring",
-  authorize(Role.ADMIN, Role.RECEPTION),
+  authorize(Role.ADMIN, Role.RECEPTION, Role.PHARMACIST),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parent = await prisma.purchaseOrder.findUnique({

@@ -396,9 +396,13 @@ describe("generateBirthCertificateHTML", () => {
       doctor: { user: { name: "OB" } },
     });
     const html = await generateBirthCertificateHTML("anc-1");
-    expect(html).toContain("Birth Certificate");
-    expect(html).toContain("FEMALE");
+    // Redesigned "Certificate of Live Birth" layout (2026-07).
+    expect(html).toContain("CERTIFICATE OF LIVE BIRTH");
+    // Gender is title-cased for display (was raw "FEMALE").
+    expect(html).toContain("Female");
     expect(html).toContain("Mother");
+    // Inline SVG emblem (header logo + seal) is embedded.
+    expect(html).toContain("<svg");
   });
 });
 

@@ -290,6 +290,15 @@ export default function PharmacyPage() {
     return "text-gray-700 dark:text-gray-300";
   }
 
+  // Label for the Expiry column: once a batch's expiry date has passed, show
+  // "Expired" instead of the raw date so a stale batch reads at a glance (it
+  // still turns red via expiryColor). Future batches show the formatted date.
+  function expiryLabel(exp: string): string {
+    return new Date(exp).getTime() < Date.now()
+      ? "Expired"
+      : new Date(exp).toLocaleDateString();
+  }
+
   const tabClass = (t: Tab) =>
     `px-4 py-2 text-sm font-medium rounded-lg transition ${
       tab === t
@@ -617,7 +626,7 @@ export default function PharmacyPage() {
                       {i.quantity}
                     </td>
                     <td className={`px-4 py-3 text-sm ${expiryColor(i.expiryDate)}`}>
-                      {new Date(i.expiryDate).toLocaleDateString()}
+                      {expiryLabel(i.expiryDate)}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {i.sellingPrice

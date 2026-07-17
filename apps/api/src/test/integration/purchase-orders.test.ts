@@ -8,6 +8,7 @@ let app: any;
 let adminToken: string;
 let patientToken: string;
 let receptionToken: string;
+let pharmacistToken: string;
 
 async function createSupplier(overrides: Record<string, any> = {}) {
   const prisma = await getPrisma();
@@ -45,6 +46,7 @@ describeIfDB("Purchase Orders API (integration)", () => {
     adminToken = await getAuthToken("ADMIN");
     patientToken = await getAuthToken("PATIENT");
     receptionToken = await getAuthToken("RECEPTION");
+    pharmacistToken = await getAuthToken("PHARMACIST");
     const mod = await import("../../app");
     app = mod.app;
   });
@@ -97,6 +99,28 @@ describeIfDB("Purchase Orders API (integration)", () => {
         items: [{ description: "X", quantity: 1, unitPrice: 10 }],
       });
     expect(res.status).toBe(403);
+  });
+
+  it("PHARMACIST can create a DRAFT PO (procurement role — bug 2026-07)", async () => {
+    // Pharmacist is the procurement role (submits/approves/receives POs) but
+    // was blocked from CREATING the draft — a Forbidden mid-workflow. They must
+    // be able to open the PO they then submit.
+    const supplier = await createSupplier();
+    const res = await createDraftPO(pharmacistToken, supplier.id);
+    expect([200, 201]).toContain(res.status);
+    expect(res.body.data?.status).toBe("DRAFT");
+  });
+
+  it("PHARMACIST can update its own DRAFT PO items", async () => {
+    const supplier = await createSupplier();
+    const created = await createDraftPO(pharmacistToken, supplier.id);
+    const res = await request(app)
+      .patch(`/api/v1/purchase-orders/${created.body.data.id}`)
+      .set("Authorization", `Bearer ${pharmacistToken}`)
+      .send({
+        items: [{ description: "Paracetamol 500mg", quantity: 50, unitPrice: 3 }],
+      });
+    expect([200, 201]).toContain(res.status);
   });
 
   it("DRAFT -> PENDING via /submit", async () => {

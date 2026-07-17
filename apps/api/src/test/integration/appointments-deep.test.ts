@@ -385,6 +385,50 @@ describeIfDB("Appointments API — deep edges", () => {
     expect(res2.status).toBe(409);
   });
 
+  it("same patient cannot book two DIFFERENT doctors at the same date+time (409)", async () => {
+    // The reported bug: a patient booked at 09:00 with doctor A could also book
+    // 09:00 with doctor B — physically impossible (can't be in two places at
+    // once). The per-doctor @@unique doesn't catch this because the doctor
+    // differs; the handler's patient-time guard must.
+    const patient = await createPatientFixture();
+    const doctorA = await createDoctorFixture();
+    const doctorB = await createDoctorFixture();
+
+    const first = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${reception}`)
+      .send({ patientId: patient.id, doctorId: doctorA.id, date: daysFromNow(1), slotId: SLOT_C });
+    expect([200, 201]).toContain(first.status);
+
+    // SAME patient, SAME date + time, DIFFERENT doctor → must be rejected.
+    const clash = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${reception}`)
+      .send({ patientId: patient.id, doctorId: doctorB.id, date: daysFromNow(1), slotId: SLOT_C });
+    expect(clash.status).toBe(409);
+    expect(String(clash.body.error)).toMatch(/already has an appointment/i);
+  });
+
+  it("same patient CAN book two different doctors at DIFFERENT times", async () => {
+    // Guard against over-blocking: the conflict is time-specific. Different
+    // slots on the same day with different doctors are perfectly valid.
+    const patient = await createPatientFixture();
+    const doctorA = await createDoctorFixture();
+    const doctorB = await createDoctorFixture();
+
+    const first = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${reception}`)
+      .send({ patientId: patient.id, doctorId: doctorA.id, date: daysFromNow(1), slotId: SLOT_D });
+    expect([200, 201]).toContain(first.status);
+
+    const second = await request(app)
+      .post("/api/v1/appointments/book")
+      .set("Authorization", `Bearer ${reception}`)
+      .send({ patientId: patient.id, doctorId: doctorB.id, date: daysFromNow(1), slotId: SLOT_E });
+    expect([200, 201]).toContain(second.status);
+  });
+
   // ─── Walk-in vs scheduled ──────────────────────────────────
   it("walk-in assigns token for today", async () => {
     const patient = await createPatientFixture();

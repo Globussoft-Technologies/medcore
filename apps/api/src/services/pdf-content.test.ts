@@ -35,6 +35,9 @@ const { prismaMock } = vi.hoisted(() => ({
     labResult: { findMany: vi.fn(async () => []) },
     antenatalCase: { findUnique: vi.fn() },
     leaveRequest: { findUnique: vi.fn() },
+    // Per-tenant letterhead: getHospitalInfo(tenantId) reads Tenant.name to
+    // resolve THIS hospital's identity on a printed document.
+    tenant: { findUnique: vi.fn(async () => null) },
   } as any,
 }));
 
@@ -76,6 +79,7 @@ beforeEach(() => {
   }
   prismaMock.systemConfig.findUnique.mockResolvedValue(null);
   prismaMock.systemConfig.findMany.mockResolvedValue(HOSPITAL_CFG);
+  prismaMock.tenant.findUnique.mockResolvedValue(null);
   prismaMock.staffShift.findMany.mockResolvedValue([]);
   prismaMock.vitals.findMany.mockResolvedValue([]);
   prismaMock.vitals.findFirst.mockResolvedValue(null);
@@ -168,6 +172,24 @@ describe("generatePrescriptionPDF — content quality", () => {
     const html = await generatePrescriptionPDF("rx-1");
     expect(html).toContain(LONG_NAME);
   });
+
+  it("letterhead uses the prescription's TENANT hospital name (bug 2026-07)", async () => {
+    prismaMock.prescription.findUnique.mockResolvedValueOnce({
+      ...rxFixture(),
+      tenantId: "tenant-city-care",
+    });
+    prismaMock.systemConfig.findMany.mockResolvedValue([]);
+    prismaMock.tenant.findUnique.mockResolvedValue({
+      name: "City Care Hospital",
+      subdomain: "city-care",
+    });
+    const html = await generatePrescriptionPDF("rx-1");
+    expect(prismaMock.tenant.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "tenant-city-care" } }),
+    );
+    expect(html).toContain("City Care Hospital");
+    expect(html).not.toContain("MedCore Hospital");
+  });
 });
 
 // ── 2. DISCHARGE SUMMARY ─────────────────────────────────
@@ -212,6 +234,24 @@ describe("generateDischargeSummaryHTML — content quality", () => {
     const html = await generateDischargeSummaryHTML("a1");
     expect(html).toContain(LONG_NAME);
   });
+
+  it("letterhead uses the admission's TENANT hospital name (bug 2026-07)", async () => {
+    prismaMock.admission.findUnique.mockResolvedValueOnce({
+      ...admFixture(),
+      tenantId: "tenant-city-care",
+    });
+    prismaMock.systemConfig.findMany.mockResolvedValue([]);
+    prismaMock.tenant.findUnique.mockResolvedValue({
+      name: "City Care Hospital",
+      subdomain: "city-care",
+    });
+    const html = await generateDischargeSummaryHTML("a1");
+    expect(prismaMock.tenant.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "tenant-city-care" } }),
+    );
+    expect(html).toContain("City Care Hospital");
+    expect(html).not.toContain("MedCore Hospital");
+  });
 });
 
 // ── 3. LAB REPORT ────────────────────────────────────────
@@ -254,6 +294,30 @@ describe("generateLabReportHTML — content quality", () => {
     prismaMock.labOrder.findUnique.mockResolvedValueOnce(labFixture(LONG_NAME));
     const html = await generateLabReportHTML("o1");
     expect(html).toContain(LONG_NAME);
+  });
+
+  it("letterhead uses the order's TENANT hospital name, not the platform default (bug 2026-07)", async () => {
+    // The report's letterhead must reflect the hospital that ran the test, from
+    // the lab order's tenant — previously it always printed the global default.
+    prismaMock.labOrder.findUnique.mockResolvedValueOnce({
+      ...labFixture(),
+      tenantId: "tenant-city-care",
+    });
+    // No per-tenant config rows → Tenant.name is the canonical letterhead name.
+    prismaMock.systemConfig.findMany.mockResolvedValue([]);
+    prismaMock.tenant.findUnique.mockResolvedValue({
+      name: "City Care Hospital",
+      subdomain: "city-care",
+    });
+
+    const html = await generateLabReportHTML("o1");
+    // The tenant lookup was scoped to the order's tenant…
+    expect(prismaMock.tenant.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "tenant-city-care" } }),
+    );
+    // …and its name appears in the letterhead, NOT the global default.
+    expect(html).toContain("City Care Hospital");
+    expect(html).not.toContain("MedCore Hospital");
   });
 });
 
@@ -618,5 +682,110 @@ describe("generateServiceCertificateHTML — content quality", () => {
     prismaMock.user.findUnique.mockResolvedValueOnce(userFixture(LONG_NAME));
     const html = await generateServiceCertificateHTML("u1");
     expect(html).toContain(LONG_NAME);
+  });
+});
+
+// ── Per-tenant letterhead regression guard (bug 2026-07) ─────────────────
+// Every printed document must letterhead with the hospital that owns the
+// underlying record, resolved from that record's tenantId. Previously most
+// generators called getHospitalInfo() with no tenant, so they all printed the
+// platform-default identity. This block drives each remaining generator with a
+// tenant-scoped entity and asserts BOTH that the tenant lookup was scoped to
+// the entity's tenantId AND that the tenant's name (not the default) reaches
+// the output — one cheap guard per document so the whole class can't regress.
+describe("per-tenant letterhead — all documents source the entity's tenant", () => {
+  const TENANT_ID = "tenant-city-care";
+  const TENANT = { name: "City Care Hospital", subdomain: "city-care" };
+  const withTenant = <T extends object>(o: T) => ({ ...o, tenantId: TENANT_ID });
+
+  beforeEach(() => {
+    // No per-tenant config rows → Tenant.name is the canonical letterhead name.
+    prismaMock.systemConfig.findMany.mockResolvedValue([]);
+    prismaMock.tenant.findUnique.mockResolvedValue(TENANT);
+  });
+
+  async function expectTenantLetterhead(html: string) {
+    expect(prismaMock.tenant.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: TENANT_ID } }),
+    );
+    expect(html).toContain(TENANT.name);
+    expect(html).not.toContain("MedCore Hospital");
+  }
+
+  it("pay slip", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce(
+      withTenant({ id: "u1", name: "Alice", email: "a@x", role: "NURSE", createdAt: new Date("2022-01-01"), isActive: true }),
+    );
+    await expectTenantLetterhead(await generatePaySlipHTML("u1", "2024-05"));
+  });
+
+  it("patient ID card", async () => {
+    prismaMock.patient.findUnique.mockResolvedValueOnce(withTenant(aPatient()));
+    await expectTenantLetterhead(await generatePatientIdCardHTML("p1"));
+  });
+
+  it("vitals history", async () => {
+    prismaMock.patient.findUnique.mockResolvedValueOnce(withTenant(aPatient()));
+    prismaMock.vitals.findMany.mockResolvedValueOnce([]);
+    await expectTenantLetterhead(await generateVitalsHistoryHTML("p1"));
+  });
+
+  it("fitness certificate", async () => {
+    prismaMock.patient.findUnique.mockResolvedValueOnce(withTenant(aPatient()));
+    await expectTenantLetterhead(await generateFitnessCertificateHTML("p1", "Visa"));
+  });
+
+  it("death certificate", async () => {
+    prismaMock.patient.findUnique.mockResolvedValueOnce(
+      withTenant({ ...aPatient(), admissions: [{ admittedAt: new Date("2024-05-01") }] }),
+    );
+    await expectTenantLetterhead(
+      await generateDeathCertificateHTML("p1", "MI", "2024-05-10", "14:30", "NATURAL", "", ""),
+    );
+  });
+
+  it("birth certificate", async () => {
+    prismaMock.antenatalCase.findUnique.mockResolvedValueOnce(
+      withTenant({
+        id: "anc-1",
+        caseNumber: "ANC-1",
+        deliveredAt: new Date("2024-06-01T12:00:00Z"),
+        babyGender: "FEMALE",
+        babyWeight: 3.1,
+        deliveryType: "VAGINAL",
+        bloodGroup: "O+",
+        outcomeNotes: "",
+        patient: { user: { name: "Sita" }, mrNumber: "MR-2", age: 28 },
+        doctor: { user: { name: "Singh" } },
+      }),
+    );
+    await expectTenantLetterhead(await generateBirthCertificateHTML("anc-1"));
+  });
+
+  it("leave letter", async () => {
+    prismaMock.leaveRequest.findUnique.mockResolvedValueOnce(
+      withTenant({
+        id: "lr-1",
+        type: "CASUAL",
+        fromDate: new Date("2024-05-01"),
+        toDate: new Date("2024-05-03"),
+        totalDays: 3,
+        reason: "Personal",
+        status: "APPROVED",
+        approvedAt: new Date("2024-04-30"),
+        updatedAt: new Date("2024-04-30"),
+        rejectionReason: null,
+        user: { name: "Alice", role: "NURSE", email: "a@x" },
+        approver: { name: "HR" },
+      }),
+    );
+    await expectTenantLetterhead(await generateLeaveLetterHTML("lr-1"));
+  });
+
+  it("service certificate", async () => {
+    prismaMock.user.findUnique.mockResolvedValueOnce(
+      withTenant({ id: "u1", name: "Charlie", email: "c@x", role: "DOCTOR", createdAt: new Date("2020-01-01"), isActive: true }),
+    );
+    await expectTenantLetterhead(await generateServiceCertificateHTML("u1", "exemplary"));
   });
 });

@@ -524,6 +524,27 @@ describe("AntenatalPage (ANC register + new-case modal — full surface)", () =>
     ).toBeInTheDocument();
   });
 
+  it("surfaces the female-only restriction on the patient field (badge + placeholder)", async () => {
+    // ANC is female-only; the UI must make that visible up-front so a user
+    // doesn't type a male patient and see a silent blank. Two affordances: a
+    // "Female only" badge on the label and it in the search placeholder.
+    wireDefaultGets();
+
+    render(<AntenatalPage />);
+    await screen.findByText("ANC-2026-001");
+
+    fireEvent.click(screen.getByRole("button", { name: /New ANC Case/i }));
+    await screen.findByRole("heading", { name: /New Antenatal Case/i });
+
+    // The label carries a visible "Female only" badge.
+    const badge = screen.getByTestId("anc-female-only-badge");
+    expect(badge.textContent).toMatch(/female only/i);
+
+    // The search input placeholder reinforces it while typing.
+    const search = screen.getByTestId("anc-patient-search") as HTMLInputElement;
+    expect(search.placeholder).toMatch(/female patient/i);
+  });
+
   it("Cancel button closes the modal", async () => {
     wireDefaultGets();
 
@@ -627,6 +648,38 @@ describe("AntenatalPage (ANC register + new-case modal — full surface)", () =>
     );
 
     expect(await screen.findByText(/Anita F/)).toBeInTheDocument();
+    expect(screen.queryByText(/Amit M/)).not.toBeInTheDocument();
+  });
+
+  it("shows a 'none are female' note when the search matches only male patients (no silent blank)", async () => {
+    // Regression for the confusing empty dropdown: the API returned a MALE
+    // patient (correctly filtered out), so the picker went blank with no
+    // explanation. It must now say WHY nothing is shown.
+    wireDefaultGets({
+      patients: [
+        {
+          id: "p-m",
+          mrNumber: "MR-M",
+          gender: "MALE",
+          user: { name: "Amit M", phone: "+91999900M" },
+        },
+      ],
+    });
+
+    render(<AntenatalPage />);
+    await screen.findByText("ANC-2026-001");
+
+    fireEvent.click(screen.getByRole("button", { name: /New ANC Case/i }));
+    await screen.findByRole("heading", { name: /New Antenatal Case/i });
+
+    fireEvent.change(screen.getByTestId("anc-patient-search"), {
+      target: { value: "Am" },
+    });
+
+    // The explanatory note appears…
+    const note = await screen.findByTestId("anc-patient-search-note");
+    expect(note.textContent).toMatch(/none are female/i);
+    // …and the male patient is NOT offered as a selectable row.
     expect(screen.queryByText(/Amit M/)).not.toBeInTheDocument();
   });
 

@@ -982,6 +982,35 @@ publicBookingRouter.post(
         patientId = patient!.id;
       }
 
+      // ── Patient-time conflict (SLOT mode) ──
+      // The same patient must not hold two appointments at the same date +
+      // time with DIFFERENT doctors — they can't be in two places at once. The
+      // per-doctor slot check above only stops two patients sharing one
+      // doctor's slot; this stops one patient double-booking their own clock
+      // time across doctors. Checked here (not with the slot pre-check) because
+      // the patientId is only known once the find-or-create above resolves; a
+      // brand-new patient simply returns no clash. Only a real slotStart time
+      // can collide, so TOKEN/CALLING bookings are exempt.
+      if (doctor.appointmentMode === "SLOT" && slotId) {
+        const patientClash = await prisma.appointment.findFirst({
+          where: {
+            patientId,
+            date: dateObj,
+            slotStart: slotId,
+            status: { notIn: ["CANCELLED", "NO_SHOW"] },
+          },
+          select: { id: true },
+        });
+        if (patientClash) {
+          res.status(409).json({
+            success: false,
+            data: null,
+            error: `You already have an appointment booked at ${slotId} on this date. Please pick a different time.`,
+          });
+          return;
+        }
+      }
+
       // ── Mode-specific token / arrival / slot assignment + create ──
       //   SLOT    → slotStart = the picked time.
       //   TOKEN   → next token number, no slotStart (date + token only).

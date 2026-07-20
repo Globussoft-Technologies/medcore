@@ -577,3 +577,14 @@ select:-webkit-autofill {
   box-shadow: 0 0 0 1000px #111827 inset;
   caret-color: #f3f4f6;
 }
+
+/* Google Maps keyless embed (contact page). The embed always renders a LIGHT
+   basemap — there is no dark tile server for the keyless iframe. In dark mode
+   we invert + hue-rotate the tiles so the map reads as a dark map instead of a
+   glaring white rectangle on the dark card. Light mode leaves it untouched. */
+.map-embed {
+  transition: filter 0.2s ease;
+}
+.dark .map-embed {
+  filter: invert(0.92) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+}

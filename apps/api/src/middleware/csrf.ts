@@ -78,6 +78,13 @@ const CSRF_BYPASS_PATHS = [
   "/api/v1/patient-auth/otp-request",
   "/api/v1/patient-auth/otp-verify",
   "/api/v1/patient-auth/firebase-verify",
+  // Public marketing enquiry / "Request a Demo" contact form. Fully
+  // unauthenticated — the website visitor has no session and therefore no
+  // medcore_csrf cookie to echo, so CSRF cannot apply. Defence in lieu of
+  // CSRF: per-IP rate limiting (10/min), a honeypot field, and strict Zod
+  // validation; the endpoint only ever creates a MarketingEnquiry lead row
+  // (no privilege to escalate). See routes/marketing.ts.
+  "/api/v1/marketing/enquiry",
   // Public quick-appointment booking (June 2026). Fully unauthenticated —
   // the caller has no session and therefore no medcore_csrf cookie to echo,
   // so CSRF can't apply. Defence in lieu of CSRF: per-IP rate limiting

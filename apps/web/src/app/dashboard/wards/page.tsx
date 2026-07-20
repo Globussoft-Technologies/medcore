@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { getSocket } from "@/lib/socket";
 import { Plus, Hotel, TrendingUp } from "lucide-react";
 // Issue #348 — shared bed-summary helper so Wards/Admissions/Dashboard
@@ -81,6 +82,7 @@ const WARD_TYPES = [
 ];
 
 export default function WardsPage() {
+  const { t } = useTranslation();
   const { user } = useAuthStore();
   const [wards, setWards] = useState<Ward[]>([]);
   const [loading, setLoading] = useState(true);
@@ -295,10 +297,11 @@ export default function WardsPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Wards &amp; Beds</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("wards.title", "Wards & Beds")}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {totals.available} available · {totals.occupied} occupied ·{" "}
-            {totals.total} total beds
+            {totals.available} {t("wards.available", "available")} · {totals.occupied}{" "}
+            {t("wards.occupied", "occupied")} · {totals.total}{" "}
+            {t("wards.totalBeds", "total beds")}
           </p>
         </div>
         {isAdmin && (
@@ -308,14 +311,14 @@ export default function WardsPage() {
               data-testid="add-bed-cta"
               className="flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
             >
-              <Plus size={16} /> Add Bed
+              <Plus size={16} /> {t("wards.addBed", "Add Bed")}
             </button>
             <button
               onClick={() => setShowWardModal(true)}
               data-testid="add-ward-cta"
               className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
             >
-              <Plus size={16} /> Add Ward
+              <Plus size={16} /> {t("wards.addWard", "Add Ward")}
             </button>
           </div>
         )}
@@ -331,7 +334,7 @@ export default function WardsPage() {
               : "border-transparent text-slate-600 dark:text-slate-300"
           }`}
         >
-          Beds
+          {t("wards.tab.beds", "Beds")}
         </button>
         <button
           onClick={() => setTab("forecast")}
@@ -341,7 +344,7 @@ export default function WardsPage() {
               : "border-transparent text-slate-600 dark:text-slate-300"
           }`}
         >
-          <TrendingUp size={14} /> Forecast
+          <TrendingUp size={14} /> {t("wards.tab.forecast", "Forecast")}
         </button>
       </div>
 
@@ -352,17 +355,17 @@ export default function WardsPage() {
       {/* Summary cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-xl bg-white p-5 text-gray-900 shadow-sm dark:bg-gray-800 dark:text-gray-100">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total Beds</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("wards.card.totalBeds", "Total Beds")}</p>
           <p className="mt-1 text-3xl font-bold">{totals.total}</p>
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Available</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("wards.card.available", "Available")}</p>
           <p className="mt-1 text-3xl font-bold text-green-600 dark:text-green-400">
             {totals.available}
           </p>
         </div>
         <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Occupied</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("wards.card.occupied", "Occupied")}</p>
           <p className="mt-1 text-3xl font-bold text-red-600 dark:text-red-400">
             {totals.occupied}
           </p>
@@ -377,7 +380,8 @@ export default function WardsPage() {
         </div>
       ) : wards.length === 0 ? (
         <div className="rounded-xl bg-white p-8 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-          No wards yet. {isAdmin && 'Click "Add Ward" to create one.'}
+          {t("wards.empty", "No wards yet.")}{" "}
+          {isAdmin && t("wards.emptyAdmin", 'Click "Add Ward" to create one.')}
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -409,16 +413,16 @@ export default function WardsPage() {
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Floor {ward.floor ?? "—"}
+                    {t("wards.floor", "Floor")} {ward.floor ?? "—"}
                   </p>
 
                   <div className="mt-3 flex items-center justify-between text-xs">
                     <span>
-                      <span className="font-semibold">{c.total}</span> total
+                      <span className="font-semibold">{c.total}</span> {t("wards.abbr.total", "total")}
                     </span>
-                    <span className="text-green-600">{c.available} avail</span>
-                    <span className="text-red-600">{c.occupied} occ</span>
-                    <span className="text-yellow-600">{c.cleaning} clean</span>
+                    <span className="text-green-600">{c.available} {t("wards.abbr.avail", "avail")}</span>
+                    <span className="text-red-600">{c.occupied} {t("wards.abbr.occ", "occ")}</span>
+                    <span className="text-yellow-600">{c.cleaning} {t("wards.abbr.clean", "clean")}</span>
                   </div>
 
                   {/* Progress bar — Issue #507. `shrink-0` is load-bearing:

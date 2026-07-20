@@ -330,14 +330,14 @@ export default function AdmissionsPage() {
   const columns: Column<Admission>[] = [
     {
       key: "admissionNumber",
-      label: "Admission #",
+      label: t("admissions.col.admissionNo", "Admission #"),
       sortable: true,
       filterable: true,
       render: (a) => <span className="font-mono font-medium">{a.admissionNumber}</span>,
     },
     {
       key: "patientName",
-      label: "Patient",
+      label: t("admissions.col.patient", "Patient"),
       sortable: true,
       filterable: true,
       render: (a) => (
@@ -361,7 +361,7 @@ export default function AdmissionsPage() {
     },
     {
       key: "wardBed",
-      label: "Ward / Bed",
+      label: t("admissions.col.wardBed", "Ward / Bed"),
       sortable: true,
       filterable: true,
       hideMobile: true,
@@ -374,13 +374,13 @@ export default function AdmissionsPage() {
     },
     {
       key: "admittedAt",
-      label: "Admitted",
+      label: t("admissions.col.admitted", "Admitted"),
       sortable: true,
       render: (a) => formatDate(a.admittedAt),
     },
     {
       key: "diagnosis",
-      label: "Diagnosis",
+      label: t("admissions.col.diagnosis", "Diagnosis"),
       filterable: true,
       // Issue #589: when no diagnosis is recorded yet, show an explanatory
       // tooltip ("Diagnosis is set by the treating doctor") instead of the
@@ -396,13 +396,13 @@ export default function AdmissionsPage() {
             className="cursor-help text-gray-400 dark:text-gray-500"
             title="Diagnosis is recorded by the treating doctor in the admission detail view"
           >
-            Pending diagnosis
+            {t("admissions.pendingDiagnosis", "Pending diagnosis")}
           </span>
         ),
     },
     {
       key: "status",
-      label: "Status",
+      label: t("admissions.col.status", "Status"),
       sortable: true,
       filterable: true,
       render: (a) => (
@@ -415,20 +415,20 @@ export default function AdmissionsPage() {
     },
     {
       key: "lengthOfStay",
-      label: "LOS (d)",
+      label: t("admissions.col.los", "LOS (d)"),
       sortable: true,
       hideMobile: true,
     },
     {
       key: "actions",
-      label: "Actions",
+      label: t("admissions.col.actions", "Actions"),
       render: (a) => (
         <Link
           href={`/dashboard/admissions/${a.id}`}
           onClick={(e) => e.stopPropagation()}
           className="rounded bg-primary px-2 py-1 text-xs text-white hover:bg-primary-dark"
         >
-          View Chart
+          {t("admissions.viewChart", "View Chart")}
         </Link>
       ),
     },
@@ -442,7 +442,7 @@ export default function AdmissionsPage() {
             {t("dashboard.admissions.title")}
           </h1>
           <p className="text-sm text-gray-700 dark:text-gray-300">
-            In-patient admission management
+            {t("admissions.subtitle", "In-patient admission management")}
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -453,7 +453,7 @@ export default function AdmissionsPage() {
               tenants={tenants}
               value={selectedTenantId}
               onChange={setSelectedTenantId}
-              allLabel="All tenants"
+              allLabel={t("admissions.allTenants", "All tenants")}
               className="w-full sm:w-64"
               testId="admissions-tenant-filter"
             />
@@ -483,10 +483,10 @@ export default function AdmissionsPage() {
                   : "bg-primary hover:bg-primary-dark")
               }
             >
-              <Plus size={16} /> Admit Patient
+              <Plus size={16} /> {t("admissions.admitPatient", "Admit Patient")}
               {bedsUnavailable && (
                 <span className="ml-1 rounded bg-white/20 px-1 text-xs">
-                  no beds
+                  {t("admissions.noBeds", "no beds")}
                 </span>
               )}
             </button>
@@ -496,16 +496,16 @@ export default function AdmissionsPage() {
 
       <div className="mb-4 flex gap-2">
         <button onClick={() => setTab("admitted")} className={tabClasses("admitted")}>
-          Currently Admitted
+          {t("admissions.tab.admitted", "Currently Admitted")}
         </button>
         <button
           onClick={() => setTab("discharged")}
           className={tabClasses("discharged")}
         >
-          Discharged
+          {t("admissions.tab.discharged", "Discharged")}
         </button>
         <button onClick={() => setTab("all")} className={tabClasses("all")}>
-          All
+          {t("admissions.tab.all", "All")}
         </button>
       </div>
 
@@ -520,20 +520,20 @@ export default function AdmissionsPage() {
           icon: <BedDouble size={28} />,
           title:
             tab === "admitted"
-              ? "No current admissions"
+              ? t("admissions.empty.admitted", "No current admissions")
               : tab === "discharged"
-                ? "No discharged records"
-                : "No admissions yet",
+                ? t("admissions.empty.discharged", "No discharged records")
+                : t("admissions.empty.all", "No admissions yet"),
           description:
             tab === "admitted"
-              ? "There are no active in-patient admissions."
-              : "Records will appear here when available.",
+              ? t("admissions.empty.admittedDesc", "There are no active in-patient admissions.")
+              : t("admissions.empty.desc", "Records will appear here when available."),
           action:
             canAdmit && tab === "admitted"
               ? {
                   label: bedsUnavailable
-                    ? "No beds available"
-                    : "Admit Patient",
+                    ? t("admissions.noBedsAvailable", "No beds available")
+                    : t("admissions.admitPatient", "Admit Patient"),
                   onClick: () => {
                     if (bedsUnavailable) {
                       toast.warning(

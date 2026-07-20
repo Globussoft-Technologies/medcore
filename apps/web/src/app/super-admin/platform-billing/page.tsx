@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useTranslation } from "@/lib/i18n";
 import { csrfFetch } from "@/lib/csrf-fetch";
 import { toast } from "@/lib/toast";
 import {
@@ -306,6 +307,7 @@ export default function PlatformBillingPage() {
   // navigation that wasn't part of the user's flow.
   const searchParams = useSearchParams();
   const cameFromTenants = searchParams?.get("from") === "tenants";
+  const { t } = useTranslation();
 
   const [tab, setTab] = useState<Tab>("subscriptions");
   const [invoiceFilter, setInvoiceFilter] = useState<InvoiceFilter>("ISSUED");
@@ -1029,11 +1031,13 @@ export default function PlatformBillingPage() {
             </div>
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                Platform Billing
+                {t("platformBilling.title", "Platform Billing")}
               </h1>
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                Track every hospital&rsquo;s subscription, send the monthly
-                invoice and record payment — all in one place.
+                {t(
+                  "platformBilling.subtitle",
+                  "Track every hospital's subscription, send the monthly invoice and record payment — all in one place.",
+                )}
               </p>
             </div>
           </div>
@@ -1043,25 +1047,25 @@ export default function PlatformBillingPage() {
       {/* KPI tiles — at-a-glance state of the platform billing queue */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <KpiTile
-          label="Active subs"
+          label={t("platformBilling.kpi.activeSubs", "Active subs")}
           value={totalActive}
           tone="emerald"
           Icon={CheckCircle2}
         />
         <KpiTile
-          label="On trial"
+          label={t("platformBilling.kpi.onTrial", "On trial")}
           value={totalTrial}
           tone="sky"
           Icon={Clock}
         />
         <KpiTile
-          label="Past due"
+          label={t("platformBilling.kpi.pastDue", "Past due")}
           value={totalPastDue}
           tone="amber"
           Icon={AlertCircle}
         />
         <KpiTile
-          label="Unpaid (₹)"
+          label={t("platformBilling.kpi.unpaid", "Unpaid (₹)")}
           value={(unpaidTotalPaise / 100).toLocaleString("en-IN", {
             maximumFractionDigits: 0,
           })}
@@ -1089,7 +1093,7 @@ export default function PlatformBillingPage() {
           }`}
         >
           <Building2 size={14} aria-hidden="true" />
-          Subscriptions
+          {t("platformBilling.tab.subscriptions", "Subscriptions")}
         </button>
         <button
           type="button"
@@ -1104,7 +1108,7 @@ export default function PlatformBillingPage() {
           }`}
         >
           <CreditCard size={14} aria-hidden="true" />
-          Invoices
+          {t("platformBilling.tab.invoices", "Invoices")}
         </button>
         <button
           type="button"
@@ -1119,7 +1123,7 @@ export default function PlatformBillingPage() {
           }`}
         >
           <Layers size={14} aria-hidden="true" />
-          Plans
+          {t("platformBilling.tab.plans", "Plans")}
         </button>
       </div>
 
@@ -1170,7 +1174,7 @@ export default function PlatformBillingPage() {
                     : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
                 }`}
               >
-                {chip.label}
+                {t(`platformBilling.subFilter.${chip.key}`, chip.label)}
               </button>
             );
           })}
@@ -1185,15 +1189,15 @@ export default function PlatformBillingPage() {
           >
             <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
               <tr>
-                <th scope="col" className="px-4 py-3 font-medium">Tenant</th>
-                <th scope="col" className="px-4 py-3 font-medium">Plan</th>
-                <th scope="col" className="px-4 py-3 font-medium">Amount</th>
-                <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                <th scope="col" className="px-4 py-3 font-medium">Trial end</th>
-                <th scope="col" className="px-4 py-3 font-medium">Period start</th>
-                <th scope="col" className="px-4 py-3 font-medium">Period end</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t("platformBilling.col.tenant", "Tenant")}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t("platformBilling.col.plan", "Plan")}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t("platformBilling.col.amount", "Amount")}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t("platformBilling.col.status", "Status")}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t("platformBilling.col.trialEnd", "Trial end")}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t("platformBilling.col.periodStart", "Period start")}</th>
+                <th scope="col" className="px-4 py-3 font-medium">{t("platformBilling.col.periodEnd", "Period end")}</th>
                 <th scope="col" className="px-4 py-3 font-medium text-right">
-                  Actions
+                  {t("platformBilling.col.actions", "Actions")}
                 </th>
               </tr>
             </thead>
@@ -1267,7 +1271,7 @@ export default function PlatformBillingPage() {
                         data-testid={`platform-billing-subscription-status-${s.id}`}
                       >
                         <badge.Icon size={12} aria-hidden="true" />
-                        {badge.label}
+                        {t(`platformBilling.status.${effStatus(s)}`, badge.label)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
@@ -1287,7 +1291,7 @@ export default function PlatformBillingPage() {
                           data-testid={`platform-billing-change-plan-${s.id}`}
                           className="inline-flex h-9 items-center rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-gray-600 dark:bg-gray-800 dark:text-slate-200 dark:hover:bg-gray-700"
                         >
-                          Change plan
+                          {t("platformBilling.changePlan", "Change plan")}
                         </button>
                       ) : (
                         // Suspended/inactive tenant: show the action disabled and
@@ -1304,7 +1308,7 @@ export default function PlatformBillingPage() {
                           data-testid={`platform-billing-change-plan-${s.id}`}
                           className="inline-flex h-9 cursor-not-allowed items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-xs font-medium text-slate-400 dark:border-gray-700 dark:bg-gray-800/50 dark:text-slate-500"
                         >
-                          Change plan
+                          {t("platformBilling.changePlan", "Change plan")}
                         </button>
                       )}
                     </td>

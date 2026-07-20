@@ -24,6 +24,7 @@ import { extractFieldErrors, topLineError } from "@/lib/field-errors";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { formatDate, formatDateTime, formatTime } from "@/lib/format";
 import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
+import { useTranslation } from "@/lib/i18n";
 
 interface Admission {
   id: string;
@@ -156,6 +157,7 @@ export default function AdmissionDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const { t } = useTranslation();
   const { id } = use(params);
   const router = useRouter();
   // When the user arrived from the patient page (View IPD ?from=patient),
@@ -209,7 +211,7 @@ export default function AdmissionDetailPage({
     );
   if (!admission)
     return (
-      <div className="p-8 text-center text-gray-500">Admission not found.</div>
+      <div className="p-8 text-center text-gray-500">{t("admDetail.notFound", "Admission not found.")}</div>
     );
 
   const tabClass = (t: Tab) =>
@@ -231,7 +233,9 @@ export default function AdmissionDetailPage({
           className="mb-4 inline-flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white"
         >
           <ArrowLeft size={14} />{" "}
-          {cameFromPatient ? "Back to Patient" : "Back to Admissions"}
+          {cameFromPatient
+            ? t("admDetail.backToPatient", "Back to Patient")
+            : t("admDetail.backToAdmissions", "Back to Admissions")}
         </Link>
       </div>
 
@@ -256,7 +260,7 @@ export default function AdmissionDetailPage({
               aria-label="Print discharge summary"
               className="no-print inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
             >
-              <Printer size={14} aria-hidden="true" /> Discharge Summary
+              <Printer size={14} aria-hidden="true" /> {t("admDetail.dischargeSummary", "Discharge Summary")}
             </button>
             <span
               className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -273,28 +277,28 @@ export default function AdmissionDetailPage({
 
       <div className="no-print mb-6 flex gap-1 border-b">
         <button onClick={() => setTab("overview")} className={tabClass("overview")}>
-          <FileText size={14} /> Overview
+          <FileText size={14} /> {t("admDetail.tab.overview", "Overview")}
         </button>
         <button onClick={() => setTab("vitals")} className={tabClass("vitals")}>
-          <Activity size={14} /> Vitals
+          <Activity size={14} /> {t("admDetail.tab.vitals", "Vitals")}
         </button>
         <button
           onClick={() => setTab("medications")}
           className={tabClass("medications")}
         >
-          <Pill size={14} /> Medications
+          <Pill size={14} /> {t("admDetail.tab.medications", "Medications")}
         </button>
         <button onClick={() => setTab("rounds")} className={tabClass("rounds")}>
-          <ClipboardList size={14} /> Nurse Rounds
+          <ClipboardList size={14} /> {t("admDetail.tab.rounds", "Nurse Rounds")}
         </button>
         <button onClick={() => setTab("labs")} className={tabClass("labs")}>
-          <FlaskConical size={14} /> Lab Orders
+          <FlaskConical size={14} /> {t("admDetail.tab.labs", "Lab Orders")}
         </button>
         <button onClick={() => setTab("mar")} className={tabClass("mar")}>
-          <Grid3x3 size={14} /> MAR
+          <Grid3x3 size={14} /> {t("admDetail.tab.mar", "MAR")}
         </button>
         <button onClick={() => setTab("io")} className={tabClass("io")}>
-          <Droplet size={14} /> I/O
+          <Droplet size={14} /> {t("admDetail.tab.io", "I/O")}
         </button>
       </div>
 
@@ -365,6 +369,7 @@ function OverviewTab({
   admission: Admission;
   onUpdate: () => void;
 }) {
+  const { t } = useTranslation();
   const [dischargeOpen, setDischargeOpen] = useState(false);
   const [readinessOpen, setReadinessOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -408,10 +413,10 @@ function OverviewTab({
         forceDischarge,
       });
       setDischargeOpen(false);
-      toast.success("Patient discharged");
+      toast.success(t("admDetail.toast.discharged", "Patient discharged"));
       onUpdate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Discharge failed");
+      toast.error(err instanceof Error ? err.message : t("admDetail.toast.dischargeFailed", "Discharge failed"));
     }
   }
 
@@ -424,7 +429,7 @@ function OverviewTab({
       setNewBedId("");
       onUpdate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Transfer failed");
+      toast.error(err instanceof Error ? err.message : t("admDetail.toast.transferFailed", "Transfer failed"));
     }
   }
 
@@ -452,33 +457,33 @@ function OverviewTab({
         />
       </div>
       <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm lg:col-span-2">
-        <h3 className="mb-4 font-semibold">Admission Details</h3>
+        <h3 className="mb-4 font-semibold">{t("admDetail.admissionDetails", "Admission Details")}</h3>
         <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-          <Field label="Admission #" value={admission.admissionNumber} />
+          <Field label={t("admDetail.field.admissionNumber", "Admission #")} value={admission.admissionNumber} />
           <Field
-            label="Admitted"
+            label={t("admDetail.field.admitted", "Admitted")}
             value={formatDateTime(admission.admittedAt)}
           />
-          <Field label="Doctor" value={formatDoctorName(admission.doctor.user.name)} />
+          <Field label={t("admDetail.field.doctor", "Doctor")} value={formatDoctorName(admission.doctor.user.name)} />
           <Field
-            label="Bed"
+            label={t("admDetail.field.bed", "Bed")}
             value={`${admission.bed.ward.name} / ${admission.bed.bedNumber}`}
           />
-          <Field label="Reason" value={admission.reason} fullWidth />
+          <Field label={t("admDetail.field.reason", "Reason")} value={admission.reason} fullWidth />
           <Field
-            label="Diagnosis"
+            label={t("admDetail.field.diagnosis", "Diagnosis")}
             value={admission.diagnosis || "—"}
             fullWidth
           />
           {admission.dischargedAt && (
             <Field
-              label="Discharged"
+              label={t("admDetail.field.discharged", "Discharged")}
               value={formatDateTime(admission.dischargedAt)}
             />
           )}
           {admission.dischargeSummary && (
             <Field
-              label="Discharge Summary"
+              label={t("admDetail.dischargeSummary", "Discharge Summary")}
               value={admission.dischargeSummary}
               fullWidth
             />
@@ -488,20 +493,20 @@ function OverviewTab({
 
       <div className="space-y-4">
         <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm">
-          <h3 className="mb-4 font-semibold">Patient</h3>
+          <h3 className="mb-4 font-semibold">{t("admDetail.patient", "Patient")}</h3>
           <dl className="space-y-2 text-sm">
-            <Field label="Name" value={admission.patient.user.name} />
-            <Field label="MR" value={admission.patient.mrNumber || "—"} />
+            <Field label={t("admDetail.field.name", "Name")} value={admission.patient.user.name} />
+            <Field label={t("admDetail.field.mr", "MR")} value={admission.patient.mrNumber || "—"} />
             <Field
-              label="Phone"
+              label={t("admDetail.field.phone", "Phone")}
               value={admission.patient.user.phone || "—"}
             />
             <Field
-              label="Age / Sex"
+              label={t("admDetail.field.ageSex", "Age / Sex")}
               value={`${admission.patient.age ?? "—"} / ${admission.patient.gender || "—"}`}
             />
             <Field
-              label="Blood Group"
+              label={t("admDetail.field.bloodGroup", "Blood Group")}
               value={admission.patient.bloodGroup || "—"}
             />
           </dl>
@@ -509,20 +514,24 @@ function OverviewTab({
 
         {bill && (
           <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm">
-            <h3 className="mb-3 font-semibold">Running Bill</h3>
+            <h3 className="mb-3 font-semibold">{t("admDetail.bill.title", "Running Bill")}</h3>
             <div className="space-y-2 text-sm">
               {bill.breakdown.map((b, i) => {
                 // Render a tidy "× N day(s)" / "× N dose(s)" / "× N test(s)"
                 // hint per breakdown line. Default to "day" if the backend
                 // didn't send a unit (back-compat with older /bill responses).
-                const unitWord =
-                  b.unit === "dose"
-                    ? "dose"
-                    : b.unit === "test"
-                      ? "test"
-                      : "day";
                 const unitLabel =
-                  b.days === 1 ? unitWord : `${unitWord}s`;
+                  b.unit === "dose"
+                    ? b.days === 1
+                      ? t("admDetail.bill.dose", "dose")
+                      : t("admDetail.bill.doses", "doses")
+                    : b.unit === "test"
+                      ? b.days === 1
+                        ? t("admDetail.bill.test", "test")
+                        : t("admDetail.bill.tests", "tests")
+                      : b.days === 1
+                        ? t("admDetail.bill.day", "day")
+                        : t("admDetail.bill.days", "days");
                 return (
                   <div key={i} className="flex justify-between gap-2">
                     <span className="text-gray-600 dark:text-gray-300">
@@ -535,7 +544,7 @@ function OverviewTab({
                 );
               })}
               <div className="mt-2 flex justify-between border-t dark:border-gray-700 pt-2 text-base">
-                <span className="font-semibold dark:text-gray-100">Total ({bill.days} days)</span>
+                <span className="font-semibold dark:text-gray-100">{t("admDetail.bill.total", "Total")} ({bill.days} {t("admDetail.bill.days", "days")})</span>
                 <span className="font-bold text-primary dark:text-blue-300">
                   ₹{bill.grandTotal.toLocaleString()}
                 </span>
@@ -546,19 +555,19 @@ function OverviewTab({
 
         {admission.status === "ADMITTED" && (
           <div className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm">
-            <h3 className="mb-3 font-semibold">Actions</h3>
+            <h3 className="mb-3 font-semibold">{t("admDetail.actions", "Actions")}</h3>
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => setTransferOpen(true)}
                 className="rounded-lg bg-blue-500 px-3 py-2 text-sm font-medium text-white hover:bg-blue-600"
               >
-                Transfer Bed
+                {t("admDetail.transferBed", "Transfer Bed")}
               </button>
               <button
                 onClick={() => setReadinessOpen(true)}
                 className="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white hover:bg-red-600"
               >
-                Discharge
+                {t("admDetail.discharge", "Discharge")}
               </button>
             </div>
           </div>
@@ -569,11 +578,11 @@ function OverviewTab({
       {dischargeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
-            <h3 className="mb-4 font-semibold">Discharge Patient</h3>
+            <h3 className="mb-4 font-semibold">{t("admDetail.discharge.title", "Discharge Patient")}</h3>
             <div className="space-y-3">
               <div>
                 <label htmlFor="discharge-summary" className="text-xs font-medium text-gray-600">
-                  Discharge Summary *
+                  {t("admDetail.discharge.summaryLabel", "Discharge Summary *")}
                 </label>
                 <textarea
                   id="discharge-summary"
@@ -586,7 +595,7 @@ function OverviewTab({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="discharge-final-diagnosis" className="text-xs font-medium text-gray-600">
-                    Final Diagnosis
+                    {t("admDetail.discharge.finalDiagnosis", "Final Diagnosis")}
                   </label>
                   <input
                     id="discharge-final-diagnosis"
@@ -602,7 +611,7 @@ function OverviewTab({
                 </div>
                 <div>
                   <label htmlFor="discharge-condition" className="text-xs font-medium text-gray-600">
-                    Condition at Discharge
+                    {t("admDetail.discharge.condition", "Condition at Discharge")}
                   </label>
                   <select
                     id="discharge-condition"
@@ -615,17 +624,17 @@ function OverviewTab({
                     }
                     className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
                   >
-                    <option value="STABLE">Stable</option>
-                    <option value="IMPROVED">Improved</option>
-                    <option value="CRITICAL">Critical</option>
-                    <option value="UNCHANGED">Unchanged</option>
-                    <option value="DECEASED">Deceased</option>
+                    <option value="STABLE">{t("admDetail.condition.stable", "Stable")}</option>
+                    <option value="IMPROVED">{t("admDetail.condition.improved", "Improved")}</option>
+                    <option value="CRITICAL">{t("admDetail.condition.critical", "Critical")}</option>
+                    <option value="UNCHANGED">{t("admDetail.condition.unchanged", "Unchanged")}</option>
+                    <option value="DECEASED">{t("admDetail.condition.deceased", "Deceased")}</option>
                   </select>
                 </div>
               </div>
               <div>
                 <label htmlFor="discharge-treatment-given" className="text-xs font-medium text-gray-600">
-                  Treatment Given
+                  {t("admDetail.discharge.treatmentGiven", "Treatment Given")}
                 </label>
                 <textarea
                   id="discharge-treatment-given"
@@ -642,7 +651,7 @@ function OverviewTab({
               </div>
               <div>
                 <label htmlFor="discharge-medications" className="text-xs font-medium text-gray-600">
-                  Discharge Medications
+                  {t("admDetail.discharge.medications", "Discharge Medications")}
                 </label>
                 <textarea
                   id="discharge-medications"
@@ -654,13 +663,13 @@ function OverviewTab({
                     })
                   }
                   rows={2}
-                  placeholder="e.g. Amoxicillin 500mg TID x 5 days"
+                  placeholder={t("admDetail.discharge.medicationsPlaceholder", "e.g. Amoxicillin 500mg TID x 5 days")}
                   className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
                 />
               </div>
               <div>
                 <label htmlFor="discharge-followup" className="text-xs font-medium text-gray-600">
-                  Follow-up Instructions
+                  {t("admDetail.discharge.followUp", "Follow-up Instructions")}
                 </label>
                 <textarea
                   id="discharge-followup"
@@ -672,7 +681,7 @@ function OverviewTab({
                     })
                   }
                   rows={2}
-                  placeholder="e.g. Review in 1 week with CBC report"
+                  placeholder={t("admDetail.discharge.followUpPlaceholder", "e.g. Review in 1 week with CBC report")}
                   className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
                 />
               </div>
@@ -682,15 +691,15 @@ function OverviewTab({
                 onClick={() => setDischargeOpen(false)}
                 className="rounded-lg border px-4 py-2 text-sm"
               >
-                Cancel
+                {t("admDetail.cancel", "Cancel")}
               </button>
               <button
                 onClick={() => discharge(false)}
                 disabled={!summary.trim() || !dischargeForm.followUpInstructions.trim() || !dischargeForm.dischargeMedications.trim()}
                 className="rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
-                title={!summary.trim() ? "Discharge summary required" : !dischargeForm.followUpInstructions.trim() ? "Follow-up instructions required" : !dischargeForm.dischargeMedications.trim() ? "Discharge medications required" : undefined}
+                title={!summary.trim() ? t("admDetail.discharge.summaryRequired", "Discharge summary required") : !dischargeForm.followUpInstructions.trim() ? t("admDetail.discharge.followUpRequired", "Follow-up instructions required") : !dischargeForm.dischargeMedications.trim() ? t("admDetail.discharge.medicationsRequired", "Discharge medications required") : undefined}
               >
-                Confirm Discharge
+                {t("admDetail.discharge.confirm", "Confirm Discharge")}
               </button>
             </div>
           </div>
@@ -713,20 +722,20 @@ function OverviewTab({
       {transferOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-6 shadow-xl">
-            <h3 className="mb-4 font-semibold">Transfer to New Bed</h3>
+            <h3 className="mb-4 font-semibold">{t("admDetail.transfer.title", "Transfer to New Bed")}</h3>
             <select
               value={newBedId}
               onChange={(e) => setNewBedId(e.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm"
             >
-              <option value="">Select bed</option>
+              <option value="">{t("admDetail.transfer.selectBed", "Select bed")}</option>
               {wards.map((w) => (
                 <optgroup key={w.id} label={w.name}>
                   {(w.beds || [])
                     .filter((b) => b.status === "AVAILABLE")
                     .map((b) => (
                       <option key={b.id} value={b.id}>
-                        {w.name} / Bed {b.bedNumber}
+                        {w.name} / {t("admDetail.field.bed", "Bed")} {b.bedNumber}
                       </option>
                     ))}
                 </optgroup>
@@ -737,14 +746,14 @@ function OverviewTab({
                 onClick={() => setTransferOpen(false)}
                 className="rounded-lg border px-4 py-2 text-sm"
               >
-                Cancel
+                {t("admDetail.cancel", "Cancel")}
               </button>
               <button
                 onClick={transfer}
                 disabled={!newBedId}
                 className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
               >
-                Transfer
+                {t("admDetail.transfer.submit", "Transfer")}
               </button>
             </div>
           </div>
@@ -794,16 +803,23 @@ const ADMISSION_VITALS_RANGE: Record<
   bloodSugar: { min: 20, max: 900, unit: "mg/dL", int: true },
 };
 
-function vitalRangeError(field: string, raw: string): string | null {
+function vitalRangeError(
+  field: string,
+  raw: string,
+  t: (key: string, fallback?: string) => string
+): string | null {
   if (!raw) return null;
   const cfg = ADMISSION_VITALS_RANGE[field];
   if (!cfg) return null;
   const n = cfg.int ? parseInt(raw, 10) : parseFloat(raw);
-  if (Number.isNaN(n)) return "Enter a number";
+  if (Number.isNaN(n)) return t("admDetail.vitals.enterNumber", "Enter a number");
   if (n < cfg.min || n > cfg.max) {
     return field === "temperature"
-      ? "Temperature out of physiological range"
-      : `Must be ${cfg.min}–${cfg.max}${cfg.unit ? " " + cfg.unit : ""}`;
+      ? t(
+          "admDetail.vitals.tempOutOfRange",
+          "Temperature out of physiological range"
+        )
+      : `${t("admDetail.vitals.mustBe", "Must be")} ${cfg.min}–${cfg.max}${cfg.unit ? " " + cfg.unit : ""}`;
   }
   return null;
 }
@@ -815,6 +831,7 @@ function VitalsTab({
   admissionId: string;
   canRecord: boolean;
 }) {
+  const { t } = useTranslation();
   const [vitals, setVitals] = useState<Vital[]>([]);
   const [loading, setLoading] = useState(true);
   // Issue #198 — surface backend zod field errors next to each input.
@@ -879,7 +896,7 @@ function VitalsTab({
   const clientFieldErrors: Record<string, string> = {};
   for (const f of Object.keys(ADMISSION_VITALS_RANGE)) {
     const raw = (form as unknown as Record<string, string>)[f];
-    const err = vitalRangeError(f, raw);
+    const err = vitalRangeError(f, raw, t);
     if (err) clientFieldErrors[f] = err;
   }
   const sysN = form.bpSystolic ? parseInt(form.bpSystolic, 10) : NaN;
@@ -891,7 +908,7 @@ function VitalsTab({
     !clientFieldErrors.bpDiastolic &&
     diaN >= sysN
   ) {
-    clientFieldErrors.bpDiastolic = "Diastolic must be lower than systolic";
+    clientFieldErrors.bpDiastolic = t("admDetail.vitals.diastolicLower", "Diastolic must be lower than systolic");
   }
 
   // BP is a pair — recording just one half (e.g. only Systolic) is
@@ -900,10 +917,10 @@ function VitalsTab({
   const sysFilled = (form.bpSystolic ?? "").trim() !== "";
   const diaFilled = (form.bpDiastolic ?? "").trim() !== "";
   if (sysFilled && !diaFilled && !clientFieldErrors.bpDiastolic) {
-    clientFieldErrors.bpDiastolic = "Required when BP Systolic is filled";
+    clientFieldErrors.bpDiastolic = t("admDetail.vitals.requiredWhenSystolic", "Required when BP Systolic is filled");
   }
   if (diaFilled && !sysFilled && !clientFieldErrors.bpSystolic) {
-    clientFieldErrors.bpSystolic = "Required when BP Diastolic is filled";
+    clientFieldErrors.bpSystolic = t("admDetail.vitals.requiredWhenDiastolic", "Required when BP Diastolic is filled");
   }
   const fieldErrors: Record<string, string> = { ...clientFieldErrors };
   for (const [k, v] of Object.entries(serverFieldErrors)) fieldErrors[k] = v;
@@ -932,12 +949,12 @@ function VitalsTab({
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (hasFieldErrors) {
-      toast.error("Please fix the highlighted vitals before saving");
+      toast.error(t("admDetail.vitals.fixHighlighted", "Please fix the highlighted vitals before saving"));
       return;
     }
     if (!hasMinimumVitals) {
       toast.error(
-        `Record at least ${MIN_VITALS} vital values before saving (currently ${filledVitalCount}).`,
+        `${t("admDetail.vitals.recordAtLeast", "Record at least")} ${MIN_VITALS} ${t("admDetail.vitals.valuesBeforeSaving", "vital values before saving")} (${t("admDetail.vitals.currently", "currently")} ${filledVitalCount}).`,
       );
       return;
     }
@@ -974,7 +991,7 @@ function VitalsTab({
         notes: "",
       });
       load();
-      toast.success("Vitals saved");
+      toast.success(t("admDetail.vitals.saved", "Vitals saved"));
     } catch (err) {
       // Issue #198 — surface field-level zod errors via the existing
       // helper so the user knows which field is wrong, instead of a
@@ -991,7 +1008,7 @@ function VitalsTab({
         }
         setServerFieldErrors(remapped);
       }
-      toast.error(topLineError(err, "Failed to save vitals"));
+      toast.error(topLineError(err, t("admDetail.vitals.saveFailed", "Failed to save vitals")));
     }
   }
 
@@ -1003,59 +1020,59 @@ function VitalsTab({
           noValidate
           className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm"
         >
-          <h3 className="mb-4 font-semibold">Record Vitals</h3>
+          <h3 className="mb-4 font-semibold">{t("admDetail.vitals.record", "Record Vitals")}</h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Input
-              label="BP Systolic"
+              label={t("admDetail.vitals.bpSystolic", "BP Systolic")}
               value={form.bpSystolic}
               onChange={(v) => setForm({ ...form, bpSystolic: v })}
               error={fieldErrors.bpSystolic}
               testId="vitals-bpSystolic"
             />
             <Input
-              label="BP Diastolic"
+              label={t("admDetail.vitals.bpDiastolic", "BP Diastolic")}
               value={form.bpDiastolic}
               onChange={(v) => setForm({ ...form, bpDiastolic: v })}
               error={fieldErrors.bpDiastolic}
               testId="vitals-bpDiastolic"
             />
             <Input
-              label="Temp (°C)"
+              label={t("admDetail.vitals.temp", "Temp (°C)")}
               value={form.temperature}
               onChange={(v) => setForm({ ...form, temperature: v })}
               error={fieldErrors.temperature}
               testId="vitals-temperature"
             />
             <Input
-              label="Pulse"
+              label={t("admDetail.vitals.pulse", "Pulse")}
               value={form.pulse}
               onChange={(v) => setForm({ ...form, pulse: v })}
               error={fieldErrors.pulse}
               testId="vitals-pulse"
             />
             <Input
-              label="Resp Rate"
+              label={t("admDetail.vitals.respRate", "Resp Rate")}
               value={form.respiratoryRate}
               onChange={(v) => setForm({ ...form, respiratoryRate: v })}
               error={fieldErrors.respiratoryRate}
               testId="vitals-respiratoryRate"
             />
             <Input
-              label="SpO2 %"
+              label={t("admDetail.vitals.spO2", "SpO2 %")}
               value={form.spO2}
               onChange={(v) => setForm({ ...form, spO2: v })}
               error={fieldErrors.spO2}
               testId="vitals-spO2"
             />
             <Input
-              label="Pain (0-10)"
+              label={t("admDetail.vitals.pain", "Pain (0-10)")}
               value={form.painScore}
               onChange={(v) => setForm({ ...form, painScore: v })}
               error={fieldErrors.painScore}
               testId="vitals-painScore"
             />
             <Input
-              label="Blood Sugar"
+              label={t("admDetail.vitals.bloodSugar", "Blood Sugar")}
               value={form.bloodSugar}
               onChange={(v) => setForm({ ...form, bloodSugar: v })}
               error={fieldErrors.bloodSugar}
@@ -1063,7 +1080,7 @@ function VitalsTab({
             />
           </div>
           <textarea
-            placeholder="Notes"
+            placeholder={t("admDetail.notes", "Notes")}
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
             rows={2}
@@ -1075,7 +1092,7 @@ function VitalsTab({
                 data-testid="vitals-min-hint"
                 className="text-xs text-gray-500 dark:text-gray-400"
               >
-                Enter at least {MIN_VITALS} vital values to save
+                {t("admDetail.vitals.enterAtLeast", "Enter at least")} {MIN_VITALS} {t("admDetail.vitals.valuesToSave", "vital values to save")}
                 {filledVitalCount > 0 ? ` (${filledVitalCount}/${MIN_VITALS})` : ""}
               </span>
             )}
@@ -1085,7 +1102,7 @@ function VitalsTab({
               disabled={hasFieldErrors || !hasMinimumVitals}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Save Vitals
+              {t("admDetail.vitals.save", "Save Vitals")}
             </button>
           </div>
         </form>
@@ -1102,21 +1119,21 @@ function VitalsTab({
           </div>
         ) : (Array.isArray(vitals) ? vitals : []).length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            No vitals recorded yet.
+            {t("admDetail.vitals.empty", "No vitals recorded yet.")}
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs text-gray-500 dark:text-gray-300">
-                <th className="px-3 py-2">Time</th>
-                <th className="px-3 py-2">BP</th>
-                <th className="px-3 py-2">Temp</th>
-                <th className="px-3 py-2">Pulse</th>
-                <th className="px-3 py-2">RR</th>
-                <th className="px-3 py-2">SpO2</th>
-                <th className="px-3 py-2">Pain</th>
-                <th className="px-3 py-2">Sugar</th>
-                <th className="px-3 py-2">Notes</th>
+                <th className="px-3 py-2">{t("admDetail.vitals.col.time", "Time")}</th>
+                <th className="px-3 py-2">{t("admDetail.vitals.col.bp", "BP")}</th>
+                <th className="px-3 py-2">{t("admDetail.vitals.col.temp", "Temp")}</th>
+                <th className="px-3 py-2">{t("admDetail.vitals.col.pulse", "Pulse")}</th>
+                <th className="px-3 py-2">{t("admDetail.vitals.col.rr", "RR")}</th>
+                <th className="px-3 py-2">{t("admDetail.vitals.col.spO2", "SpO2")}</th>
+                <th className="px-3 py-2">{t("admDetail.vitals.col.pain", "Pain")}</th>
+                <th className="px-3 py-2">{t("admDetail.vitals.col.sugar", "Sugar")}</th>
+                <th className="px-3 py-2">{t("admDetail.notes", "Notes")}</th>
               </tr>
             </thead>
             <tbody>
@@ -1204,6 +1221,7 @@ function MedicationsTab({
   admissionId: string;
   canOrder: boolean;
 }) {
+  const { t } = useTranslation();
   const [orders, setOrders] = useState<MedicationOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -1258,22 +1276,22 @@ function MedicationsTab({
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!selectedMed) {
-      toast.error("Select a medicine");
+      toast.error(t("admDetail.med.selectMedicine", "Select a medicine"));
       return;
     }
     // Issue #458 — replace HTML5 `required` constraints with explicit
     // checks so React error reporting wins the race against the
     // browser's native popup interception of submit.
     if (!form.dosage.trim()) {
-      toast.error("Dosage is required");
+      toast.error(t("admDetail.med.dosageRequired", "Dosage is required"));
       return;
     }
     if (!form.frequency.trim()) {
-      toast.error("Frequency is required");
+      toast.error(t("admDetail.med.frequencyRequired", "Frequency is required"));
       return;
     }
     if (!form.startDate) {
-      toast.error("Start date is required");
+      toast.error(t("admDetail.med.startDateRequired", "Start date is required"));
       return;
     }
     try {
@@ -1300,7 +1318,7 @@ function MedicationsTab({
       });
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create order");
+      toast.error(err instanceof Error ? err.message : t("admDetail.med.createFailed", "Failed to create order"));
     }
   }
 
@@ -1311,7 +1329,7 @@ function MedicationsTab({
       });
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update");
+      toast.error(err instanceof Error ? err.message : t("admDetail.med.updateFailed", "Failed to update"));
     }
   }
 
@@ -1323,7 +1341,7 @@ function MedicationsTab({
             onClick={() => setShowForm(!showForm)}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            {showForm ? "Cancel" : "+ Add Order"}
+            {showForm ? t("admDetail.cancel", "Cancel") : t("admDetail.med.addOrder", "+ Add Order")}
           </button>
         </div>
       )}
@@ -1334,10 +1352,10 @@ function MedicationsTab({
           noValidate
           className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm"
         >
-          <h3 className="mb-4 font-semibold">New Medication Order</h3>
+          <h3 className="mb-4 font-semibold">{t("admDetail.med.newOrder", "New Medication Order")}</h3>
           <div className="space-y-3">
             <div>
-              <label htmlFor="med-order-medicine-search" className="mb-1 block text-sm font-medium">Medicine</label>
+              <label htmlFor="med-order-medicine-search" className="mb-1 block text-sm font-medium">{t("admDetail.med.medicine", "Medicine")}</label>
               {selectedMed ? (
                 <div className="flex items-center justify-between rounded-lg border dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm dark:text-gray-100">
                   <span>{selectedMed.name}</span>
@@ -1346,14 +1364,14 @@ function MedicationsTab({
                     onClick={() => setSelectedMed(null)}
                     className="text-xs text-red-600 dark:text-red-400"
                   >
-                    Change
+                    {t("admDetail.med.change", "Change")}
                   </button>
                 </div>
               ) : (
                 <>
                   <input
                     id="med-order-medicine-search"
-                    placeholder="Search medicines"
+                    placeholder={t("admDetail.med.searchMedicines", "Search medicines")}
                     value={medSearch}
                     onChange={(e) => setMedSearch(e.target.value)}
                     className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
@@ -1381,10 +1399,10 @@ function MedicationsTab({
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div>
-                <label htmlFor="med-order-dosage" className="mb-1 block text-sm font-medium">Dosage</label>
+                <label htmlFor="med-order-dosage" className="mb-1 block text-sm font-medium">{t("admDetail.med.dosage", "Dosage")}</label>
                 <input
                   id="med-order-dosage"
-                  placeholder="e.g. 500mg"
+                  placeholder={t("admDetail.med.dosagePlaceholder", "e.g. 500mg")}
                   value={form.dosage}
                   onChange={(e) => setForm({ ...form, dosage: e.target.value })}
                   className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
@@ -1392,11 +1410,11 @@ function MedicationsTab({
               </div>
               <div>
                 <label htmlFor="med-order-frequency" className="mb-1 block text-sm font-medium">
-                  Frequency
+                  {t("admDetail.med.frequency", "Frequency")}
                 </label>
                 <input
                   id="med-order-frequency"
-                  placeholder="e.g. TID"
+                  placeholder={t("admDetail.med.frequencyPlaceholder", "e.g. TID")}
                   value={form.frequency}
                   onChange={(e) =>
                     setForm({ ...form, frequency: e.target.value })
@@ -1405,24 +1423,24 @@ function MedicationsTab({
                 />
               </div>
               <div>
-                <label htmlFor="med-order-route" className="mb-1 block text-sm font-medium">Route</label>
+                <label htmlFor="med-order-route" className="mb-1 block text-sm font-medium">{t("admDetail.med.route", "Route")}</label>
                 <select
                   id="med-order-route"
                   value={form.route}
                   onChange={(e) => setForm({ ...form, route: e.target.value })}
                   className="w-full rounded-lg border dark:border-gray-700 px-3 py-2 text-sm bg-white dark:bg-gray-900 dark:text-gray-100"
                 >
-                  <option value="ORAL" className="bg-white dark:bg-gray-900 dark:text-gray-100">Oral</option>
-                  <option value="IV" className="bg-white dark:bg-gray-900 dark:text-gray-100">IV</option>
-                  <option value="IM" className="bg-white dark:bg-gray-900 dark:text-gray-100">IM</option>
-                  <option value="SC" className="bg-white dark:bg-gray-900 dark:text-gray-100">SC</option>
-                  <option value="TOPICAL" className="bg-white dark:bg-gray-900 dark:text-gray-100">Topical</option>
-                  <option value="INHALATION" className="bg-white dark:bg-gray-900 dark:text-gray-100">Inhalation</option>
+                  <option value="ORAL" className="bg-white dark:bg-gray-900 dark:text-gray-100">{t("admDetail.route.oral", "Oral")}</option>
+                  <option value="IV" className="bg-white dark:bg-gray-900 dark:text-gray-100">{t("admDetail.route.iv", "IV")}</option>
+                  <option value="IM" className="bg-white dark:bg-gray-900 dark:text-gray-100">{t("admDetail.route.im", "IM")}</option>
+                  <option value="SC" className="bg-white dark:bg-gray-900 dark:text-gray-100">{t("admDetail.route.sc", "SC")}</option>
+                  <option value="TOPICAL" className="bg-white dark:bg-gray-900 dark:text-gray-100">{t("admDetail.route.topical", "Topical")}</option>
+                  <option value="INHALATION" className="bg-white dark:bg-gray-900 dark:text-gray-100">{t("admDetail.route.inhalation", "Inhalation")}</option>
                 </select>
               </div>
               <div>
                 <label htmlFor="med-order-start-date" className="mb-1 block text-sm font-medium">
-                  Start Date
+                  {t("admDetail.med.startDate", "Start Date")}
                 </label>
                 <input
                   id="med-order-start-date"
@@ -1436,7 +1454,7 @@ function MedicationsTab({
               </div>
               <div>
                 <label htmlFor="med-order-end-date" className="mb-1 block text-sm font-medium">
-                  End Date
+                  {t("admDetail.med.endDate", "End Date")}
                 </label>
                 <input
                   id="med-order-end-date"
@@ -1450,7 +1468,7 @@ function MedicationsTab({
               </div>
             </div>
             <textarea
-              placeholder="Instructions (optional)"
+              placeholder={t("admDetail.med.instructionsPlaceholder", "Instructions (optional)")}
               value={form.instructions}
               onChange={(e) =>
                 setForm({ ...form, instructions: e.target.value })
@@ -1465,13 +1483,13 @@ function MedicationsTab({
               onClick={() => setShowForm(false)}
               className="rounded-lg border px-4 py-2 text-sm"
             >
-              Cancel
+              {t("admDetail.cancel", "Cancel")}
             </button>
             <button
               type="submit"
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
             >
-              Create Order
+              {t("admDetail.med.createOrder", "Create Order")}
             </button>
           </div>
         </form>
@@ -1487,7 +1505,7 @@ function MedicationsTab({
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 dark:text-gray-400 shadow-sm">
-          No medication orders.
+          {t("admDetail.med.empty", "No medication orders.")}
         </div>
       ) : (
         <div className="space-y-3" data-testid="medication-orders-list">
@@ -1530,7 +1548,7 @@ function MedicationsTab({
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {o.startDate ?? "—"}
-                        {o.endDate ? ` → ${o.endDate}` : " → ongoing"}
+                        {o.endDate ? ` → ${o.endDate}` : ` → ${t("admDetail.med.ongoing", "ongoing")}`}
                       </p>
                       {o.instructions && (
                         <p className="mt-1 text-xs italic text-gray-600 dark:text-gray-300">
@@ -1544,14 +1562,14 @@ function MedicationsTab({
                         checked={!!o.isActive}
                         onChange={() => toggleActive(o)}
                       />
-                      Active
+                      {t("admDetail.med.active", "Active")}
                     </label>
                   </div>
 
                   {admins.length > 0 && (
                     <div className="mt-3 border-t border-gray-200 dark:border-gray-700 pt-3">
                       <p className="mb-1 text-xs font-semibold text-gray-600 dark:text-gray-300">
-                        Recent Administrations
+                        {t("admDetail.med.recentAdministrations", "Recent Administrations")}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {admins.slice(0, 8).map((a) => (
@@ -1593,6 +1611,7 @@ function RoundsTab({
   admissionId: string;
   canAdd: boolean;
 }) {
+  const { t } = useTranslation();
   const [rounds, setRounds] = useState<NurseRound[]>([]);
   const [loading, setLoading] = useState(true);
   const [notes, setNotes] = useState("");
@@ -1622,7 +1641,7 @@ function RoundsTab({
     // Issue #458 — replace HTML5 `required` with explicit guard so the
     // React error path beats the browser tooltip.
     if (!notes.trim()) {
-      toast.error("Round notes are required");
+      toast.error(t("admDetail.rounds.notesRequired", "Round notes are required"));
       return;
     }
     try {
@@ -1631,7 +1650,7 @@ function RoundsTab({
       setShowForm(false);
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to add round");
+      toast.error(err instanceof Error ? err.message : t("admDetail.rounds.addFailed", "Failed to add round"));
     }
   }
 
@@ -1643,7 +1662,7 @@ function RoundsTab({
             onClick={() => setShowForm(!showForm)}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            {showForm ? "Cancel" : "+ Add Round"}
+            {showForm ? t("admDetail.cancel", "Cancel") : t("admDetail.rounds.add", "+ Add Round")}
           </button>
         </div>
       )}
@@ -1654,9 +1673,9 @@ function RoundsTab({
           noValidate
           className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm"
         >
-          <h3 className="mb-3 font-semibold">New Nurse Round</h3>
+          <h3 className="mb-3 font-semibold">{t("admDetail.rounds.newRound", "New Nurse Round")}</h3>
           <textarea
-            placeholder="Round notes..."
+            placeholder={t("admDetail.rounds.notesPlaceholder", "Round notes...")}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={4}
@@ -1668,13 +1687,13 @@ function RoundsTab({
               onClick={() => setShowForm(false)}
               className="rounded-lg border px-4 py-2 text-sm"
             >
-              Cancel
+              {t("admDetail.cancel", "Cancel")}
             </button>
             <button
               type="submit"
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
             >
-              Save
+              {t("admDetail.save", "Save")}
             </button>
           </div>
         </form>
@@ -1690,7 +1709,7 @@ function RoundsTab({
         </div>
       ) : rounds.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 shadow-sm">
-          No rounds recorded.
+          {t("admDetail.rounds.empty", "No rounds recorded.")}
         </div>
       ) : (
         <div className="space-y-2" data-testid="nurse-rounds-list">
@@ -1730,7 +1749,7 @@ function RoundsTab({
                 >
                   <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>{when ? formatDateTime(when) : "—"}</span>
-                    {nurseName && <span>By: {nurseName}</span>}
+                    {nurseName && <span>{t("admDetail.rounds.by", "By:")} {nurseName}</span>}
                   </div>
                   <p className="mt-2 text-sm whitespace-pre-wrap">
                     {r.notes ?? "—"}
@@ -1751,6 +1770,7 @@ function LabsTab({
   admission: Admission;
   canOrder: boolean;
 }) {
+  const { t } = useTranslation();
   const [orders, setOrders] = useState<LabOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -1787,7 +1807,7 @@ function LabsTab({
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (selectedTests.length === 0) {
-      toast.error("Select at least one test");
+      toast.error(t("admDetail.labs.selectOneTest", "Select at least one test"));
       return;
     }
     try {
@@ -1802,14 +1822,14 @@ function LabsTab({
       setNotes("");
       load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create order");
+      toast.error(err instanceof Error ? err.message : t("admDetail.labs.createFailed", "Failed to create order"));
     }
   }
 
   const grouped = tests.reduce(
-    (acc, t) => {
-      const cat = t.category || "Other";
-      (acc[cat] ||= []).push(t);
+    (acc, test) => {
+      const cat = test.category || t("admDetail.labs.otherCategory", "Other");
+      (acc[cat] ||= []).push(test);
       return acc;
     },
     {} as Record<string, LabTest[]>
@@ -1823,7 +1843,7 @@ function LabsTab({
             onClick={() => setShowForm(!showForm)}
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            {showForm ? "Cancel" : "+ Order Labs"}
+            {showForm ? t("admDetail.cancel", "Cancel") : t("admDetail.labs.order", "+ Order Labs")}
           </button>
         </div>
       )}
@@ -1834,10 +1854,10 @@ function LabsTab({
           noValidate
           className="rounded-xl bg-white dark:bg-gray-800 p-6 shadow-sm"
         >
-          <h3 className="mb-3 font-semibold">New Lab Order</h3>
+          <h3 className="mb-3 font-semibold">{t("admDetail.labs.newOrder", "New Lab Order")}</h3>
           <div className="max-h-64 overflow-y-auto rounded-lg border p-3">
             {Object.keys(grouped).length === 0 ? (
-              <p className="text-sm text-gray-500">Loading tests...</p>
+              <p className="text-sm text-gray-500">{t("admDetail.labs.loadingTests", "Loading tests...")}</p>
             ) : (
               Object.entries(grouped).map(([cat, list]) => (
                 <div key={cat} className="mb-3">
@@ -1872,7 +1892,7 @@ function LabsTab({
             )}
           </div>
           <textarea
-            placeholder="Notes (optional)"
+            placeholder={t("admDetail.labs.notesPlaceholder", "Notes (optional)")}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
@@ -1884,13 +1904,13 @@ function LabsTab({
               onClick={() => setShowForm(false)}
               className="rounded-lg border px-4 py-2 text-sm"
             >
-              Cancel
+              {t("admDetail.cancel", "Cancel")}
             </button>
             <button
               type="submit"
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
             >
-              Create Order
+              {t("admDetail.med.createOrder", "Create Order")}
             </button>
           </div>
         </form>
@@ -1906,7 +1926,7 @@ function LabsTab({
         </div>
       ) : orders.length === 0 ? (
         <div className="rounded-xl bg-white dark:bg-gray-800 p-8 text-center text-gray-500 dark:text-gray-400 shadow-sm">
-          No lab orders.
+          {t("admDetail.labs.empty", "No lab orders.")}
         </div>
       ) : (
         <div className="space-y-2">
@@ -1962,6 +1982,7 @@ const ISOLATION_TYPES = [
 ];
 
 function IsolationPanel({ admissionId }: { admissionId: string }) {
+  const { t } = useTranslation();
   const [info, setInfo] = useState<{
     isolationType: string | null;
     isolationReason: string | null;
@@ -2016,10 +2037,10 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
         await api.patch(`/admissions/${admissionId}/isolation`, body);
       }
       setEditing(false);
-      toast.success(clear ? "Isolation cleared" : "Isolation updated");
+      toast.success(clear ? t("admDetail.isolation.cleared", "Isolation cleared") : t("admDetail.isolation.updated", "Isolation updated"));
       load();
     } catch (e) {
-      toast.error((e as Error).message || "Failed to update isolation");
+      toast.error((e as Error).message || t("admDetail.isolation.updateFailed", "Failed to update isolation"));
     }
   };
 
@@ -2040,8 +2061,8 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
             }`}
           >
             {active
-              ? `Isolation Active: ${info!.isolationType!.replace(/_/g, " ")}`
-              : "Isolation Status: Standard"}
+              ? `${t("admDetail.isolation.active", "Isolation Active:")} ${info!.isolationType!.replace(/_/g, " ")}`
+              : t("admDetail.isolation.statusStandard", "Isolation Status: Standard")}
           </div>
           {active && info?.isolationReason && (
             <div className="text-xs text-red-700 mt-0.5">
@@ -2051,10 +2072,10 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
           {active && (info?.isolationStartDate || info?.isolationEndDate) && (
             <div className="text-[11px] text-red-700/90 mt-1 space-x-3">
               {info?.isolationStartDate && (
-                <span>Started: {fmtDate(info.isolationStartDate)}</span>
+                <span>{t("admDetail.isolation.started", "Started:")} {fmtDate(info.isolationStartDate)}</span>
               )}
               {info?.isolationEndDate && (
-                <span>Ends: {fmtDate(info.isolationEndDate)}</span>
+                <span>{t("admDetail.isolation.ends", "Ends:")} {fmtDate(info.isolationEndDate)}</span>
               )}
             </div>
           )}
@@ -2065,14 +2086,14 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
               onClick={() => apply(true)}
               className="text-xs px-2 py-1 border border-green-300 text-green-700 bg-white dark:bg-gray-800 dark:text-green-300 rounded"
             >
-              Clear
+              {t("admDetail.isolation.clear", "Clear")}
             </button>
           )}
           <button
             onClick={() => setEditing(!editing)}
             className="text-xs px-2 py-1 border rounded bg-white dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
           >
-            {editing ? "Cancel" : active ? "Update" : "Set"}
+            {editing ? t("admDetail.cancel", "Cancel") : active ? t("admDetail.isolation.update", "Update") : t("admDetail.isolation.set", "Set")}
           </button>
         </div>
       </div>
@@ -2090,7 +2111,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
             ))}
           </select>
           <input
-            placeholder="Reason"
+            placeholder={t("admDetail.field.reason", "Reason")}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             className="w-full border dark:border-gray-700 rounded px-2 py-1 text-sm bg-white dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
@@ -2098,7 +2119,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label htmlFor="isolation-start" className="block text-[11px] text-gray-600 dark:text-gray-300 mb-0.5">
-                Start date / time
+                {t("admDetail.isolation.startDateTime", "Start date / time")}
               </label>
               <input
                 id="isolation-start"
@@ -2110,7 +2131,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
             </div>
             <div>
               <label htmlFor="isolation-end" className="block text-[11px] text-gray-600 dark:text-gray-300 mb-0.5">
-                End date / time (optional)
+                {t("admDetail.isolation.endDateTime", "End date / time (optional)")}
               </label>
               <input
                 id="isolation-end"
@@ -2125,7 +2146,7 @@ function IsolationPanel({ admissionId }: { admissionId: string }) {
             onClick={() => apply(false)}
             className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
           >
-            Save
+            {t("admDetail.save", "Save")}
           </button>
         </div>
       )}
@@ -2141,6 +2162,7 @@ function LosPredictionCard({
   admissionId: string;
   admittedAt: string;
 }) {
+  const { t } = useTranslation();
   const [pred, setPred] = useState<{
     expectedDays: number;
     confidence: string;
@@ -2189,11 +2211,10 @@ function LosPredictionCard({
         data-testid="los-prediction-low-confidence"
       >
         <span className="mr-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
-          Low confidence
+          {t("admDetail.los.lowConfidence", "Low confidence")}
         </span>
-        LOS estimate ~{pred.expectedDays}d (based on {pred.similar_cases_count}{" "}
-        similar case{pred.similar_cases_count === 1 ? "" : "s"} — too few for a
-        reliable discharge date).
+        {t("admDetail.los.estimate", "LOS estimate")} ~{pred.expectedDays}d ({t("admDetail.los.basedOn", "based on")} {pred.similar_cases_count}{" "}
+        {pred.similar_cases_count === 1 ? t("admDetail.los.similarCase", "similar case") : t("admDetail.los.similarCases", "similar cases")} — {t("admDetail.los.tooFew", "too few for a reliable discharge date")}).
       </div>
     );
   }
@@ -2203,17 +2224,16 @@ function LosPredictionCard({
       <div className="text-2xl">LOS</div>
       <div className="flex-1">
         <div className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-          Expected discharge:{" "}
+          {t("admDetail.los.expectedDischarge", "Expected discharge:")}{" "}
           {formatDate(expectedDischarge)}
           {daysLeft > 0 && (
             <span className="ml-2 text-blue-600 dark:text-blue-300">
-              ({daysLeft} more day{daysLeft === 1 ? "" : "s"})
+              ({daysLeft} {daysLeft === 1 ? t("admDetail.los.moreDay", "more day") : t("admDetail.los.moreDays", "more days")})
             </span>
           )}
         </div>
         <div className="text-xs text-gray-500 dark:text-gray-400">
-          Predicted LOS {pred.expectedDays}d - confidence {pred.confidence} - based
-          on {pred.similar_cases_count} similar cases
+          {t("admDetail.los.predictedLos", "Predicted LOS")} {pred.expectedDays}d - {t("admDetail.los.confidence", "confidence")} {pred.confidence} - {t("admDetail.los.basedOn", "based on")} {pred.similar_cases_count} {t("admDetail.los.similarCases", "similar cases")}
         </div>
       </div>
     </div>
@@ -2239,6 +2259,7 @@ function MedReconciliationButton({
   patientId: string;
   type: "ADMISSION" | "DISCHARGE";
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [home, setHome] = useState<MedItem[]>([]);
   const [hospital, setHospital] = useState<MedItem[]>([]);
@@ -2301,12 +2322,12 @@ function MedReconciliationButton({
           onClick={() => addItem(setter, list)}
           className="text-xs text-blue-600 dark:text-blue-400"
         >
-          + Add
+          {t("admDetail.recon.add", "+ Add")}
         </button>
       </div>
       <ul className="space-y-2 max-h-80 overflow-y-auto">
         {list.length === 0 && (
-          <li className="text-xs text-slate-400 dark:text-slate-500">None</li>
+          <li className="text-xs text-slate-400 dark:text-slate-500">{t("admDetail.recon.none", "None")}</li>
         )}
         {list.map((m, i) => (
           <li key={i} className="flex items-center gap-1">

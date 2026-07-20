@@ -1,9 +1,17 @@
 // Integration tests for /api/v1/marketing/enquiry (public, unauthenticated).
-// Covers happy path, Zod validation, honeypot rejection, and CRM forward
-// best-effort semantics. Skipped unless DATABASE_URL_TEST is set.
+// Covers happy path, Zod validation, honeypot rejection, CRM forward
+// best-effort semantics, duplicate-email conflict (409), and the two
+// confirmation emails (client thank-you + internal notify). Skipped unless
+// DATABASE_URL_TEST is set.
 import { it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import request from "supertest";
 import { describeIfDB, resetDB, getPrisma } from "../setup";
+
+// SendGrid is mocked at the messaging/email module so test runs never hit the
+// real provider. Each call resolves ok so the route reports both emails sent.
+vi.mock("../../services/messaging/email", () => ({
+  sendEmail: vi.fn(async () => ({ ok: true, messageId: "stub-em" })),
+}));
 
 let app: any;
 
@@ -20,6 +28,10 @@ describeIfDB("Marketing enquiry API (integration)", () => {
     const prisma = await getPrisma();
     await prisma.marketingEnquiry.deleteMany({});
     delete process.env.CRM_WEBHOOK_URL;
+
+    // Reset the email spy so per-test call-count assertions start from zero.
+    const { sendEmail } = await import("../../services/messaging/email");
+    (sendEmail as unknown as ReturnType<typeof vi.fn>).mockClear();
   });
 
   afterAll(() => {
@@ -253,5 +265,97 @@ describeIfDB("Marketing enquiry API (integration)", () => {
     expect(row.forwardedToCrmAt).toBeNull();
 
     fetchSpy.mockRestore();
+  });
+
+  // --- Duplicate-email guard (one demo request per email) ---
+
+  it("rejects a second enquiry with the same email (409 + field error)", async () => {
+    const first = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, email: "dupe@x.com" });
+    expect([200, 201]).toContain(first.status);
+
+    const second = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, email: "dupe@x.com" });
+    expect(second.status).toBe(409);
+    expect(second.body.success).toBe(false);
+    const emailErr = (second.body.errors as { field: string; message: string }[])
+      .find((e) => e.field === "email");
+    expect(emailErr).toBeTruthy();
+    expect(emailErr!.message).toMatch(/already booked a demo/i);
+
+    // Only the first enquiry is persisted.
+    const prisma = await getPrisma();
+    const count = await prisma.marketingEnquiry.count({
+      where: { email: "dupe@x.com" },
+    });
+    expect(count).toBe(1);
+  });
+
+  it("duplicate check is case-insensitive on email", async () => {
+    const first = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, email: "Case@X.com" });
+    expect([200, 201]).toContain(first.status);
+
+    const second = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, email: "case@x.COM" });
+    expect(second.status).toBe(409);
+  });
+
+  // --- Confirmation emails (client thank-you + internal notify) ---
+
+  it("sends two emails (client thank-you + notify) on a successful enquiry", async () => {
+    const { sendEmail } = await import("../../services/messaging/email");
+    const spy = sendEmail as unknown as ReturnType<typeof vi.fn>;
+
+    const res = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, email: "emails@x.com" });
+    expect([200, 201]).toContain(res.status);
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    const recipients = spy.mock.calls.map((c) => (c[0] as { to: string }).to);
+    // One goes to the client's own email...
+    expect(recipients).toContain("emails@x.com");
+    // ...and one to the internal notify inbox.
+    expect(recipients).toContain("support@medcore.software");
+
+    // Response reports both email statuses.
+    expect(res.body.emails).toBeTruthy();
+    expect(res.body.emails.notify).toBe(true);
+    expect(res.body.emails.clientThankYou).toBe(true);
+  });
+
+  it("both confirmation emails carry the same enquiry reference id in the subject", async () => {
+    const { sendEmail } = await import("../../services/messaging/email");
+    const spy = sendEmail as unknown as ReturnType<typeof vi.fn>;
+
+    const res = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, email: "refid@x.com" });
+    expect([200, 201]).toContain(res.status);
+
+    const refId = String(res.body.data.id).slice(-6);
+    const subjects = spy.mock.calls.map(
+      (c) => (c[0] as { subject: string }).subject
+    );
+    expect(subjects).toHaveLength(2);
+    for (const subject of subjects) {
+      expect(subject).toContain(`#${refId}`);
+    }
+  });
+
+  it("honeypot submission does NOT send any email", async () => {
+    const { sendEmail } = await import("../../services/messaging/email");
+    const spy = sendEmail as unknown as ReturnType<typeof vi.fn>;
+
+    const res = await request(app)
+      .post("/api/v1/marketing/enquiry")
+      .send({ ...validPayload, website: "https://spambot.example" });
+    expect([200, 201]).toContain(res.status);
+    expect(spy).not.toHaveBeenCalled();
   });
 });

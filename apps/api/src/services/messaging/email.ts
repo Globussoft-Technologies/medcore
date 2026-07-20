@@ -46,6 +46,10 @@ export interface SendEmailInput {
   subject: string;
   html: string;
   text?: string;
+  // Optional Reply-To. Useful for notification emails the app sends to itself
+  // (from == to), where replies should instead route to a third party (e.g.
+  // the website visitor who triggered the notification).
+  replyTo?: string;
   attachments?: Array<{
     filename: string;
     content: Buffer | string;
@@ -75,6 +79,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         email: process.env.SENDGRID_FROM_EMAIL!,
         name: process.env.SENDGRID_FROM_NAME || "MedCore",
       },
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
       subject: input.subject,
       html: input.html,
       text: input.text || stripHtml(input.html),

@@ -37,8 +37,8 @@ export default function ContactPage() {
                   <Mail className="h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400" />
                   <div>
                     <div className="font-medium text-gray-900 dark:text-white">Email</div>
-                    <a href="mailto:hello@medcore.in" className="text-gray-600 hover:text-blue-600 dark:text-gray-400">
-                      hello@medcore.in
+                    <a href="mailto:support@medcore.software" className="text-gray-600 hover:text-blue-600 dark:text-gray-400">
+                      support@medcore.software
                     </a>
                   </div>
                 </li>
@@ -46,8 +46,8 @@ export default function ContactPage() {
                   <Phone className="h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400" />
                   <div>
                     <div className="font-medium text-gray-900 dark:text-white">Phone</div>
-                    <a href="tel:+918000000000" className="text-gray-600 hover:text-blue-600 dark:text-gray-400">
-                      +91 80-XXXXXXX
+                    <a href="tel:+917566063718" className="text-gray-600 hover:text-blue-600 dark:text-gray-400">
+                      +91 75660 63718
                     </a>
                   </div>
                 </li>

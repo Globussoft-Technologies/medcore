@@ -87,7 +87,12 @@ export function EnquiryForm() {
       });
       const data = await resp.json().catch(() => ({}));
 
-      if (resp.status === 400 && Array.isArray(data?.errors)) {
+      // 400 = validation errors; 409 = duplicate-email conflict. Both carry a
+      // structured `errors: [{field,message}]` list we render inline.
+      if (
+        (resp.status === 400 || resp.status === 409) &&
+        Array.isArray(data?.errors)
+      ) {
         // Map structured server errors back onto field state — identical UX
         // to client-side validation.
         const next: FieldErrors = {};

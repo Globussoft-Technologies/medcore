@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { displayStatusForAppointment } from "@/lib/appointments";
 import { SkeletonCard } from "@/components/Skeleton";
@@ -154,6 +155,7 @@ type ViewMode = "month" | "week" | "day";
 
 export default function UnifiedCalendarPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   // When opened from an appointment's "Calendar Invite" action we receive a
   // `?date=YYYY-MM-DD` param — start the calendar on that month so the user
   // lands on the relevant date to schedule the next appointment.
@@ -504,7 +506,7 @@ export default function UnifiedCalendarPage() {
           onClick={() => router.push("/dashboard/appointments")}
           className="no-print mb-1 inline-flex items-center gap-2 text-sm text-gray-600 hover:text-primary dark:text-gray-300"
         >
-          <ArrowLeft size={16} aria-hidden="true" /> Back to Appointments
+          <ArrowLeft size={16} aria-hidden="true" /> {t("calendar.backToAppointments", "Back to Appointments")}
         </button>
       )}
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -516,9 +518,9 @@ export default function UnifiedCalendarPage() {
               "no H1" report). Inherit the layout's body color instead — that
               already has a light/dark pair wired up — and bump the subtitle
               one notch lighter than gray-500 so it scans cleanly in dark mode. */}
-          <h1 className="text-2xl font-bold">Calendar</h1>
+          <h1 className="text-2xl font-bold">{t("calendar.title", "Calendar")}</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Unified view of all scheduled events
+            {t("calendar.subtitle", "Unified view of all scheduled events")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -552,7 +554,7 @@ export default function UnifiedCalendarPage() {
                     : "text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
                 }`}
               >
-                {m}
+                {t(`calendar.view.${m}`, m)}
               </button>
             ))}
           </div>
@@ -587,7 +589,7 @@ export default function UnifiedCalendarPage() {
               }}
               className="ml-2 rounded-md border px-2 py-0.5 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
             >
-              Today
+              {t("calendar.today", "Today")}
             </button>
           </div>
           {canCreate && (
@@ -598,7 +600,7 @@ export default function UnifiedCalendarPage() {
               onClick={() => setNewEventDate(todayYmd)}
               className="flex min-h-[40px] items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-dark"
             >
-              <Plus size={16} aria-hidden="true" /> New Event
+              <Plus size={16} aria-hidden="true" /> {t("calendar.newEvent", "New Event")}
             </button>
           )}
         </div>
@@ -612,7 +614,7 @@ export default function UnifiedCalendarPage() {
           the categories they can actually see — appointments, custom events
           and holidays — and stays self-documenting. */}
       <div className="flex flex-wrap gap-3 rounded-xl bg-white p-3 text-xs shadow-sm dark:bg-gray-800">
-        <Legend color="bg-blue-500" Icon={CalendarIcon} label="Appointment" />
+        <Legend color="bg-blue-500" Icon={CalendarIcon} label={t("calendar.legend.appointment", "Appointment")} />
         {/* Issue #870: hide clinical-workflow categories (Surgery, ANC)
             from the PATIENT legend — these are staff/clinical taxonomy
             and have no place on a patient-facing calendar. Telemedicine
@@ -620,23 +622,23 @@ export default function UnifiedCalendarPage() {
         {user?.role !== "PHARMACIST" && user?.role !== "LAB_TECH" && (
           <>
             {user?.role !== "PATIENT" && (
-              <Legend color="bg-rose-500" Icon={Scissors} label="Surgery" />
+              <Legend color="bg-rose-500" Icon={Scissors} label={t("calendar.legend.surgery", "Surgery")} />
             )}
-            <Legend color="bg-purple-500" Icon={Video} label="Telemedicine" />
+            <Legend color="bg-purple-500" Icon={Video} label={t("calendar.legend.telemedicine", "Telemedicine")} />
             {user?.role !== "PATIENT" && (
-              <Legend color="bg-pink-500" Icon={Baby} label="ANC" />
+              <Legend color="bg-pink-500" Icon={Baby} label={t("calendar.legend.anc", "ANC")} />
             )}
-            <Legend color="bg-emerald-500" Icon={FileText} label="Follow-up" />
+            <Legend color="bg-emerald-500" Icon={FileText} label={t("calendar.legend.followUp", "Follow-up")} />
           </>
         )}
         {user?.role === "ADMIN" && (
-          <Legend color="bg-gray-500" Icon={UsersIcon} label="Shifts" />
+          <Legend color="bg-gray-500" Icon={UsersIcon} label={t("calendar.legend.shifts", "Shifts")} />
         )}
         {/* Issue #718: ad-hoc events surfaced in the calendar. */}
-        <Legend color="bg-amber-500" Icon={CalendarIcon} label="Custom Event" />
+        <Legend color="bg-amber-500" Icon={CalendarIcon} label={t("calendar.legend.customEvent", "Custom Event")} />
         {/* Issue #749: holiday cells render with a rose tint — included
             in the legend so the visual cue is self-documenting. */}
-        <Legend color="bg-rose-200" Icon={CalendarIcon} label="Holiday" />
+        <Legend color="bg-rose-200" Icon={CalendarIcon} label={t("calendar.legend.holiday", "Holiday")} />
       </div>
 
       {loading && (
@@ -926,7 +928,7 @@ export default function UnifiedCalendarPage() {
         <div className="mb-1 grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 dark:text-gray-400">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
             <div key={d} className="py-1">
-              {d}
+              {t(`calendar.weekday.${d}`, d)}
             </div>
           ))}
         </div>
@@ -1013,7 +1015,7 @@ export default function UnifiedCalendarPage() {
                   ))}
                   {dayEvents.length > 3 && (
                     <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400">
-                      +{dayEvents.length - 3} more
+                      +{dayEvents.length - 3} {t("calendar.more", "more")}
                     </p>
                   )}
                 </div>

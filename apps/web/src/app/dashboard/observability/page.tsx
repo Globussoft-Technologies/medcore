@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { csrfFetch } from "@/lib/csrf-fetch";
 import { toast } from "@/lib/toast";
+import { useTranslation } from "@/lib/i18n";
 
 type HealthTab = "health" | "maintenance";
 
@@ -131,6 +132,7 @@ const STATUS_BADGE: Record<
 };
 
 export default function ObservabilityPage() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<HealthTab>("health");
 
   // ── Health state ────────────────────────────────────────────────
@@ -264,12 +266,13 @@ export default function ObservabilityPage() {
           </div>
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-              Observability
+              {t("observability.title", "Observability")}
             </h1>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              Per-tenant API health, slow endpoints, failed background jobs,
-              and scheduled maintenance windows surfaced on the public
-              status page.
+              {t(
+                "observability.subtitle",
+                "Per-tenant API health, slow endpoints, failed background jobs, and scheduled maintenance windows surfaced on the public status page.",
+              )}
             </p>
           </div>
         </div>
@@ -293,7 +296,7 @@ export default function ObservabilityPage() {
           }`}
         >
           <Activity size={14} />
-          Health
+          {t("observability.tab.health", "Health")}
         </button>
         <button
           type="button"
@@ -308,7 +311,7 @@ export default function ObservabilityPage() {
           }`}
         >
           <Wrench size={14} />
-          Maintenance windows
+          {t("observability.tab.maintenance", "Maintenance windows")}
         </button>
       </div>
 
@@ -317,7 +320,7 @@ export default function ObservabilityPage() {
         <>
           <div className="flex flex-wrap items-center gap-3">
             <label className="text-xs font-medium text-slate-500 dark:text-slate-400">
-              Window
+              {t("observability.window", "Window")}
             </label>
             <select
               value={hours}
@@ -340,7 +343,7 @@ export default function ObservabilityPage() {
               {healthLoading ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : null}
-              Refresh
+              {t("observability.refresh", "Refresh")}
             </button>
           </div>
 
@@ -356,26 +359,26 @@ export default function ObservabilityPage() {
           {/* KPI tiles */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <KpiTile
-              label="Errors (5xx)"
+              label={t("observability.kpi.errors5xx", "Errors (5xx)")}
               value={totals?.totalErrors ?? 0}
               tone="rose"
               Icon={AlertTriangle}
-              sub={`${errorRatePct}% of logged requests`}
+              sub={`${errorRatePct}% ${t("observability.kpi.ofLogged", "of logged requests")}`}
             />
             <KpiTile
-              label="Slow (≥ 1s)"
+              label={t("observability.kpi.slow", "Slow (≥ 1s)")}
               value={totals?.totalSlow ?? 0}
               tone="amber"
               Icon={Clock}
             />
             <KpiTile
-              label="Failed jobs"
+              label={t("observability.kpi.failedJobs", "Failed jobs")}
               value={totals?.totalFailedJobs ?? 0}
               tone="violet"
               Icon={Wrench}
             />
             <KpiTile
-              label="Tenants affected"
+              label={t("observability.kpi.tenantsAffected", "Tenants affected")}
               value={totals?.tenantsAffected ?? 0}
               tone="sky"
               Icon={CheckCircle2}
@@ -385,16 +388,16 @@ export default function ObservabilityPage() {
           {/* Per-tenant table */}
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
             <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-gray-700 dark:text-slate-200">
-              Per-tenant breakdown
+              {t("observability.perTenantBreakdown", "Per-tenant breakdown")}
             </div>
             <table className="w-full min-w-[680px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
                 <tr>
-                  <th className="px-4 py-2 font-medium">Tenant</th>
-                  <th className="px-4 py-2 font-medium text-right">5xx errors</th>
-                  <th className="px-4 py-2 font-medium text-right">Slow ≥ 1s</th>
-                  <th className="px-4 py-2 font-medium text-right">p95 (ms)</th>
-                  <th className="px-4 py-2 font-medium text-right">Failed jobs</th>
+                  <th className="px-4 py-2 font-medium">{t("observability.col.tenant", "Tenant")}</th>
+                  <th className="px-4 py-2 font-medium text-right">{t("observability.col.errors5xx", "5xx errors")}</th>
+                  <th className="px-4 py-2 font-medium text-right">{t("observability.col.slow1s", "Slow ≥ 1s")}</th>
+                  <th className="px-4 py-2 font-medium text-right">{t("observability.col.p95", "p95 (ms)")}</th>
+                  <th className="px-4 py-2 font-medium text-right">{t("observability.col.failedJobs", "Failed jobs")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
@@ -404,7 +407,7 @@ export default function ObservabilityPage() {
                       colSpan={5}
                       className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     >
-                      No slow or errored requests in the selected window.
+                      {t("observability.emptyPerTenant", "No slow or errored requests in the selected window.")}
                     </td>
                   </tr>
                 ) : null}
@@ -438,15 +441,15 @@ export default function ObservabilityPage() {
           {/* Slow-endpoint leaderboard */}
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
             <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-gray-700 dark:text-slate-200">
-              Slow endpoint leaderboard (top 20 by p95)
+              {t("observability.slowLeaderboard", "Slow endpoint leaderboard (top 20 by p95)")}
             </div>
             <table className="w-full min-w-[680px] text-left text-sm">
               <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:border-gray-700 dark:bg-gray-900/50 dark:text-slate-400">
                 <tr>
-                  <th className="px-4 py-2 font-medium">Method</th>
-                  <th className="px-4 py-2 font-medium">Path</th>
-                  <th className="px-4 py-2 font-medium text-right">Hits</th>
-                  <th className="px-4 py-2 font-medium text-right">p95 (ms)</th>
+                  <th className="px-4 py-2 font-medium">{t("observability.col.method", "Method")}</th>
+                  <th className="px-4 py-2 font-medium">{t("observability.col.path", "Path")}</th>
+                  <th className="px-4 py-2 font-medium text-right">{t("observability.col.hits", "Hits")}</th>
+                  <th className="px-4 py-2 font-medium text-right">{t("observability.col.p95", "p95 (ms)")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-gray-700">
@@ -456,7 +459,7 @@ export default function ObservabilityPage() {
                       colSpan={4}
                       className="px-4 py-8 text-center text-sm text-slate-500 dark:text-slate-400"
                     >
-                      Nothing slow enough to surface here yet.
+                      {t("observability.emptyLeaderboard", "Nothing slow enough to surface here yet.")}
                     </td>
                   </tr>
                 ) : null}

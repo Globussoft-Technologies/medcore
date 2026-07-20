@@ -2847,7 +2847,7 @@ export default function AppointmentsPage() {
               tenants={tenants}
               value={selectedTenantId}
               onChange={setSelectedTenantId}
-              allLabel="All tenants"
+              allLabel={t("appointments.allTenants", "All tenants")}
               className="w-full sm:w-64"
               testId="appointments-tenant-filter"
             />
@@ -2892,7 +2892,7 @@ export default function AppointmentsPage() {
                 aria-label="Export appointments to CSV"
                 className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
               >
-                Export CSV
+                {t("appointments.exportCsv", "Export CSV")}
               </button>
               {/* When the panel is open the button is RED and a click always
                   CLOSES it. When closed (green) it opens a FRESH panel — same
@@ -2925,7 +2925,7 @@ export default function AppointmentsPage() {
                     : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                 }`}
               >
-                Next Available
+                {t("appointments.nextAvailable", "Next Available")}
               </button>
             </div>
             {(user?.role === "RECEPTION" || user?.role === "ADMIN") && (
@@ -2957,20 +2957,20 @@ export default function AppointmentsPage() {
                   onClick={() => setShowWaitlistModal(true)}
                   className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
                 >
-                  Join Waitlist
+                  {t("appointments.joinWaitlist", "Join Waitlist")}
                 </button>
                 <button
                   onClick={() => setShowGroupModal(true)}
                   className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-800 hover:bg-blue-100"
                 >
-                  Group Appointment
+                  {t("appointments.groupAppointment", "Group Appointment")}
                 </button>
                 {user?.role === "ADMIN" && (
                   <button
                     onClick={() => setShowCoordModal(true)}
                     className="rounded-lg border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-800 hover:bg-purple-100"
                   >
-                    Coordinate Multi-Doctor Visit
+                    {t("appointments.coordinateVisit", "Coordinate Multi-Doctor Visit")}
                   </button>
                 )}
               </div>
@@ -3012,7 +3012,7 @@ export default function AppointmentsPage() {
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                 }`}
               >
-                All
+                {t("appointments.status.ALL", "All")}
               </button>
               {ALL_STATUSES.filter(
                 // Hide status chips that can't apply to the selected date
@@ -3029,7 +3029,7 @@ export default function AppointmentsPage() {
                       : STATUS_COLORS[s] + " hover:opacity-80"
                   }`}
                 >
-                  {s.replace(/_/g, " ")}
+                  {t(`appointments.status.${s}`, s.replace(/_/g, " "))}
                 </button>
               ))}
             </div>
@@ -3719,8 +3719,8 @@ export default function AppointmentsPage() {
                     : (() => {
                         const isToday = filterDate === toISODate(new Date());
                         const when = isToday
-                          ? "today"
-                          : `on ${formatShortDate(filterDate)}`;
+                          ? t("appointments.whenToday", "today")
+                          : `${t("appointments.whenOn", "on")} ${formatShortDate(filterDate)}`;
                         // The date HAS appointments, but none match the active
                         // status chip → name the filter in plain text. Only
                         // when the whole-date list is genuinely empty do we
@@ -3742,7 +3742,7 @@ export default function AppointmentsPage() {
                           )
                         );
                         if (PENDING.includes(statusFilter) && noPendingLeft) {
-                          return `No appointments ${when}`;
+                          return `${t("appointments.noAppointments", "No appointments")} ${when}`;
                         }
                         // Word the empty message naturally per status (e.g.
                         // "No patients checked in today", "No consultations in
@@ -3758,21 +3758,21 @@ export default function AppointmentsPage() {
                         };
                         return dateHasData
                           ? STATUS_PHRASE[statusFilter] ??
-                              `No appointments ${when}`
-                          : `No appointments ${when}`;
+                              `${t("appointments.noAppointments", "No appointments")} ${when}`
+                          : `${t("appointments.noAppointments", "No appointments")} ${when}`;
                       })()
                 }
                 description={
                   isPatient
-                    ? "Book an appointment with one of our doctors."
-                    : "Book a new appointment to get started."
+                    ? t("appointments.emptyDescPatient", "Book an appointment with one of our doctors.")
+                    : t("appointments.emptyDesc", "Book a new appointment to get started.")
                 }
                 action={
                   // Always offer "Book appointment" on an empty list for staff —
                   // whether the whole day is empty or just the active filter.
                   !isPatient
                     ? {
-                        label: "Book appointment",
+                        label: t("appointments.bookAppointment", "Book appointment"),
                         onClick: () => setShowBooking(true),
                       }
                     : undefined

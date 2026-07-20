@@ -10,22 +10,22 @@
   },
   "dependencies": {
     "@medcore/shared": "*",
-    "@sentry/nextjs": "^10.57.0",
-    "@tailwindcss/postcss": "^4.3.1",
+    "@sentry/nextjs": "^10.66.0",
+    "@tailwindcss/postcss": "^4.3.3",
     "clsx": "^2.1.0",
-    "firebase": "^12.14.0",
+    "firebase": "^12.16.0",
     "html5-qrcode": "^2.3.8",
-    "lucide-react": "^1.18.0",
-    "next": "^16.2.9",
+    "lucide-react": "^1.25.0",
+    "next": "^16.2.10",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "socket.io-client": "^4.8.0",
-    "tailwindcss": "^4.0.0",
+    "tailwindcss": "^4.3.3",
     "zustand": "^5.0.14"
   },
   "optionalDependencies": {
-    "@next/swc-linux-x64-gnu": "16.2.9",
-    "@tailwindcss/oxide-linux-x64-gnu": "4.3.1",
+    "@next/swc-linux-x64-gnu": "16.2.10",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.3",
     "lightningcss-linux-x64-gnu": "1.32.0"
   },
   "devDependencies": {
@@ -37,8 +37,8 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.0.0",
     "axe-core": "^4.12.1",
-    "eslint": "^10.5.0",
-    "eslint-config-next": "^16.2.9",
+    "eslint": "^10.7.0",
+    "eslint-config-next": "^16.2.10",
     "jsdom": "^29.1.1",
     "typescript": "^5.8.0",
     "vitest-axe": "^0.1.0"

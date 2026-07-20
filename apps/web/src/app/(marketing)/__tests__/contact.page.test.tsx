@@ -29,7 +29,7 @@ describe("Marketing ContactPage", () => {
   it("renders the get in touch panel with email/phone/office", () => {
     render(<ContactPage />);
     expect(screen.getByText(/get in touch/i)).toBeInTheDocument();
-    expect(screen.getByText(/hello@medcore\.in/i)).toBeInTheDocument();
+    expect(screen.getByText(/support@medcore\.software/i)).toBeInTheDocument();
     expect(screen.getAllByText(/bangalore, india/i).length).toBeGreaterThan(0);
   });
 

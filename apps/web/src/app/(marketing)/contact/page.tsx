@@ -61,15 +61,22 @@ export default function ContactPage() {
               </ul>
             </div>
 
-            {/* Map placeholder — intentionally static so we don't ship Maps JS */}
-            <div
-              aria-hidden
-              className="relative h-56 overflow-hidden rounded-3xl border border-gray-200 bg-gradient-to-br from-blue-100 via-emerald-50 to-blue-50 shadow-sm dark:border-gray-800 dark:from-blue-950/60 dark:via-emerald-950/30 dark:to-blue-950/60"
-            >
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(255,255,255,0.6),transparent_60%)] dark:bg-[radial-gradient(circle_at_30%_40%,rgba(255,255,255,0.1),transparent_60%)]" />
-              <div className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-gray-700 shadow dark:bg-gray-900/90 dark:text-gray-200">
+            {/* Google Maps embed — keyless iframe (no Maps JS SDK, no API key,
+                lazy-loaded so it never blocks first paint). The keyless embed
+                only renders a light basemap, so in dark mode we apply a CSS
+                filter (invert + hue-rotate) so it blends with the dark theme.
+                See `.map-embed` in globals.css. */}
+            <div className="relative h-56 overflow-hidden rounded-3xl border border-gray-200 shadow-sm dark:border-gray-800">
+              <iframe
+                title="MedCore office — Udaya Mansion, Koramangala, Bengaluru"
+                src="https://www.google.com/maps?q=Udaya%20Mansion%2C%20Koramangala%2C%20Bengaluru&output=embed"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                className="map-embed h-full w-full border-0"
+              />
+              <div className="pointer-events-none absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1.5 text-xs font-semibold text-gray-700 shadow dark:bg-gray-900/90 dark:text-gray-200">
                 <MapPin className="mr-1 inline h-3.5 w-3.5 text-blue-600" />
-                Bangalore, India
+                Koramangala, Bengaluru
               </div>
             </div>
           </div>

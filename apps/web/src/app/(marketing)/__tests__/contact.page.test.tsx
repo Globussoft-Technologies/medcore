@@ -38,4 +38,23 @@ describe("Marketing ContactPage", () => {
     const link = screen.getByRole("link", { name: /\+91/ });
     expect(link.getAttribute("href")).toMatch(/^tel:/);
   });
+
+  it("embeds a Google map pointed at the Koramangala office", () => {
+    render(<ContactPage />);
+    // The map is an <iframe> with an accessible title.
+    const map = screen.getByTitle(/koramangala|udaya mansion/i);
+    expect(map.tagName).toBe("IFRAME");
+    const src = map.getAttribute("src") || "";
+    expect(src).toContain("google.com/maps");
+    expect(src).toMatch(/koramangala/i);
+    expect(src).toContain("output=embed");
+    // Lazy-loaded so it never blocks first paint.
+    expect(map.getAttribute("loading")).toBe("lazy");
+  });
+
+  it("map carries the theme-aware .map-embed class (dark/light styling hook)", () => {
+    render(<ContactPage />);
+    const map = screen.getByTitle(/koramangala|udaya mansion/i);
+    expect(map.className).toContain("map-embed");
+  });
 });

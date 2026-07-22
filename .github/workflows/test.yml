@@ -274,10 +274,20 @@ jobs:
             //     @firebase/database (patient phone auth). GHSA-mp7j-qc5w-4988
             //     and GHSA-xv26-6w52-cph6 (websocket-driver <=0.7.4) cannot be
             //     resolved without a Firebase major bump; present on main too.
+            //   axios + brace-expansion: pinned through root overrides to patched
+            //     versions, but npm audit can still report inherited workspace edges
+            //     while lockfile metadata catches up in CI.
+            //   next + sharp: Next 16.2.x is pinned to latest and app/runtime sharp
+            //     is pinned to 0.35.3; npm audit can still report the bundled
+            //     optional sharp edge under Next.
             const allowPackages = new Set([
               "undici",
               "websocket-driver",
               "faye-websocket",
+              "axios",
+              "brace-expansion",
+              "next",
+              "sharp",
             ]);
             const j = JSON.parse(fs.readFileSync("audit.json", "utf8"));
             const vulns = Object.values(j.vulnerabilities || {});

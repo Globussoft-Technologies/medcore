@@ -99,12 +99,12 @@ export default function LabPage() {
   // Issue #179: target /dashboard/not-authorized so the layout chrome stays.
   useEffect(() => {
     if (!isLoading && user && !LAB_ALLOWED.has(user.role)) {
-      toast.error("Lab orders & results are restricted to clinical staff.");
+      toast.error(t("dashboard.lab.restricted"));
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/lab")}`,
       );
     }
-  }, [user, isLoading, router, pathname]);
+  }, [user, isLoading, router, pathname, t]);
   const [tab, setTab] = useState<Tab>("orders");
   const [orders, setOrders] = useState<LabOrder[]>([]);
   const [tests, setTests] = useState<LabTest[]>([]);
@@ -179,7 +179,7 @@ export default function LabPage() {
     } catch (err: any) {
       setAiInsights((m) => ({
         ...m,
-        [resultId]: { loading: false, error: err?.message ?? "Failed" },
+        [resultId]: { loading: false, error: err?.message ?? t("common.error") },
       }));
     }
   }
@@ -233,7 +233,7 @@ export default function LabPage() {
       await api.patch(`/lab/orders/${orderId}/status`, { status });
       loadOrders();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update");
+      toast.error(err instanceof Error ? err.message : t("dashboard.lab.error.updateFailed"));
     }
   }
 
@@ -244,10 +244,13 @@ export default function LabPage() {
         : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
     }`;
 
+  const labStatusLabel = (status: string) =>
+    t(`dashboard.lab.status.${status}`, status.replace(/_/g, " "));
+
   const testsByCategory = tests.reduce(
-    (acc, t) => {
-      const cat = t.category || "Other";
-      (acc[cat] ||= []).push(t);
+    (acc, test) => {
+      const cat = test.category || t("dashboard.lab.category.other");
+      (acc[cat] ||= []).push(test);
       return acc;
     },
     {} as Record<string, LabTest[]>
@@ -282,7 +285,7 @@ export default function LabPage() {
               className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition hover:border-primary hover:text-primary dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
               data-testid="lab-back-to-consult"
             >
-              ← Back to Consult
+              {t("dashboard.lab.backToConsult")}
             </Link>
           )}
           {canOrder && tab === "orders" && (
@@ -298,10 +301,10 @@ export default function LabPage() {
 
       <div className="mb-4 flex items-center gap-2">
         <button onClick={() => setTab("orders")} className={tabClass("orders")}>
-          Orders
+          {t("dashboard.lab.tab.orders")}
         </button>
         <button onClick={() => setTab("catalog")} className={tabClass("catalog")}>
-          Test Catalog
+          {t("dashboard.lab.tab.catalog")}
         </button>
         {tab === "orders" && (
           <button
@@ -312,7 +315,7 @@ export default function LabPage() {
                 : "border-red-300 bg-white text-red-700 hover:bg-red-50 dark:border-red-900/50 dark:bg-gray-800 dark:text-red-300 dark:hover:bg-red-900/20"
             }`}
           >
-            STAT Only
+            {t("dashboard.lab.statOnly")}
           </button>
         )}
       </div>
@@ -324,7 +327,7 @@ export default function LabPage() {
               <SkeletonText lines={6} />
             </div>
           ) : tests.length === 0 ? (
-            <div className="text-center text-gray-500 dark:text-gray-400">No tests defined.</div>
+            <div className="text-center text-gray-500 dark:text-gray-400">{t("dashboard.lab.empty.noTests")}</div>
           ) : (
             Object.entries(testsByCategory).map(([cat, list]) => (
               <div key={cat} className="mb-6">
@@ -332,12 +335,12 @@ export default function LabPage() {
                   {cat}
                 </h3>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {list.map((t) => (
+                  {list.map((test) => (
                     <div
-                      key={t.id}
+                      key={test.id}
                       className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
                     >
-                      <p className="font-medium">{t.name}</p>
+                      <p className="font-medium">{test.name}</p>
                       {/* Issue #631 (2026-05-05): tests without a numeric range
                           previously rendered NO Normal line at all, making the
                           tile look like missing data. Always render the line —
@@ -350,23 +353,23 @@ export default function LabPage() {
                         {/* Issue #230: extension of #147 — only append the
                             unit when the range string doesn't already
                             contain it. Prevents "0.4-4.0 mIU/L mIU/L". */}
-                        Normal:{" "}
-                        {t.normalRange ? (
+                        {t("dashboard.lab.normal")}: {" "}
+                        {test.normalRange ? (
                           <>
-                            {t.normalRange}
-                            {t.unit &&
-                            !t.normalRange.toLowerCase().includes(t.unit.toLowerCase())
-                              ? ` ${t.unit}`
+                            {test.normalRange}
+                            {test.unit &&
+                            !test.normalRange.toLowerCase().includes(test.unit.toLowerCase())
+                              ? ` ${test.unit}`
                               : ""}
                           </>
                         ) : (
-                          <span className="italic">Qualitative</span>
+                          <span className="italic">{t("dashboard.lab.qualitative")}</span>
                         )}
                       </p>
-                      {t.price !== undefined && (
+                      {test.price !== undefined && (
                         // Issue #403: canonical INR format ("₹1,200.00") via
                         // shared formatINR — was bare "₹1200" before.
-                        <p className="mt-1 text-xs">{formatINR(t.price)}</p>
+                        <p className="mt-1 text-xs">{formatINR(test.price)}</p>
                       )}
                     </div>
                   ))}
@@ -393,12 +396,12 @@ export default function LabPage() {
                   from "no orders at all" so the user understands non-STAT orders aren't
                   missing — they're hidden by the active filter. */}
               <p className="text-sm font-medium">
-                {statOnly ? "No STAT orders match this filter" : "No lab orders yet"}
+                {statOnly ? t("dashboard.lab.empty.noStatOrders") : t("dashboard.lab.empty.noOrders")}
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500">
                 {statOnly
-                  ? "Turn off STAT Only to see all current orders."
-                  : "Orders placed by doctors will appear here."}
+                  ? t("dashboard.lab.empty.noStatOrdersDesc")
+                  : t("dashboard.lab.empty.noOrdersDesc")}
               </p>
               {statOnly && (
                 <button
@@ -406,7 +409,7 @@ export default function LabPage() {
                   onClick={() => setStatOnly(false)}
                   className="mt-2 rounded-lg border border-gray-300 px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
                 >
-                  Clear STAT filter
+                  {t("dashboard.lab.clearStatFilter")}
                 </button>
               )}
             </div>
@@ -416,13 +419,13 @@ export default function LabPage() {
             <table className="w-full min-w-[820px]">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                  <th className="px-4 py-3">Order #</th>
-                  <th className="px-4 py-3">Patient</th>
-                  <th className="px-4 py-3">Doctor</th>
-                  <th className="px-4 py-3">Tests</th>
-                  <th className="px-4 py-3">Ordered</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Actions</th>
+                  <th className="px-4 py-3">{t("dashboard.lab.col.orderNumber")}</th>
+                  <th className="px-4 py-3">{t("dashboard.lab.col.patient")}</th>
+                  <th className="px-4 py-3">{t("dashboard.lab.col.doctor")}</th>
+                  <th className="px-4 py-3">{t("dashboard.lab.col.tests")}</th>
+                  <th className="px-4 py-3">{t("dashboard.lab.col.ordered")}</th>
+                  <th className="px-4 py-3">{t("common.status")}</th>
+                  <th className="px-4 py-3">{t("common.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -475,7 +478,7 @@ export default function LabPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {o.items.length} test(s)
+                        {o.items.length} {t("dashboard.lab.testsCount")}
                       </td>
                       <td className="px-4 py-3 text-sm">
                         {/* Issue #438: route through shared formatter for
@@ -486,7 +489,7 @@ export default function LabPage() {
                         <span
                           className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[o.status] || ""}`}
                         >
-                          {o.status.replace(/_/g, " ")}
+                          {labStatusLabel(o.status)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -511,7 +514,7 @@ export default function LabPage() {
                               }
                               className="rounded bg-blue-500 px-2 py-1 text-xs text-white hover:bg-blue-600"
                             >
-                              Collect
+                              {t("dashboard.lab.action.collect")}
                             </button>
                           )}
                           {o.status === "SAMPLE_COLLECTED" && canCollect && (
@@ -519,7 +522,7 @@ export default function LabPage() {
                               onClick={() => updateStatus(o.id, "IN_PROGRESS")}
                               className="rounded bg-indigo-500 px-2 py-1 text-xs text-white hover:bg-indigo-600"
                             >
-                              Process
+                              {t("dashboard.lab.action.process")}
                             </button>
                           )}
                           {o.status === "IN_PROGRESS" && canEnterResults && (
@@ -546,7 +549,7 @@ export default function LabPage() {
                               }}
                               className="rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                             >
-                              Enter Results
+                              {t("dashboard.lab.action.enterResults")}
                             </Link>
                           )}
                           <Link
@@ -559,7 +562,7 @@ export default function LabPage() {
                             }}
                             className="rounded border px-2 py-1 text-xs hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700"
                           >
-                            View
+                            {t("common.view")}
                           </Link>
                         </div>
                       </td>
@@ -580,7 +583,7 @@ export default function LabPage() {
                                   <span
                                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[item.status] || ""}`}
                                   >
-                                    {item.status.replace(/_/g, " ")}
+                                    {labStatusLabel(item.status)}
                                   </span>
                                 </div>
                                 {item.results && item.results.length > 0 && (
@@ -614,28 +617,28 @@ export default function LabPage() {
                                                 onClick={() => fetchAIInsights(r.id)}
                                                 className="text-xs text-indigo-600 hover:underline ml-2 dark:text-indigo-400"
                                               >
-                                                AI Insights
+                                                {t("dashboard.lab.aiInsights")}
                                               </button>
                                             )}
                                             {insight?.loading && (
                                               <span className="text-xs text-gray-500 ml-2 dark:text-gray-400">
-                                                analysing...
+                                                {t("dashboard.lab.analysing")}
                                               </span>
                                             )}
                                           </div>
                                           {insight?.data && (
                                             <div className="mt-1 bg-indigo-50 border border-indigo-100 rounded p-2 text-xs space-y-1 dark:bg-indigo-900/30 dark:border-indigo-800 dark:text-indigo-100">
                                               <p>
-                                                <strong>Interpretation:</strong>{" "}
+                                                <strong>{t("dashboard.lab.ai.interpretation")}:</strong>{" "}
                                                 {insight.data.interpretation}
                                               </p>
                                               <p>
-                                                <strong>Trend:</strong> {insight.data.trend}{" "}
+                                                <strong>{t("dashboard.lab.ai.trend")}:</strong> {insight.data.trend}{" "}
                                                 <span className="text-gray-500 dark:text-gray-400">·</span>{" "}
-                                                <strong>Urgency:</strong> {insight.data.urgency}
+                                                <strong>{t("dashboard.lab.ai.urgency")}:</strong> {insight.data.urgency}
                                               </p>
                                               <p>
-                                                <strong>Baseline:</strong>{" "}
+                                                <strong>{t("dashboard.lab.ai.baseline")}:</strong>{" "}
                                                 {insight.data.baselineComparison}
                                               </p>
                                               {insight.data.recommendedActions.length > 0 && (
@@ -716,10 +719,11 @@ function NewOrderModal({
   // is plumbed for future per-encounter scoping.
   initialPatientId?: string | null;
   initialAppointmentId?: string | null;
-  // If set, the modal header shows a "← Back to Consult" link that
+  // If set, the modal header shows a "{t("dashboard.lab.backToConsult")}" link that
   // routes to /dashboard/consult/<id>.
   consultBackAppointmentId?: string | null;
 }) {
+  const { t } = useTranslation();
   const [patientSearch, setPatientSearch] = useState("");
   const [patientResults, setPatientResults] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -783,13 +787,13 @@ function NewOrderModal({
     // already present in the form, so the user sees a per-field error in
     // the modal itself and the toast is just a secondary confirmation.
     const localErrors: FieldErrorMap = {};
-    if (!selectedPatient) localErrors.patientId = "Select a patient";
+    if (!selectedPatient) localErrors.patientId = t("dashboard.lab.error.selectPatient");
     if (selectedTests.length === 0)
-      localErrors.testIds = "Select at least one test";
+      localErrors.testIds = t("dashboard.lab.error.selectTest");
     if (Object.keys(localErrors).length > 0) {
       setFieldErrors(localErrors);
       toast.error(
-        Object.values(localErrors)[0] || "Please fix the highlighted fields"
+        Object.values(localErrors)[0] || t("dashboard.lab.error.fixHighlighted")
       );
       return;
     }
@@ -811,17 +815,17 @@ function NewOrderModal({
       const fields = extractFieldErrors(err);
       if (fields) {
         setFieldErrors(fields);
-        toast.error(Object.values(fields)[0] || "Please fix the highlighted fields");
+        toast.error(Object.values(fields)[0] || t("dashboard.lab.error.fixHighlighted"));
         return;
       }
-      toast.error(err instanceof Error ? err.message : "Failed to create order");
+      toast.error(err instanceof Error ? err.message : t("dashboard.lab.error.createOrderFailed"));
     }
   }
 
   const grouped = tests.reduce(
-    (acc, t) => {
-      const cat = t.category || "Other";
-      (acc[cat] ||= []).push(t);
+    (acc, test) => {
+      const cat = test.category || t("dashboard.lab.category.other");
+      (acc[cat] ||= []).push(test);
       return acc;
     },
     {} as Record<string, LabTest[]>
@@ -839,7 +843,7 @@ function NewOrderModal({
       >
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            New Lab Order
+            {t("dashboard.lab.newLabOrder")}
           </h2>
           {/* Pearl §2.1.3 — Back to Consult chip, shown only when
               the modal was opened from the consult page's Flask
@@ -849,7 +853,7 @@ function NewOrderModal({
               href={`/dashboard/consult/${consultBackAppointmentId}`}
               className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:border-primary hover:text-primary dark:border-gray-700 dark:text-gray-300"
             >
-              ← Back to Consult
+              {t("dashboard.lab.backToConsult")}
             </Link>
           )}
         </div>
@@ -857,7 +861,7 @@ function NewOrderModal({
         <div className="space-y-4">
           <div>
             <label htmlFor="lab-patient-search" className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100">
-              Patient
+              {t("dashboard.lab.col.patient")}
             </label>
             {selectedPatient ? (
               <div className="flex items-center justify-between rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100">
@@ -870,14 +874,14 @@ function NewOrderModal({
                   onClick={() => setSelectedPatient(null)}
                   className="text-xs font-medium text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                 >
-                  Change
+                  {t("dashboard.lab.change")}
                 </button>
               </div>
             ) : (
               <>
                 <input
                   id="lab-patient-search"
-                  placeholder="Search patient"
+                  placeholder={t("dashboard.lab.searchPatient")}
                   value={patientSearch}
                   onChange={(e) => setPatientSearch(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:placeholder:text-gray-400"
@@ -913,7 +917,7 @@ function NewOrderModal({
 
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100">
-              Tests
+              {t("dashboard.lab.col.tests")}
             </label>
             {fieldErrors.testIds && (
               <p
@@ -931,7 +935,7 @@ function NewOrderModal({
                 solidly readable in both modes. */}
             <div className="max-h-64 overflow-y-auto rounded-lg border border-gray-300 p-3 dark:border-gray-600">
               {Object.keys(grouped).length === 0 ? (
-                <p className="text-sm text-gray-700 dark:text-gray-300">Loading tests...</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300">{t("dashboard.lab.loadingTests")}</p>
               ) : (
                 Object.entries(grouped).map(([cat, list]) => (
                   <div key={cat} className="mb-3">
@@ -942,26 +946,26 @@ function NewOrderModal({
                       {cat}
                     </h4>
                     <div className="grid grid-cols-2 gap-1">
-                      {list.map((t) => (
+                      {list.map((test) => (
                         <label
-                          key={t.id}
+                          key={test.id}
                           data-testid="lab-order-test-label"
                           className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100"
                         >
                           <input
                             type="checkbox"
-                            checked={selectedTests.includes(t.id)}
+                            checked={selectedTests.includes(test.id)}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedTests([...selectedTests, t.id]);
+                                setSelectedTests([...selectedTests, test.id]);
                               } else {
                                 setSelectedTests(
-                                  selectedTests.filter((id) => id !== t.id)
+                                  selectedTests.filter((id) => id !== test.id)
                                 );
                               }
                             }}
                           />
-                          {t.name}
+                          {test.name}
                         </label>
                       ))}
                     </div>
@@ -973,7 +977,7 @@ function NewOrderModal({
 
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100">
-              Priority
+              {t("dashboard.lab.priority")}
             </label>
             <div className="flex gap-2">
               {(["ROUTINE", "URGENT", "STAT"] as const).map((p) => (
@@ -1003,7 +1007,7 @@ function NewOrderModal({
             </div>
             {priority === "STAT" && (
               <p className="mt-1 text-xs text-red-700 dark:text-red-400">
-                STAT orders notify the lab team immediately.
+                {t("dashboard.lab.statNotify")}
               </p>
             )}
           </div>
@@ -1013,7 +1017,7 @@ function NewOrderModal({
               htmlFor="lab-order-notes"
               className="mb-1 block text-sm font-medium text-gray-900 dark:text-gray-100"
             >
-              Notes
+              {t("common.notes")}
             </label>
             <textarea
               id="lab-order-notes"
@@ -1046,13 +1050,13 @@ function NewOrderModal({
             data-testid="lab-order-cancel-btn"
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600"
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="submit"
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            Create Order
+            {t("dashboard.lab.createOrder")}
           </button>
         </div>
       </form>

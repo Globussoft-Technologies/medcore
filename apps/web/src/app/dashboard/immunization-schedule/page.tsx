@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import { Syringe } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
 
@@ -23,6 +24,7 @@ interface ScheduleRow {
 type FilterKey = "week" | "month" | "overdue";
 
 export default function ImmunizationSchedulePage() {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<FilterKey>("week");
   const [rows, setRows] = useState<ScheduleRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,20 +76,27 @@ export default function ImmunizationSchedulePage() {
     return "text-gray-600";
   }
 
+  function dueLabel(days: number | null): string {
+    if (days == null) return "-";
+    if (days < 0) return `${Math.abs(days)}${t("dashboard.immunizationSchedule.daysOverdueSuffix")}`;
+    if (days === 0) return t("dashboard.immunizationSchedule.today");
+    return `${t("dashboard.immunizationSchedule.daysUntilPrefix")}${days}${t("dashboard.immunizationSchedule.daysUntilSuffix")}`;
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-center gap-3">
         <Syringe size={24} className="text-primary" />
-        <h1 className="text-2xl font-bold">Immunization Schedule</h1>
+        <h1 className="text-2xl font-bold">{t("dashboard.immunizationSchedule.title")}</h1>
       </div>
 
       {/* Filters */}
       <div className="mb-4 flex gap-2">
         {(
           [
-            { key: "week", label: "Due this week" },
-            { key: "month", label: "Due this month" },
-            { key: "overdue", label: "Overdue" },
+            { key: "week", label: t("dashboard.immunizationSchedule.filter.week") },
+            { key: "month", label: t("dashboard.immunizationSchedule.filter.month") },
+            { key: "overdue", label: t("dashboard.immunizationSchedule.filter.overdue") },
           ] as const
         ).map((f) => (
           <button
@@ -118,20 +127,20 @@ export default function ImmunizationSchedulePage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
-            No immunizations match this filter
+            {t("dashboard.immunizationSchedule.noMatches")}
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-xs text-gray-500 dark:bg-gray-900/50 dark:text-gray-400">
               <tr>
-                <th className="px-5 py-3 text-left">Patient</th>
-                <th className="px-5 py-3 text-left">MR #</th>
-                <th className="px-5 py-3 text-left">Vaccine</th>
-                <th className="px-5 py-3 text-left">Dose</th>
-                <th className="px-5 py-3 text-left">Last Given</th>
-                <th className="px-5 py-3 text-left">Next Due</th>
-                <th className="px-5 py-3 text-left">Days</th>
-                <th className="px-5 py-3 text-left">Phone</th>
+                <th className="px-5 py-3 text-left">{t("dashboard.immunizationSchedule.col.patient")}</th>
+                <th className="px-5 py-3 text-left">{t("dashboard.immunizationSchedule.col.mr")}</th>
+                <th className="px-5 py-3 text-left">{t("dashboard.immunizationSchedule.col.vaccine")}</th>
+                <th className="px-5 py-3 text-left">{t("dashboard.immunizationSchedule.col.dose")}</th>
+                <th className="px-5 py-3 text-left">{t("dashboard.immunizationSchedule.col.lastGiven")}</th>
+                <th className="px-5 py-3 text-left">{t("dashboard.immunizationSchedule.col.nextDue")}</th>
+                <th className="px-5 py-3 text-left">{t("dashboard.immunizationSchedule.col.days")}</th>
+                <th className="px-5 py-3 text-left">{t("common.phone")}</th>
               </tr>
             </thead>
             <tbody>
@@ -164,13 +173,7 @@ export default function ImmunizationSchedulePage() {
                         : "-"}
                     </td>
                     <td className={`px-5 py-3 ${dueColor(days)}`}>
-                      {days == null
-                        ? "-"
-                        : days < 0
-                          ? `${Math.abs(days)}d overdue`
-                          : days === 0
-                            ? "today"
-                            : `in ${days}d`}
+                      {dueLabel(days)}
                     </td>
                     <td className="px-5 py-3 text-xs text-gray-500 dark:text-gray-400">
                       {r.patient?.user?.phone}

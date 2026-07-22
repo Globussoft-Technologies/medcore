@@ -6,7 +6,7 @@
 // side 400 responses are expected to carry structured `errors: [{field, ...}]`
 // which we map back onto the same field-error state.
 import { useState, FormEvent } from "react";
-import { Loader2, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Loader2, CheckCircle2 } from "lucide-react";
 import {
   marketingEnquirySchema,
   type MarketingEnquiryFieldError,
@@ -33,15 +33,38 @@ export function EnquiryForm() {
   // toast when the server returns field-level info.
   const [generalError, setGeneralError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [fieldSummaryError, setFieldSummaryError] = useState<string | null>(null);
 
   function errClass(field: string): string {
     return fieldErrors[field] ? fieldBaseError : fieldBase;
+  }
+
+  function firstFieldError(errors: FieldErrors): string | null {
+    return (
+      errors.fullName ??
+      errors.email ??
+      errors.phone ??
+      errors.hospitalName ??
+      errors.hospitalSize ??
+      errors.role ??
+      errors.message ??
+      null
+    );
+  }
+
+  function clearFieldError(field: string) {
+    if (!fieldErrors[field]) return;
+    const next = { ...fieldErrors };
+    delete next[field];
+    setFieldErrors(next);
+    setFieldSummaryError(firstFieldError(next));
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setStatus("submitting");
     setGeneralError(null);
+    setFieldSummaryError(null);
     setFieldErrors({});
 
     const form = e.currentTarget;
@@ -72,6 +95,7 @@ export function EnquiryForm() {
         if (!next[field]) next[field] = iss.message;
       }
       setFieldErrors(next);
+      setFieldSummaryError(firstFieldError(next));
       setStatus("error");
       return;
     }
@@ -100,6 +124,7 @@ export function EnquiryForm() {
           if (!next[err.field]) next[err.field] = err.message;
         }
         setFieldErrors(next);
+        setFieldSummaryError(firstFieldError(next));
         setStatus("error");
         return;
       }
@@ -152,12 +177,35 @@ export function EnquiryForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+    <form
+      onSubmit={handleSubmit}
+      onChange={(e) => {
+        const target = e.target as unknown as
+          | HTMLInputElement
+          | HTMLSelectElement
+          | HTMLTextAreaElement;
+        const field = target.name;
+        if (field) clearFieldError(field);
+      }}
+      className="space-y-5"
+      noValidate
+    >
       {/* Honeypot — hidden from users, tempting for bots. */}
       <div aria-hidden="true" className="absolute left-[-9999px] h-0 w-0 overflow-hidden">
         <label htmlFor="website">Leave this field blank</label>
         <input id="website" name="website" type="text" tabIndex={-1} autoComplete="off" />
       </div>
+
+      {status === "error" && fieldSummaryError && (
+        <div
+          role="alert"
+          data-testid="enquiry-field-summary-error"
+          className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-300"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{fieldSummaryError}</span>
+        </div>
+      )}
 
       <div className="grid gap-5 sm:grid-cols-2">
         <div>

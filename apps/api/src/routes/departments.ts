@@ -31,6 +31,7 @@ import {
 import { authenticate, authorize } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
+import { allowedDepartmentIds, isMemberOf } from "../services/department-scope";
 
 const router = Router();
 router.use(authenticate);
@@ -48,12 +49,21 @@ const OPEN_STATUSES = [
   "ISSUED",
 ];
 
+const READ_ROLES = [
+  Role.ADMIN,
+  Role.PHARMACIST,
+  Role.NURSE,
+  Role.DOCTOR,
+  Role.RECEPTION,
+  Role.LAB_TECH,
+] as const;
+
 // ── GET / — list departments (admin) ──────────────────────────────────────
 // Optional ?active=true|false filter and ?q= name/code search. Includes a
 // requisition count per department so the admin grid can show activity.
 router.get(
   "/",
-  authorize(Role.ADMIN),
+  authorize(...READ_ROLES),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { active, q } = req.query as Record<string, string | undefined>;
@@ -65,6 +75,20 @@ router.get(
           { name: { contains: q.trim(), mode: "insensitive" } },
           { code: { contains: q.trim(), mode: "insensitive" } },
         ];
+      }
+      const allowed = await allowedDepartmentIds(req.user?.userId, req.user?.role);
+      if (allowed !== null) {
+        if (allowed.length === 0) {
+          res.json({
+            success: true,
+            data: [],
+            meta: { notInAnyDepartment: true },
+            error: null,
+          });
+          return;
+        }
+        where.id = { in: allowed };
+        where.active = true;
       }
 
       const departments = await prisma.department.findMany({
@@ -206,10 +230,11 @@ router.get(
 
 // ── GET /:id/detail — full department detail (admin) ───────────────────────
 // One call powering the department detail page: info + stats + members +
-// requisition history + a materials-consumed rollup (what was issued to it).
+// requisition history + a materials-consumed rollup + the department's current
+// equipment / material holdings.
 router.get(
   "/:id/detail",
-  authorize(Role.ADMIN),
+  authorize(...READ_ROLES),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const dept = await prisma.department.findUnique({
@@ -220,8 +245,20 @@ router.get(
         res.status(404).json({ success: false, data: null, error: "Department not found" });
         return;
       }
+      if (!(await isMemberOf(req.user?.userId, req.user?.role, dept.id))) {
+        const allowed = await allowedDepartmentIds(req.user?.userId, req.user?.role);
+        res.status(allowed !== null && allowed.length === 0 ? 403 : 404).json({
+          success: false,
+          data: null,
+          error:
+            allowed !== null && allowed.length === 0
+              ? "No assigned department"
+              : "Department not found",
+        });
+        return;
+      }
 
-      const [members, requisitions] = await Promise.all([
+      const [members, requisitions, holdings] = await Promise.all([
         prisma.departmentMember.findMany({
           where: { departmentId: dept.id },
           orderBy: { createdAt: "asc" },
@@ -251,6 +288,17 @@ router.get(
             },
           },
         }),
+        prisma.departmentMaterialHolding.findMany({
+          where: { departmentId: dept.id, quantity: { gt: 0 } },
+          orderBy: [{ quantity: "desc" }, { material: { name: "asc" } }],
+          select: {
+            id: true,
+            quantity: true,
+            material: {
+              select: { id: true, name: true, unit: true, category: true },
+            },
+          },
+        }),
       ]);
 
       // Stats
@@ -276,6 +324,7 @@ router.get(
       }
       const consumed = [...consumedMap.values()].sort((a, b) => b.issued - a.issued);
       const totalUnitsIssued = consumed.reduce((s, c) => s + c.issued, 0);
+      const totalUnitsOnHand = holdings.reduce((sum, holding) => sum + holding.quantity, 0);
 
       res.json({
         success: true,
@@ -287,6 +336,7 @@ router.get(
             openRequests: open,
             completedRequests: completed,
             totalUnitsIssued,
+            totalUnitsOnHand,
           },
           members,
           requisitions: requisitions.map((r) => ({
@@ -296,6 +346,14 @@ router.get(
             createdAt: r.createdAt,
             requestedBy: r.requestedBy?.name ?? "—",
             itemCount: r.items.length,
+          })),
+          holdings: holdings.map((holding) => ({
+            id: holding.id,
+            quantity: holding.quantity,
+            materialId: holding.material.id,
+            name: holding.material.name,
+            unit: holding.material.unit,
+            category: holding.material.category,
           })),
           consumed,
         },

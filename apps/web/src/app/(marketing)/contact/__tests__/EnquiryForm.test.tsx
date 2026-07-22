@@ -203,6 +203,9 @@ describe("Marketing EnquiryForm", () => {
     await waitFor(() => {
       expect(document.getElementById("fullName-error")).toBeInTheDocument();
     });
+    expect(screen.getByTestId("enquiry-field-summary-error")).toHaveTextContent(
+      /name must be at least 2 characters/i,
+    );
     expect(document.getElementById("email-error")?.textContent).toMatch(
       /enter a valid email address/i,
     );
@@ -237,11 +240,32 @@ describe("Marketing EnquiryForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /request a demo/i }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/enter a valid indian mobile number/i),
-      ).toBeInTheDocument();
+      expect(document.getElementById("phone-error")?.textContent).toMatch(
+        /enter a valid indian mobile number/i,
+      );
     });
+    expect(screen.getByTestId("enquiry-field-summary-error")).toHaveTextContent(
+      /enter a valid indian mobile number/i,
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("clears a field error as soon as the user edits that field", async () => {
+    render(<EnquiryForm />);
+
+    fireEvent.click(screen.getByRole("button", { name: /request a demo/i }));
+    await waitFor(() => {
+      expect(document.getElementById("fullName-error")).toBeInTheDocument();
+    });
+
+    fireEvent.input(document.getElementById("fullName") as HTMLInputElement, {
+      target: { value: "Dr Meera Rao" },
+    });
+
+    expect(document.getElementById("fullName-error")).not.toBeInTheDocument();
+    expect(screen.getByTestId("enquiry-field-summary-error")).toHaveTextContent(
+      /enter a valid email address/i,
+    );
   });
 
   it("rejects a malformed email with an inline error and skips fetch", async () => {
@@ -254,9 +278,9 @@ describe("Marketing EnquiryForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /request a demo/i }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/enter a valid email address/i),
-      ).toBeInTheDocument();
+      expect(document.getElementById("email-error")?.textContent).toMatch(
+        /enter a valid email address/i,
+      );
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -344,13 +368,16 @@ describe("Marketing EnquiryForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /request a demo/i }));
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/email already on the waitlist/i),
-      ).toBeInTheDocument();
+      expect(document.getElementById("email-error")?.textContent).toMatch(
+        /email already on the waitlist/i,
+      );
     });
-    expect(
-      screen.getByText(/server says name is taken/i),
-    ).toBeInTheDocument();
+    expect(document.getElementById("fullName-error")?.textContent).toMatch(
+      /server says name is taken/i,
+    );
+    expect(screen.getByTestId("enquiry-field-summary-error")).toHaveTextContent(
+      /server says name is taken/i,
+    );
     // General-error banner should NOT render — server gave structured errors.
     expect(
       screen.queryByText(/something went wrong\. please try again/i),

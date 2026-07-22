@@ -12,6 +12,8 @@ import {
   createMaterialSchema,
   updateMaterialSchema,
   adjustMaterialStockSchema,
+  createMaterialAdjustmentRequestSchema,
+  reviewMaterialAdjustmentRequestSchema,
 } from "./material";
 
 describe("createMaterialSchema", () => {
@@ -28,6 +30,12 @@ describe("createMaterialSchema", () => {
   it("rejects an unknown category", () => {
     expect(
       createMaterialSchema.safeParse({ name: "X-Ray Machine", category: "GADGET" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects medicine because pharmacy owns that flow", () => {
+    expect(
+      createMaterialSchema.safeParse({ name: "Paracetamol 650mg", category: "MEDICINE" }).success,
     ).toBe(false);
   });
 
@@ -54,14 +62,108 @@ describe("updateMaterialSchema", () => {
 
 describe("adjustMaterialStockSchema", () => {
   it("accepts a positive delta", () => {
-    expect(adjustMaterialStockSchema.safeParse({ delta: 5 }).success).toBe(true);
+    expect(
+      adjustMaterialStockSchema.safeParse({
+        locationType: "MAIN",
+        delta: 5,
+        reasonCode: "FOUND",
+      }).success,
+    ).toBe(true);
   });
 
   it("accepts a negative delta (correction)", () => {
-    expect(adjustMaterialStockSchema.safeParse({ delta: -3 }).success).toBe(true);
+    expect(
+      adjustMaterialStockSchema.safeParse({
+        locationType: "MAIN",
+        delta: -3,
+        reasonCode: "CORRECTION",
+      }).success,
+    ).toBe(true);
   });
 
   it("rejects a zero delta", () => {
-    expect(adjustMaterialStockSchema.safeParse({ delta: 0 }).success).toBe(false);
+    expect(
+      adjustMaterialStockSchema.safeParse({
+        locationType: "MAIN",
+        delta: 0,
+        reasonCode: "CORRECTION",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires a department when adjusting department-held stock", () => {
+    expect(
+      adjustMaterialStockSchema.safeParse({
+        locationType: "DEPARTMENT",
+        delta: -1,
+        reasonCode: "DAMAGED",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires damage adjustments to reduce stock", () => {
+    expect(
+      adjustMaterialStockSchema.safeParse({
+        locationType: "MAIN",
+        delta: 2,
+        reasonCode: "DAMAGED",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires a note for OTHER adjustments", () => {
+    expect(
+      adjustMaterialStockSchema.safeParse({
+        locationType: "MAIN",
+        delta: -1,
+        reasonCode: "OTHER",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("material adjustment request schemas", () => {
+  const DEPT = "d93c8b27-4f78-4ee1-a7ac-298b5b4eb09d";
+
+  it("accepts a department reduction request", () => {
+    expect(
+      createMaterialAdjustmentRequestSchema.safeParse({
+        departmentId: DEPT,
+        delta: -2,
+        reasonCode: "DAMAGED",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a non-negative department request", () => {
+    expect(
+      createMaterialAdjustmentRequestSchema.safeParse({
+        departmentId: DEPT,
+        delta: 1,
+        reasonCode: "DAMAGED",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects increase-only reasons in department requests", () => {
+    expect(
+      createMaterialAdjustmentRequestSchema.safeParse({
+        departmentId: DEPT,
+        delta: -1,
+        reasonCode: "FOUND",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts approve/reject review payloads and rejects pending", () => {
+    expect(
+      reviewMaterialAdjustmentRequestSchema.safeParse({ status: "APPROVED" }).success,
+    ).toBe(true);
+    expect(
+      reviewMaterialAdjustmentRequestSchema.safeParse({ status: "REJECTED" }).success,
+    ).toBe(true);
+    expect(
+      reviewMaterialAdjustmentRequestSchema.safeParse({ status: "PENDING" }).success,
+    ).toBe(false);
   });
 });

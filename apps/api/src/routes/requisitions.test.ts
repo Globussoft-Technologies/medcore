@@ -192,7 +192,7 @@ describe("Requisition department scoping", () => {
     const res = await request(buildApp())
       .post("/api/v1/requisitions")
       .set("Authorization", `Bearer ${tok("NURSE")}`)
-      .send({ departmentId: D2, items: [{ inventoryItemId: INV1, requestedQty: 1 }] });
+      .send({ departmentId: D2, items: [{ materialId: MAT1, requestedQty: 1 }] });
     expect(res.status).toBe(403);
     expect(res.body.error).toMatch(/department you belong to/i);
     expect(prismaMock.requisition.create).not.toHaveBeenCalled();

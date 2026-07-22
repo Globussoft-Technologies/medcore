@@ -49,8 +49,17 @@ interface MaterialRef {
   name: string;
   unit: string;
   category?: string;
-  quantity: number;
-  reservedStock: number;
+  quantity?: number;
+  reservedStock?: number;
+  totalQuantity?: number;
+  mainQuantity?: number;
+  departmentQuantities?: Array<{
+    departmentId: string;
+    departmentName: string;
+    departmentCode: string;
+    quantity: number;
+  }>;
+  active?: boolean;
 }
 interface ReqItem {
   id: string;
@@ -450,38 +459,46 @@ function NewRequisitionModal({
   useEffect(() => {
     void (async () => {
       try {
-        const [d, inv, mat] = await Promise.all([
+        const [d, mat] = await Promise.all([
           api.get<{ data: Department[] }>("/requisitions/departments"),
-          api.get<{ data: { items: InventoryItem[] } | InventoryItem[] }>("/pharmacy/inventory?limit=200"),
-          api.get<{ data: Array<{ id: string; name: string; unit: string; quantity: number; reservedStock: number; active: boolean }> }>("/materials?active=true"),
+          api.get<{ data: MaterialRef[] }>("/materials?active=true&forRequisition=true"),
         ]);
         const depts = Array.isArray(d?.data) ? d.data : [];
         setDepartments(depts);
         const mine = depts.find((x) => x.isMine);
         if (mine) setDepartmentId(mine.id);
 
-        const invData: any = inv?.data;
-        const invItems: InventoryItem[] = Array.isArray(invData) ? invData : invData?.items ?? [];
+        const invItems: InventoryItem[] = [];
         const materials = Array.isArray(mat?.data) ? mat.data : [];
-
-        const opts = [
-          ...invItems.map((it) => ({
-            key: `inv:${it.id}`,
-            label: `[Pharmacy] ${it.medicine?.name ?? "Item"} (${it.batchNumber}) — ${it.quantity - it.reservedStock} avail`,
-            avail: it.quantity - it.reservedStock,
-          })),
-          ...materials.map((m) => ({
-            key: `mat:${m.id}`,
-            label: `[Material] ${m.name} — ${m.quantity - m.reservedStock} ${m.unit} avail`,
-            avail: m.quantity - m.reservedStock,
-          })),
-        ];
-        setOptions(opts);
+        const inventoryOptions = invItems.map((it) => ({
+          key: `inv:${it.id}`,
+          label: `[Pharmacy] ${it.medicine?.name ?? "Item"} (${it.batchNumber}) - ${it.quantity - it.reservedStock} avail`,
+          avail: it.quantity - it.reservedStock,
+        }));
+        const materialOptions = materials
+          .map((m) => {
+            const mainQty =
+              typeof m.mainQuantity === "number"
+                ? m.mainQuantity
+                : typeof m.quantity === "number"
+                  ? m.quantity
+                  : typeof m.totalQuantity === "number"
+                    ? m.totalQuantity
+                    : 0;
+            const avail = Math.max(0, mainQty - (m.reservedStock ?? 0));
+            return {
+              key: `mat:${m.id}`,
+              label: `[Material] ${m.name} - ${avail} ${m.unit} avail`,
+              avail,
+            };
+          })
+          .filter((option) => option.avail > 0);
+        setOptions([...inventoryOptions, ...materialOptions]);
       } catch {
         /* leave empty */
       }
     })();
-  }, []);
+  }, [departmentId]);
 
   const canSubmit = useMemo(
     () => !!departmentId && lines.some((l) => l.key && l.requestedQty > 0),

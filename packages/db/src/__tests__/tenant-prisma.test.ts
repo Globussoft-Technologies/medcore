@@ -3,7 +3,7 @@
  *
  * Strategy:
  * - `shouldScope` and `applyTenantScope` are pure — we exercise them directly
- *   across the 20 scoped models and a handful of non-scoped models to prove
+ *   across the scoped models and a handful of non-scoped models to prove
  *   the filter decision matrix is correct.
  * - The extension itself is tested by spying on `prisma.$extends`'s
  *   underlying `query` callback. We drive it through the public
@@ -166,10 +166,10 @@ const { mockPrisma, calls } = vi.hoisted(() => {
   return { mockPrisma, calls };
 });
 
-// `tenant-prisma.ts` reads the `prisma` singleton from `./index`, so that's
-// what we mock. Resolving the relative path through the @medcore/db alias
-// guarantees a single mock target for every consumer in the package.
-vi.mock("../index", () => ({ prisma: mockPrisma }));
+// `tenant-prisma.ts` reads the `prisma` singleton from `./client`, so that's
+// what we mock. This keeps the extension tests on the fake delegate instead of
+// accidentally touching a real Prisma client.
+vi.mock("../client", () => ({ prisma: mockPrisma }));
 
 // Import AFTER the mock is registered so the module sees our fake prisma.
 import {
@@ -195,7 +195,6 @@ describe("shouldScope", () => {
 
   it("returns false for non-tenant-scoped models (catalogs, system config)", () => {
     expect(shouldScope("Icd10Code", "findMany")).toBe(false);
-    expect(shouldScope("Medicine", "findMany")).toBe(false);
     expect(shouldScope("SystemConfig", "create")).toBe(false);
   });
 
@@ -345,14 +344,30 @@ describe("tenantScopedPrisma auto-injection", () => {
     expect((calls[0].args as any).where.tenantId).toBeUndefined();
   });
 
-  it("non-tenant-scoped models pass create through without tenantId", async () => {
+  it("tenant-scoped catalog models (Medicine) receive tenantId", async () => {
     await runWithTenant("t1", async () => {
       await (tenantScopedPrisma as any).medicine.create({
         data: { name: "Paracetamol" },
       });
     });
     expect(calls).toHaveLength(1);
-    expect((calls[0].args as any).data).toEqual({ name: "Paracetamol" });
+    expect((calls[0].args as any).data).toEqual({
+      name: "Paracetamol",
+      tenantId: "t1",
+    });
+  });
+
+  it("non-tenant-scoped models pass create through without tenantId", async () => {
+    await runWithTenant("t1", async () => {
+      await (tenantScopedPrisma as any).systemConfig.create({
+        data: { key: "timezone", value: "Asia/Calcutta" },
+      });
+    });
+    expect(calls).toHaveLength(1);
+    expect((calls[0].args as any).data).toEqual({
+      key: "timezone",
+      value: "Asia/Calcutta",
+    });
     expect((calls[0].args as any).data.tenantId).toBeUndefined();
   });
 

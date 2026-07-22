@@ -25,8 +25,10 @@ const { prismaMock } = vi.hoisted(() => {
       delete: vi.fn(async () => ({})),
     },
     requisition: { findMany: vi.fn(async () => []) },
+    departmentMaterialHolding: { findMany: vi.fn(async () => []) },
     departmentMember: {
       findMany: vi.fn(async () => []),
+      findFirst: vi.fn(async () => null),
       findUnique: vi.fn(async () => null),
       upsert: vi.fn(async () => ({})),
       delete: vi.fn(async () => ({})),
@@ -77,20 +79,39 @@ beforeEach(() => {
     }
   });
   prismaMock.auditLog.create.mockResolvedValue({ id: "al" });
+  prismaMock.departmentMember.findMany.mockResolvedValue([{ departmentId: D1 }]);
+  prismaMock.departmentMember.findFirst.mockResolvedValue({ id: "dm1" });
+  prismaMock.departmentMaterialHolding.findMany.mockResolvedValue([]);
 });
 
 describe("Department RBAC", () => {
-  it("ADMIN can list; non-admin (NURSE) gets 403", async () => {
+  it("ADMIN can list all departments; assigned NURSE sees only assigned departments", async () => {
     prismaMock.department.findMany.mockResolvedValue([]);
     const ok = await request(buildApp())
       .get("/api/v1/departments")
       .set("Authorization", `Bearer ${tok("ADMIN")}`);
     expect(ok.status).toBe(200);
 
-    const denied = await request(buildApp())
+    const assigned = await request(buildApp())
       .get("/api/v1/departments")
       .set("Authorization", `Bearer ${tok("NURSE")}`);
-    expect(denied.status).toBe(403);
+    expect(assigned.status).toBe(200);
+    expect(prismaMock.department.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { in: [D1] }, active: true }),
+      }),
+    );
+  });
+
+  it("unassigned staff list gets an empty result with notInAnyDepartment", async () => {
+    prismaMock.departmentMember.findMany.mockResolvedValue([]);
+    const res = await request(buildApp())
+      .get("/api/v1/departments")
+      .set("Authorization", `Bearer ${tok("NURSE")}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data).toEqual([]);
+    expect(res.body.meta?.notInAnyDepartment).toBe(true);
+    expect(prismaMock.department.findMany).not.toHaveBeenCalled();
   });
 
   it("non-admin cannot create a department", async () => {
@@ -376,6 +397,48 @@ describe("Department detail", () => {
       totalUnitsIssued: 5,
     });
     expect(res.body.data.consumed).toEqual([{ name: "Gloves", unit: "box", issued: 5 }]);
+  });
+
+  it("allows an assigned NURSE to read their department detail", async () => {
+    prismaMock.department.findUnique.mockResolvedValue({
+      id: D1,
+      name: "OT",
+      code: "OT",
+      active: true,
+      createdAt: new Date("2026-07-01"),
+    });
+    prismaMock.departmentMember.findFirst.mockResolvedValue({ id: "dm1" });
+    prismaMock.departmentMember.findMany.mockResolvedValue([
+      { id: "dm1", userId: U1, user: { id: U1, name: "Dr X", email: "x@t.local", role: "DOCTOR" } },
+    ]);
+    prismaMock.requisition.findMany.mockResolvedValue([]);
+    prismaMock.departmentMaterialHolding.findMany.mockResolvedValue([]);
+
+    const res = await request(buildApp())
+      .get(`/api/v1/departments/${D1}/detail`)
+      .set("Authorization", `Bearer ${tok("NURSE")}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.department.name).toBe("OT");
+  });
+
+  it("returns No assigned department for unassigned staff detail access", async () => {
+    prismaMock.department.findUnique.mockResolvedValue({
+      id: D1,
+      name: "OT",
+      code: "OT",
+      active: true,
+      createdAt: new Date("2026-07-01"),
+    });
+    prismaMock.departmentMember.findFirst.mockResolvedValue(null);
+    prismaMock.departmentMember.findMany.mockResolvedValue([]);
+
+    const res = await request(buildApp())
+      .get(`/api/v1/departments/${D1}/detail`)
+      .set("Authorization", `Bearer ${tok("NURSE")}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("No assigned department");
   });
 
   it("404s for a missing department detail", async () => {

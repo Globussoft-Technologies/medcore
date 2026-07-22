@@ -198,16 +198,24 @@ describe("GET /search — Issue #612 (PHARMACIST role allowlist)", () => {
     );
   });
 
-  it("NURSE gets the Requisitions shortcut but NOT Departments/Materials", async () => {
+  it("NURSE gets Departments/Requisitions shortcuts but NOT Materials", async () => {
     const res = await request(buildApp())
-      .get("/api/v1/search?q=re")
+      .get("/api/v1/search?q=de")
       .set("Authorization", `Bearer ${tokenFor("NURSE")}`)
       .expect(200);
     const hrefs = (res.body.data as Array<any>)
       .filter((h) => h.type === "label")
       .map((h) => h.href);
-    expect(hrefs).toContain("/dashboard/requisitions");
-    expect(hrefs).not.toContain("/dashboard/departments");
+    expect(hrefs).toContain("/dashboard/departments");
     expect(hrefs).not.toContain("/dashboard/materials");
+
+    const reqRes = await request(buildApp())
+      .get("/api/v1/search?q=requisition")
+      .set("Authorization", `Bearer ${tokenFor("NURSE")}`)
+      .expect(200);
+    const reqHrefs = (reqRes.body.data as Array<any>)
+      .filter((h) => h.type === "label")
+      .map((h) => h.href);
+    expect(reqHrefs).toContain("/dashboard/requisitions");
   });
 });

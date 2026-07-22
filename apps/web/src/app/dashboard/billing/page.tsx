@@ -63,6 +63,55 @@ interface OutstandingRow {
 
 type Tab = "all" | "PENDING" | "PARTIAL" | "PAID" | "REFUNDED" | "outstanding";
 
+const BILLING_FALLBACKS: Record<string, string> = {
+  "common.all": "All",
+  "common.actions": "Actions",
+  "common.exportCsv": "Export CSV",
+  "common.status": "Status",
+  "common.view": "View",
+  "dashboard.billing.title": "Billing",
+  "dashboard.billing.invoiceNumber": "Invoice #",
+  "dashboard.billing.amount": "Amount",
+  "dashboard.billing.paid": "Paid",
+  "dashboard.billing.balance": "Balance",
+  "dashboard.billing.total": "Total",
+  "dashboard.billing.allTenants": "All tenants",
+  "dashboard.billing.totalOutstanding": "Total Outstanding",
+  "dashboard.billing.todaysCollection": "Today's Collection",
+  "dashboard.billing.thisMonthsRevenue": "This Month's Revenue",
+  "dashboard.billing.refundsThisMonth": "Refunds This Month",
+  "dashboard.billing.outstandingReport": "Outstanding Report",
+  "dashboard.billing.patient": "Patient",
+  "dashboard.billing.age": "Age",
+  "dashboard.billing.days": "days",
+  "dashboard.billing.daySuffix": "d",
+  "dashboard.billing.daysOverdue": "Days Overdue",
+  "dashboard.billing.credit": "CREDIT",
+  "dashboard.billing.sendBill": "Send Bill",
+  "dashboard.billing.sendBillWhatsApp": "Send Bill (WhatsApp)",
+  "dashboard.billing.recordPayment": "Record Payment",
+  "dashboard.billing.recordRefund": "Record Refund",
+  "dashboard.billing.applyDiscount": "Apply Discount",
+  "dashboard.billing.printInvoice": "Print Invoice",
+  "dashboard.billing.payOnline": "Pay Online",
+  "dashboard.billing.testMode": "TEST",
+  "dashboard.billing.actionsMenuForInvoice": "Actions menu for invoice",
+  "dashboard.billing.restricted": "Billing is restricted to Admin, Reception, and Patients.",
+  "dashboard.billing.empty.noOutstanding": "No outstanding invoices.",
+  "dashboard.billing.empty.noInvoices": "No invoices yet",
+  "dashboard.billing.empty.noInvoicesDesc": "Invoices will appear here once they are generated from visits or admissions.",
+  "dashboard.billing.status.pending": "Pending",
+  "dashboard.billing.status.partial": "Partial",
+  "dashboard.billing.status.paid": "Paid",
+  "dashboard.billing.status.refunded": "Refunded",
+  "dashboard.billing.status.overpaid": "Overpaid",
+  "dashboard.billing.statusBadge.pending": "PENDING",
+  "dashboard.billing.statusBadge.partial": "PARTIAL",
+  "dashboard.billing.statusBadge.paid": "PAID",
+  "dashboard.billing.statusBadge.refunded": "REFUNDED",
+  "dashboard.billing.statusBadge.overpaid": "OVERPAID",
+};
+
 function fmtMoney(n: number) {
   return `Rs. ${n.toLocaleString("en-IN", {
     minimumFractionDigits: 2,
@@ -96,7 +145,15 @@ export default function BillingPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
-  const { t } = useTranslation();
+  const { t: translate } = useTranslation();
+  const t = useCallback(
+    (key: string, fallback?: string) => {
+      const resolvedFallback = fallback ?? BILLING_FALLBACKS[key];
+      const value = translate(key, resolvedFallback);
+      return value === key ? resolvedFallback ?? key : value;
+    },
+    [translate],
+  );
 
   // Issue #89: redirect DOCTORs (or any non-allowed role) away.
   // Issue #501: redirect to /dashboard/not-authorized (the chrome-wrapped
@@ -110,7 +167,7 @@ export default function BillingPage() {
   // kept as a secondary cue for power users who navigate quickly.
   useEffect(() => {
     if (!isLoading && user && !BILLING_ALLOWED.has(user.role)) {
-      toast.error("Billing is restricted to Admin, Reception, and Patients.");
+      toast.error(t("dashboard.billing.restricted"));
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/billing")}`,
       );
@@ -459,6 +516,11 @@ export default function BillingPage() {
     URL.revokeObjectURL(url);
   }
 
+  const statusLabel = (status: string) =>
+    t(`dashboard.billing.status.${status.toLowerCase()}`, status);
+  const statusBadgeLabel = (status: string) =>
+    t(`dashboard.billing.statusBadge.${status.toLowerCase()}`, status);
+
   const statusColors: Record<string, string> = {
     PENDING: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200",
     PARTIAL: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200",
@@ -471,12 +533,12 @@ export default function BillingPage() {
   };
 
   const tabs: Array<{ id: Tab; label: string }> = [
-    { id: "all", label: "All" },
-    { id: "PENDING", label: "Pending" },
-    { id: "PARTIAL", label: "Partial" },
-    { id: "PAID", label: "Paid" },
-    { id: "REFUNDED", label: "Refunded" },
-    { id: "outstanding", label: "Outstanding Report" },
+    { id: "all", label: t("common.all") },
+    { id: "PENDING", label: t("dashboard.billing.status.pending") },
+    { id: "PARTIAL", label: t("dashboard.billing.status.partial") },
+    { id: "PAID", label: t("dashboard.billing.status.paid") },
+    { id: "REFUNDED", label: t("dashboard.billing.status.refunded") },
+    { id: "outstanding", label: t("dashboard.billing.outstandingReport") },
   ];
 
   const isStaff = user?.role === "ADMIN" || user?.role === "RECEPTION";
@@ -564,7 +626,7 @@ export default function BillingPage() {
                 tenants={tenants}
                 value={selectedTenantId}
                 onChange={setSelectedTenantId}
-                allLabel="All tenants"
+                allLabel={t("dashboard.billing.allTenants")}
                 className="w-full sm:w-64"
                 testId="billing-tenant-filter"
               />
@@ -577,7 +639,7 @@ export default function BillingPage() {
             }}
             className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
-            <Download size={14} /> Export CSV
+            <Download size={14} /> {t("common.exportCsv")}
           </button>
         </div>
       </div>
@@ -586,25 +648,25 @@ export default function BillingPage() {
       {isStaff && (
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
-            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Total Outstanding</p>
+            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("dashboard.billing.totalOutstanding")}</p>
             <p className="mt-1 text-2xl font-bold text-red-600 dark:text-red-400">
               {fmtMoney(summary.totalOutstanding)}
             </p>
           </div>
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
-            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Today&apos;s Collection</p>
+            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("dashboard.billing.todaysCollection")}</p>
             <p className="mt-1 text-2xl font-bold text-green-600 dark:text-green-400">
               {fmtMoney(summary.todayCollection)}
             </p>
           </div>
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
-            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">This Month&apos;s Revenue</p>
+            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("dashboard.billing.thisMonthsRevenue")}</p>
             <p className="mt-1 text-2xl font-bold text-primary dark:text-blue-300">
               {fmtMoney(summary.monthRevenue)}
             </p>
           </div>
           <div className="rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
-            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">Refunds This Month</p>
+            <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("dashboard.billing.refundsThisMonth")}</p>
             <p className="mt-1 text-2xl font-bold text-orange-500 dark:text-orange-400">
               {fmtMoney(summary.monthRefunds)}
             </p>
@@ -641,20 +703,20 @@ export default function BillingPage() {
         ) : tab === "outstanding" ? (
           outstanding.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-              No outstanding invoices.
+              {t("dashboard.billing.empty.noOutstanding")}
             </div>
           ) : (
             <table className="w-full min-w-[920px]">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                  <th className="px-4 py-3">Invoice #</th>
-                  <th className="px-4 py-3">Patient</th>
-                  <th className="min-w-36 px-4 py-3 text-right">Total</th>
-                  <th className="min-w-36 px-4 py-3 text-right">Paid</th>
-                  <th className="min-w-36 px-4 py-3 text-right">Balance</th>
-                  <th className="px-4 py-3">Days Overdue</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Actions</th>
+                  <th className="px-4 py-3">{t("dashboard.billing.invoiceNumber")}</th>
+                  <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
+                  <th className="min-w-36 px-4 py-3 text-right">{t("dashboard.billing.total")}</th>
+                  <th className="min-w-36 px-4 py-3 text-right">{t("dashboard.billing.paid")}</th>
+                  <th className="min-w-36 px-4 py-3 text-right">{t("dashboard.billing.balance")}</th>
+                  <th className="px-4 py-3">{t("dashboard.billing.daysOverdue")}</th>
+                  <th className="px-4 py-3">{t("common.status")}</th>
+                  <th className="px-4 py-3">{t("common.actions")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -690,13 +752,13 @@ export default function BillingPage() {
                       <MoneyValue amount={r.balance} tone="text-red-600" />
                     </td>
                     <td className={`px-4 py-3 text-sm ${overdueClass(r.daysOverdue)}`}>
-                      {r.daysOverdue} days
+                      {r.daysOverdue} {t("dashboard.billing.days")}
                     </td>
                     <td className="px-4 py-3">
                       <span
                         className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[r.paymentStatus] || ""}`}
                       >
-                        {r.paymentStatus}
+                        {statusBadgeLabel(r.paymentStatus)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
@@ -711,7 +773,7 @@ export default function BillingPage() {
                         }}
                         className="flex items-center gap-1 rounded bg-green-600 px-2 py-1 text-xs text-white hover:bg-green-700"
                       >
-                        <Send size={12} /> Send Bill
+                        <Send size={12} /> {t("dashboard.billing.sendBill")}
                       </button>
                     </td>
                   </tr>
@@ -721,21 +783,21 @@ export default function BillingPage() {
           )
         ) : invoices.length === 0 ? (
           <EmptyState
-            title="No invoices yet"
-            description="Invoices will appear here once they are generated from visits or admissions."
+            title={t("dashboard.billing.empty.noInvoices")}
+            description={t("dashboard.billing.empty.noInvoicesDesc")}
           />
         ) : (
           <table className="w-full min-w-[920px]">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-4 py-3">Invoice #</th>
-                <th className="px-4 py-3">Patient</th>
-                <th className="min-w-36 px-4 py-3 text-right">Amount</th>
-                <th className="min-w-36 px-4 py-3 text-right">Paid</th>
-                <th className="min-w-36 px-4 py-3 text-right">Balance</th>
-                <th className="px-4 py-3">Age</th>
-                <th className="px-4 py-3">Status</th>
-                {(isStaff || isPatient) && <th className="px-4 py-3">Actions</th>}
+                <th className="px-4 py-3">{t("dashboard.billing.invoiceNumber")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
+                <th className="min-w-36 px-4 py-3 text-right">{t("dashboard.billing.amount")}</th>
+                <th className="min-w-36 px-4 py-3 text-right">{t("dashboard.billing.paid")}</th>
+                <th className="min-w-36 px-4 py-3 text-right">{t("dashboard.billing.balance")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.age")}</th>
+                <th className="px-4 py-3">{t("common.status")}</th>
+                {(isStaff || isPatient) && <th className="px-4 py-3">{t("common.actions")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -782,7 +844,7 @@ export default function BillingPage() {
                           data-testid={`bills-credit-${inv.id}`}
                           className="text-xs font-medium text-purple-700 dark:text-purple-300"
                         >
-                          CREDIT {fmtMoney(inv.overpaid)}
+                          {t("dashboard.billing.credit")} {fmtMoney(inv.overpaid)}
                         </span>
                       </div>
                     ) : (
@@ -805,21 +867,21 @@ export default function BillingPage() {
                     data-testid={`bills-age-${inv.id}`}
                     className={`px-4 py-3 text-sm ${overdueClass(inv.age)}`}
                   >
-                    {inv.age}d
+                    {inv.age}{t("dashboard.billing.daySuffix")}
                   </td>
                   <td className="px-4 py-3">
                     <span
                       data-testid={`bills-status-${inv.id}`}
                       className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[inv.displayStatus] || ""}`}
                     >
-                      {inv.displayStatus}
+                      {statusBadgeLabel(inv.displayStatus)}
                     </span>
                   </td>
                   {isStaff && (
                     <td className="px-4 py-3">
                       <button
                         type="button"
-                        aria-label={`Actions menu for invoice ${inv.invoiceNumber}`}
+                        aria-label={`${t("dashboard.billing.actionsMenuForInvoice")} ${inv.invoiceNumber}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           const rect = e.currentTarget.getBoundingClientRect();
@@ -879,7 +941,7 @@ export default function BillingPage() {
                                       }}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                                     >
-                                      <Receipt size={14} /> Record Payment
+                                      <Receipt size={14} /> {t("dashboard.billing.recordPayment")}
                                     </button>
                                   )}
                                   {inv.displayStatus !== "PAID" && razorpay.enabled && (
@@ -892,10 +954,10 @@ export default function BillingPage() {
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                                     >
                                       <Globe size={14} />
-                                      <span>Pay Online</span>
+                                      <span>{t("dashboard.billing.payOnline")}</span>
                                       {razorpay.isTestMode && (
                                         <span className="ml-auto rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
-                                          TEST
+                                          {t("dashboard.billing.testMode")}
                                         </span>
                                       )}
                                     </Link>
@@ -911,7 +973,7 @@ export default function BillingPage() {
                                       }}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                                     >
-                                      <Undo2 size={14} /> Record Refund
+                                      <Undo2 size={14} /> {t("dashboard.billing.recordRefund")}
                                     </button>
                                   )}
                                   {inv.displayStatus !== "PAID" &&
@@ -925,7 +987,7 @@ export default function BillingPage() {
                                         }}
                                         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                                       >
-                                        <Percent size={14} /> Apply Discount
+                                        <Percent size={14} /> {t("dashboard.billing.applyDiscount")}
                                       </button>
                                     )}
                                   <Link
@@ -936,7 +998,7 @@ export default function BillingPage() {
                                     }}
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                                   >
-                                    <Printer size={14} /> Print Invoice
+                                    <Printer size={14} /> {t("dashboard.billing.printInvoice")}
                                   </Link>
                                   {inv.balance > 0 && (
                                     <button
@@ -952,7 +1014,7 @@ export default function BillingPage() {
                                       }}
                                       className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700"
                                     >
-                                      <Send size={14} /> Send Bill (WhatsApp)
+                                      <Send size={14} /> {t("dashboard.billing.sendBillWhatsApp")}
                                     </button>
                                   )}
                                 </div>
@@ -972,10 +1034,10 @@ export default function BillingPage() {
                           className="inline-flex h-9 min-w-[44px] items-center justify-center gap-1.5 rounded-md bg-emerald-700 px-3 text-xs font-medium text-white hover:bg-emerald-800"
                         >
                           <Globe size={14} aria-hidden="true" />
-                          <span>Pay Online</span>
+                          <span>{t("dashboard.billing.payOnline")}</span>
                           {razorpay.isTestMode && (
                             <span className="rounded bg-yellow-300 px-1 py-0.5 text-[10px] font-bold text-yellow-900">
-                              TEST
+                              {t("dashboard.billing.testMode")}
                             </span>
                           )}
                         </Link>
@@ -985,7 +1047,7 @@ export default function BillingPage() {
                           data-testid={`bills-view-${inv.id}`}
                           className="inline-flex h-9 min-w-[44px] items-center justify-center rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"
                         >
-                          View
+                          {t("common.view")}
                         </Link>
                       )}
                     </td>

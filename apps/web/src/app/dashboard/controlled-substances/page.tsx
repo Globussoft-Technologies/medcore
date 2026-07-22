@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
+import { useTranslation } from "@/lib/i18n";
 import { ShieldAlert, Download, FileWarning, ListTree } from "lucide-react";
 import { formatDoctorName } from "@/lib/format-doctor-name";
 import { SkeletonTable } from "@/components/Skeleton";
@@ -53,6 +54,7 @@ type Tab = "entries" | "register" | "audit";
 
 export default function ControlledSubstancesPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const router = useRouter();
   const pathname = usePathname();
   const [tab, setTab] = useState<Tab>("entries");
@@ -82,12 +84,12 @@ export default function ControlledSubstancesPage() {
     if (user && !canView) {
       // Issue #179: target /dashboard/not-authorized so the user keeps the
       // sidebar/app shell instead of getting bounced to the dashboard home.
-      toast.error("Controlled Substance Register is restricted to clinical and pharmacy roles.");
+      toast.error(t("dashboard.controlledSubstances.restricted"));
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/controlled-substances")}`,
       );
     }
-  }, [user, canView, router, pathname]);
+  }, [user, canView, router, pathname, t]);
 
   // Load medicines flagged as requiresRegister (paginate all via search)
   useEffect(() => {
@@ -169,7 +171,16 @@ export default function ControlledSubstancesPage() {
 
   const csv = useMemo(() => {
     const rows = [
-      ["Entry #", "Date", "Medicine", "Quantity", "Balance", "Patient", "Doctor", "Dispensed By"],
+      [
+        t("dashboard.controlledSubstances.col.entryNumber"),
+        t("common.date"),
+        t("dashboard.controlledSubstances.col.medicine"),
+        t("dashboard.controlledSubstances.col.quantity"),
+        t("dashboard.controlledSubstances.col.balance"),
+        t("dashboard.controlledSubstances.col.patient"),
+        t("dashboard.controlledSubstances.col.doctor"),
+        t("dashboard.controlledSubstances.col.dispensedBy"),
+      ],
       ...entries.map((e) => [
         e.entryNumber,
         new Date(e.dispensedAt).toISOString(),
@@ -182,7 +193,7 @@ export default function ControlledSubstancesPage() {
       ]),
     ];
     return rows.map((r) => r.map((c) => `"${(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-  }, [entries]);
+  }, [entries, t]);
 
   const downloadCsv = () => {
     const blob = new Blob([csv], { type: "text/csv" });
@@ -198,7 +209,7 @@ export default function ControlledSubstancesPage() {
     return (
       <div className="rounded-lg border border-red-300 bg-red-50 p-6">
         <p className="text-red-700">
-          Access denied. This page is for Admin and Reception only.
+          {t("dashboard.controlledSubstances.accessDenied")}
         </p>
       </div>
     );
@@ -209,17 +220,17 @@ export default function ControlledSubstancesPage() {
       <div className="mb-6 flex items-center gap-3">
         <ShieldAlert className="text-red-600" size={28} />
         <div>
-          <h1 className="text-2xl font-bold">Controlled Substance Register</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Schedule H / H1 / X narcotic and controlled drug tracking.</p>
+          <h1 className="text-2xl font-bold">{t("dashboard.controlledSubstances.title")}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("dashboard.controlledSubstances.subtitle")}</p>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="mb-4 flex gap-2 border-b dark:border-gray-700">
         {([
-          { k: "entries", label: "All Entries", icon: ListTree },
-          { k: "register", label: "Register by Medicine", icon: ShieldAlert },
-          { k: "audit", label: "Audit Report", icon: FileWarning },
+          { k: "entries", label: t("dashboard.controlledSubstances.tab.entries"), icon: ListTree },
+          { k: "register", label: t("dashboard.controlledSubstances.tab.register"), icon: ShieldAlert },
+          { k: "audit", label: t("dashboard.controlledSubstances.tab.audit"), icon: FileWarning },
         ] as const).map(({ k, label, icon: Icon }) => (
           <button
             key={k}
@@ -239,14 +250,14 @@ export default function ControlledSubstancesPage() {
       {/* Filters */}
       <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
         <div>
-          <label htmlFor="cs-filter-medicine" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">Medicine</label>
+          <label htmlFor="cs-filter-medicine" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("dashboard.controlledSubstances.col.medicine")}</label>
           <select
             id="cs-filter-medicine"
             className={MODAL_FIELD}
             value={medicineFilter}
             onChange={(e) => setMedicineFilter(e.target.value)}
           >
-            <option value="">All controlled medicines</option>
+            <option value="">{t("dashboard.controlledSubstances.allMedicines")}</option>
             {medicines.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name} {m.strength ?? ""} {m.scheduleClass ? `[${m.scheduleClass}]` : ""}
@@ -257,7 +268,7 @@ export default function ControlledSubstancesPage() {
         {tab !== "register" && (
           <>
             <div>
-              <label htmlFor="cs-filter-from" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">From</label>
+              <label htmlFor="cs-filter-from" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("common.from")}</label>
               <input
                 id="cs-filter-from"
                 type="date"
@@ -267,7 +278,7 @@ export default function ControlledSubstancesPage() {
               />
             </div>
             <div>
-              <label htmlFor="cs-filter-to" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">To</label>
+              <label htmlFor="cs-filter-to" className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">{t("common.to")}</label>
               <input
                 id="cs-filter-to"
                 type="date"
@@ -283,7 +294,7 @@ export default function ControlledSubstancesPage() {
             onClick={downloadCsv}
             className="ml-auto flex items-center gap-2 rounded bg-primary px-3 py-1.5 text-sm text-white"
           >
-            <Download size={14} /> Export CSV
+            <Download size={14} /> {t("common.exportCsv")}
           </button>
         )}
       </div>
@@ -301,17 +312,17 @@ export default function ControlledSubstancesPage() {
         <EntryTable entries={entries} />
       ) : tab === "register" ? (
         !medicineFilter ? (
-          <p className="text-gray-500 dark:text-gray-400">Choose a medicine above to view its register.</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("dashboard.controlledSubstances.chooseMedicine")}</p>
         ) : !registerData ? (
-          <p className="text-gray-500 dark:text-gray-400">No data</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("common.noData")}</p>
         ) : (
           <div>
             <div className="mb-3 rounded border bg-blue-50 p-3 text-sm">
               <strong>{registerData.medicine.name}</strong> {registerData.medicine.strength ?? ""}{" "}
               {registerData.medicine.scheduleClass
-                ? `— Schedule ${registerData.medicine.scheduleClass}`
+                ? `— ${t("dashboard.controlledSubstances.schedule")} ${registerData.medicine.scheduleClass}`
                 : ""}
-              <div>Current on-hand: <strong>{registerData.currentOnHand}</strong></div>
+              <div>{t("dashboard.controlledSubstances.currentOnHand")}: <strong>{registerData.currentOnHand}</strong></div>
             </div>
             <EntryTable entries={registerData.entries} />
           </div>
@@ -324,21 +335,23 @@ export default function ControlledSubstancesPage() {
 }
 
 function EntryTable({ entries }: { entries: CsEntry[] }) {
+  const { t } = useTranslation();
+
   if (entries.length === 0)
-    return <p className="text-gray-500 dark:text-gray-400">No entries match the filter.</p>;
+    return <p className="text-gray-500 dark:text-gray-400">{t("dashboard.controlledSubstances.noEntries")}</p>;
   return (
     <div className="overflow-x-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
       <table className="w-full text-sm">
         <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/40 dark:text-gray-300">
           <tr>
-            <th className="p-2">Entry #</th>
-            <th className="p-2">Date</th>
-            <th className="p-2">Medicine</th>
-            <th className="p-2">Qty</th>
-            <th className="p-2">Balance</th>
-            <th className="p-2">Patient</th>
-            <th className="p-2">Doctor</th>
-            <th className="p-2">Dispensed By</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.entryNumber")}</th>
+            <th className="p-2">{t("common.date")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.medicine")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.qty")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.balance")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.patient")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.doctor")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.dispensedBy")}</th>
           </tr>
         </thead>
         <tbody>
@@ -382,20 +395,22 @@ function EntryTable({ entries }: { entries: CsEntry[] }) {
 }
 
 function AuditTable({ rows }: { rows: AuditRow[] }) {
+  const { t } = useTranslation();
+
   if (rows.length === 0)
-    return <p className="text-gray-500 dark:text-gray-400">No register activity in the selected window.</p>;
+    return <p className="text-gray-500 dark:text-gray-400">{t("dashboard.controlledSubstances.noRegisterActivity")}</p>;
   return (
     <div className="overflow-x-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
       <table className="w-full text-sm">
         <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/40 dark:text-gray-300">
           <tr>
-            <th className="p-2">Medicine</th>
-            <th className="p-2">Schedule</th>
-            <th className="p-2">Entries</th>
-            <th className="p-2">Total Dispensed</th>
-            <th className="p-2">Register Balance</th>
-            <th className="p-2">On-hand</th>
-            <th className="p-2">Discrepancy</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.medicine")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.schedule")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.entries")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.totalDispensed")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.registerBalance")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.onHand")}</th>
+            <th className="p-2">{t("dashboard.controlledSubstances.col.discrepancy")}</th>
           </tr>
         </thead>
         <tbody>

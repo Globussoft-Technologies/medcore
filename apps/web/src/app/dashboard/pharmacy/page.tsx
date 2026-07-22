@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { useConfirm } from "@/lib/use-dialog";
+import { useTranslation } from "@/lib/i18n";
 import { Plus, Package, Search } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
 
@@ -98,6 +99,7 @@ const VIEW_ALLOWED = new Set(["ADMIN", "PHARMACIST", "DOCTOR", "NURSE"]);
 
 export default function PharmacyPage() {
   const { user, isLoading } = useAuthStore();
+  const { t: tr } = useTranslation();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -108,12 +110,12 @@ export default function PharmacyPage() {
   // the pharmacy inventory UI by typing the URL directly.
   useEffect(() => {
     if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
-      toast.error("Pharmacy inventory is restricted to clinical and pharmacy roles.");
+      toast.error(tr("dashboard.pharmacy.restricted"));
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/pharmacy")}`,
       );
     }
-  }, [user, isLoading, router, pathname]);
+  }, [user, isLoading, router, pathname, tr]);
   // Deep-link support (e.g. dashboard "View all" → ?tab=low / ?tab=expiring)
   // so the page opens directly on the requested tab.
   const initialTab = ((): Tab => {
@@ -295,7 +297,7 @@ export default function PharmacyPage() {
   // still turns red via expiryColor). Future batches show the formatted date.
   function expiryLabel(exp: string): string {
     return new Date(exp).getTime() < Date.now()
-      ? "Expired"
+      ? tr("dashboard.pharmacy.expired")
       : new Date(exp).toLocaleDateString();
   }
 
@@ -313,9 +315,9 @@ export default function PharmacyPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold text-gray-900 sm:text-2xl dark:text-gray-100">
-            <Package className="text-primary" /> Pharmacy
+            <Package className="text-primary" /> {tr("dashboard.nav.pharmacy")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Inventory management</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{tr("dashboard.pharmacy.subtitle")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Pearl §4.3 (gap row 104) — discoverability for the new
@@ -328,14 +330,14 @@ export default function PharmacyPage() {
             className="flex items-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
             data-testid="pharmacy-open-kanban"
           >
-            Kanban Board
+            {tr("dashboard.nav.kanbanBoard")}
           </button>
           {canManage && (
             <button
               onClick={() => setShowAdd(true)}
               className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
             >
-              <Plus size={16} /> Add Stock
+              <Plus size={16} /> {tr("dashboard.pharmacy.addStock")}
             </button>
           )}
         </div>
@@ -343,29 +345,29 @@ export default function PharmacyPage() {
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button onClick={() => setTab("inventory")} className={tabClass("inventory")}>
-          Inventory
+          {tr("dashboard.pharmacy.tab.inventory")}
         </button>
         <button onClick={() => setTab("low")} className={tabClass("low")}>
-          Low Stock
+          {tr("dashboard.pharmacy.tab.low")}
         </button>
         <button onClick={() => setTab("expiring")} className={tabClass("expiring")}>
-          Expiring Soon
+          {tr("dashboard.pharmacy.tab.expiring")}
         </button>
         <button onClick={() => setTab("movements")} className={tabClass("movements")}>
-          Movements
+          {tr("dashboard.pharmacy.tab.movements")}
         </button>
         <button onClick={() => setTab("returns")} className={tabClass("returns")}>
-          Returns
+          {tr("dashboard.pharmacy.tab.returns")}
         </button>
         <button onClick={() => setTab("transfers")} className={tabClass("transfers")}>
-          Transfers
+          {tr("dashboard.pharmacy.tab.transfers")}
         </button>
         {isAdmin && (
           <button
             onClick={() => setTab("valuation")}
             className={tabClass("valuation")}
           >
-            Valuation
+            {tr("dashboard.pharmacy.tab.valuation")}
           </button>
         )}
       </div>
@@ -377,7 +379,7 @@ export default function PharmacyPage() {
             className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
           />
           <input
-            placeholder="Search medicines or batches..."
+            placeholder={tr("dashboard.pharmacy.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 pl-9 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
@@ -399,17 +401,17 @@ export default function PharmacyPage() {
           </div>
         ) : tab === "movements" ? (
           movements.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">No movements.</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">{tr("dashboard.pharmacy.empty.movements")}</div>
           ) : (
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3">Medicine</th>
-                  <th className="px-4 py-3">Batch</th>
-                  <th className="px-4 py-3">Quantity</th>
-                  <th className="px-4 py-3">Notes</th>
+                  <th className="px-4 py-3">{tr("common.date")}</th>
+                  <th className="px-4 py-3">{tr("common.type")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.medicine")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.batch")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.quantity")}</th>
+                  <th className="px-4 py-3">{tr("common.notes")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -442,19 +444,19 @@ export default function PharmacyPage() {
           )
         ) : tab === "returns" ? (
           returns.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">No returns.</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">{tr("dashboard.pharmacy.empty.returns")}</div>
           ) : (
             <div className="overflow-x-auto">
             <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                  <th className="px-4 py-3">Return #</th>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Medicine</th>
-                  <th className="px-4 py-3">Batch</th>
-                  <th className="px-4 py-3">Qty</th>
-                  <th className="px-4 py-3">Reason</th>
-                  <th className="px-4 py-3">Refund</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.returnNo")}</th>
+                  <th className="px-4 py-3">{tr("common.date")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.medicine")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.batch")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.qty")}</th>
+                  <th className="px-4 py-3">{tr("common.reason")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.refund")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -485,19 +487,19 @@ export default function PharmacyPage() {
           )
         ) : tab === "transfers" ? (
           transfers.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">No transfers.</div>
+            <div className="p-8 text-center text-gray-500 dark:text-gray-400">{tr("dashboard.pharmacy.empty.transfers")}</div>
           ) : (
             <div className="overflow-x-auto">
             <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                  <th className="px-4 py-3">Transfer #</th>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Medicine</th>
-                  <th className="px-4 py-3">Batch</th>
-                  <th className="px-4 py-3">From</th>
-                  <th className="px-4 py-3">To</th>
-                  <th className="px-4 py-3">Qty</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.transferNo")}</th>
+                  <th className="px-4 py-3">{tr("common.date")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.medicine")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.batch")}</th>
+                  <th className="px-4 py-3">{tr("common.from")}</th>
+                  <th className="px-4 py-3">{tr("common.to")}</th>
+                  <th className="px-4 py-3">{tr("dashboard.pharmacy.col.qty")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -530,19 +532,19 @@ export default function PharmacyPage() {
                 Issue #619: flex-wrap so the toolbar reflows on narrow viewports
                 instead of overflowing horizontally. */}
             <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-              <label htmlFor="pharmacy-valuation-method" className="text-sm text-gray-600 dark:text-gray-300">Method:</label>
+              <label htmlFor="pharmacy-valuation-method" className="text-sm text-gray-600 dark:text-gray-300">{tr("dashboard.pharmacy.method")}:</label>
               <select
                 id="pharmacy-valuation-method"
                 value={valuationMethod}
                 onChange={(e) => setValuationMethod(e.target.value)}
                 className="rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               >
-                <option value="WEIGHTED_AVG">Weighted Average</option>
+                <option value="WEIGHTED_AVG">{tr("dashboard.pharmacy.method.weightedAvg")}</option>
                 <option value="FIFO">FIFO</option>
                 <option value="LIFO">LIFO</option>
               </select>
               <div className="ml-auto text-sm text-gray-600 dark:text-gray-300">
-                Total Value:{" "}
+                {tr("dashboard.pharmacy.totalValue")}: {" "}
                 <span className="text-lg font-bold text-primary dark:text-blue-400">
                   ₹
                   {valuation?.totalValue?.toLocaleString("en-IN", {
@@ -554,17 +556,17 @@ export default function PharmacyPage() {
             </div>
             {!valuation || valuation.perMedicine.length === 0 ? (
               <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-                No valuation data.
+                {tr("dashboard.pharmacy.empty.valuation")}
               </div>
             ) : (
               <div className="overflow-x-auto">
               <table className="w-full min-w-[720px]">
                 <thead>
                   <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                    <th className="px-4 py-3">Medicine</th>
-                    <th className="px-4 py-3">On Hand</th>
-                    <th className="px-4 py-3">Unit Value</th>
-                    <th className="px-4 py-3">Total Value</th>
+                    <th className="px-4 py-3">{tr("dashboard.pharmacy.col.medicine")}</th>
+                    <th className="px-4 py-3">{tr("dashboard.pharmacy.col.onHand")}</th>
+                    <th className="px-4 py-3">{tr("dashboard.pharmacy.col.unitValue")}</th>
+                    <th className="px-4 py-3">{tr("dashboard.pharmacy.col.totalValue")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -590,21 +592,21 @@ export default function PharmacyPage() {
           </div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            No inventory items.
+            {tr("dashboard.pharmacy.empty.inventory")}
           </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-4 py-3">Medicine</th>
-                <th className="px-4 py-3">Batch</th>
-                <th className="px-4 py-3">Quantity</th>
-                <th className="px-4 py-3">Expiry</th>
-                <th className="px-4 py-3">Price</th>
-                <th className="px-4 py-3">Location</th>
-                <th className="px-4 py-3">Reorder</th>
-                {canManage && <th className="px-4 py-3">Actions</th>}
+                <th className="px-4 py-3">{tr("dashboard.pharmacy.col.medicine")}</th>
+                <th className="px-4 py-3">{tr("dashboard.pharmacy.col.batch")}</th>
+                <th className="px-4 py-3">{tr("dashboard.pharmacy.col.quantity")}</th>
+                <th className="px-4 py-3">{tr("dashboard.pharmacy.col.expiry")}</th>
+                <th className="px-4 py-3">{tr("dashboard.pharmacy.col.price")}</th>
+                <th className="px-4 py-3">{tr("dashboard.pharmacy.col.location")}</th>
+                <th className="px-4 py-3">{tr("dashboard.pharmacy.col.reorder")}</th>
+                {canManage && <th className="px-4 py-3">{tr("common.actions")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -644,13 +646,13 @@ export default function PharmacyPage() {
                             onClick={() => setReturnFor(i)}
                             className="rounded bg-purple-100 px-2 py-1 text-xs font-medium text-purple-700 hover:bg-purple-200"
                           >
-                            Return
+                            {tr("dashboard.pharmacy.action.return")}
                           </button>
                           <button
                             onClick={() => setTransferFor(i)}
                             className="rounded bg-indigo-100 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-200"
                           >
-                            Transfer
+                            {tr("dashboard.pharmacy.action.transfer")}
                           </button>
                           {isLow && (
                             <button
@@ -660,7 +662,7 @@ export default function PharmacyPage() {
                             >
                               {orderingId === i.id
                                 ? "…"
-                                : "Order from Supplier"}
+                                : tr("dashboard.pharmacy.action.orderFromSupplier")}
                             </button>
                           )}
                         </div>
@@ -712,6 +714,7 @@ function ReturnModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t: tr } = useTranslation();
   const [quantity, setQuantity] = useState("1");
   const [reason, setReason] = useState("PATIENT_RETURNED");
   const [refundAmount, setRefundAmount] = useState("0");
@@ -724,12 +727,12 @@ function ReturnModal({
     // typing/pasting a larger value. We toast and bail before POSTing.
     const qty = parseInt(quantity, 10);
     if (!Number.isFinite(qty) || qty < 1) {
-      toast.error("Quantity must be a positive whole number");
+      toast.error(tr("dashboard.pharmacy.error.positiveQuantity"));
       return;
     }
     if (qty > item.quantity) {
       toast.error(
-        `Cannot return more than on-hand stock (${item.quantity}). Adjust the quantity and try again.`,
+        `${tr("dashboard.pharmacy.error.returnTooMany")} (${item.quantity}).`,
       );
       return;
     }
@@ -771,7 +774,7 @@ function ReturnModal({
         className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-bold">
-          Return {item.medicine.name} ({item.batchNumber})
+          {tr("dashboard.pharmacy.returnTitle")} {item.medicine.name} ({item.batchNumber})
         </h2>
         <div className="space-y-3 text-sm">
           {/* Issue #51: Return quantity must never exceed on-hand stock — was
@@ -783,19 +786,19 @@ function ReturnModal({
               className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-pharmacy-return-qty"
             >
-              Quantity to Return
+              {tr("dashboard.pharmacy.quantityToReturn")}
             </label>
             <input
               id="pharmacy-return-qty"
               type="number"
-              placeholder={`Quantity (max ${item.quantity})`}
+              placeholder={`${tr("dashboard.pharmacy.quantityMax")} ${item.quantity})`}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
               data-testid="pharmacy-return-qty"
             />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400" data-testid="pharmacy-return-onhand">
-              On hand: {item.quantity}
+              {tr("dashboard.pharmacy.onHand")}: {item.quantity}
             </p>
           </div>
           <div>
@@ -804,7 +807,7 @@ function ReturnModal({
               className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-pharmacy-return-reason"
             >
-              Reason for Return
+              {tr("dashboard.pharmacy.reasonForReturn")}
             </label>
             <select
               id="pharmacy-return-reason"
@@ -812,10 +815,10 @@ function ReturnModal({
               onChange={(e) => setReason(e.target.value)}
               className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
             >
-              <option value="PATIENT_RETURNED">Patient Returned</option>
-              <option value="WRONG_ITEM">Wrong Item</option>
-              <option value="EXPIRED">Expired</option>
-              <option value="DAMAGED">Damaged</option>
+              <option value="PATIENT_RETURNED">{tr("dashboard.pharmacy.returnReason.patientReturned")}</option>
+              <option value="WRONG_ITEM">{tr("dashboard.pharmacy.returnReason.wrongItem")}</option>
+              <option value="EXPIRED">{tr("dashboard.pharmacy.expired")}</option>
+              <option value="DAMAGED">{tr("dashboard.pharmacy.returnReason.damaged")}</option>
             </select>
           </div>
           <div>
@@ -824,13 +827,13 @@ function ReturnModal({
               className="mb-1 block text-xs font-medium text-slate-700 dark:text-gray-200"
               data-testid="label-pharmacy-return-refund"
             >
-              Refund Amount
+              {tr("dashboard.pharmacy.refundAmount")}
             </label>
             <input
               id="pharmacy-return-refund"
               type="number"
               step="0.01"
-              placeholder="Refund Amount (optional)"
+              placeholder={tr("dashboard.pharmacy.refundAmountOptional")}
               value={refundAmount}
               onChange={(e) => setRefundAmount(e.target.value)}
               className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
@@ -843,14 +846,14 @@ function ReturnModal({
             onClick={onClose}
             className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
-            Cancel
+            {tr("common.cancel")}
           </button>
           <button
             type="submit"
             disabled={saving}
             className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Record Return"}
+            {saving ? tr("dashboard.pharmacy.saving") : tr("dashboard.pharmacy.recordReturn")}
           </button>
         </div>
       </form>
@@ -867,6 +870,7 @@ function TransferModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t: tr } = useTranslation();
   const [fromLocation, setFromLocation] = useState(item.location || "");
   const [toLocation, setToLocation] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -880,21 +884,21 @@ function TransferModal({
     // locations are required, quantity must be a positive integer not
     // exceeding on-hand stock.
     if (!fromLocation.trim()) {
-      toast.error("From Location is required");
+      toast.error(tr("dashboard.pharmacy.error.fromLocationRequired"));
       return;
     }
     if (!toLocation.trim()) {
-      toast.error("To Location is required");
+      toast.error(tr("dashboard.pharmacy.error.toLocationRequired"));
       return;
     }
     const qty = parseInt(quantity, 10);
     if (!Number.isFinite(qty) || qty < 1) {
-      toast.error("Quantity must be a positive whole number");
+      toast.error(tr("dashboard.pharmacy.error.positiveQuantity"));
       return;
     }
     if (qty > item.quantity) {
       toast.error(
-        `Cannot transfer more than on-hand stock (${item.quantity}).`,
+        `${tr("dashboard.pharmacy.error.transferTooMany")} (${item.quantity}).`,
       );
       return;
     }
@@ -931,30 +935,30 @@ function TransferModal({
         className="w-full max-h-[90vh] overflow-y-auto max-w-md rounded-xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
         <h2 className="mb-4 text-lg font-bold">
-          Transfer {item.medicine.name} ({item.batchNumber})
+          {tr("dashboard.pharmacy.transferTitle")} {item.medicine.name} ({item.batchNumber})
         </h2>
         <div className="space-y-3 text-sm">
           <input
-            placeholder="From Location"
+            placeholder={tr("dashboard.pharmacy.fromLocation")}
             value={fromLocation}
             onChange={(e) => setFromLocation(e.target.value)}
             className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
           <input
-            placeholder="To Location"
+            placeholder={tr("dashboard.pharmacy.toLocation")}
             value={toLocation}
             onChange={(e) => setToLocation(e.target.value)}
             className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
           <input
             type="number"
-            placeholder="Quantity"
+            placeholder={tr("dashboard.pharmacy.col.quantity")}
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
           />
           <textarea
-            placeholder="Notes (optional)"
+            placeholder={tr("dashboard.pharmacy.notesOptional")}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
@@ -967,14 +971,14 @@ function TransferModal({
             onClick={onClose}
             className="rounded border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
-            Cancel
+            {tr("common.cancel")}
           </button>
           <button
             type="submit"
             disabled={saving}
             className="rounded bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Transfer"}
+            {saving ? tr("dashboard.pharmacy.saving") : tr("dashboard.pharmacy.action.transfer")}
           </button>
         </div>
       </form>
@@ -989,6 +993,7 @@ function AddStockModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { t: tr } = useTranslation();
   const [medSearch, setMedSearch] = useState("");
   const [medResults, setMedResults] = useState<Medicine[]>([]);
   const [selectedMed, setSelectedMed] = useState<Medicine | null>(null);
@@ -1036,32 +1041,32 @@ function AddStockModal({
     // Issue #141 / #96: client mirror of the server zod schema. Fail fast
     // so the user sees the field-level error before a network round-trip.
     const errs: Record<string, string> = {};
-    if (!selectedMed) errs.medicineId = "Medicine is required";
-    if (!form.batchNumber.trim()) errs.batchNumber = "Batch number is required";
+    if (!selectedMed) errs.medicineId = tr("dashboard.pharmacy.error.medicineRequired");
+    if (!form.batchNumber.trim()) errs.batchNumber = tr("dashboard.pharmacy.error.batchRequired");
     const qty = parseInt(form.quantity, 10);
-    if (!form.quantity.trim()) errs.quantity = "Quantity is required";
+    if (!form.quantity.trim()) errs.quantity = tr("dashboard.pharmacy.error.quantityRequired");
     else if (!Number.isFinite(qty) || qty < 1)
-      errs.quantity = "Quantity must be at least 1";
+      errs.quantity = tr("dashboard.pharmacy.error.quantityAtLeastOne");
     const cost = parseFloat(form.unitCost);
-    if (!form.unitCost.trim()) errs.unitCost = "Unit cost is required";
+    if (!form.unitCost.trim()) errs.unitCost = tr("dashboard.pharmacy.error.unitCostRequired");
     else if (!Number.isFinite(cost) || cost <= 0)
-      errs.unitCost = "Unit cost must be greater than 0";
+      errs.unitCost = tr("dashboard.pharmacy.error.unitCostGreaterThanZero");
     const price = parseFloat(form.sellingPrice);
     if (!form.sellingPrice.trim())
-      errs.sellingPrice = "Selling price is required";
+      errs.sellingPrice = tr("dashboard.pharmacy.error.sellingPriceRequired");
     else if (!Number.isFinite(price) || price <= 0)
-      errs.sellingPrice = "Selling price must be greater than 0";
+      errs.sellingPrice = tr("dashboard.pharmacy.error.sellingPriceGreaterThanZero");
     if (form.reorderLevel.trim()) {
       const ro = parseInt(form.reorderLevel, 10);
       if (!Number.isFinite(ro) || ro < 0)
-        errs.reorderLevel = "Reorder level cannot be negative";
+        errs.reorderLevel = tr("dashboard.pharmacy.error.reorderNonNegative");
     }
-    if (!form.expiryDate) errs.expiryDate = "Expiry date is required";
+    if (!form.expiryDate) errs.expiryDate = tr("dashboard.pharmacy.error.expiryRequired");
     else if (form.expiryDate < tomorrow)
-      errs.expiryDate = "Expiry date must be in the future";
+      errs.expiryDate = tr("dashboard.pharmacy.error.expiryFuture");
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) {
-      toast.warning("Please fix the highlighted fields");
+      toast.warning(tr("dashboard.pharmacy.error.fixHighlighted"));
       return;
     }
     try {
@@ -1092,11 +1097,11 @@ function AddStockModal({
         }
         if (Object.keys(next).length > 0) {
           setFieldErrors(next);
-          toast.error(Object.values(next)[0] || "Failed to add stock");
+          toast.error(Object.values(next)[0] || tr("dashboard.pharmacy.error.addStockFailed"));
           return;
         }
       }
-      toast.error(err instanceof Error ? err.message : "Failed to add stock");
+      toast.error(err instanceof Error ? err.message : tr("dashboard.pharmacy.error.addStockFailed"));
     }
   }
 
@@ -1114,12 +1119,12 @@ function AddStockModal({
         noValidate
         className="w-full max-h-[90vh] overflow-y-auto max-w-lg rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
       >
-        <h2 className="mb-4 text-lg font-semibold">Add Stock</h2>
+        <h2 className="mb-4 text-lg font-semibold">{tr("dashboard.pharmacy.addStock")}</h2>
 
         <div className="space-y-3">
           <div>
             <label htmlFor="add-stock-medicine-search" className="mb-1 block text-sm font-medium">
-              Medicine <span className="text-red-600">*</span>
+              {tr("dashboard.pharmacy.col.medicine")} <span className="text-red-600">*</span>
             </label>
             {selectedMed ? (
               <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900">
@@ -1131,14 +1136,14 @@ function AddStockModal({
                   onClick={() => setSelectedMed(null)}
                   className="text-xs text-red-600 dark:text-red-400"
                 >
-                  Change
+                  {tr("dashboard.pharmacy.change")}
                 </button>
               </div>
             ) : (
               <>
                 <input
                   id="add-stock-medicine-search"
-                  placeholder="Search medicines"
+                  placeholder={tr("dashboard.pharmacy.searchMedicines")}
                   value={medSearch}
                   onChange={(e) => setMedSearch(e.target.value)}
                   data-testid="add-stock-medicine-search"
@@ -1183,7 +1188,7 @@ function AddStockModal({
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label htmlFor="add-stock-batch" className="mb-1 block text-sm font-medium">Batch #</label>
+              <label htmlFor="add-stock-batch" className="mb-1 block text-sm font-medium">{tr("dashboard.pharmacy.col.batchNo")}</label>
               <input
                 id="add-stock-batch"
                 value={form.batchNumber}
@@ -1208,7 +1213,7 @@ function AddStockModal({
               )}
             </div>
             <div>
-              <label htmlFor="add-stock-quantity" className="mb-1 block text-sm font-medium">Quantity</label>
+              <label htmlFor="add-stock-quantity" className="mb-1 block text-sm font-medium">{tr("dashboard.pharmacy.col.quantity")}</label>
               <input
                 id="add-stock-quantity"
                 type="number"
@@ -1236,7 +1241,7 @@ function AddStockModal({
               )}
             </div>
             <div>
-              <label htmlFor="add-stock-unit-cost" className="mb-1 block text-sm font-medium">Unit Cost</label>
+              <label htmlFor="add-stock-unit-cost" className="mb-1 block text-sm font-medium">{tr("dashboard.pharmacy.unitCost")}</label>
               <input
                 id="add-stock-unit-cost"
                 type="number"
@@ -1264,7 +1269,7 @@ function AddStockModal({
             </div>
             <div>
               <label htmlFor="add-stock-selling-price" className="mb-1 block text-sm font-medium">
-                Selling Price
+                {tr("dashboard.pharmacy.sellingPrice")}
               </label>
               <input
                 id="add-stock-selling-price"
@@ -1294,7 +1299,7 @@ function AddStockModal({
             </div>
             <div>
               <label htmlFor="add-stock-expiry" className="mb-1 block text-sm font-medium">
-                Expiry Date
+                {tr("dashboard.pharmacy.expiryDate")}
               </label>
               <input
                 id="add-stock-expiry"
@@ -1322,7 +1327,7 @@ function AddStockModal({
               )}
             </div>
             <div>
-              <label htmlFor="add-stock-supplier" className="mb-1 block text-sm font-medium">Supplier</label>
+              <label htmlFor="add-stock-supplier" className="mb-1 block text-sm font-medium">{tr("dashboard.pharmacy.supplier")}</label>
               <input
                 id="add-stock-supplier"
                 value={form.supplier}
@@ -1331,7 +1336,7 @@ function AddStockModal({
               />
             </div>
             <div>
-              <label htmlFor="add-stock-location" className="mb-1 block text-sm font-medium">Location</label>
+              <label htmlFor="add-stock-location" className="mb-1 block text-sm font-medium">{tr("dashboard.pharmacy.col.location")}</label>
               <input
                 id="add-stock-location"
                 value={form.location}
@@ -1341,7 +1346,7 @@ function AddStockModal({
             </div>
             <div>
               <label htmlFor="add-stock-reorder-level" className="mb-1 block text-sm font-medium">
-                Reorder Level
+                {tr("dashboard.pharmacy.reorderLevel")}
               </label>
               <input
                 id="add-stock-reorder-level"
@@ -1378,13 +1383,13 @@ function AddStockModal({
             onClick={onClose}
             className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700"
           >
-            Cancel
+            {tr("common.cancel")}
           </button>
           <button
             type="submit"
             className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            Add Stock
+            {tr("dashboard.pharmacy.addStock")}
           </button>
         </div>
       </form>

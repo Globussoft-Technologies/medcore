@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useAuthStore } from "@/lib/store";
+import { useTranslation } from "@/lib/i18n";
 import { Activity, CheckCircle, XCircle, Plus } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
 
@@ -46,6 +47,7 @@ const MODAL_FIELD =
 
 export default function LabQCPage() {
   const { user } = useAuthStore();
+  const { t } = useTranslation();
   const [summary, setSummary] = useState<SummaryRow[]>([]);
   const [entries, setEntries] = useState<QCEntry[]>([]);
   const [tests, setTests] = useState<LabTest[]>([]);
@@ -65,6 +67,11 @@ export default function LabQCPage() {
 
   const canView =
     user?.role === "ADMIN" || user?.role === "NURSE" || user?.role === "DOCTOR";
+
+  const qcLevelLabel = (level: string) =>
+    t(`dashboard.labQc.level.${level}`, level);
+  const passFailLabel = (withinRange: boolean) =>
+    withinRange ? t("dashboard.labQc.pass") : t("dashboard.labQc.fail");
 
   const loadAll = async () => {
     setLoading(true);
@@ -133,7 +140,7 @@ export default function LabQCPage() {
       await loadEntries();
     } catch (e) {
       console.error(e);
-      toast.error("Failed to submit QC entry");
+      toast.error(t("dashboard.labQc.error.submitFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -175,19 +182,24 @@ export default function LabQCPage() {
       pad,
       points,
       bands: [
-        { y: scaleY(mean), label: "Mean", color: "#059669" },
+        {
+          y: scaleY(mean),
+          label: t("dashboard.labQc.col.mean"),
+          isMean: true,
+          color: "#059669",
+        },
         { y: scaleY(mean + 2 * sd), label: "+2SD", color: "#d97706" },
         { y: scaleY(mean - 2 * sd), label: "-2SD", color: "#d97706" },
         { y: scaleY(mean + 3 * sd), label: "+3SD", color: "#dc2626" },
         { y: scaleY(mean - 3 * sd), label: "-3SD", color: "#dc2626" },
       ],
     };
-  }, [entries, selectedTest]);
+  }, [entries, selectedTest, t]);
 
   if (!canView) {
     return (
       <div className="rounded-lg border border-red-300 bg-red-50 p-6">
-        <p className="text-red-700">Access denied.</p>
+        <p className="text-red-700">{t("dashboard.labQc.accessDenied")}</p>
       </div>
     );
   }
@@ -198,31 +210,31 @@ export default function LabQCPage() {
         <div className="flex items-center gap-3">
           <Activity className="text-primary" size={28} />
           <div>
-            <h1 className="text-2xl font-bold">Lab Quality Control</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Daily QC tracking & Levey-Jennings</p>
+            <h1 className="text-2xl font-bold">{t("dashboard.labQc.title")}</h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t("dashboard.labQc.subtitle")}</p>
           </div>
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
           className="flex items-center gap-2 rounded bg-primary px-4 py-2 text-sm text-white"
         >
-          <Plus size={16} /> Record QC
+          <Plus size={16} /> {t("dashboard.labQc.recordQc")}
         </button>
       </div>
 
       {showForm && (
         <div className="mb-6 rounded-lg border bg-white p-4 text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
-          <h2 className="mb-3 font-semibold">New QC Entry</h2>
+          <h2 className="mb-3 font-semibold">{t("dashboard.labQc.newEntry")}</h2>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <select
               className={MODAL_FIELD}
               value={form.testId}
               onChange={(e) => setForm({ ...form, testId: e.target.value })}
             >
-              <option value="">Select test</option>
-              {tests.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.code} — {t.name}
+              <option value="">{t("dashboard.labQc.selectTest")}</option>
+              {tests.map((test) => (
+                <option key={test.id} value={test.id}>
+                  {test.code} — {test.name}
                 </option>
               ))}
             </select>
@@ -231,20 +243,20 @@ export default function LabQCPage() {
               value={form.qcLevel}
               onChange={(e) => setForm({ ...form, qcLevel: e.target.value })}
             >
-              <option value="LOW">LOW</option>
-              <option value="NORMAL">NORMAL</option>
-              <option value="HIGH">HIGH</option>
-              <option value="INTERNAL">INTERNAL</option>
+              <option value="LOW">{qcLevelLabel("LOW")}</option>
+              <option value="NORMAL">{qcLevelLabel("NORMAL")}</option>
+              <option value="HIGH">{qcLevelLabel("HIGH")}</option>
+              <option value="INTERNAL">{qcLevelLabel("INTERNAL")}</option>
             </select>
             <input
               className={MODAL_FIELD}
-              placeholder="Instrument"
+              placeholder={t("dashboard.labQc.instrument")}
               value={form.instrument}
               onChange={(e) => setForm({ ...form, instrument: e.target.value })}
             />
             <input
               className={MODAL_FIELD}
-              placeholder="Mean value"
+              placeholder={t("dashboard.labQc.meanValue")}
               type="number"
               step="any"
               min="0"
@@ -254,7 +266,7 @@ export default function LabQCPage() {
             />
             <input
               className={MODAL_FIELD}
-              placeholder="Recorded value"
+              placeholder={t("dashboard.labQc.recordedValue")}
               type="number"
               step="any"
               min="0"
@@ -264,7 +276,7 @@ export default function LabQCPage() {
             />
             <input
               className={MODAL_FIELD}
-              placeholder="CV %"
+              placeholder={t("dashboard.labQc.cvPercent")}
               type="number"
               step="any"
               min="0"
@@ -274,7 +286,7 @@ export default function LabQCPage() {
             />
             <input
               className={`col-span-2 md:col-span-3 ${MODAL_FIELD}`}
-              placeholder="Notes"
+              placeholder={t("common.notes")}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />
@@ -285,13 +297,13 @@ export default function LabQCPage() {
               disabled={submitting || !form.testId || !form.meanValue || !form.recordedValue}
               className="rounded bg-primary px-4 py-1.5 text-sm text-white disabled:opacity-50"
             >
-              {submitting ? "Saving..." : "Save"}
+              {submitting ? t("common.saving") : t("common.save")}
             </button>
             <button
               onClick={() => setShowForm(false)}
               className="rounded border px-4 py-1.5 text-sm hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-700"
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         </div>
@@ -299,7 +311,7 @@ export default function LabQCPage() {
 
       {/* Summary */}
       <div className="mb-6">
-        <h2 className="mb-2 font-semibold">Pass rate (last 30 days)</h2>
+        <h2 className="mb-2 font-semibold">{t("dashboard.labQc.passRate30")}</h2>
         {loading ? (
           <div
             data-testid="lab-qc-loading"
@@ -309,16 +321,16 @@ export default function LabQCPage() {
             <SkeletonTable rows={5} columns={5} />
           </div>
         ) : summary.length === 0 ? (
-          <p className="text-gray-500 dark:text-gray-400">No QC data yet.</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("dashboard.labQc.noData")}</p>
         ) : (
           <div className="overflow-x-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/40 dark:text-gray-300">
                 <tr>
-                  <th className="p-2">Test</th>
-                  <th className="p-2">Runs</th>
-                  <th className="p-2">Pass</th>
-                  <th className="p-2">Pass Rate</th>
+                  <th className="p-2">{t("dashboard.labQc.col.test")}</th>
+                  <th className="p-2">{t("dashboard.labQc.col.runs")}</th>
+                  <th className="p-2">{t("dashboard.labQc.col.pass")}</th>
+                  <th className="p-2">{t("dashboard.labQc.col.passRate")}</th>
                   <th className="p-2"></th>
                 </tr>
               </thead>
@@ -345,7 +357,7 @@ export default function LabQCPage() {
                         onClick={() => setSelectedTest(r.testId)}
                         className="text-xs text-primary underline"
                       >
-                        View chart
+                        {t("dashboard.labQc.viewChart")}
                       </button>
                     </td>
                   </tr>
@@ -360,7 +372,7 @@ export default function LabQCPage() {
       {selectedTest && chartPoints && (
         <div className="mb-6 rounded-lg border bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
           <h2 className="mb-2 font-semibold">
-            Levey-Jennings — {tests.find((t) => t.id === selectedTest)?.name}
+            {t("dashboard.labQc.chartTitle")} — {tests.find((test) => test.id === selectedTest)?.name}
           </h2>
           <svg
             viewBox={`0 0 ${chartPoints.w} ${chartPoints.h}`}
@@ -374,8 +386,8 @@ export default function LabQCPage() {
                   y1={b.y}
                   y2={b.y}
                   stroke={b.color}
-                  strokeDasharray={b.label === "Mean" ? "" : "4 4"}
-                  strokeWidth={b.label === "Mean" ? 1.5 : 1}
+                  strokeDasharray={b.isMean ? "" : "4 4"}
+                  strokeWidth={b.isMean ? 1.5 : 1}
                 />
                 <text x={chartPoints.w - chartPoints.pad + 2} y={b.y + 4} fontSize="10" fill={b.color}>
                   {b.label}
@@ -412,19 +424,19 @@ export default function LabQCPage() {
 
       {/* Recent entries */}
       <div>
-        <h2 className="mb-2 font-semibold">Recent entries</h2>
+        <h2 className="mb-2 font-semibold">{t("dashboard.labQc.recentEntries")}</h2>
         <div className="overflow-x-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500 dark:bg-gray-900/40 dark:text-gray-300">
               <tr>
-                <th className="p-2">Date</th>
-                <th className="p-2">Test</th>
-                <th className="p-2">Level</th>
-                <th className="p-2">Mean</th>
-                <th className="p-2">Recorded</th>
-                <th className="p-2">CV</th>
-                <th className="p-2">Status</th>
-                <th className="p-2">By</th>
+                <th className="p-2">{t("dashboard.labQc.col.date")}</th>
+                <th className="p-2">{t("dashboard.labQc.col.test")}</th>
+                <th className="p-2">{t("dashboard.labQc.col.level")}</th>
+                <th className="p-2">{t("dashboard.labQc.col.mean")}</th>
+                <th className="p-2">{t("dashboard.labQc.col.recorded")}</th>
+                <th className="p-2">{t("dashboard.labQc.col.cv")}</th>
+                <th className="p-2">{t("common.status")}</th>
+                <th className="p-2">{t("dashboard.labQc.col.by")}</th>
               </tr>
             </thead>
             <tbody>
@@ -434,18 +446,18 @@ export default function LabQCPage() {
                   <td className="p-2">
                     <span className="font-mono text-xs">{e.test.code}</span> {e.test.name}
                   </td>
-                  <td className="p-2">{e.qcLevel}</td>
+                  <td className="p-2">{qcLevelLabel(e.qcLevel)}</td>
                   <td className="p-2">{e.meanValue}</td>
                   <td className="p-2">{e.recordedValue}</td>
                   <td className="p-2">{e.cv ?? "—"}</td>
                   <td className="p-2">
                     {e.withinRange ? (
                       <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-400">
-                        <CheckCircle size={14} /> Pass
+                        <CheckCircle size={14} /> {passFailLabel(e.withinRange)}
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-400">
-                        <XCircle size={14} /> Fail
+                        <XCircle size={14} /> {passFailLabel(e.withinRange)}
                       </span>
                     )}
                   </td>

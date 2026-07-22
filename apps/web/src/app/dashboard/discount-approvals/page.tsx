@@ -9,6 +9,7 @@ import { useConfirm, usePrompt } from "@/lib/use-dialog";
 import { useAuthStore } from "@/lib/store";
 import { Percent } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
+import { useTranslation } from "@/lib/i18n";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/billing.ts on /discount-approvals (ADMIN, RECEPTION).
@@ -17,6 +18,32 @@ import { SkeletonTable } from "@/components/Skeleton";
 const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
 type Tab = "PENDING" | "APPROVED" | "REJECTED";
+
+const DISCOUNT_APPROVAL_FALLBACKS: Record<string, string> = {
+  "common.reason": "Reason",
+  "common.status": "Status",
+  "dashboard.billing.amount": "Amount",
+  "dashboard.billing.patient": "Patient",
+  "dashboard.paymentPlans.invoice": "Invoice",
+  "dashboard.preauth.tab.pending": "Pending",
+  "dashboard.preauth.tab.approved": "Approved",
+  "dashboard.preauth.tab.rejected": "Rejected",
+  "dashboard.discountApprovals.title": "Discount Approvals",
+  "dashboard.discountApprovals.subtitle": "Approve or reject pending discount requests",
+  "dashboard.discountApprovals.requested": "Requested",
+  "dashboard.discountApprovals.empty.pending": "No pending approvals.",
+  "dashboard.discountApprovals.empty.approved": "No approved approvals.",
+  "dashboard.discountApprovals.empty.rejected": "No rejected approvals.",
+  "dashboard.discountApprovals.restricted": "Discount approvals are restricted to Admin and Reception.",
+  "dashboard.discountApprovals.approve": "Approve",
+  "dashboard.discountApprovals.reject": "Reject",
+  "dashboard.discountApprovals.approvePrompt": "Approve this discount?",
+  "dashboard.discountApprovals.rejectPrompt": "Reject discount",
+  "dashboard.discountApprovals.rejectionReason": "Rejection reason",
+  "dashboard.discountApprovals.statusBadge.pending": "PENDING",
+  "dashboard.discountApprovals.statusBadge.approved": "APPROVED",
+  "dashboard.discountApprovals.statusBadge.rejected": "REJECTED",
+};
 
 interface ApprovalRow {
   id: string;
@@ -48,6 +75,19 @@ export default function DiscountApprovalsPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
+  const { t: translate } = useTranslation();
+  const t = useCallback(
+    (key: string, fallback?: string) => {
+      const resolvedFallback = fallback ?? DISCOUNT_APPROVAL_FALLBACKS[key];
+      const value = translate(key, resolvedFallback);
+      return value === key ? resolvedFallback ?? key : value;
+    },
+    [translate],
+  );
+  const statusBadgeLabel = useCallback(
+    (status: string) => t(`dashboard.discountApprovals.statusBadge.${status.toLowerCase()}`, status),
+    [t],
+  );
   const confirm = useConfirm();
   const promptUser = usePrompt();
   const [tab, setTab] = useState<Tab>("PENDING");
@@ -58,7 +98,7 @@ export default function DiscountApprovalsPage() {
   // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
   useEffect(() => {
     if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
-      toast.error("Discount approvals are restricted to Admin and Reception.");
+      toast.error(t("dashboard.discountApprovals.restricted"));
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/discount-approvals")}`,
       );
@@ -83,7 +123,7 @@ export default function DiscountApprovalsPage() {
   }, [load]);
 
   async function approve(id: string) {
-    if (!(await confirm({ title: "Approve this discount?" }))) return;
+    if (!(await confirm({ title: t("dashboard.discountApprovals.approvePrompt") }))) return;
     setActing(id);
     try {
       await api.post(`/billing/discount-approvals/${id}/approve`);
@@ -96,8 +136,8 @@ export default function DiscountApprovalsPage() {
 
   async function reject(id: string) {
     const reason = await promptUser({
-      title: "Reject discount",
-      label: "Rejection reason",
+      title: t("dashboard.discountApprovals.rejectPrompt"),
+      label: t("dashboard.discountApprovals.rejectionReason"),
       required: true,
       multiline: true,
     });
@@ -125,28 +165,28 @@ export default function DiscountApprovalsPage() {
     <div>
       <div className="mb-6">
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Percent className="text-primary" /> Discount Approvals
+          <Percent className="text-primary" /> {t("dashboard.discountApprovals.title")}
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
-          Approve or reject pending discount requests
+          {t("dashboard.discountApprovals.subtitle")}
         </p>
       </div>
 
       <div className="mb-4 flex gap-2">
         <button onClick={() => setTab("PENDING")} className={tabClass("PENDING")}>
-          Pending
+          {t("dashboard.preauth.tab.pending")}
         </button>
         <button
           onClick={() => setTab("APPROVED")}
           className={tabClass("APPROVED")}
         >
-          Approved
+          {t("dashboard.preauth.tab.approved")}
         </button>
         <button
           onClick={() => setTab("REJECTED")}
           className={tabClass("REJECTED")}
         >
-          Rejected
+          {t("dashboard.preauth.tab.rejected")}
         </button>
       </div>
 
@@ -161,20 +201,20 @@ export default function DiscountApprovalsPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            No {tab.toLowerCase()} approvals.
+            {t(`dashboard.discountApprovals.empty.${tab.toLowerCase()}`)}
           </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-4 py-3">Requested</th>
-                <th className="px-4 py-3">Invoice</th>
-                <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Amount</th>
+                <th className="px-4 py-3">{t("dashboard.discountApprovals.requested")}</th>
+                <th className="px-4 py-3">{t("dashboard.paymentPlans.invoice")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.amount")}</th>
                 <th className="px-4 py-3">%</th>
-                <th className="px-4 py-3">Reason</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">{t("common.reason")}</th>
+                <th className="px-4 py-3">{t("common.status")}</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -222,7 +262,7 @@ export default function DiscountApprovalsPage() {
                             : "bg-yellow-100 text-yellow-700"
                       }`}
                     >
-                      {r.status}
+                      {statusBadgeLabel(r.status)}
                     </span>
                     {r.rejectionReason && (
                       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -238,14 +278,14 @@ export default function DiscountApprovalsPage() {
                           onClick={() => approve(r.id)}
                           className="rounded bg-green-500 px-3 py-1 text-xs font-medium text-white hover:bg-green-600 disabled:opacity-50"
                         >
-                          Approve
+                          {t("dashboard.discountApprovals.approve")}
                         </button>
                         <button
                           disabled={acting === r.id}
                           onClick={() => reject(r.id)}
                           className="rounded bg-red-500 px-3 py-1 text-xs font-medium text-white hover:bg-red-600 disabled:opacity-50"
                         >
-                          Reject
+                          {t("dashboard.discountApprovals.reject")}
                         </button>
                       </div>
                     )}

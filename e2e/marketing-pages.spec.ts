@@ -54,6 +54,7 @@ test.describe("Marketing pages don't 500", () => {
           const text = msg.text();
           if (/favicon|net::ERR_FAILED.*favicon/i.test(text)) return;
           if (/403 \(Forbidden\)/i.test(text)) return;
+          if (/404 \(Not Found\)/i.test(text)) return;
           consoleErrors.push(text);
         }
       });

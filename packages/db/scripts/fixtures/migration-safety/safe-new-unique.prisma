@@ -1,0 +1,37 @@
+// A unique constraint on a newly created table is safe: the table has no
+// pre-existing rows that could violate the constraint.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model FixtureUser {
+  id       Int     @id @default(autoincrement())
+  email    String  @unique
+  name     String? @db.VarChar(255)
+  bio      String? @db.Text
+  age      Int?
+  tenantId Int
+}
+
+model FixturePost {
+  id        Int      @id @default(autoincrement())
+  title     String   @db.VarChar(255)
+  body      String   @db.Text
+  authorId  Int?
+  tenantId  Int
+  createdAt DateTime @default(now())
+}
+
+model FixtureHolding {
+  id           Int @id @default(autoincrement())
+  departmentId Int
+  materialId   Int
+
+  @@unique([departmentId, materialId])
+}

@@ -121,6 +121,7 @@ test.describe("Migration safety gate — detector regression suite", () => {
     for (const f of [
       "baseline.prisma",
       "safe.prisma",
+      "safe-new-unique.prisma",
       "dangerous-not-null.prisma",
       "dangerous-drop.prisma",
       "dangerous-narrowing.prisma",
@@ -137,6 +138,16 @@ test.describe("Migration safety gate — detector regression suite", () => {
     ]);
     expect(exitCode, "safe schema must pass the gate").toBe(0);
     expect(stdout).toMatch(/\[OK\]/);
+    expect(stdout).toMatch(/No migration risks detected/);
+  });
+
+  test("UNIQUE_ADDITION detector - allows a unique index on a newly created table", () => {
+    const { exitCode, stdout } = runScript([
+      "--schema", fx("safe-new-unique.prisma"),
+      "--against", fx("baseline.prisma"),
+      "--no-commit-blessings",
+    ]);
+    expect(exitCode, "a new table cannot contain pre-existing duplicates").toBe(0);
     expect(stdout).toMatch(/No migration risks detected/);
   });
 

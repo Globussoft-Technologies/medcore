@@ -248,9 +248,9 @@ export default function LabPage() {
     t(`dashboard.lab.status.${status}`, status.replace(/_/g, " "));
 
   const testsByCategory = tests.reduce(
-    (acc, t) => {
-      const cat = t.category || t("dashboard.lab.category.other");
-      (acc[cat] ||= []).push(t);
+    (acc, test) => {
+      const cat = test.category || t("dashboard.lab.category.other");
+      (acc[cat] ||= []).push(test);
       return acc;
     },
     {} as Record<string, LabTest[]>
@@ -335,12 +335,12 @@ export default function LabPage() {
                   {cat}
                 </h3>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {list.map((t) => (
+                  {list.map((test) => (
                     <div
-                      key={t.id}
+                      key={test.id}
                       className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
                     >
-                      <p className="font-medium">{t.name}</p>
+                      <p className="font-medium">{test.name}</p>
                       {/* Issue #631 (2026-05-05): tests without a numeric range
                           previously rendered NO Normal line at all, making the
                           tile look like missing data. Always render the line —
@@ -354,22 +354,22 @@ export default function LabPage() {
                             unit when the range string doesn't already
                             contain it. Prevents "0.4-4.0 mIU/L mIU/L". */}
                         {t("dashboard.lab.normal")}: {" "}
-                        {t.normalRange ? (
+                        {test.normalRange ? (
                           <>
-                            {t.normalRange}
-                            {t.unit &&
-                            !t.normalRange.toLowerCase().includes(t.unit.toLowerCase())
-                              ? ` ${t.unit}`
+                            {test.normalRange}
+                            {test.unit &&
+                            !test.normalRange.toLowerCase().includes(test.unit.toLowerCase())
+                              ? ` ${test.unit}`
                               : ""}
                           </>
                         ) : (
                           <span className="italic">{t("dashboard.lab.qualitative")}</span>
                         )}
                       </p>
-                      {t.price !== undefined && (
+                      {test.price !== undefined && (
                         // Issue #403: canonical INR format ("₹1,200.00") via
                         // shared formatINR — was bare "₹1200" before.
-                        <p className="mt-1 text-xs">{formatINR(t.price)}</p>
+                        <p className="mt-1 text-xs">{formatINR(test.price)}</p>
                       )}
                     </div>
                   ))}
@@ -823,9 +823,9 @@ function NewOrderModal({
   }
 
   const grouped = tests.reduce(
-    (acc, t) => {
-      const cat = t.category || t("dashboard.lab.category.other");
-      (acc[cat] ||= []).push(t);
+    (acc, test) => {
+      const cat = test.category || t("dashboard.lab.category.other");
+      (acc[cat] ||= []).push(test);
       return acc;
     },
     {} as Record<string, LabTest[]>
@@ -946,26 +946,26 @@ function NewOrderModal({
                       {cat}
                     </h4>
                     <div className="grid grid-cols-2 gap-1">
-                      {list.map((t) => (
+                      {list.map((test) => (
                         <label
-                          key={t.id}
+                          key={test.id}
                           data-testid="lab-order-test-label"
                           className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100"
                         >
                           <input
                             type="checkbox"
-                            checked={selectedTests.includes(t.id)}
+                            checked={selectedTests.includes(test.id)}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedTests([...selectedTests, t.id]);
+                                setSelectedTests([...selectedTests, test.id]);
                               } else {
                                 setSelectedTests(
-                                  selectedTests.filter((id) => id !== t.id)
+                                  selectedTests.filter((id) => id !== test.id)
                                 );
                               }
                             }}
                           />
-                          {t.name}
+                          {test.name}
                         </label>
                       ))}
                     </div>

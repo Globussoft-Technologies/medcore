@@ -8,8 +8,37 @@ import { useAuthStore } from "@/lib/store";
 import { CreditCard, Plus, X } from "lucide-react";
 import { EntityPicker } from "@/components/EntityPicker";
 import { SkeletonTable, SkeletonText } from "@/components/Skeleton";
+import { useTranslation } from "@/lib/i18n";
 
 type Tab = "ACTIVE" | "OVERDUE" | "COMPLETED" | "ALL";
+
+const PAYMENT_PLAN_FALLBACKS: Record<string, string> = {
+  "common.all": "All",
+  "common.amount": "Amount",
+  "common.status": "Status",
+  "dashboard.billing.patient": "Patient",
+  "dashboard.billing.total": "Total",
+  "dashboard.paymentPlans.title": "Payment Plans",
+  "dashboard.paymentPlans.subtitle": "Installment / EMI plans for outstanding invoices",
+  "dashboard.paymentPlans.newPlan": "New Plan",
+  "dashboard.paymentPlans.tab.active": "Active",
+  "dashboard.paymentPlans.tab.overdue": "Overdue",
+  "dashboard.paymentPlans.tab.completed": "Completed",
+  "dashboard.paymentPlans.noPlans": "No plans in this category.",
+  "dashboard.paymentPlans.noOverdue": "No overdue installments.",
+  "dashboard.paymentPlans.planNumber": "Plan #",
+  "dashboard.paymentPlans.invoice": "Invoice",
+  "dashboard.paymentPlans.dueDate": "Due Date",
+  "dashboard.paymentPlans.progress": "Progress",
+  "dashboard.paymentPlans.nextDue": "Next Due",
+  "dashboard.paymentPlans.statusBadge.active": "ACTIVE",
+  "dashboard.paymentPlans.statusBadge.completed": "COMPLETED",
+  "dashboard.paymentPlans.statusBadge.defaulted": "DEFAULTED",
+  "dashboard.paymentPlans.statusBadge.overdue": "OVERDUE",
+  "dashboard.paymentPlans.statusBadge.paid": "PAID",
+  "dashboard.paymentPlans.statusBadge.pending": "PENDING",
+  "dashboard.paymentPlans.statusBadge.waived": "WAIVED",
+};
 
 interface InstallmentRec {
   id: string;
@@ -65,6 +94,19 @@ function fmtMoney(n: number) {
 
 export default function PaymentPlansPage() {
   const { user } = useAuthStore();
+  const { t: translate } = useTranslation();
+  const t = useCallback(
+    (key: string, fallback?: string) => {
+      const resolvedFallback = fallback ?? PAYMENT_PLAN_FALLBACKS[key];
+      const value = translate(key, resolvedFallback);
+      return value === key ? resolvedFallback ?? key : value;
+    },
+    [translate],
+  );
+  const statusBadgeLabel = useCallback(
+    (status: string) => t(`dashboard.paymentPlans.statusBadge.${status.toLowerCase()}`, status),
+    [t],
+  );
   const [tab, setTab] = useState<Tab>("ACTIVE");
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [overdue, setOverdue] = useState<OverdueRow[]>([]);
@@ -115,10 +157,10 @@ export default function PaymentPlansPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900 dark:text-gray-100">
-            <CreditCard className="text-primary" /> Payment Plans
+            <CreditCard className="text-primary" /> {t("dashboard.paymentPlans.title")}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Installment / EMI plans for outstanding invoices
+            {t("dashboard.paymentPlans.subtitle")}
           </p>
         </div>
         {canCreate && (
@@ -128,26 +170,26 @@ export default function PaymentPlansPage() {
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
           >
-            <Plus size={16} /> New Plan
+            <Plus size={16} /> {t("dashboard.paymentPlans.newPlan")}
           </button>
         )}
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button onClick={() => setTab("ACTIVE")} className={tabClass("ACTIVE")}>
-          Active
+          {t("dashboard.paymentPlans.tab.active")}
         </button>
         <button onClick={() => setTab("OVERDUE")} className={tabClass("OVERDUE")}>
-          Overdue
+          {t("dashboard.paymentPlans.tab.overdue")}
         </button>
         <button
           onClick={() => setTab("COMPLETED")}
           className={tabClass("COMPLETED")}
         >
-          Completed
+          {t("dashboard.paymentPlans.tab.completed")}
         </button>
         <button onClick={() => setTab("ALL")} className={tabClass("ALL")}>
-          All
+          {t("common.all")}
         </button>
       </div>
 
@@ -159,18 +201,18 @@ export default function PaymentPlansPage() {
         ) : tab === "OVERDUE" ? (
           overdue.length === 0 ? (
             <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-              No overdue installments.
+              {t("dashboard.paymentPlans.noOverdue")}
             </div>
           ) : (
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                  <th className="px-4 py-3">Plan #</th>
-                  <th className="px-4 py-3">Patient</th>
-                  <th className="px-4 py-3">Invoice</th>
-                  <th className="px-4 py-3">Due Date</th>
-                  <th className="px-4 py-3">Amount</th>
-                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">{t("dashboard.paymentPlans.planNumber")}</th>
+                  <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
+                  <th className="px-4 py-3">{t("dashboard.paymentPlans.invoice")}</th>
+                  <th className="px-4 py-3">{t("dashboard.paymentPlans.dueDate")}</th>
+                  <th className="px-4 py-3">{t("common.amount")}</th>
+                  <th className="px-4 py-3">{t("common.status")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -200,7 +242,7 @@ export default function PaymentPlansPage() {
                     </td>
                     <td className="px-4 py-3">
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/40 dark:text-red-300">
-                        OVERDUE
+                        {statusBadgeLabel("OVERDUE")}
                       </span>
                     </td>
                   </tr>
@@ -210,20 +252,20 @@ export default function PaymentPlansPage() {
           )
         ) : plans.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            No plans in this category.
+            {t("dashboard.paymentPlans.noPlans")}
           </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-4 py-3">Plan #</th>
-                <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Invoice</th>
-                <th className="px-4 py-3">Total</th>
-                <th className="px-4 py-3">Progress</th>
-                <th className="px-4 py-3">Next Due</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">{t("dashboard.paymentPlans.planNumber")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
+                <th className="px-4 py-3">{t("dashboard.paymentPlans.invoice")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.total")}</th>
+                <th className="px-4 py-3">{t("dashboard.paymentPlans.progress")}</th>
+                <th className="px-4 py-3">{t("dashboard.paymentPlans.nextDue")}</th>
+                <th className="px-4 py-3">{t("common.status")}</th>
               </tr>
             </thead>
             <tbody>
@@ -289,7 +331,7 @@ export default function PaymentPlansPage() {
                                 : "bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
                         }`}
                       >
-                        {p.status}
+                        {statusBadgeLabel(p.status)}
                       </span>
                     </td>
                   </tr>

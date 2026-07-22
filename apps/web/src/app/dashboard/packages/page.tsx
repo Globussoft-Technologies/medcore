@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/lib/store";
 import { Gift, Plus, Clock, Tag, ShoppingBag, X } from "lucide-react";
 import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
+import { useTranslation } from "@/lib/i18n";
 
 interface PkgRecord {
   id: string;
@@ -36,6 +37,35 @@ interface PatientRecord {
   user: { name: string; phone: string };
 }
 
+const PACKAGES_FALLBACKS: Record<string, string> = {
+  "common.all": "All",
+  "common.status": "Status",
+  "dashboard.billing.amount": "Amount",
+  "dashboard.billing.patient": "Patient",
+  "dashboard.packages.title": "Health Packages",
+  "dashboard.packages.subtitle": "Sell curated health checkup bundles",
+  "dashboard.packages.sellPackage": "Sell Package",
+  "dashboard.packages.addPackage": "Add Package",
+  "dashboard.packages.tab.activePackages": "Active Packages",
+  "dashboard.packages.tab.purchases": "Purchases",
+  "dashboard.packages.allCategories": "All Categories",
+  "dashboard.packages.noPackages": "No packages found",
+  "dashboard.packages.noPurchases": "No purchases found",
+  "dashboard.packages.servicesIncluded": "Services Included",
+  "dashboard.packages.daysValidity": "days validity",
+  "dashboard.packages.sold": "sold",
+  "dashboard.packages.purchaseNumber": "Purchase #",
+  "dashboard.packages.package": "Package",
+  "dashboard.packages.purchased": "Purchased",
+  "dashboard.packages.expires": "Expires",
+  "dashboard.packages.amountPaid": "Amount Paid",
+  "dashboard.packages.filter.active": "Active",
+  "dashboard.packages.filter.expired": "Expired",
+  "dashboard.packages.status.active": "active",
+  "dashboard.packages.status.expired": "expired",
+  "dashboard.packages.status.used": "used",
+};
+
 const CATEGORIES = [
   "Master Health Checkup",
   "Diabetes Package",
@@ -57,6 +87,15 @@ const MODAL_FIELD =
 
 export default function PackagesPage() {
   const { user } = useAuthStore();
+  const { t: translate } = useTranslation();
+  const t = useCallback(
+    (key: string, fallback?: string) => {
+      const resolvedFallback = fallback ?? PACKAGES_FALLBACKS[key];
+      const value = translate(key, resolvedFallback);
+      return value === key ? resolvedFallback ?? key : value;
+    },
+    [translate],
+  );
   const [tab, setTab] = useState<"packages" | "purchases">("packages");
   const [packages, setPackages] = useState<PkgRecord[]>([]);
   const [purchases, setPurchases] = useState<PkgPurchase[]>([]);
@@ -109,9 +148,9 @@ export default function PackagesPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Gift className="text-primary" size={28} /> Health Packages
+            <Gift className="text-primary" size={28} /> {t("dashboard.packages.title")}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Sell curated health checkup bundles</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t("dashboard.packages.subtitle")}</p>
         </div>
         <div className="flex gap-2">
           {canSell && (
@@ -119,7 +158,7 @@ export default function PackagesPage() {
               onClick={() => setShowSellModal(true)}
               className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
             >
-              <ShoppingBag size={16} /> Sell Package
+              <ShoppingBag size={16} /> {t("dashboard.packages.sellPackage")}
             </button>
           )}
           {canAdminPkg && (
@@ -127,24 +166,24 @@ export default function PackagesPage() {
               onClick={() => setShowPkgModal(true)}
               className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
             >
-              <Plus size={16} /> Add Package
+              <Plus size={16} /> {t("dashboard.packages.addPackage")}
             </button>
           )}
         </div>
       </div>
 
       <div className="mb-4 flex gap-2 border-b dark:border-gray-700">
-        {(["packages", "purchases"] as const).map((t) => (
+        {(["packages", "purchases"] as const).map((tabKey) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={tabKey}
+            onClick={() => setTab(tabKey)}
             className={`px-4 py-2 text-sm font-medium ${
-              tab === t
+              tab === tabKey
                 ? "border-b-2 border-primary text-primary dark:border-blue-400 dark:text-blue-400"
                 : "text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-white"
             }`}
           >
-            {t === "packages" ? "Active Packages" : "Purchases"}
+            {tabKey === "packages" ? t("dashboard.packages.tab.activePackages") : t("dashboard.packages.tab.purchases")}
           </button>
         ))}
       </div>
@@ -157,7 +196,7 @@ export default function PackagesPage() {
               onChange={(e) => setCategoryFilter(e.target.value)}
               className="rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
-              <option value="">All Categories</option>
+              <option value="">{t("dashboard.packages.allCategories")}</option>
               {CATEGORIES.map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -174,7 +213,7 @@ export default function PackagesPage() {
             </div>
           ) : packages.length === 0 ? (
             <div className="rounded-xl bg-white p-16 text-center text-gray-500 shadow-sm dark:bg-gray-800 dark:text-gray-400">
-              No packages found
+              {t("dashboard.packages.noPackages")}
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -213,7 +252,7 @@ export default function PackagesPage() {
                     <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">{p.description}</p>
                   )}
                   <div className="mb-3">
-                    <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">Services Included</p>
+                    <p className="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">{t("dashboard.packages.servicesIncluded")}</p>
                     <div className="flex flex-wrap gap-1">
                       {(typeof p.services === "string" ? p.services : "")
                         .split(",")
@@ -229,10 +268,10 @@ export default function PackagesPage() {
                   </div>
                   <div className="flex items-center justify-between border-t pt-3 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     <span className="flex items-center gap-1">
-                      <Clock size={12} /> {p.validityDays} days validity
+                      <Clock size={12} /> {p.validityDays} {t("dashboard.packages.daysValidity")}
                     </span>
                     <span className="flex items-center gap-1">
-                      <Tag size={12} /> {p._count?.purchases || 0} sold
+                      <Tag size={12} /> {p._count?.purchases || 0} {t("dashboard.packages.sold")}
                     </span>
                   </div>
                 </div>
@@ -255,7 +294,7 @@ export default function PackagesPage() {
                     : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
                 }`}
               >
-                {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
+                {f === "all" ? t("common.all") : f === "active" ? t("dashboard.packages.filter.active") : t("dashboard.packages.filter.expired")}
               </button>
             ))}
           </div>
@@ -266,18 +305,18 @@ export default function PackagesPage() {
                 <SkeletonTable rows={5} columns={5} />
               </div>
             ) : purchases.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No purchases found</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">{t("dashboard.packages.noPurchases")}</div>
             ) : (
               <table className="w-full">
                 <thead>
                   <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300">
-                    <th className="px-4 py-3">Purchase #</th>
-                    <th className="px-4 py-3">Patient</th>
-                    <th className="px-4 py-3">Package</th>
-                    <th className="px-4 py-3">Purchased</th>
-                    <th className="px-4 py-3">Expires</th>
-                    <th className="px-4 py-3">Amount Paid</th>
-                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">{t("dashboard.packages.purchaseNumber")}</th>
+                    <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
+                    <th className="px-4 py-3">{t("dashboard.packages.package")}</th>
+                    <th className="px-4 py-3">{t("dashboard.packages.purchased")}</th>
+                    <th className="px-4 py-3">{t("dashboard.packages.expires")}</th>
+                    <th className="px-4 py-3">{t("dashboard.packages.amountPaid")}</th>
+                    <th className="px-4 py-3">{t("common.status")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -313,7 +352,7 @@ export default function PackagesPage() {
                                   : "bg-gray-100 text-gray-700"
                             }`}
                           >
-                            {status}
+                            {t(`dashboard.packages.status.${status}`)}
                           </span>
                         </td>
                       </tr>

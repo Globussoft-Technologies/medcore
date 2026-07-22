@@ -8,6 +8,7 @@ import { extractFieldErrors } from "@/lib/field-errors";
 import { useAuthStore } from "@/lib/store";
 import { FileCheck, Plus, X } from "lucide-react";
 import { SkeletonTable } from "@/components/Skeleton";
+import { useTranslation } from "@/lib/i18n";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/preauth.ts (ADMIN, RECEPTION). Page previously had no
@@ -15,6 +16,31 @@ import { SkeletonTable } from "@/components/Skeleton";
 const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
 
 type Tab = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
+
+const PREAUTH_FALLBACKS: Record<string, string> = {
+  "common.all": "All",
+  "common.status": "Status",
+  "common.update": "Update",
+  "dashboard.billing.patient": "Patient",
+  "dashboard.preauth.title": "Pre-Authorization",
+  "dashboard.preauth.subtitle": "Insurance procedure pre-approval requests",
+  "dashboard.preauth.newRequest": "New Request",
+  "dashboard.preauth.noRequests": "No requests in this category.",
+  "dashboard.preauth.requestNumber": "Request #",
+  "dashboard.preauth.procedure": "Procedure",
+  "dashboard.preauth.insurer": "Insurer",
+  "dashboard.preauth.estimatedCost": "Est. Cost",
+  "dashboard.preauth.submitted": "Submitted",
+  "dashboard.preauth.approvedAmount": "approved",
+  "dashboard.preauth.restricted": "Pre-authorisation is restricted to Admin and Reception.",
+  "dashboard.preauth.tab.pending": "Pending",
+  "dashboard.preauth.tab.approved": "Approved",
+  "dashboard.preauth.tab.rejected": "Rejected",
+  "dashboard.preauth.statusBadge.pending": "PENDING",
+  "dashboard.preauth.statusBadge.approved": "APPROVED",
+  "dashboard.preauth.statusBadge.rejected": "REJECTED",
+  "dashboard.preauth.statusBadge.partial": "PARTIAL",
+};
 
 interface PreAuthRow {
   id: string;
@@ -61,6 +87,19 @@ export default function PreAuthPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
+  const { t: translate } = useTranslation();
+  const t = useCallback(
+    (key: string, fallback?: string) => {
+      const resolvedFallback = fallback ?? PREAUTH_FALLBACKS[key];
+      const value = translate(key, resolvedFallback);
+      return value === key ? resolvedFallback ?? key : value;
+    },
+    [translate],
+  );
+  const statusBadgeLabel = useCallback(
+    (status: string) => t(`dashboard.preauth.statusBadge.${status.toLowerCase()}`, status),
+    [t],
+  );
   const [tab, setTab] = useState<Tab>("PENDING");
   const [rows, setRows] = useState<PreAuthRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,7 +109,7 @@ export default function PreAuthPage() {
   // Issue #509: redirect non-allowed roles to /dashboard/not-authorized.
   useEffect(() => {
     if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
-      toast.error("Pre-authorisation is restricted to Admin and Reception.");
+      toast.error(t("dashboard.preauth.restricted"));
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/preauth")}`,
       );
@@ -108,38 +147,38 @@ export default function PreAuthPage() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <FileCheck className="text-primary" /> Pre-Authorization
+            <FileCheck className="text-primary" /> {t("dashboard.preauth.title")}
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Insurance procedure pre-approval requests
+            {t("dashboard.preauth.subtitle")}
           </p>
         </div>
         <button
           onClick={() => setNewOpen(true)}
           className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark"
         >
-          <Plus size={16} /> New Request
+          <Plus size={16} /> {t("dashboard.preauth.newRequest")}
         </button>
       </div>
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button onClick={() => setTab("PENDING")} className={tabClass("PENDING")}>
-          Pending
+          {t("dashboard.preauth.tab.pending")}
         </button>
         <button
           onClick={() => setTab("APPROVED")}
           className={tabClass("APPROVED")}
         >
-          Approved
+          {t("dashboard.preauth.tab.approved")}
         </button>
         <button
           onClick={() => setTab("REJECTED")}
           className={tabClass("REJECTED")}
         >
-          Rejected
+          {t("dashboard.preauth.tab.rejected")}
         </button>
         <button onClick={() => setTab("ALL")} className={tabClass("ALL")}>
-          All
+          {t("common.all")}
         </button>
       </div>
 
@@ -150,20 +189,20 @@ export default function PreAuthPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            No requests in this category.
+            {t("dashboard.preauth.noRequests")}
           </div>
         ) : (
           <div className="overflow-x-auto">
           <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-4 py-3">Request #</th>
-                <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Procedure</th>
-                <th className="px-4 py-3">Insurer</th>
-                <th className="px-4 py-3">Est. Cost</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Submitted</th>
+                <th className="px-4 py-3">{t("dashboard.preauth.requestNumber")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
+                <th className="px-4 py-3">{t("dashboard.preauth.procedure")}</th>
+                <th className="px-4 py-3">{t("dashboard.preauth.insurer")}</th>
+                <th className="px-4 py-3">{t("dashboard.preauth.estimatedCost")}</th>
+                <th className="px-4 py-3">{t("common.status")}</th>
+                <th className="px-4 py-3">{t("dashboard.preauth.submitted")}</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -191,7 +230,7 @@ export default function PreAuthPage() {
                     {fmtMoney(r.estimatedCost)}
                     {r.approvedAmount != null && (
                       <span className="ml-2 text-xs text-green-700 dark:text-green-400">
-                        (approved {fmtMoney(r.approvedAmount)})
+                        ({t("dashboard.preauth.approvedAmount")} {fmtMoney(r.approvedAmount)})
                       </span>
                     )}
                   </td>
@@ -207,7 +246,7 @@ export default function PreAuthPage() {
                               : "bg-yellow-100 text-yellow-700"
                       }`}
                     >
-                      {r.status}
+                      {statusBadgeLabel(r.status)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm">
@@ -219,7 +258,7 @@ export default function PreAuthPage() {
                         onClick={() => setStatusEdit(r)}
                         className="rounded bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-dark"
                       >
-                        Update
+                        {t("common.update")}
                       </button>
                     )}
                   </td>

@@ -9,6 +9,7 @@ import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/format";
 import { SkeletonTable } from "@/components/Skeleton";
+import { useTranslation } from "@/lib/i18n";
 
 // Issue #509: page-level gate matching API authorize() in
 // apps/api/src/routes/billing.ts (ADMIN, RECEPTION on /reports/refunds and
@@ -16,6 +17,26 @@ import { SkeletonTable } from "@/components/Skeleton";
 // PATIENT / NURSE / DOCTOR could navigate to /dashboard/refunds and see the
 // refunds dashboard chrome before the API call returned 403.
 const VIEW_ALLOWED = new Set(["ADMIN", "RECEPTION"]);
+
+const REFUNDS_FALLBACKS: Record<string, string> = {
+  "common.apply": "Apply",
+  "common.date": "Date",
+  "common.from": "From",
+  "common.reason": "Reason",
+  "common.to": "To",
+  "dashboard.billing.allTenants": "All tenants",
+  "dashboard.billing.amount": "Amount",
+  "dashboard.billing.invoiceNumber": "Invoice #",
+  "dashboard.billing.patient": "Patient",
+  "dashboard.refunds.title": "Refunds",
+  "dashboard.refunds.mode": "Mode",
+  "dashboard.refunds.totalRefundedPeriod": "Total Refunded (period)",
+  "dashboard.refunds.count.singular": "refund",
+  "dashboard.refunds.count.plural": "refunds",
+  "dashboard.refunds.empty": "No refunds in this period.",
+  "dashboard.refunds.rangeError": "End date must be on or after start date",
+  "dashboard.refunds.restricted": "Refunds are restricted to Admin and Reception.",
+};
 
 interface RefundRow {
   id: string;
@@ -54,6 +75,15 @@ export default function RefundsPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
   const pathname = usePathname();
+  const { t: translate } = useTranslation();
+  const t = useCallback(
+    (key: string, fallback?: string) => {
+      const resolvedFallback = fallback ?? REFUNDS_FALLBACKS[key];
+      const value = translate(key, resolvedFallback);
+      return value === key ? resolvedFallback ?? key : value;
+    },
+    [translate],
+  );
   const [from, setFrom] = useState(defaultFrom());
   const [to, setTo] = useState(defaultTo());
   const [rows, setRows] = useState<RefundRow[]>([]);
@@ -71,7 +101,7 @@ export default function RefundsPage() {
   // Issue #509: bounce non-allowed roles to /dashboard/not-authorized.
   useEffect(() => {
     if (!isLoading && user && !VIEW_ALLOWED.has(user.role)) {
-      toast.error("Refunds are restricted to Admin and Reception.");
+      toast.error(t("dashboard.refunds.restricted"));
       router.replace(
         `/dashboard/not-authorized?from=${encodeURIComponent(pathname || "/dashboard/refunds")}`,
       );
@@ -129,13 +159,13 @@ export default function RefundsPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Refunds</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t("dashboard.refunds.title")}</h1>
         {isMainSuperAdmin && (
           <TenantSelect
             tenants={tenants}
             value={selectedTenantId}
             onChange={setSelectedTenantId}
-            allLabel="All tenants"
+            allLabel={t("dashboard.billing.allTenants")}
             className="w-full sm:w-64"
             testId="refunds-tenant-filter"
           />
@@ -145,7 +175,7 @@ export default function RefundsPage() {
       {/* Filter */}
       <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl bg-white p-4 shadow-sm dark:bg-gray-800">
         <div>
-          <label htmlFor="refunds-from" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">From</label>
+          <label htmlFor="refunds-from" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">{t("common.from")}</label>
           <input
             id="refunds-from"
             type="date"
@@ -155,7 +185,7 @@ export default function RefundsPage() {
           />
         </div>
         <div>
-          <label htmlFor="refunds-to" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">To</label>
+          <label htmlFor="refunds-to" className="mb-1 block text-xs text-gray-500 dark:text-gray-400">{t("common.to")}</label>
           <input
             id="refunds-to"
             type="date"
@@ -171,7 +201,7 @@ export default function RefundsPage() {
           />
           {reversedRange && (
             <p id="refunds-to-error" className="mt-1 text-xs text-red-600 dark:text-red-400">
-              End date must be on or after start date
+              {t("dashboard.refunds.rangeError")}
             </p>
           )}
         </div>
@@ -180,17 +210,17 @@ export default function RefundsPage() {
           disabled={reversedRange}
           className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Apply
+          {t("common.apply")}
         </button>
         <div className="ml-auto text-right">
           <p className="text-xs uppercase tracking-wider text-gray-400 dark:text-gray-500">
-            Total Refunded (period)
+            {t("dashboard.refunds.totalRefundedPeriod")}
           </p>
           <p className="mt-1 text-xl font-bold text-orange-600 dark:text-orange-400">
             {fmtMoney(total)}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {rows.length} refund{rows.length === 1 ? "" : "s"}
+            {rows.length} {t(rows.length === 1 ? "dashboard.refunds.count.singular" : "dashboard.refunds.count.plural")}
           </p>
         </div>
       </div>
@@ -202,18 +232,18 @@ export default function RefundsPage() {
           </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            No refunds in this period.
+            {t("dashboard.refunds.empty")}
           </div>
         ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Invoice #</th>
-                <th className="px-4 py-3">Patient</th>
-                <th className="px-4 py-3">Amount</th>
-                <th className="px-4 py-3">Mode</th>
-                <th className="px-4 py-3">Reason</th>
+                <th className="px-4 py-3">{t("common.date")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.invoiceNumber")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
+                <th className="px-4 py-3">{t("dashboard.billing.amount")}</th>
+                <th className="px-4 py-3">{t("dashboard.refunds.mode")}</th>
+                <th className="px-4 py-3">{t("common.reason")}</th>
               </tr>
             </thead>
             <tbody>

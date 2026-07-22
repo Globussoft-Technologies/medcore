@@ -427,7 +427,7 @@ function detectTypeNarrowing(stmt) {
   return risks;
 }
 
-function detectUniqueAddition(stmt) {
+function detectUniqueAddition(stmt, ctx) {
   const risks = [];
   // Postgres patterns:
   //   CREATE UNIQUE INDEX "name" ON "schema"."Foo"("col")
@@ -439,6 +439,11 @@ function detectUniqueAddition(stmt) {
   }
   if (m) {
     const [, table, cols] = m;
+    // A unique index created alongside a brand-new table cannot encounter
+    // pre-existing duplicates. Keep guarding additions to existing tables.
+    if (ctx && ctx.createdTables && ctx.createdTables.has(table)) {
+      return risks;
+    }
     risks.push({
       class: 'UNIQUE_ADDITION',
       table,
@@ -478,13 +483,19 @@ function analyse(sql, opts) {
   const stmts = splitStatements(sql);
   const ctx = {
     fromFields: opts && opts.against ? parseFromSchema(opts.against) : {},
+    createdTables: new Set(
+      stmts
+        .map(stmt => stmt.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"[^"]+"\s*\.\s*)?"([A-Za-z0-9_]+)"/i))
+        .filter(Boolean)
+        .map(match => match[1]),
+    ),
   };
   const allRisks = [];
   for (const stmt of stmts) {
     allRisks.push(...detectNotNullWithoutDefault(stmt, ctx));
     allRisks.push(...detectColumnDrop(stmt));
     allRisks.push(...detectTypeNarrowing(stmt));
-    allRisks.push(...detectUniqueAddition(stmt));
+    allRisks.push(...detectUniqueAddition(stmt, ctx));
     allRisks.push(...detectForeignKeyWithoutOnDelete(stmt));
   }
 

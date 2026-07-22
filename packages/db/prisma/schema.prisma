@@ -909,6 +909,9 @@ model Tenant {
   departmentMembers DepartmentMember[]
   materials         Material[]
   materialMovements MaterialMovement[]
+  departmentMaterialHoldings  DepartmentMaterialHolding[]
+  departmentMaterialMovements DepartmentMaterialMovement[]
+  materialAdjustmentRequests  MaterialAdjustmentRequest[]
 
   @@map("tenants")
 }
@@ -1510,7 +1513,10 @@ model User {
   departmentMemberships DepartmentMember[]
 
   // Material catalog (2026-07) — movement ledger rows this user performed.
-  materialMovements MaterialMovement[]
+  materialMovements           MaterialMovement[]
+  departmentMaterialMovements DepartmentMaterialMovement[]
+  requestedMaterialAdjustmentRequests MaterialAdjustmentRequest[] @relation("MaterialAdjustmentRequestedBy")
+  reviewedMaterialAdjustmentRequests  MaterialAdjustmentRequest[] @relation("MaterialAdjustmentReviewedBy")
 
   @@index([email])
   @@index([phone])
@@ -3231,6 +3237,9 @@ model Department {
 
   requisitions Requisition[]
   members      DepartmentMember[]
+  materialHoldings  DepartmentMaterialHolding[]
+  materialMovements DepartmentMaterialMovement[]
+  materialAdjustmentRequests MaterialAdjustmentRequest[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -3375,6 +3384,9 @@ model Material {
 
   movements        MaterialMovement[]
   requisitionItems RequisitionItem[]
+  departmentHoldings  DepartmentMaterialHolding[]
+  departmentMovements DepartmentMaterialMovement[]
+  adjustmentRequests  MaterialAdjustmentRequest[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -3404,6 +3416,96 @@ model MaterialMovement {
   @@index([materialId])
   @@index([tenantId])
   @@map("material_movements")
+}
+
+// Current on-hand stock held by a department for a given non-medicine material.
+// Main inventory stays on Material.quantity; department-held inventory lives
+// here once a requisition is received by the destination department.
+model DepartmentMaterialHolding {
+  id           String   @id @default(uuid())
+  departmentId String
+  materialId   String
+  quantity     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  material   Material   @relation(fields: [materialId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, materialId])
+  @@index([tenantId])
+  @@index([departmentId])
+  @@index([materialId])
+  @@map("department_material_holdings")
+}
+
+// Movement ledger for department-held material stock. Mirrors MaterialMovement
+// so adjustments, receipt, and loss/damage remain auditable after stock leaves
+// the main inventory.
+model DepartmentMaterialMovement {
+  id           String            @id @default(uuid())
+  departmentId String
+  materialId   String
+  type         StockMovementType
+  quantity     Int
+  referenceId  String?
+  reason       String?
+  performedBy  String
+  createdAt    DateTime          @default(now())
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  material   Material   @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [performedBy], references: [id])
+
+  @@index([tenantId])
+  @@index([departmentId])
+  @@index([materialId])
+  @@map("department_material_movements")
+}
+
+enum MaterialAdjustmentRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// Department staff can request stock decreases (damage, missing, correction)
+// against the inventory held by one of their assigned departments. Admin
+// approval applies the actual movement and on-hand reduction.
+model MaterialAdjustmentRequest {
+  id            String                          @id @default(uuid())
+  materialId    String
+  departmentId  String
+  requestedById String
+  reviewedById  String?
+  delta         Int
+  reasonCode    String
+  reasonNote    String?
+  status        MaterialAdjustmentRequestStatus @default(PENDING)
+  reviewedNote  String?
+  createdAt     DateTime                        @default(now())
+  updatedAt     DateTime                        @updatedAt
+  reviewedAt    DateTime?
+
+  tenantId String?
+  tenant   Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  material    Material   @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  department  Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  requestedBy User       @relation("MaterialAdjustmentRequestedBy", fields: [requestedById], references: [id])
+  reviewedBy  User?      @relation("MaterialAdjustmentReviewedBy", fields: [reviewedById], references: [id])
+
+  @@index([tenantId])
+  @@index([departmentId, status])
+  @@index([materialId, status])
+  @@index([requestedById])
+  @@map("material_adjustment_requests")
 }
 
 // ═══════════════════════════════════════════════════════

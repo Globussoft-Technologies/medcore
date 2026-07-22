@@ -53,9 +53,11 @@ describe("EnquiryForm (Issue #45) — inline field errors", () => {
     await user.click(screen.getByRole("button", { name: /request a demo/i }));
 
     // Inline field error visible — contains "email" in its text.
-    const alert = await screen.findByRole("alert");
-    expect(alert).toBeInTheDocument();
-    expect(alert.textContent?.toLowerCase()).toMatch(/email/);
+    await waitFor(() => {
+      expect(document.getElementById("email-error")?.textContent).toMatch(
+        /email/i,
+      );
+    });
 
     // The generic server toast must NOT appear.
     expect(screen.queryByText(/invalid enquiry payload/i)).toBeNull();
@@ -117,8 +119,11 @@ describe("EnquiryForm (Issue #45) — inline field errors", () => {
     await waitFor(() => {
       expect((globalThis as any).fetch).toHaveBeenCalledTimes(1);
     });
-    const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toMatch(/already registered/i);
+    await waitFor(() => {
+      expect(document.getElementById("email-error")?.textContent).toMatch(
+        /already registered/i,
+      );
+    });
     // Confirm the old generic toast is absent.
     expect(screen.queryByText(/invalid enquiry payload/i)).toBeNull();
   });

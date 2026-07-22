@@ -147,4 +147,23 @@ describe("Issue #70 — sidebar single-click", () => {
       expect(link.getAttribute("href")).toBeTruthy();
     }
   });
+
+  it("assigned-staff roles have a sidebar path to Departments", () => {
+    authMock.mockReturnValue({
+      user: { id: "u1", name: "Nurse A", email: "n@x.com", role: "NURSE" },
+      isLoading: false,
+      loadSession: vi.fn(),
+      logout: vi.fn(),
+    });
+
+    render(
+      <DashboardLayout>
+        <div>child</div>
+      </DashboardLayout>
+    );
+
+    const link = screen.getAllByRole("link", { name: /^departments$/i })[0];
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("href")).toBe("/dashboard/departments");
+  });
 });

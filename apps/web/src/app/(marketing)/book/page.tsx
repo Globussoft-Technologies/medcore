@@ -53,6 +53,11 @@ import {
   Check,
 } from "lucide-react";
 import { Container } from "../_components/Container";
+import {
+  firstQuickBookIdentityError,
+  validateQuickBookIdentity,
+  type QuickBookIdentityErrors,
+} from "./identity-validation";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
@@ -508,6 +513,8 @@ export default function QuickBookPage() {
   const [step, setStep] = useState<Step>("identity");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [identityErrors, setIdentityErrors] =
+    useState<QuickBookIdentityErrors>({});
 
   // Cycling headline word — the WHOLE phrase re-animates (slides L→R) each time
   // the word changes. `headlineKey` bumps to retrigger the slide animation.
@@ -845,24 +852,17 @@ export default function QuickBookPage() {
   // ── Step 1 → 2: identity gate ────────────────────────────────────────
   function startChat() {
     setError(null);
-    if (name.trim().length < 2) {
-      setError("Please enter your name.");
-      return;
-    }
-    if (!/^[+]?[\d\s-]{10,15}$/.test(phone.trim())) {
-      setError("Enter a valid 10–15 digit WhatsApp number.");
-      return;
-    }
-    if (!gender) {
-      setError("Please select your gender.");
-      return;
-    }
-    if (!dob) {
-      setError("Please enter your date of birth.");
-      return;
-    }
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError("Enter a valid email address (or leave it blank).");
+    const nextErrors = validateQuickBookIdentity({
+      name,
+      phone,
+      gender,
+      dob,
+      email,
+    });
+    setIdentityErrors(nextErrors);
+    const firstError = firstQuickBookIdentityError(nextErrors);
+    if (firstError) {
+      setError(firstError);
       return;
     }
     // Seed the assistant greeting (knows the patient's first name).
@@ -1211,6 +1211,11 @@ export default function QuickBookPage() {
     "inline-flex items-center justify-center gap-2 rounded-full border border-gray-300 bg-white/60 px-5 py-3 text-sm font-medium text-gray-700 backdrop-blur transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300 hover:bg-white hover:shadow-md dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-200 dark:hover:bg-gray-800";
   const inputCls =
     "w-full rounded-xl border border-gray-300 bg-white/80 px-4 py-3 text-sm shadow-sm transition-all duration-200 placeholder:text-gray-400 hover:border-gray-400 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/15 dark:border-gray-700 dark:bg-gray-900/80 dark:text-gray-100 dark:hover:border-gray-600";
+  const fieldErrorCls = "mt-1 text-xs font-medium text-red-600 dark:text-red-300";
+  const inputClassFor = (field: keyof QuickBookIdentityErrors) =>
+    identityErrors[field]
+      ? `${inputCls} border-red-400 focus:border-red-500 focus:ring-red-500/15 dark:border-red-500`
+      : inputCls;
 
   const stepOrder: Step[] = ["identity", "chat", "doctor", "otp", "done"];
   const hasUserTurn = messages.some((m) => m.role === "user");
@@ -1600,10 +1605,26 @@ export default function QuickBookPage() {
                     data-testid="quick-book-name"
                     type="text"
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    aria-invalid={!!identityErrors.name}
+                    aria-describedby={
+                      identityErrors.name ? "quick-book-name-error" : undefined
+                    }
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      setIdentityErrors((prev) => ({ ...prev, name: undefined }));
+                    }}
                     placeholder="Full name"
-                    className={inputCls}
+                    className={inputClassFor("name")}
                   />
+                  {identityErrors.name && (
+                    <p
+                      id="quick-book-name-error"
+                      data-testid="quick-book-name-error"
+                      className={fieldErrorCls}
+                    >
+                      {identityErrors.name}
+                    </p>
+                  )}
                 </div>
                 <div className="mc-anim-slide-up mc-delay-2">
                   <label
@@ -1619,10 +1640,26 @@ export default function QuickBookPage() {
                     type="tel"
                     inputMode="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    aria-invalid={!!identityErrors.phone}
+                    aria-describedby={
+                      identityErrors.phone ? "quick-book-phone-error" : undefined
+                    }
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      setIdentityErrors((prev) => ({ ...prev, phone: undefined }));
+                    }}
                     placeholder="+91 9876543210"
-                    className={inputCls}
+                    className={inputClassFor("phone")}
                   />
+                  {identityErrors.phone && (
+                    <p
+                      id="quick-book-phone-error"
+                      data-testid="quick-book-phone-error"
+                      className={fieldErrorCls}
+                    >
+                      {identityErrors.phone}
+                    </p>
+                  )}
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     We'll send your confirmation here. You can sign in later with
                     this number.
@@ -1643,13 +1680,24 @@ export default function QuickBookPage() {
                       ariaLabel="Gender"
                       placeholder="Select…"
                       value={gender}
-                      onChange={(v) => setGender(v as typeof gender)}
+                      onChange={(v) => {
+                        setGender(v as typeof gender);
+                        setIdentityErrors((prev) => ({ ...prev, gender: undefined }));
+                      }}
                       options={[
                         { value: "MALE", label: "Male" },
                         { value: "FEMALE", label: "Female" },
                         { value: "OTHER", label: "Other" },
                       ]}
                     />
+                    {identityErrors.gender && (
+                      <p
+                        data-testid="quick-book-gender-error"
+                        className={fieldErrorCls}
+                      >
+                        {identityErrors.gender}
+                      </p>
+                    )}
                   </div>
                   <div className="sm:col-span-2">
                     <label
@@ -1669,7 +1717,10 @@ export default function QuickBookPage() {
                         ariaLabel="Day of birth"
                         placeholder="Day"
                         value={dobDay}
-                        onChange={(v) => setDobPart("day", v)}
+                        onChange={(v) => {
+                          setDobPart("day", v);
+                          setIdentityErrors((prev) => ({ ...prev, dob: undefined }));
+                        }}
                         options={Array.from({ length: 31 }, (_, i) => ({
                           value: String(i + 1),
                           label: String(i + 1),
@@ -1680,7 +1731,10 @@ export default function QuickBookPage() {
                         ariaLabel="Month of birth"
                         placeholder="Month"
                         value={dobMonth}
-                        onChange={(v) => setDobPart("month", v)}
+                        onChange={(v) => {
+                          setDobPart("month", v);
+                          setIdentityErrors((prev) => ({ ...prev, dob: undefined }));
+                        }}
                         options={DOB_MONTHS.map((m, i) => ({
                           value: String(i + 1),
                           label: m,
@@ -1691,7 +1745,10 @@ export default function QuickBookPage() {
                         ariaLabel="Year of birth"
                         placeholder="Year"
                         value={dobYear}
-                        onChange={(v) => setDobPart("year", v)}
+                        onChange={(v) => {
+                          setDobPart("year", v);
+                          setIdentityErrors((prev) => ({ ...prev, dob: undefined }));
+                        }}
                         options={DOB_YEARS.map((y) => ({
                           value: String(y),
                           label: String(y),
@@ -1705,6 +1762,14 @@ export default function QuickBookPage() {
                           month: "long",
                           year: "numeric",
                         })}
+                      </p>
+                    )}
+                    {identityErrors.dob && (
+                      <p
+                        data-testid="quick-book-dob-error"
+                        className={fieldErrorCls}
+                      >
+                        {identityErrors.dob}
                       </p>
                     )}
                   </div>
@@ -1723,10 +1788,26 @@ export default function QuickBookPage() {
                     type="email"
                     inputMode="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    aria-invalid={!!identityErrors.email}
+                    aria-describedby={
+                      identityErrors.email ? "quick-book-email-error" : undefined
+                    }
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      setIdentityErrors((prev) => ({ ...prev, email: undefined }));
+                    }}
                     placeholder="you@example.com"
-                    className={inputCls}
+                    className={inputClassFor("email")}
                   />
+                  {identityErrors.email && (
+                    <p
+                      id="quick-book-email-error"
+                      data-testid="quick-book-email-error"
+                      className={fieldErrorCls}
+                    >
+                      {identityErrors.email}
+                    </p>
+                  )}
                 </div>
 
                 <button

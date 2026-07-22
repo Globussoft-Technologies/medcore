@@ -256,8 +256,7 @@ router.post(
         departmentId: string;
         notes?: string;
         items: Array<{
-          inventoryItemId?: string;
-          materialId?: string;
+          materialId: string;
           requestedQty: number;
         }>;
       };
@@ -278,22 +277,21 @@ router.post(
         });
         return;
       }
-      // Validate referenced sources exist (in this tenant), per source type.
-      const invIds = items.filter((i) => i.inventoryItemId).map((i) => i.inventoryItemId!);
-      const matIds = items.filter((i) => i.materialId).map((i) => i.materialId!);
-      const [invFound, matFound] = await Promise.all([
-        invIds.length
-          ? prisma.inventoryItem.findMany({ where: { id: { in: invIds } }, select: { id: true } })
-          : Promise.resolve([] as { id: string }[]),
-        matIds.length
-          ? prisma.material.findMany({ where: { id: { in: matIds } }, select: { id: true } })
-          : Promise.resolve([] as { id: string }[]),
-      ]);
-      if (
-        invFound.length !== new Set(invIds).size ||
-        matFound.length !== new Set(matIds).size
-      ) {
-        res.status(400).json({ success: false, data: null, error: "One or more items are invalid" });
+      // New requisitions are material/equipment only; medicine requests use the
+      // dedicated pharmacy flow.
+      const matIds = items.map((i) => i.materialId);
+      const matFound = matIds.length
+        ? await prisma.material.findMany({
+            where: {
+              id: { in: matIds },
+              active: true,
+              category: { not: "MEDICINE" },
+            },
+            select: { id: true },
+          })
+        : [];
+      if (matFound.length !== new Set(matIds).size) {
+        res.status(400).json({ success: false, data: null, error: "One or more materials are invalid" });
         return;
       }
 
@@ -309,8 +307,8 @@ router.post(
           tenantId: req.tenantId ?? null,
           items: {
             create: items.map((i) => ({
-              inventoryItemId: i.inventoryItemId ?? null,
-              materialId: i.materialId ?? null,
+              inventoryItemId: null,
+              materialId: i.materialId,
               requestedQty: i.requestedQty,
               tenantId: req.tenantId ?? null,
             })),
@@ -702,6 +700,35 @@ router.post(
             } else if (line.materialId) {
               await tx.materialMovement.create({
                 data: {
+                  materialId: line.materialId,
+                  type: "RECEIVE",
+                  quantity: received,
+                  referenceId: reqn.id,
+                  reason,
+                  performedBy: req.user!.userId,
+                  tenantId: req.tenantId ?? null,
+                },
+              });
+              await tx.departmentMaterialHolding.upsert({
+                where: {
+                  departmentId_materialId: {
+                    departmentId: reqn.departmentId,
+                    materialId: line.materialId,
+                  },
+                },
+                update: {
+                  quantity: { increment: received },
+                },
+                create: {
+                  departmentId: reqn.departmentId,
+                  materialId: line.materialId,
+                  quantity: received,
+                  tenantId: req.tenantId ?? null,
+                },
+              });
+              await tx.departmentMaterialMovement.create({
+                data: {
+                  departmentId: reqn.departmentId,
                   materialId: line.materialId,
                   type: "RECEIVE",
                   quantity: received,

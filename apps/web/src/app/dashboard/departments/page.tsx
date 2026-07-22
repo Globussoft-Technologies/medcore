@@ -7,7 +7,8 @@
 //     requests) + a per-department activity grid.
 //   • Registry — searchable list with create, inline edit (name/code/active)
 //     and delete (soft-delete when the department has requisition history).
-// Admin-only (VIEW_ALLOWED = ADMIN). Non-admins are bounced to /dashboard.
+// Admins manage departments; assigned staff get read-only visibility into
+// their own departments.
 // Modals live in-DOM (project rule: never window.prompt/alert/confirm).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -35,7 +36,7 @@ import {
 } from "lucide-react";
 import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
-const VIEW_ALLOWED = new Set(["ADMIN"]);
+const VIEW_ALLOWED = new Set(["ADMIN", "PHARMACIST", "NURSE", "DOCTOR", "RECEPTION", "LAB_TECH"]);
 
 const FIELD =
   "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
@@ -120,6 +121,8 @@ export default function DepartmentsPage() {
   const [searching, setSearching] = useState(false);
 
   const allowed = !!user && VIEW_ALLOWED.has(user.role);
+  const canManage = user?.role === "ADMIN";
+  const [notAssigned, setNotAssigned] = useState(false);
 
   useEffect(() => {
     if (!isLoading && user && !allowed) router.push("/dashboard");
@@ -132,12 +135,14 @@ export default function DepartmentsPage() {
       if (q.trim()) qs.set("q", q.trim());
       if (view === "active") qs.set("active", "true");
       if (view === "inactive") qs.set("active", "false");
-      const res = await api.get<{ data: Department[] }>(
+      const res = await api.get<{ data: Department[]; meta?: { notInAnyDepartment?: boolean } }>(
         `/departments?${qs.toString()}`,
       );
       setRows(Array.isArray(res?.data) ? res.data : []);
+      setNotAssigned(Boolean(res?.meta?.notInAnyDepartment));
     } catch {
       setRows([]);
+      setNotAssigned(false);
     }
     setLoading(false);
   }, [q, view]);
@@ -160,8 +165,9 @@ export default function DepartmentsPage() {
   }, []);
 
   useEffect(() => {
-    if (allowed) loadDashboard();
-  }, [allowed, loadDashboard]);
+    if (allowed && canManage) loadDashboard();
+    else setDashLoading(false);
+  }, [allowed, canManage, loadDashboard]);
 
   useEffect(() => {
     if (allowed) loadDepartments();
@@ -377,18 +383,20 @@ export default function DepartmentsPage() {
             Manage operational departments and track their material requests
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          data-testid="dept-create-btn"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
-        >
-          <Plus size={16} /> New Department
-        </button>
+        {canManage && (
+          <button
+            type="button"
+            onClick={openCreate}
+            data-testid="dept-create-btn"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+          >
+            <Plus size={16} /> New Department
+          </button>
+        )}
       </div>
 
       {/* ── Dashboard summary tiles ── */}
-      {dashLoading ? (
+      {canManage && dashLoading ? (
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <SkeletonCard />
           <SkeletonCard />
@@ -396,7 +404,7 @@ export default function DepartmentsPage() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
-      ) : summary ? (
+      ) : canManage && summary ? (
         <div
           className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5"
           data-testid="dept-summary"
@@ -474,15 +482,23 @@ export default function DepartmentsPage() {
           className="rounded-xl border border-dashed p-10 text-center text-gray-500 dark:border-gray-700"
           data-testid="dept-empty"
         >
-          No departments found.{" "}
-          <button
-            type="button"
-            onClick={openCreate}
-            className="font-medium text-primary hover:underline"
-          >
-            Add your first one
-          </button>
-          .
+          {notAssigned ? (
+            "No assigned department. Ask an administrator to assign you to a department."
+          ) : canManage ? (
+            <>
+              No departments found.{" "}
+              <button
+                type="button"
+                onClick={openCreate}
+                className="font-medium text-primary hover:underline"
+              >
+                Add your first one
+              </button>
+              .
+            </>
+          ) : (
+            "No departments found."
+          )}
         </div>
       ) : (
         <div
@@ -530,6 +546,7 @@ export default function DepartmentsPage() {
                       />
                       {d.active ? "Active" : "Inactive"}
                     </span>
+                    {canManage && (
                     <div className="relative">
                       <button
                         type="button"
@@ -619,6 +636,7 @@ export default function DepartmentsPage() {
                         </>
                       )}
                     </div>
+                    )}
                   </div>
                 </div>
 
@@ -648,7 +666,11 @@ export default function DepartmentsPage() {
                 <div className="mt-5 flex items-center justify-between gap-3 border-t pt-4 dark:border-gray-700/70">
                   <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                     <Users size={16} className="shrink-0" />
-                    <span>Manage members &amp; material requests for this department.</span>
+                    <span>
+                      {canManage
+                        ? "Manage members & material requests for this department."
+                        : "View members, material requests, and stock for this department."}
+                    </span>
                   </div>
                   <button
                     type="button"

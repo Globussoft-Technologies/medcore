@@ -20,12 +20,12 @@ const MAT = "2c9b0a1e-7d3f-4a6b-9c2e-1f5a6b7c8d9e";
 const ITEM = "51a45df7-934e-41eb-a62d-71ecfe94567a";
 
 describe("createRequisitionSchema — dual-source lines", () => {
-  it("accepts a line with only inventoryItemId", () => {
+  it("rejects a line with inventoryItemId because medicines use pharmacy", () => {
     const r = createRequisitionSchema.safeParse({
       departmentId: DEPT,
       items: [{ inventoryItemId: INV, requestedQty: 2 }],
     });
-    expect(r.success).toBe(true);
+    expect(r.success).toBe(false);
   });
 
   it("accepts a line with only materialId", () => {

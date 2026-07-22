@@ -2,8 +2,7 @@
 
 // Department detail page (2026-07) — the full "View Details" surface for one
 // department: stats + members (add/remove) + requisition history + materials
-// consumed. Admin-only. Data comes from GET /departments/:id/detail, with the
-// member add/search/remove reusing the same endpoints as the drawer.
+// consumed. Admins can manage members; assigned staff get read-only access.
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -24,7 +23,7 @@ import {
 } from "lucide-react";
 import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
-const VIEW_ALLOWED = new Set(["ADMIN"]);
+const VIEW_ALLOWED = new Set(["ADMIN", "PHARMACIST", "NURSE", "DOCTOR", "RECEPTION", "LAB_TECH"]);
 const FIELD =
   "w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500";
 
@@ -52,6 +51,14 @@ interface Consumed {
   unit: string;
   issued: number;
 }
+interface Holding {
+  id: string;
+  materialId: string;
+  name: string;
+  unit: string;
+  category: string;
+  quantity: number;
+}
 interface Detail {
   department: { id: string; name: string; code: string; active: boolean; createdAt: string };
   stats: {
@@ -60,9 +67,11 @@ interface Detail {
     openRequests: number;
     completedRequests: number;
     totalUnitsIssued: number;
+    totalUnitsOnHand: number;
   };
   members: Member[];
   requisitions: ReqRow[];
+  holdings: Holding[];
   consumed: Consumed[];
 }
 
@@ -85,6 +94,7 @@ export default function DepartmentDetailPage() {
 
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [emptyMessage, setEmptyMessage] = useState("Department not found.");
 
   // Member add/search
   const [memberQuery, setMemberQuery] = useState("");
@@ -92,6 +102,7 @@ export default function DepartmentDetailPage() {
   const [searching, setSearching] = useState(false);
 
   const allowed = !!user && VIEW_ALLOWED.has(user.role);
+  const canManage = user?.role === "ADMIN";
 
   useEffect(() => {
     if (!isLoading && user && !allowed) router.push("/dashboard");
@@ -103,8 +114,10 @@ export default function DepartmentDetailPage() {
     try {
       const res = await api.get<{ data: Detail }>(`/departments/${id}/detail`);
       setDetail(res?.data ?? null);
-    } catch {
+      setEmptyMessage("Department not found.");
+    } catch (err) {
       setDetail(null);
+      setEmptyMessage(err instanceof Error ? err.message : "Department not found.");
     }
     setLoading(false);
   }, [id]);
@@ -191,7 +204,7 @@ export default function DepartmentDetailPage() {
   if (!detail) {
     return (
       <div className="py-16 text-center text-gray-500">
-        Department not found.{" "}
+        {emptyMessage}{" "}
         <button onClick={() => router.push("/dashboard/departments")} className="text-primary hover:underline">
           Back to Departments
         </button>
@@ -234,12 +247,13 @@ export default function DepartmentDetailPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
         <Stat icon={Users} label="Members" value={detail.stats.memberCount} tone="slate" />
         <Stat icon={ClipboardList} label="Total Requests" value={detail.stats.totalRequests} tone="blue" />
         <Stat icon={ClipboardList} label="Open" value={detail.stats.openRequests} tone="amber" />
         <Stat icon={CheckCircle2} label="Completed" value={detail.stats.completedRequests} tone="emerald" />
         <Stat icon={PackageCheck} label="Units Issued" value={detail.stats.totalUnitsIssued} tone="violet" />
+        <Stat icon={Boxes} label="On Hand" value={detail.stats.totalUnitsOnHand} tone="blue" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -248,7 +262,7 @@ export default function DepartmentDetailPage() {
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
             <Users size={16} /> Members ({detail.members.length})
           </h2>
-          {/* search + add */}
+          {canManage && (
           <div className="relative mb-3">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -281,6 +295,7 @@ export default function DepartmentDetailPage() {
               </div>
             )}
           </div>
+          )}
           {detail.members.length === 0 ? (
             <p className="py-6 text-center text-sm text-gray-400">No members yet.</p>
           ) : (
@@ -294,6 +309,7 @@ export default function DepartmentDetailPage() {
                       {m.user.email ? ` · ${m.user.email}` : ""}
                     </p>
                   </div>
+                  {canManage && (
                   <button
                     type="button"
                     onClick={() => removeMember(m)}
@@ -302,26 +318,32 @@ export default function DepartmentDetailPage() {
                   >
                     <UserMinus size={15} />
                   </button>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </section>
 
-        {/* Materials consumed */}
+        {/* Equipment present */}
         <section className="rounded-xl border bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Boxes size={16} /> Materials Consumed
+            <Boxes size={16} /> Equipment Present
           </h2>
-          {detail.consumed.length === 0 ? (
-            <p className="py-6 text-center text-sm text-gray-400">Nothing issued to this department yet.</p>
+          {detail.holdings.length === 0 ? (
+            <p className="py-6 text-center text-sm text-gray-400">No equipment is currently recorded for this department.</p>
           ) : (
             <ul className="space-y-2">
-              {detail.consumed.map((c) => (
-                <li key={c.name} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm dark:border-gray-700">
-                  <span className="font-medium">{c.name}</span>
+              {detail.holdings.map((item) => (
+                <li key={item.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm dark:border-gray-700">
+                  <div>
+                    <span className="font-medium">{item.name}</span>
+                    <span className="ml-2 text-xs text-gray-400">
+                      {item.category.charAt(0) + item.category.slice(1).toLowerCase()}
+                    </span>
+                  </div>
                   <span className="tabular-nums text-gray-600 dark:text-gray-300">
-                    {c.issued} {c.unit}
+                    {item.quantity} {item.unit}
                   </span>
                 </li>
               ))}

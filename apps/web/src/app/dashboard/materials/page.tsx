@@ -1,7 +1,8 @@
 "use client";
 
-// Material catalog module (2026-07) — the general materials store: medicines,
-// consumables, equipment, instruments, machines that departments requisition.
+// Material catalog module (2026-07) — the general materials store for
+// non-medicine stock: consumables, equipment, instruments, and machines that
+// departments requisition. Medicines live in the dedicated pharmacy flow.
 // One page: summary tiles + a searchable/filterable table with a single
 // "Add New Item" button, inline edit, add-stock, and delete. Gated to the
 // store roles (ADMIN, PHARMACIST). Modals in-DOM (no window.prompt).
@@ -15,20 +16,29 @@ import {
   Boxes,
   Plus,
   Pencil,
-  Trash2,
   X,
   Search,
   PackagePlus,
   AlertTriangle,
+  ClipboardList,
+  Power,
+  PowerOff,
+  ShieldCheck,
 } from "lucide-react";
 import { SkeletonCard, SkeletonTable } from "@/components/Skeleton";
 
-const VIEW_ALLOWED = new Set(["ADMIN", "PHARMACIST"]);
-const CATEGORIES = ["MEDICINE", "CONSUMABLE", "EQUIPMENT", "INSTRUMENT", "MACHINE"] as const;
+const VIEW_ALLOWED = new Set([
+  "ADMIN",
+  "PHARMACIST",
+  "NURSE",
+  "DOCTOR",
+  "RECEPTION",
+  "LAB_TECH",
+]);
+const CATEGORIES = ["CONSUMABLE", "EQUIPMENT", "INSTRUMENT", "MACHINE"] as const;
 type Category = (typeof CATEGORIES)[number];
 
 const CATEGORY_STYLE: Record<string, string> = {
-  MEDICINE: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   CONSUMABLE: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
   EQUIPMENT: "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300",
   INSTRUMENT: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
@@ -45,24 +55,87 @@ interface Material {
   category: Category;
   unit: string;
   quantity: number;
+  mainQuantity: number;
+  totalQuantity: number;
   reservedStock: number;
   reorderLevel: number;
   unitCost: number | null;
   location: string | null;
   active: boolean;
-  // "material" = editable Material catalog row; "pharmacy" = read-only medicine
-  // batch surfaced from the Pharmacy inventory (managed on the Pharmacy page).
-  source?: "material" | "pharmacy";
+  departmentQuantities: Array<{
+    departmentId: string;
+    departmentName: string;
+    departmentCode: string;
+    quantity: number;
+  }>;
 }
+
+interface DepartmentOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
+interface MaterialLogEntry {
+  id: string;
+  kind: "AUDIT" | "MAIN_MOVEMENT" | "DEPARTMENT_MOVEMENT";
+  action: string;
+  actor: { id: string; name: string; role: string } | null;
+  occurredAt: string;
+  details?: Record<string, unknown> | null;
+}
+
+interface MaterialAdjustmentRequest {
+  id: string;
+  materialId: string;
+  departmentId: string;
+  delta: number;
+  reasonCode: string;
+  reasonNote: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  reviewedNote: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  material: { id: string; name: string; unit: string };
+  department: { id: string; name: string; code: string };
+  requestedBy: { id: string; name: string; role: string };
+  reviewedBy?: { id: string; name: string; role: string } | null;
+}
+
+type StockScope = "ALL" | "MAIN" | string;
+type AdjustmentLocationType = "MAIN" | "DEPARTMENT";
+type AdjustmentReasonCode =
+  | "DAMAGED"
+  | "CORRECTION"
+  | "FOUND"
+  | "TRANSFER_IN"
+  | "TRANSFER_OUT"
+  | "OTHER";
+
+const ADJUSTMENT_REASONS: Array<{ value: AdjustmentReasonCode; label: string }> = [
+  { value: "DAMAGED", label: "Damaged" },
+  { value: "CORRECTION", label: "Correction" },
+  { value: "FOUND", label: "Found Stock" },
+  { value: "TRANSFER_IN", label: "Transfer In" },
+  { value: "TRANSFER_OUT", label: "Transfer Out" },
+  { value: "OTHER", label: "Other" },
+];
 
 export default function MaterialsPage() {
   const { user, isLoading } = useAuthStore();
   const router = useRouter();
 
   const [rows, setRows] = useState<Material[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [canManageDirectly, setCanManageDirectly] = useState(false);
+  const [canRequestAdjustments, setCanRequestAdjustments] = useState(false);
+  const [canApproveAdjustmentRequests, setCanApproveAdjustmentRequests] = useState(false);
+  const [notInAnyDepartment, setNotInAnyDepartment] = useState(false);
+  const [requests, setRequests] = useState<MaterialAdjustmentRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [catFilter, setCatFilter] = useState<"" | Category>("");
+  const [stockScope, setStockScope] = useState<StockScope>("ALL");
 
   // Create / edit modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -82,10 +155,25 @@ export default function MaterialsPage() {
   // Add-stock modal
   const [stockFor, setStockFor] = useState<Material | null>(null);
   const [stockDelta, setStockDelta] = useState(0);
-  const [stockReason, setStockReason] = useState("");
+  const [stockLocationType, setStockLocationType] = useState<AdjustmentLocationType>("MAIN");
+  const [stockDepartmentId, setStockDepartmentId] = useState("");
+  const [stockReasonCode, setStockReasonCode] = useState<AdjustmentReasonCode>("CORRECTION");
+  const [stockReasonNote, setStockReasonNote] = useState("");
 
-  // Delete confirm
-  const [confirmDel, setConfirmDel] = useState<Material | null>(null);
+  // Activation confirm
+  const [statusFor, setStatusFor] = useState<Material | null>(null);
+
+  // Department adjustment request modal
+  const [requestFor, setRequestFor] = useState<Material | null>(null);
+  const [requestDepartmentId, setRequestDepartmentId] = useState("");
+  const [requestDelta, setRequestDelta] = useState(-1);
+  const [requestReasonCode, setRequestReasonCode] = useState<AdjustmentReasonCode>("DAMAGED");
+  const [requestReasonNote, setRequestReasonNote] = useState("");
+
+  // Log modal
+  const [logFor, setLogFor] = useState<Material | null>(null);
+  const [logLoading, setLogLoading] = useState(false);
+  const [timeline, setTimeline] = useState<MaterialLogEntry[]>([]);
 
   const allowed = !!user && VIEW_ALLOWED.has(user.role);
 
@@ -99,57 +187,46 @@ export default function MaterialsPage() {
       const qs = new URLSearchParams();
       if (q.trim()) qs.set("q", q.trim());
       if (catFilter) qs.set("category", catFilter);
-      // Fetch BOTH sources so this page is the true central catalog: the
-      // editable Material rows + the read-only pharmacy medicine batches.
-      // Fetch them INDEPENDENTLY so a pharmacy failure never wipes the
-      // materials list (allSettled, not all).
-      const [matSettled, invSettled] = await Promise.allSettled([
-        api.get<{ data: Material[] }>(`/materials?${qs.toString()}`),
-        // The pharmacy endpoint caps limit at 200 — anything higher 400s.
-        api.get<{ data: any }>(`/pharmacy/inventory?limit=200`),
-      ]);
-      const matRes = matSettled.status === "fulfilled" ? matSettled.value : null;
-      const invRes = invSettled.status === "fulfilled" ? invSettled.value : null;
-
-      const materials: Material[] = (Array.isArray(matRes?.data) ? matRes!.data : []).map((m) => ({
-        ...m,
-        source: "material" as const,
-      }));
-
-      // Normalize pharmacy inventory batches into the same row shape.
-      const invData: any = invRes?.data;
-      const invItems: any[] = Array.isArray(invData) ? invData : invData?.items ?? [];
-      const pharmacy: Material[] = invItems.map((it) => ({
-        id: `pharm:${it.id}`,
-        name: it.medicine?.name ?? "Medicine",
-        sku: it.batchNumber ?? null,
-        category: "MEDICINE" as Category,
-        unit: "unit",
-        quantity: it.quantity ?? 0,
-        reservedStock: it.reservedStock ?? 0,
-        reorderLevel: it.reorderLevel ?? 0,
-        unitCost: it.unitCost ?? null,
-        location: it.location ?? null,
-        active: true,
-        source: "pharmacy" as const,
-      }));
-
-      // Apply the client-side category filter to the merged list (the pharmacy
-      // rows aren't filtered server-side by our /materials query).
-      let merged = [...materials, ...pharmacy];
-      if (catFilter) merged = merged.filter((r) => r.category === catFilter);
-      if (q.trim()) {
-        const needle = q.trim().toLowerCase();
-        merged = merged.filter(
-          (r) =>
-            r.name.toLowerCase().includes(needle) ||
-            (r.sku ?? "").toLowerCase().includes(needle),
-        );
+      qs.set("includeDepartments", "true");
+      const res = await api.get<{
+        data: Material[];
+        meta?: {
+          departments?: DepartmentOption[];
+          canManageDirectly?: boolean;
+          canRequestAdjustments?: boolean;
+          canApproveAdjustmentRequests?: boolean;
+          notInAnyDepartment?: boolean;
+        };
+      }>(`/materials?${qs.toString()}`);
+      const materials = Array.isArray(res?.data) ? res.data : [];
+      const deptOptions = Array.isArray(res?.meta?.departments) ? res.meta.departments : [];
+      const direct = !!res?.meta?.canManageDirectly;
+      const canRequest = !!res?.meta?.canRequestAdjustments;
+      const canApprove = !!res?.meta?.canApproveAdjustmentRequests;
+      const noDepartments = !!res?.meta?.notInAnyDepartment;
+      setDepartments(deptOptions);
+      setCanManageDirectly(direct);
+      setCanRequestAdjustments(canRequest);
+      setCanApproveAdjustmentRequests(canApprove);
+      setNotInAnyDepartment(noDepartments);
+      setRows([...materials].sort((a, b) => a.name.localeCompare(b.name)));
+      if (!direct && deptOptions.length > 0 && (stockScope === "MAIN" || stockScope === "ALL")) {
+        setStockScope("ALL");
       }
-      merged.sort((a, b) => a.name.localeCompare(b.name));
-      setRows(merged);
+      if (direct || canRequest || canApprove) {
+        const reqRes = await api.get<{ data: MaterialAdjustmentRequest[] }>("/materials/adjustment-requests");
+        setRequests(Array.isArray(reqRes?.data) ? reqRes.data : []);
+      } else {
+        setRequests([]);
+      }
     } catch {
       setRows([]);
+      setDepartments([]);
+      setCanManageDirectly(false);
+      setCanRequestAdjustments(false);
+      setCanApproveAdjustmentRequests(false);
+      setNotInAnyDepartment(false);
+      setRequests([]);
     }
     setLoading(false);
   }, [q, catFilter]);
@@ -185,6 +262,20 @@ export default function MaterialsPage() {
       location: m.location ?? "",
     });
     setModalOpen(true);
+  }
+
+  function openAdjust(m: Material) {
+    setStockFor(m);
+    setStockDelta(0);
+    if (stockScope !== "ALL" && stockScope !== "MAIN") {
+      setStockLocationType("DEPARTMENT");
+      setStockDepartmentId(stockScope);
+    } else {
+      setStockLocationType("MAIN");
+      setStockDepartmentId("");
+    }
+    setStockReasonCode("CORRECTION");
+    setStockReasonNote("");
   }
 
   const submitForm = useCallback(async () => {
@@ -228,42 +319,150 @@ export default function MaterialsPage() {
     }
     try {
       await api.post(`/materials/${stockFor.id}/adjust-stock`, {
+        locationType: stockLocationType,
+        departmentId:
+          stockLocationType === "DEPARTMENT" ? stockDepartmentId || undefined : undefined,
         delta: Number(stockDelta),
-        reason: stockReason || undefined,
+        reasonCode: stockReasonCode,
+        reasonNote: stockReasonNote || undefined,
       });
       toast.success(`Stock updated for "${stockFor.name}"`);
       setStockFor(null);
       setStockDelta(0);
-      setStockReason("");
+      setStockLocationType("MAIN");
+      setStockDepartmentId("");
+      setStockReasonCode("CORRECTION");
+      setStockReasonNote("");
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to adjust stock");
     }
-  }, [stockFor, stockDelta, stockReason, load]);
+  }, [
+    stockFor,
+    stockDelta,
+    stockLocationType,
+    stockDepartmentId,
+    stockReasonCode,
+    stockReasonNote,
+    load,
+  ]);
 
-  const doDelete = useCallback(async () => {
-    if (!confirmDel) return;
-    const m = confirmDel;
-    setConfirmDel(null);
+  const setActiveState = useCallback(async () => {
+    if (!statusFor) return;
+    const m = statusFor;
+    setStatusFor(null);
     try {
-      const res = await api.delete<{ data: { softDeleted?: boolean } }>(`/materials/${m.id}`);
-      toast.success(
-        res?.data?.softDeleted
-          ? `"${m.name}" deactivated (has requisition history)`
-          : `"${m.name}" deleted`,
-      );
+      await api.post(`/materials/${m.id}/set-active`, { active: !m.active });
+      toast.success(`"${m.name}" ${m.active ? "deactivated" : "activated"}`);
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete");
+      toast.error(err instanceof Error ? err.message : "Failed to update status");
     }
-  }, [confirmDel, load]);
+  }, [statusFor, load]);
+
+  const openRequestAdjust = useCallback(
+    (material: Material) => {
+      setRequestFor(material);
+      if (stockScope !== "ALL" && stockScope !== "MAIN") {
+        setRequestDepartmentId(stockScope);
+      } else {
+        setRequestDepartmentId(material.departmentQuantities[0]?.departmentId ?? "");
+      }
+      setRequestDelta(-1);
+      setRequestReasonCode("DAMAGED");
+      setRequestReasonNote("");
+    },
+    [stockScope],
+  );
+
+  const submitAdjustmentRequest = useCallback(async () => {
+    if (!requestFor) return;
+    if (!requestDepartmentId) {
+      toast.error("Select a department");
+      return;
+    }
+    if (requestDelta >= 0) {
+      toast.error("Request quantity must reduce stock");
+      return;
+    }
+    try {
+      await api.post(`/materials/${requestFor.id}/adjustment-requests`, {
+        departmentId: requestDepartmentId,
+        delta: requestDelta,
+        reasonCode: requestReasonCode,
+        reasonNote: requestReasonNote || undefined,
+      });
+      toast.success(`Adjustment request sent for "${requestFor.name}"`);
+      setRequestFor(null);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to submit adjustment request");
+    }
+  }, [
+    requestFor,
+    requestDepartmentId,
+    requestDelta,
+    requestReasonCode,
+    requestReasonNote,
+    load,
+  ]);
+
+  const reviewAdjustmentRequest = useCallback(
+    async (requestId: string, status: "APPROVED" | "REJECTED") => {
+      try {
+        await api.post(`/materials/adjustment-requests/${requestId}/review`, { status });
+        toast.success(`Request ${status === "APPROVED" ? "approved" : "rejected"}`);
+        await load();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to review request");
+      }
+    },
+    [load],
+  );
+
+  const openLog = useCallback(async (material: Material) => {
+    setLogFor(material);
+    setLogLoading(true);
+    try {
+      const res = await api.get<{ data?: { timeline?: MaterialLogEntry[] } }>(
+        `/materials/${material.id}/logs`,
+      );
+      setTimeline(Array.isArray(res?.data?.timeline) ? res.data.timeline : []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to load material log");
+      setTimeline([]);
+    } finally {
+      setLogLoading(false);
+    }
+  }, []);
+
+  const filteredRows = useMemo(() => {
+    if (stockScope === "ALL" || stockScope === "MAIN") return rows;
+    return rows.filter((m) =>
+      m.departmentQuantities.some(
+        (holding) => holding.departmentId === stockScope && holding.quantity > 0,
+      ),
+    );
+  }, [rows, stockScope]);
+
+  const quantityForScope = useCallback(
+    (material: Material) => {
+      if (stockScope === "ALL") return material.totalQuantity;
+      if (stockScope === "MAIN") return material.mainQuantity;
+      return (
+        material.departmentQuantities.find((holding) => holding.departmentId === stockScope)
+          ?.quantity ?? 0
+      );
+    },
+    [stockScope],
+  );
 
   const summary = useMemo(() => {
-    const total = rows.length;
-    const lowStock = rows.filter((m) => m.quantity <= m.reorderLevel).length;
-    const totalUnits = rows.reduce((s, m) => s + m.quantity, 0);
+    const total = filteredRows.length;
+    const lowStock = filteredRows.filter((m) => quantityForScope(m) <= m.reorderLevel).length;
+    const totalUnits = filteredRows.reduce((s, m) => s + quantityForScope(m), 0);
     return { total, lowStock, totalUnits };
-  }, [rows]);
+  }, [filteredRows, quantityForScope]);
 
   if (isLoading || (user && !allowed)) return null;
 
@@ -275,18 +474,119 @@ export default function MaterialsPage() {
             <Boxes size={22} /> Materials
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Central catalog of every material departments can requisition
+            Central catalog of non-medicine items departments can requisition
           </p>
         </div>
-        <button
-          type="button"
-          onClick={openCreate}
-          data-testid="material-create-btn"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
-        >
-          <Plus size={16} /> Add New Item
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          <select
+            value={stockScope}
+            onChange={(e) => setStockScope(e.target.value)}
+            className={`${FIELD} min-w-[220px]`}
+            data-testid="material-stock-scope"
+          >
+            <option value="ALL">All</option>
+            {canManageDirectly && <option value="MAIN">Main Inventory</option>}
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {department.name} ({department.code})
+              </option>
+            ))}
+          </select>
+          {canManageDirectly && (
+            <button
+              type="button"
+              onClick={openCreate}
+              data-testid="material-create-btn"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90"
+            >
+              <Plus size={16} /> Add New Item
+            </button>
+          )}
+        </div>
       </div>
+
+      {notInAnyDepartment && !canManageDirectly && (
+        <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/20 dark:text-amber-300">
+          You are not assigned to any department yet, so no department stock is visible here.
+        </div>
+      )}
+
+      {canApproveAdjustmentRequests && requests.length > 0 && (
+        <section className="mb-6 rounded-xl bg-white p-4 shadow-sm dark:border dark:border-gray-700 dark:bg-gray-800">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <ShieldCheck size={16} /> Pending adjustment requests
+          </div>
+          <div className="space-y-2">
+            {requests
+              .filter((request) => request.status === "PENDING")
+              .map((request) => (
+                <div
+                  key={request.id}
+                  className="flex flex-col gap-3 rounded-lg border p-3 text-sm dark:border-gray-700 lg:flex-row lg:items-center lg:justify-between"
+                >
+                  <div>
+                    <div className="font-medium">
+                      {request.material.name} - {request.department.name} ({request.department.code})
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      Requested by {request.requestedBy.name} ({request.requestedBy.role}) | {Math.abs(request.delta)} {request.material.unit} | {request.reasonCode}
+                    </div>
+                    {request.reasonNote && (
+                      <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">{request.reasonNote}</div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => reviewAdjustmentRequest(request.id, "APPROVED")}
+                      className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => reviewAdjustmentRequest(request.id, "REJECTED")}
+                      className="rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
+
+      {canRequestAdjustments && requests.length > 0 && (
+        <section className="mb-6 rounded-xl bg-white p-4 shadow-sm dark:border dark:border-gray-700 dark:bg-gray-800">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <ShieldCheck size={16} /> My adjustment requests
+          </div>
+          <div className="space-y-2">
+            {requests.slice(0, 6).map((request) => (
+              <div key={request.id} className="flex flex-col gap-2 rounded-lg border p-3 text-sm dark:border-gray-700 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="font-medium">
+                    {request.material.name} - {request.department.name}
+                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {Math.abs(request.delta)} {request.material.unit} | {request.reasonCode} | {new Date(request.createdAt).toLocaleString()}
+                  </div>
+                </div>
+                <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
+                  request.status === "APPROVED"
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    : request.status === "REJECTED"
+                      ? "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+                }`}>
+                  {request.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Summary tiles */}
       {loading ? (
@@ -311,7 +611,7 @@ export default function MaterialsPage() {
             type="text"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search name or SKU…"
+            placeholder="Search name or SKU..."
             data-testid="material-search"
             className={`${FIELD} pl-9`}
           />
@@ -335,15 +635,20 @@ export default function MaterialsPage() {
       <div className="rounded-xl bg-white shadow-sm dark:border dark:border-gray-700 dark:bg-gray-800">
         {loading ? (
           <div className="p-4" aria-busy="true">
-            <SkeletonTable rows={6} columns={5} />
+            <SkeletonTable rows={6} columns={7} />
           </div>
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <div className="p-10 text-center text-gray-500" data-testid="material-empty">
-            No materials yet.{" "}
-            <button type="button" onClick={openCreate} className="font-medium text-primary hover:underline">
-              Add your first item
-            </button>
-            .
+            No materials in this view yet.
+            {canManageDirectly && (
+              <>
+                {" "}
+                <button type="button" onClick={openCreate} className="font-medium text-primary hover:underline">
+                  Add your first item
+                </button>
+                .
+              </>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -354,23 +659,20 @@ export default function MaterialsPage() {
                   <th className="px-4 py-3">Category</th>
                   <th className="px-4 py-3 text-right">On hand</th>
                   <th className="px-4 py-3 text-right">Reserved</th>
+                  <th className="px-4 py-3">Distribution</th>
                   <th className="px-4 py-3">Unit</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((m) => {
-                  const low = m.quantity <= m.reorderLevel;
+                {filteredRows.map((m) => {
+                  const visibleQuantity = quantityForScope(m);
+                  const low = visibleQuantity <= m.reorderLevel;
                   return (
                     <tr key={m.id} data-testid="material-row" className="border-b text-sm last:border-0 dark:border-gray-700">
                       <td className="px-4 py-3">
                         <span className="font-medium">{m.name}</span>
                         {m.sku && <span className="ml-2 text-xs text-gray-400">{m.sku}</span>}
-                        {m.source === "pharmacy" && (
-                          <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                            Pharmacy
-                          </span>
-                        )}
                         {!m.active && (
                           <span className="ml-2 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                             inactive
@@ -383,53 +685,90 @@ export default function MaterialsPage() {
                         </span>
                       </td>
                       <td className={`px-4 py-3 text-right tabular-nums ${low ? "font-semibold text-amber-600 dark:text-amber-400" : ""}`}>
-                        {m.quantity}
+                        {visibleQuantity}
                         {low && <AlertTriangle size={12} className="ml-1 inline" />}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums text-gray-500">{m.reservedStock}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-gray-500">
+                        {canManageDirectly ? m.reservedStock : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400">
+                        {stockScope === "ALL" ? (
+                          <span>
+                            {canManageDirectly ? `Main: ${m.mainQuantity}` : ""}
+                            {m.departmentQuantities.map((holding) => (
+                              <span key={holding.departmentId}>
+                                {canManageDirectly || holding.departmentId !== m.departmentQuantities[0]?.departmentId ? " | " : ""}
+                                {holding.departmentCode || holding.departmentName}: {holding.quantity}
+                              </span>
+                            ))}
+                          </span>
+                        ) : stockScope === "MAIN" ? (
+                          <span>Central store</span>
+                        ) : (
+                          <span>
+                            {m.departmentQuantities.find((holding) => holding.departmentId === stockScope)
+                              ?.departmentName ?? "Department"}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{m.unit}</td>
                       <td className="px-4 py-3">
-                        {m.source === "pharmacy" ? (
-                          // Medicine batches are managed on the Pharmacy page,
-                          // so they're read-only here.
-                          <div className="text-right text-xs text-gray-400">
-                            Managed in Pharmacy
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openLog(m)}
+                            data-testid={`material-log-${m.id}`}
+                            title="Log"
+                            className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                          >
+                            <ClipboardList size={15} />
+                          </button>
+                          {canManageDirectly ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => openAdjust(m)}
+                                data-testid={`material-stock-${m.id}`}
+                                title="Add / adjust stock"
+                                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                              >
+                                <PackagePlus size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEdit(m)}
+                                data-testid={`material-edit-${m.id}`}
+                                title="Edit"
+                                className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                              >
+                                <Pencil size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setStatusFor(m)}
+                                data-testid={`material-active-${m.id}`}
+                                title={m.active ? "Deactivate" : "Activate"}
+                                className={`rounded-md p-1.5 ${
+                                  m.active
+                                    ? "text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                                    : "text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                                }`}
+                              >
+                                {m.active ? <PowerOff size={15} /> : <Power size={15} />}
+                              </button>
+                            </>
+                          ) : canRequestAdjustments ? (
                             <button
                               type="button"
-                              onClick={() => {
-                                setStockFor(m);
-                                setStockDelta(0);
-                                setStockReason("");
-                              }}
-                              data-testid={`material-stock-${m.id}`}
-                              title="Add / adjust stock"
-                              className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                              onClick={() => openRequestAdjust(m)}
+                              data-testid={`material-request-${m.id}`}
+                              title="Request adjustment"
+                              className="rounded-md p-1.5 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40"
                             >
-                              <PackagePlus size={15} />
+                              <ShieldCheck size={15} />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openEdit(m)}
-                              data-testid={`material-edit-${m.id}`}
-                              title="Edit"
-                              className="rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-200"
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDel(m)}
-                              data-testid={`material-delete-${m.id}`}
-                              title="Delete"
-                              className="rounded-md p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        )}
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -493,7 +832,7 @@ export default function MaterialsPage() {
                 Cancel
               </button>
               <button type="button" onClick={submitForm} disabled={submitting} data-testid="material-submit" className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50">
-                {submitting ? "Saving…" : editing ? "Save Changes" : "Add Item"}
+                {submitting ? "Saving..." : editing ? "Save Changes" : "Add Item"}
               </button>
             </div>
           </div>
@@ -506,14 +845,60 @@ export default function MaterialsPage() {
           <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:border dark:border-gray-700 dark:bg-gray-800">
             <h3 className="mb-1 text-lg font-semibold">Adjust stock</h3>
             <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
-              {stockFor.name} — on hand {stockFor.quantity} {stockFor.unit}
+              {stockFor.name} - current view on hand {quantityForScope(stockFor)} {stockFor.unit}
             </p>
-            <Labeled label="Quantity change (+ add, − correct)">
-              <input type="number" value={stockDelta} onChange={(e) => setStockDelta(Number(e.target.value))} data-testid="material-stock-delta" className={FIELD} />
+            <Labeled label="Location">
+              <select
+                value={stockLocationType === "MAIN" ? "MAIN" : stockDepartmentId}
+                onChange={(e) => {
+                  if (e.target.value === "MAIN") {
+                    setStockLocationType("MAIN");
+                    setStockDepartmentId("");
+                  } else {
+                    setStockLocationType("DEPARTMENT");
+                    setStockDepartmentId(e.target.value);
+                  }
+                }}
+                className={FIELD}
+              >
+                <option value="MAIN">Main Inventory</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name} ({department.code})
+                  </option>
+                ))}
+              </select>
             </Labeled>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Labeled label="Reason">
+                <select
+                  value={stockReasonCode}
+                  onChange={(e) => setStockReasonCode(e.target.value as AdjustmentReasonCode)}
+                  className={FIELD}
+                >
+                  {ADJUSTMENT_REASONS.map((reason) => (
+                    <option key={reason.value} value={reason.value}>
+                      {reason.label}
+                    </option>
+                  ))}
+                </select>
+              </Labeled>
+              <Labeled label="Quantity change">
+                <input type="number" value={stockDelta} onChange={(e) => setStockDelta(Number(e.target.value))} data-testid="material-stock-delta" className={FIELD} />
+              </Labeled>
+            </div>
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              Use negative quantities for damage or reductions, positive quantities for found stock or increases.
+            </p>
             <div className="mt-3">
-              <Labeled label="Reason (optional)">
-                <input type="text" value={stockReason} onChange={(e) => setStockReason(e.target.value)} placeholder="Purchase / correction" className={FIELD} />
+              <Labeled label="Reason note">
+                <input
+                  type="text"
+                  value={stockReasonNote}
+                  onChange={(e) => setStockReasonNote(e.target.value)}
+                  placeholder="Add detail, especially for Other"
+                  className={FIELD}
+                />
               </Labeled>
             </div>
             <div className="mt-5 flex justify-end gap-2">
@@ -528,25 +913,148 @@ export default function MaterialsPage() {
         </div>
       )}
 
-      {/* Delete confirm */}
-      {confirmDel && (
+      {/* Department adjustment request */}
+      {requestFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:border dark:border-gray-700 dark:bg-gray-800">
+            <h3 className="mb-1 text-lg font-semibold">Request stock reduction</h3>
+            <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+              {requestFor.name} - submit a damage/missing request for admin approval
+            </p>
+            <Labeled label="Department">
+              <select
+                value={requestDepartmentId}
+                onChange={(e) => setRequestDepartmentId(e.target.value)}
+                className={FIELD}
+              >
+                <option value="">Select department</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name} ({department.code})
+                  </option>
+                ))}
+              </select>
+            </Labeled>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Labeled label="Reason">
+                <select
+                  value={requestReasonCode}
+                  onChange={(e) => setRequestReasonCode(e.target.value as AdjustmentReasonCode)}
+                  className={FIELD}
+                >
+                  {ADJUSTMENT_REASONS.filter((reason) => !["FOUND", "TRANSFER_IN"].includes(reason.value)).map((reason) => (
+                    <option key={reason.value} value={reason.value}>
+                      {reason.label}
+                    </option>
+                  ))}
+                </select>
+              </Labeled>
+              <Labeled label="Quantity reduce">
+                <input
+                  type="number"
+                  value={requestDelta}
+                  onChange={(e) => setRequestDelta(Number(e.target.value))}
+                  className={FIELD}
+                />
+              </Labeled>
+            </div>
+            <div className="mt-3">
+              <Labeled label="Reason note">
+                <input
+                  type="text"
+                  value={requestReasonNote}
+                  onChange={(e) => setRequestReasonNote(e.target.value)}
+                  placeholder="Explain the damage, missing unit, or correction"
+                  className={FIELD}
+                />
+              </Labeled>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setRequestFor(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+                Cancel
+              </button>
+              <button type="button" onClick={submitAdjustmentRequest} className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary/90">
+                Submit request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Material log */}
+      {logFor && (
+        <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-3xl rounded-xl bg-white p-6 shadow-xl dark:border dark:border-gray-700 dark:bg-gray-800">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold">Material log</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{logFor.name}</p>
+              </div>
+              <button type="button" onClick={() => setLogFor(null)} className="rounded-md p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700">
+                <X size={18} />
+              </button>
+            </div>
+            {logLoading ? (
+              <div className="space-y-2">
+                <SkeletonCard />
+                <SkeletonCard />
+              </div>
+            ) : timeline.length === 0 ? (
+              <p className="py-8 text-center text-sm text-gray-400">No log entries yet.</p>
+            ) : (
+              <div className="max-h-[60vh] space-y-2 overflow-y-auto">
+                {timeline.map((entry) => (
+                  <div key={entry.id} className="rounded-lg border p-3 text-sm dark:border-gray-700">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-medium">{entry.action.replaceAll("_", " ")}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {new Date(entry.occurredAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      {entry.actor ? `${entry.actor.name} (${entry.actor.role})` : "System"}
+                    </div>
+                    <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                      {formatLogDetails(entry.details)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Activate / deactivate confirm */}
+      {statusFor && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" style={{ zIndex: 60 }} data-testid="material-confirm" role="dialog" aria-modal="true">
           <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:border dark:border-gray-700 dark:bg-gray-800">
             <div className="mb-3 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300">
-                <AlertTriangle size={20} />
+              <div className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                statusFor.active
+                  ? "bg-amber-100 text-amber-600 dark:bg-amber-950/40 dark:text-amber-300"
+                  : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-300"
+              }`}>
+                {statusFor.active ? <PowerOff size={20} /> : <Power size={20} />}
               </div>
-              <h3 className="text-lg font-semibold">Delete item?</h3>
+              <h3 className="text-lg font-semibold">{statusFor.active ? "Deactivate item?" : "Activate item?"}</h3>
             </div>
             <p className="mb-5 text-sm text-gray-600 dark:text-gray-300">
-              <strong>{confirmDel.name}</strong> will be removed. If it has requisition history it will be deactivated (kept for records) instead of permanently deleted.
+              <strong>{statusFor.name}</strong> will be {statusFor.active ? "hidden from new use" : "made active again"}.
             </p>
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setConfirmDel(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
+              <button type="button" onClick={() => setStatusFor(null)} className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700">
                 Cancel
               </button>
-              <button type="button" onClick={doDelete} data-testid="material-confirm-ok" className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700">
-                Delete
+              <button
+                type="button"
+                onClick={setActiveState}
+                data-testid="material-confirm-ok"
+                className={`rounded-lg px-3 py-2 text-sm font-medium text-white ${
+                  statusFor.active ? "bg-amber-600 hover:bg-amber-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                {statusFor.active ? "Deactivate" : "Activate"}
               </button>
             </div>
           </div>
@@ -583,4 +1091,11 @@ function Labeled({ label, children }: { label: string; children: React.ReactNode
       {children}
     </div>
   );
+}
+
+function formatLogDetails(details: Record<string, unknown> | null | undefined) {
+  if (!details) return "No extra details";
+  return Object.entries(details)
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join(" | ");
 }

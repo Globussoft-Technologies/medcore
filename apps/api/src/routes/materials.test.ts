@@ -25,6 +25,7 @@ const { prismaMock } = vi.hoisted(() => {
       delete: vi.fn(async () => ({})),
     },
     materialMovement: { create: vi.fn(async () => ({})), deleteMany: vi.fn(async () => ({ count: 0 })) },
+    departmentMember: { findMany: vi.fn(async () => []) },
     auditLog: { create: vi.fn(async () => ({ id: "al" })) },
     $transaction: vi.fn(async (fn: any) => fn(base)),
   };
@@ -71,6 +72,7 @@ beforeEach(() => {
   });
   prismaMock.$transaction.mockImplementation(async (fn: any) => fn(prismaMock));
   prismaMock.auditLog.create.mockResolvedValue({ id: "al" });
+  prismaMock.departmentMember.findMany.mockResolvedValue([{ departmentId: "d1" }]);
 });
 
 describe("Material RBAC", () => {
@@ -94,6 +96,41 @@ describe("Material RBAC", () => {
       .send({ name: "Gloves", category: "CONSUMABLE", unit: "box" });
     expect(res.status).toBe(403);
     expect(prismaMock.material.create).not.toHaveBeenCalled();
+  });
+
+  it("requisition picker shows central-store stock to department roles", async () => {
+    prismaMock.material.findMany.mockResolvedValue([
+      {
+        id: M1,
+        name: "Surgical gloves",
+        category: "CONSUMABLE",
+        unit: "box",
+        quantity: 100,
+        reservedStock: 10,
+        active: true,
+        departmentHoldings: [],
+      },
+    ]);
+
+    const res = await request(buildApp())
+      .get("/api/v1/materials?active=true&forRequisition=true")
+      .set("Authorization", `Bearer ${tok("NURSE")}`);
+
+    expect(res.status).toBe(200);
+    expect(prismaMock.material.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.not.objectContaining({
+          departmentHoldings: expect.anything(),
+        }),
+      }),
+    );
+    expect(res.body.data[0]).toEqual(
+      expect.objectContaining({
+        id: M1,
+        mainQuantity: 100,
+        totalQuantity: 100,
+      }),
+    );
   });
 });
 
@@ -160,7 +197,7 @@ describe("Material adjust-stock", () => {
     const res = await request(buildApp())
       .post(`/api/v1/materials/${M1}/adjust-stock`)
       .set("Authorization", `Bearer ${tok("PHARMACIST")}`)
-      .send({ delta: 5, reason: "restock" });
+      .send({ delta: 5, reasonCode: "FOUND" });
     expect(res.status).toBe(200);
     expect(prismaMock.material.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: M1 }, data: { quantity: { increment: 5 } } }),
@@ -173,7 +210,7 @@ describe("Material adjust-stock", () => {
     const res = await request(buildApp())
       .post(`/api/v1/materials/${M1}/adjust-stock`)
       .set("Authorization", `Bearer ${tok("PHARMACIST")}`)
-      .send({ delta: -5 }); // 10 - 5 = 5 < reserved 8
+      .send({ delta: -5, reasonCode: "CORRECTION" }); // 10 - 5 = 5 < reserved 8
     expect(res.status).toBe(409);
     expect(prismaMock.material.update).not.toHaveBeenCalled();
   });

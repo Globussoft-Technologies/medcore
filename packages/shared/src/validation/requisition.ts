@@ -20,14 +20,10 @@ export const createRequisitionSchema = z.object({
     .array(
       z
         .object({
-          inventoryItemId: uuid.optional(),
-          materialId: uuid.optional(),
+          inventoryItemId: z.never().optional(),
+          materialId: uuid,
           requestedQty: qty,
-        })
-        .refine(
-          (i) => !!i.inventoryItemId !== !!i.materialId,
-          "Each line must reference exactly one of inventoryItemId or materialId",
-        ),
+        }),
     )
     .min(1, "A requisition needs at least one item")
     .max(100, "Too many line items"),

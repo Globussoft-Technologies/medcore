@@ -19,6 +19,60 @@ import { auditLog } from "../middleware/audit";
 const router = Router();
 router.use(authenticate);
 
+type AmbulanceLogLevel = "log" | "warn" | "error";
+
+function redactPhone(phone: unknown): string | null {
+  if (typeof phone !== "string") return null;
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return null;
+  return digits.length <= 4 ? digits : `***${digits.slice(-4)}`;
+}
+
+function serializeError(err: unknown): Record<string, unknown> {
+  if (!(err instanceof Error)) {
+    return { raw: err };
+  }
+  const prismaErr = err as Error & {
+    code?: string;
+    meta?: Record<string, unknown>;
+    statusCode?: number;
+  };
+  return {
+    name: prismaErr.name,
+    message: prismaErr.message,
+    code: prismaErr.code,
+    statusCode: prismaErr.statusCode,
+    meta: prismaErr.meta,
+    stack: prismaErr.stack,
+  };
+}
+
+function ambulanceLog(
+  level: AmbulanceLogLevel,
+  req: Request | null,
+  event: string,
+  details: Record<string, unknown> = {}
+): void {
+  const prefix = `[ambulance] ${event}`;
+  const payload = {
+    method: req?.method,
+    path: req?.originalUrl ?? req?.path,
+    userId: req?.user?.userId,
+    role: req?.user?.role,
+    tenantId: req?.user?.tenantId ?? null,
+    ...details,
+  };
+  if (level === "error") {
+    console.error(prefix, payload);
+    return;
+  }
+  if (level === "warn") {
+    console.warn(prefix, payload);
+    return;
+  }
+  console.log(prefix, payload);
+}
+
 // ───────────────────────────────────────────────────────
 // Trip state machine (gap #10, 2026-05-03 audit).
 //
@@ -207,6 +261,12 @@ router.get(
         where.requestedAt = dateFilter;
       }
 
+      ambulanceLog("log", req, "list_trips.start", {
+        filters: { status, ambulanceId, from, to },
+        page: parseInt(page || "1"),
+        limit: take,
+      });
+
       const [trips, total] = await Promise.all([
         prisma.ambulanceTrip.findMany({
           where,
@@ -228,6 +288,9 @@ router.get(
         meta: { page: parseInt(page || "1"), limit: take, total },
       });
     } catch (err) {
+      ambulanceLog("error", req, "list_trips.failed", {
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -240,10 +303,29 @@ router.post(
   validate(tripRequestSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "create_trip.start", {
+        ambulanceId: req.body.ambulanceId,
+        patientId: req.body.patientId ?? null,
+        hasCallerName: !!req.body.callerName,
+        callerPhone: redactPhone(req.body.callerPhone),
+        pickupAddressLength:
+          typeof req.body.pickupAddress === "string"
+            ? req.body.pickupAddress.trim().length
+            : null,
+        dropAddressLength:
+          typeof req.body.dropAddress === "string"
+            ? req.body.dropAddress.trim().length
+            : null,
+        hasChiefComplaint: !!req.body.chiefComplaint,
+        priority: req.body.priority ?? null,
+      });
       const ambulance = await prisma.ambulance.findUnique({
         where: { id: req.body.ambulanceId },
       });
       if (!ambulance) {
+        ambulanceLog("warn", req, "create_trip.ambulance_not_found", {
+          ambulanceId: req.body.ambulanceId,
+        });
         res.status(404).json({
           success: false,
           data: null,
@@ -252,6 +334,11 @@ router.post(
         return;
       }
       if (ambulance.status !== "AVAILABLE") {
+        ambulanceLog("warn", req, "create_trip.ambulance_unavailable", {
+          ambulanceId: ambulance.id,
+          ambulanceStatus: ambulance.status,
+          vehicleNumber: ambulance.vehicleNumber,
+        });
         res.status(400).json({
           success: false,
           data: null,
@@ -284,6 +371,13 @@ router.post(
           },
         });
         if (conflict) {
+          ambulanceLog("warn", req, "create_trip.driver_conflict", {
+            ambulanceId: ambulance.id,
+            driverName: ambulance.driverName,
+            conflictTripId: conflict.id,
+            conflictTripNumber: conflict.tripNumber,
+            conflictVehicleNumber: conflict.ambulance.vehicleNumber,
+          });
           res.status(400).json({
             success: false,
             data: null,
@@ -294,6 +388,10 @@ router.post(
       }
 
       const tripNumber = await generateTripNumber();
+      ambulanceLog("log", req, "create_trip.trip_number_generated", {
+        ambulanceId: req.body.ambulanceId,
+        tripNumber,
+      });
 
       const trip = await prisma.$transaction(async (tx) => {
         const t = await tx.ambulanceTrip.create({
@@ -325,10 +423,20 @@ router.post(
 
         return t;
       });
+      ambulanceLog("log", req, "create_trip.transaction_committed", {
+        tripId: trip.id,
+        tripNumber: trip.tripNumber,
+        ambulanceId: trip.ambulanceId,
+        patientId: trip.patientId ?? null,
+      });
 
       // Defensive recompute outside the txn — keeps fleet status in sync even
       // if a concurrent mutation slipped in. Idempotent.
-      await recomputeAmbulanceStatus(req.body.ambulanceId);
+      const recomputed = await recomputeAmbulanceStatus(req.body.ambulanceId);
+      ambulanceLog("log", req, "create_trip.recompute_status_done", {
+        ambulanceId: req.body.ambulanceId,
+        recomputedStatus: recomputed,
+      });
 
       auditLog(req, "AMBULANCE_TRIP_CREATE", "ambulance_trip", trip.id, {
         tripNumber,
@@ -336,6 +444,11 @@ router.post(
 
       res.status(201).json({ success: true, data: trip, error: null });
     } catch (err) {
+      ambulanceLog("error", req, "create_trip.failed", {
+        ambulanceId: req.body?.ambulanceId,
+        patientId: req.body?.patientId ?? null,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -373,14 +486,25 @@ router.patch(
   authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "trip_dispatch.start", {
+        tripId: req.params.id,
+      });
       const pre = await precheckTripTransition(req.params.id, "DISPATCHED");
       if (pre.kind === "not-found") {
+        ambulanceLog("warn", req, "trip_dispatch.not_found", {
+          tripId: req.params.id,
+        });
         res
           .status(404)
           .json({ success: false, data: null, error: "Trip not found" });
         return;
       }
       if (pre.kind === "no-op") {
+        ambulanceLog("log", req, "trip_dispatch.no_op", {
+          tripId: req.params.id,
+          ambulanceId: pre.trip.ambulanceId,
+          currentStatus: pre.current,
+        });
         // Idempotent — already DISPATCHED. Return the row as-is.
         const existing = await prisma.ambulanceTrip.findUnique({
           where: { id: req.params.id },
@@ -392,7 +516,12 @@ router.patch(
         where: { id: req.params.id },
         data: { dispatchedAt: new Date(), status: "DISPATCHED" },
       });
-      await recomputeAmbulanceStatus(trip.ambulanceId);
+      const recomputed = await recomputeAmbulanceStatus(trip.ambulanceId);
+      ambulanceLog("log", req, "trip_dispatch.success", {
+        tripId: trip.id,
+        ambulanceId: trip.ambulanceId,
+        recomputedStatus: recomputed,
+      });
       auditLog(req, "TRIP_DISPATCH", "ambulance_trip", trip.id).catch(
         console.error
       );
@@ -404,6 +533,10 @@ router.patch(
           .json({ success: false, data: null, error: err.message });
         return;
       }
+      ambulanceLog("error", req, "trip_dispatch.failed", {
+        tripId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -415,14 +548,25 @@ router.patch(
   authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "trip_arrived.start", {
+        tripId: req.params.id,
+      });
       const pre = await precheckTripTransition(req.params.id, "ARRIVED_SCENE");
       if (pre.kind === "not-found") {
+        ambulanceLog("warn", req, "trip_arrived.not_found", {
+          tripId: req.params.id,
+        });
         res
           .status(404)
           .json({ success: false, data: null, error: "Trip not found" });
         return;
       }
       if (pre.kind === "no-op") {
+        ambulanceLog("log", req, "trip_arrived.no_op", {
+          tripId: req.params.id,
+          ambulanceId: pre.trip.ambulanceId,
+          currentStatus: pre.current,
+        });
         const existing = await prisma.ambulanceTrip.findUnique({
           where: { id: req.params.id },
         });
@@ -433,7 +577,12 @@ router.patch(
         where: { id: req.params.id },
         data: { arrivedAt: new Date(), status: "ARRIVED_SCENE" },
       });
-      await recomputeAmbulanceStatus(trip.ambulanceId);
+      const recomputed = await recomputeAmbulanceStatus(trip.ambulanceId);
+      ambulanceLog("log", req, "trip_arrived.success", {
+        tripId: trip.id,
+        ambulanceId: trip.ambulanceId,
+        recomputedStatus: recomputed,
+      });
       auditLog(req, "TRIP_ARRIVED_SCENE", "ambulance_trip", trip.id).catch(
         console.error
       );
@@ -445,6 +594,10 @@ router.patch(
           .json({ success: false, data: null, error: err.message });
         return;
       }
+      ambulanceLog("error", req, "trip_arrived.failed", {
+        tripId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -456,17 +609,28 @@ router.patch(
   authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "trip_enroute.start", {
+        tripId: req.params.id,
+      });
       const pre = await precheckTripTransition(
         req.params.id,
         "EN_ROUTE_HOSPITAL"
       );
       if (pre.kind === "not-found") {
+        ambulanceLog("warn", req, "trip_enroute.not_found", {
+          tripId: req.params.id,
+        });
         res
           .status(404)
           .json({ success: false, data: null, error: "Trip not found" });
         return;
       }
       if (pre.kind === "no-op") {
+        ambulanceLog("log", req, "trip_enroute.no_op", {
+          tripId: req.params.id,
+          ambulanceId: pre.trip.ambulanceId,
+          currentStatus: pre.current,
+        });
         const existing = await prisma.ambulanceTrip.findUnique({
           where: { id: req.params.id },
         });
@@ -477,7 +641,12 @@ router.patch(
         where: { id: req.params.id },
         data: { status: "EN_ROUTE_HOSPITAL" },
       });
-      await recomputeAmbulanceStatus(trip.ambulanceId);
+      const recomputed = await recomputeAmbulanceStatus(trip.ambulanceId);
+      ambulanceLog("log", req, "trip_enroute.success", {
+        tripId: trip.id,
+        ambulanceId: trip.ambulanceId,
+        recomputedStatus: recomputed,
+      });
       auditLog(req, "TRIP_EN_ROUTE_MARK", "ambulance_trip", trip.id).catch(
         console.error
       );
@@ -489,6 +658,10 @@ router.patch(
           .json({ success: false, data: null, error: err.message });
         return;
       }
+      ambulanceLog("error", req, "trip_enroute.failed", {
+        tripId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -501,10 +674,19 @@ router.patch(
   validate(completeTripSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "trip_complete.start", {
+        tripId: req.params.id,
+        hasActualEndTime: !!req.body.actualEndTime,
+        finalDistance: req.body.finalDistance,
+        finalCost: req.body.finalCost,
+      });
       const existing = await prisma.ambulanceTrip.findUnique({
         where: { id: req.params.id },
       });
       if (!existing) {
+        ambulanceLog("warn", req, "trip_complete.not_found", {
+          tripId: req.params.id,
+        });
         res
           .status(404)
           .json({ success: false, data: null, error: "Trip not found" });
@@ -515,6 +697,10 @@ router.patch(
       // COMPLETED, ARRIVED_SCENE → DISPATCHED rewinds, and post-terminal
       // moves are rejected with 409.
       if (existing.status === "COMPLETED") {
+        ambulanceLog("log", req, "trip_complete.no_op", {
+          tripId: existing.id,
+          ambulanceId: existing.ambulanceId,
+        });
         // Idempotent — already complete. No-op return; do not re-run the
         // recomputeAmbulanceStatus / audit side-effects.
         res.json({ success: true, data: existing, error: null });
@@ -560,7 +746,12 @@ router.patch(
 
       // Idempotent — handles the rare case of multiple active trips on the
       // same ambulance (we still want the fleet view to be honest).
-      await recomputeAmbulanceStatus(existing.ambulanceId);
+      const recomputed = await recomputeAmbulanceStatus(existing.ambulanceId);
+      ambulanceLog("log", req, "trip_complete.success", {
+        tripId: trip.id,
+        ambulanceId: existing.ambulanceId,
+        recomputedStatus: recomputed,
+      });
 
       auditLog(req, "TRIP_COMPLETE", "ambulance_trip", trip.id, {
         distanceKm: req.body.finalDistance,
@@ -569,6 +760,10 @@ router.patch(
 
       res.json({ success: true, data: trip, error: null });
     } catch (err) {
+      ambulanceLog("error", req, "trip_complete.failed", {
+        tripId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -580,10 +775,16 @@ router.patch(
   authorize(Role.NURSE, Role.RECEPTION, Role.ADMIN),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "trip_cancel.start", {
+        tripId: req.params.id,
+      });
       const existing = await prisma.ambulanceTrip.findUnique({
         where: { id: req.params.id },
       });
       if (!existing) {
+        ambulanceLog("warn", req, "trip_cancel.not_found", {
+          tripId: req.params.id,
+        });
         res
           .status(404)
           .json({ success: false, data: null, error: "Trip not found" });
@@ -594,6 +795,10 @@ router.patch(
       // is treated as an idempotent no-op; cancelling a COMPLETED trip is
       // a domain error (409).
       if (existing.status === "CANCELLED") {
+        ambulanceLog("log", req, "trip_cancel.no_op", {
+          tripId: existing.id,
+          ambulanceId: existing.ambulanceId,
+        });
         res.json({ success: true, data: existing, error: null });
         return;
       }
@@ -624,7 +829,12 @@ router.patch(
         return t;
       });
 
-      await recomputeAmbulanceStatus(existing.ambulanceId);
+      const recomputed = await recomputeAmbulanceStatus(existing.ambulanceId);
+      ambulanceLog("log", req, "trip_cancel.success", {
+        tripId: trip.id,
+        ambulanceId: existing.ambulanceId,
+        recomputedStatus: recomputed,
+      });
 
       auditLog(req, "TRIP_CANCEL", "ambulance_trip", trip.id).catch(
         console.error
@@ -632,6 +842,10 @@ router.patch(
 
       res.json({ success: true, data: trip, error: null });
     } catch (err) {
+      ambulanceLog("error", req, "trip_cancel.failed", {
+        tripId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -647,6 +861,10 @@ router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR), 
     const { status } = req.query as Record<string, string | undefined>;
     const where: Record<string, unknown> = {};
     if (status) where.status = status;
+    ambulanceLog("log", req, "list_ambulances.start", {
+      status: status ?? null,
+      nodeEnv: process.env.NODE_ENV,
+    });
 
     // Issue #738: hide test/demo ambulance rows in production. Local seed
     // data ships rows with `TEST-*` / `DEMO*` / `AMB-DEMO-*` vehicle
@@ -684,6 +902,9 @@ router.get("/", authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR), 
 
     res.json({ success: true, data: ambulances, error: null });
   } catch (err) {
+    ambulanceLog("error", req, "list_ambulances.failed", {
+      error: serializeError(err),
+    });
     next(err);
   }
 });
@@ -694,6 +915,11 @@ router.post(
   validate(createAmbulanceSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "create_ambulance.start", {
+        vehicleNumber: req.body.vehicleNumber,
+        type: req.body.type,
+        driverPhone: redactPhone(req.body.driverPhone),
+      });
       const { lastServiceDate, nextServiceDate, ...rest } = req.body;
       const ambulance = await prisma.ambulance.create({
         data: {
@@ -709,6 +935,10 @@ router.post(
 
       res.status(201).json({ success: true, data: ambulance, error: null });
     } catch (err) {
+      ambulanceLog("error", req, "create_ambulance.failed", {
+        vehicleNumber: req.body?.vehicleNumber,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -720,6 +950,10 @@ router.patch(
   validate(updateAmbulanceSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "update_ambulance.start", {
+        ambulanceId: req.params.id,
+        keys: Object.keys(req.body ?? {}),
+      });
       const { lastServiceDate, nextServiceDate, ...rest } = req.body;
       const ambulance = await prisma.ambulance.update({
         where: { id: req.params.id },
@@ -740,6 +974,10 @@ router.patch(
 
       res.json({ success: true, data: ambulance, error: null });
     } catch (err) {
+      ambulanceLog("error", req, "update_ambulance.failed", {
+        ambulanceId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -765,6 +1003,11 @@ router.get(
         if (to) d.lte = new Date(to);
         where.filledAt = d;
       }
+      ambulanceLog("log", req, "list_fuel_logs.start", {
+        ambulanceId: ambulanceId ?? null,
+        from: from ?? null,
+        to: to ?? null,
+      });
       const logs = await prisma.ambulanceFuelLog.findMany({
         where,
         orderBy: { filledAt: "desc" },
@@ -779,6 +1022,9 @@ router.get(
         error: null,
       });
     } catch (err) {
+      ambulanceLog("error", req, "list_fuel_logs.failed", {
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -787,6 +1033,9 @@ router.get(
 router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR), async (req: Request, res: Response, next: NextFunction) => {
   // Issue #174: ambulance detail includes recent trips (caller PII).
   try {
+    ambulanceLog("log", req, "get_ambulance.start", {
+      ambulanceId: req.params.id,
+    });
     const ambulance = await prisma.ambulance.findUnique({
       where: { id: req.params.id },
       include: {
@@ -807,6 +1056,10 @@ router.get("/:id", authorize(Role.ADMIN, Role.RECEPTION, Role.NURSE, Role.DOCTOR
     }
     res.json({ success: true, data: ambulance, error: null });
   } catch (err) {
+    ambulanceLog("error", req, "get_ambulance.failed", {
+      ambulanceId: req.params.id,
+      error: serializeError(err),
+    });
     next(err);
   }
 });
@@ -827,6 +1080,13 @@ router.patch(
         dropLat?: number;
         dropLng?: number;
       };
+      ambulanceLog("log", req, "trip_location_update.start", {
+        tripId: req.params.id,
+        pickupLat: pickupLat ?? null,
+        pickupLng: pickupLng ?? null,
+        dropLat: dropLat ?? null,
+        dropLng: dropLng ?? null,
+      });
       const trip = await prisma.ambulanceTrip.update({
         where: { id: req.params.id },
         data: {
@@ -838,6 +1098,10 @@ router.patch(
       });
       res.json({ success: true, data: trip, error: null });
     } catch (err) {
+      ambulanceLog("error", req, "trip_location_update.failed", {
+        tripId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -853,6 +1117,10 @@ router.patch(
   validate(equipmentCheckSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "equipment_check.start", {
+        tripId: req.params.id,
+        equipmentChecked: req.body.equipmentChecked,
+      });
       const trip = await prisma.ambulanceTrip.update({
         where: { id: req.params.id },
         data: {
@@ -865,6 +1133,10 @@ router.patch(
       }).catch(console.error);
       res.json({ success: true, data: trip, error: null });
     } catch (err) {
+      ambulanceLog("error", req, "equipment_check.failed", {
+        tripId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -880,14 +1152,25 @@ router.post(
   validate(tripBillSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "trip_bill.start", {
+        tripId: req.params.id,
+        baseFare: req.body.baseFare,
+        perKmRate: req.body.perKmRate,
+      });
       const trip = await prisma.ambulanceTrip.findUnique({
         where: { id: req.params.id },
       });
       if (!trip) {
+        ambulanceLog("warn", req, "trip_bill.not_found", {
+          tripId: req.params.id,
+        });
         res.status(404).json({ success: false, data: null, error: "Trip not found" });
         return;
       }
       if (!trip.patientId) {
+        ambulanceLog("warn", req, "trip_bill.missing_patient", {
+          tripId: req.params.id,
+        });
         res.status(400).json({
           success: false,
           data: null,
@@ -926,6 +1209,10 @@ router.post(
         error: null,
       });
     } catch (err) {
+      ambulanceLog("error", req, "trip_bill.failed", {
+        tripId: req.params.id,
+        error: serializeError(err),
+      });
       next(err);
     }
   }
@@ -941,6 +1228,13 @@ router.post(
   validate(fuelLogSchema),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      ambulanceLog("log", req, "fuel_log_create.start", {
+        ambulanceId: req.body.ambulanceId,
+        litres: req.body.litres,
+        costTotal: req.body.costTotal,
+        odometerKm: req.body.odometerKm ?? null,
+        hasFilledAt: !!req.body.filledAt,
+      });
       // gap #10 (2026-05-03): honour the client-supplied `filledAt` when
       // provided (validator already enforces it cannot be in the future).
       // Falling through to undefined lets Prisma's `@default(now())` fire.
@@ -964,6 +1258,10 @@ router.post(
       }).catch(console.error);
       res.status(201).json({ success: true, data: log, error: null });
     } catch (err) {
+      ambulanceLog("error", req, "fuel_log_create.failed", {
+        ambulanceId: req.body?.ambulanceId,
+        error: serializeError(err),
+      });
       next(err);
     }
   }

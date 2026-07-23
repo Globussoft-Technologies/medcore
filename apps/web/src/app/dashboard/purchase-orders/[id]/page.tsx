@@ -146,7 +146,7 @@ export default function PurchaseOrderDetailPage() {
         <div className="flex gap-2">
           <button
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 hover:bg-gray-50"
           >
             <Printer size={14} /> Print
           </button>
@@ -189,8 +189,8 @@ export default function PurchaseOrderDetailPage() {
         </div>
       </div>
 
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <div className="mb-6 flex items-start justify-between border-b pb-4">
+      <div className="rounded-xl bg-white p-6 text-gray-900 shadow-sm">
+        <div className="mb-6 flex items-start justify-between border-b border-gray-200 pb-4">
           <div>
             <p className="text-sm text-gray-500">Purchase Order</p>
             <h1 className="font-mono text-2xl font-bold">{po.poNumber}</h1>
@@ -206,7 +206,7 @@ export default function PurchaseOrderDetailPage() {
         </div>
 
         {!isCancelled && (
-          <div className="mb-6 rounded-lg bg-gray-50 p-4">
+          <div className="mb-6 rounded-lg bg-gray-50 p-4 text-gray-900">
             <div className="flex items-center justify-between">
               {STATUS_FLOW.map((step, i) => (
                 <div key={step} className="flex flex-1 items-center">
@@ -221,7 +221,7 @@ export default function PurchaseOrderDetailPage() {
                   </div>
                   <span
                     className={`ml-2 text-xs ${
-                      i <= currentStep ? "font-medium" : "text-gray-500"
+                      i <= currentStep ? "font-medium text-gray-900" : "text-gray-500"
                     }`}
                   >
                     {step}
@@ -279,14 +279,14 @@ export default function PurchaseOrderDetailPage() {
                 </p>
               ) : (
                 <>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-4">
                     <span className="text-gray-500">Ordered</span>
                     <span data-testid="po-ordered-at">
                       {new Date(po.orderedAt).toLocaleDateString("en-IN")}
                     </span>
                   </div>
                   {po.expectedAt && (
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-4">
                       <span className="text-gray-500">Expected</span>
                       <span data-testid="po-expected-at">
                         {new Date(po.expectedAt).toLocaleDateString("en-IN")}
@@ -294,7 +294,7 @@ export default function PurchaseOrderDetailPage() {
                     </div>
                   )}
                   {po.receivedAt && (
-                    <div className="flex justify-between">
+                    <div className="flex justify-between gap-4">
                       <span className="text-gray-500">Received</span>
                       <span>
                         {new Date(po.receivedAt).toLocaleDateString("en-IN")}
@@ -309,9 +309,9 @@ export default function PurchaseOrderDetailPage() {
 
         <div className="mb-6">
           <h3 className="mb-2 text-sm font-semibold text-gray-700">Items</h3>
-          <table className="w-full text-sm">
+          <table className="w-full text-sm text-gray-900">
             <thead>
-              <tr className="border-b text-left text-xs text-gray-500">
+              <tr className="border-b border-gray-300 text-left text-xs text-gray-600">
                 <th className="py-2">Description</th>
                 <th className="py-2 w-20 text-right">Qty</th>
                 <th className="py-2 w-28 text-right">Unit Price</th>
@@ -320,7 +320,7 @@ export default function PurchaseOrderDetailPage() {
             </thead>
             <tbody>
               {po.items.map((it) => (
-                <tr key={it.id} className="border-b last:border-0">
+                <tr key={it.id} className="border-b border-gray-200 last:border-0">
                   <td className="py-2">
                     <p>{it.description}</p>
                     {it.medicine && (
@@ -341,7 +341,7 @@ export default function PurchaseOrderDetailPage() {
         </div>
 
         <div
-          className="ml-auto max-w-xs space-y-1 text-sm"
+          className="ml-auto max-w-xs space-y-1 text-sm text-gray-900"
           data-testid="po-totals"
         >
           <div className="flex justify-between">
@@ -375,14 +375,14 @@ export default function PurchaseOrderDetailPage() {
               <span>Rs. {po.taxAmount.toFixed(2)}</span>
             </div>
           )}
-          <div className="flex justify-between border-t pt-1 text-base font-bold">
+          <div className="flex justify-between gap-4 border-t border-gray-200 pt-1 text-base font-bold">
             <span>Total</span>
             <span>Rs. {po.totalAmount.toFixed(2)}</span>
           </div>
         </div>
 
         {po.notes && (
-          <div className="mt-6 border-t pt-4">
+          <div className="mt-6 border-t border-gray-200 pt-4">
             <h3 className="mb-1 text-sm font-semibold text-gray-700">Notes</h3>
             <p className="whitespace-pre-line text-sm text-gray-600">{po.notes}</p>
           </div>
@@ -446,7 +446,7 @@ function ReceiveGrnModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 text-gray-900 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Receive Goods (GRN)</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
@@ -458,7 +458,7 @@ function ReceiveGrnModal({
           APPROVED for further partial receipts.
         </p>
 
-        <table className="mb-4 w-full text-sm">
+        <table className="mb-4 w-full text-sm text-gray-900">
           <thead>
             <tr className="border-b text-left text-xs text-gray-500">
               <th className="py-2">Item</th>
@@ -485,7 +485,7 @@ function ReceiveGrnModal({
                     onChange={(e) =>
                       setQuantities((q) => ({ ...q, [it.id]: e.target.value }))
                     }
-                    className="w-24 rounded border px-2 py-1 text-right"
+                    className="w-24 rounded border border-gray-300 bg-white px-2 py-1 text-right text-gray-900"
                   />
                 </td>
               </tr>
@@ -502,7 +502,7 @@ function ReceiveGrnModal({
               id="grn-supplier-invoice"
               value={invoiceNumber}
               onChange={(e) => setInvoiceNumber(e.target.value)}
-              className="w-full rounded border px-3 py-2 text-sm"
+              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
             />
           </div>
           <div>
@@ -511,7 +511,7 @@ function ReceiveGrnModal({
               id="grn-notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full rounded border px-3 py-2 text-sm"
+              className="w-full rounded border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900"
             />
           </div>
         </div>
@@ -526,7 +526,7 @@ function ReceiveGrnModal({
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-lg border px-4 py-2 text-sm text-gray-600 hover:bg-gray-50"
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
           >
             Cancel
           </button>

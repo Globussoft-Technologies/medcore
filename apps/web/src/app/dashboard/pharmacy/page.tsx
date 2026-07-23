@@ -36,6 +36,15 @@ interface Medicine {
   id: string;
   name: string;
   genericName?: string | null;
+  mrp?: number | null;
+  unitCost?: number | null;
+  sellingPrice?: number | null;
+}
+
+function priceInputValue(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? String(value)
+    : "";
 }
 
 type Tab =
@@ -1018,6 +1027,57 @@ function AddStockModal({
     return d.toISOString().slice(0, 10);
   })();
 
+  function applyFetchedPricing(unitCost: string, sellingPrice: string) {
+    setForm((prev) => ({
+      ...prev,
+      unitCost: prev.unitCost || unitCost,
+      sellingPrice: prev.sellingPrice || sellingPrice,
+    }));
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      if (unitCost) delete next.unitCost;
+      if (sellingPrice) delete next.sellingPrice;
+      return next;
+    });
+  }
+
+  async function fetchLatestPricing(medicine: Medicine) {
+    try {
+      const res = await api.get<{ data: InventoryItem[] }>(
+        "/pharmacy/inventory?search=" +
+          encodeURIComponent(medicine.name) +
+          "&limit=100",
+      );
+      const latestBatch = res.data.find(
+        (item) => item.medicine.id === medicine.id,
+      );
+      applyFetchedPricing(
+        priceInputValue(latestBatch?.unitCost ?? medicine.unitCost),
+        priceInputValue(
+          latestBatch?.sellingPrice ?? medicine.sellingPrice ?? medicine.mrp,
+        ),
+      );
+    } catch {
+      applyFetchedPricing(
+        priceInputValue(medicine.unitCost),
+        priceInputValue(medicine.sellingPrice ?? medicine.mrp),
+      );
+    }
+  }
+
+  function selectMedicine(medicine: Medicine) {
+    setSelectedMed(medicine);
+    setMedResults([]);
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next.medicineId;
+      return next;
+    });
+    void fetchLatestPricing(medicine);
+  }
+
+
+
   useEffect(() => {
     if (medSearch.length < 2) {
       setMedResults([]);
@@ -1161,12 +1221,7 @@ function AddStockModal({
                       <button
                         key={m.id}
                         type="button"
-                        onClick={() => {
-                          setSelectedMed(m);
-                          setMedResults([]);
-                          if (fieldErrors.medicineId)
-                            setFieldErrors((p) => ({ ...p, medicineId: "" }));
-                        }}
+                        onClick={() => selectMedicine(m)}
                         className="block w-full px-3 py-2 text-left text-sm text-gray-900 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-700"
                       >
                         {m.name}

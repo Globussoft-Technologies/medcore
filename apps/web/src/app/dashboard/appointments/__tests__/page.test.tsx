@@ -1560,6 +1560,39 @@ describe("AppointmentsPage — colocated coverage", () => {
 
   // ─── Group Appointment modal ──────────────────────────────────────
 
+  it("Group Appointment modal keeps patient suggestions in the modal flow", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === "/doctors") {
+        return Promise.resolve({
+          data: [{ id: "d-g", user: { name: "Dr. G" }, specialization: "Ped" }],
+        });
+      }
+      if (url.startsWith("/patients")) {
+        return Promise.resolve({
+          data: [
+            {
+              id: "p-1",
+              mrNumber: "22MT000001",
+              user: { name: "Patient one", phone: "8972429129" },
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    const user = userEvent.setup();
+    render(<AppointmentsPage />);
+
+    await user.click(await screen.findByRole("button", { name: /group appointment/i }));
+    await user.type(screen.getByPlaceholderText(/Search patients by name/i), "PA");
+
+    const result = await screen.findByText("Patient one");
+    const list = result.closest("ul");
+    expect(list).toHaveClass("relative");
+    expect(list).not.toHaveClass("absolute");
+    expect(list).toHaveClass("max-h-40");
+  });
+
   it("Group Appointment modal opens and renders the multi-patient picker", async () => {
     apiMock.get.mockImplementation((url: string) => {
       if (url === "/doctors") {

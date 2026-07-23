@@ -716,14 +716,14 @@ export default function SurgeryPage() {
           <form
             onSubmit={submit}
             noValidate
-            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">Schedule Surgery</h2>
 
             <div className="mb-4">
               <label htmlFor="surgery-patient-search" className="mb-1 block text-sm font-medium">Patient</label>
               {selectedPatient ? (
-                <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
+                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
                   <div>
                     <p className="text-sm font-medium">{selectedPatient.user.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -746,10 +746,10 @@ export default function SurgeryPage() {
                     placeholder="Search by name or phone..."
                     value={patientSearch}
                     onChange={(e) => setPatientSearch(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   />
                   {patientResults.length > 0 && (
-                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
                       {patientResults.map((p) => (
                         <button
                           key={p.id}
@@ -759,7 +759,7 @@ export default function SurgeryPage() {
                             setPatientResults([]);
                             setPatientSearch("");
                           }}
-                          className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
+                          className="block w-full border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-900 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800"
                         >
                           <p className="font-medium">{p.user.name}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -780,12 +780,12 @@ export default function SurgeryPage() {
                   id="surgery-surgeon"
                   value={form.surgeonId}
                   onChange={(e) => setForm((f) => ({ ...f, surgeonId: e.target.value }))}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   required
                 >
-                  <option value="">Select surgeon</option>
+                  <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="">Select surgeon</option>
                   {doctors.map((d) => (
-                    <option key={d.id} value={d.id}>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" key={d.id} value={d.id}>
                       {d.user.name} — {d.specialization}
                     </option>
                   ))}
@@ -797,12 +797,12 @@ export default function SurgeryPage() {
                   id="surgery-ot"
                   value={form.otId}
                   onChange={(e) => setForm((f) => ({ ...f, otId: e.target.value }))}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   required
                 >
-                  <option value="">Select OT</option>
+                  <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="">Select OT</option>
                   {ots.map((o) => (
-                    <option key={o.id} value={o.id}>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" key={o.id} value={o.id}>
                       {o.name} {o.floor ? `(Floor ${o.floor})` : ""}
                     </option>
                   ))}
@@ -816,7 +816,7 @@ export default function SurgeryPage() {
                 id="surgery-procedure"
                 value={form.procedure}
                 onChange={(e) => setForm((f) => ({ ...f, procedure: e.target.value }))}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 rows={2}
                 required
               />
@@ -836,8 +836,8 @@ export default function SurgeryPage() {
                     setForm((f) => ({ ...f, scheduledAt: e.target.value }));
                     if (scheduleError) setScheduleError(null);
                   }}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm ${
-                    scheduleError ? "border-red-500 bg-red-50" : ""
+                  className={`w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
+                    scheduleError ? "border-red-500 bg-red-50 dark:bg-red-900/20" : ""
                   }`}
                   required
                 />
@@ -866,7 +866,7 @@ export default function SurgeryPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, durationMin: e.target.value }))
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
               <div>
@@ -883,7 +883,7 @@ export default function SurgeryPage() {
                   data-testid="schedule-surgery-cost"
                   value={form.cost}
                   onChange={(e) => setForm((f) => ({ ...f, cost: e.target.value }))}
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
             </div>
@@ -900,7 +900,7 @@ export default function SurgeryPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, anaesthesiologist: e.target.value }))
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
               <div>
@@ -912,7 +912,7 @@ export default function SurgeryPage() {
                   onChange={(e) =>
                     setForm((f) => ({ ...f, assistants: e.target.value }))
                   }
-                  className="w-full rounded-lg border px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   placeholder="Comma-separated names"
                 />
               </div>
@@ -962,7 +962,7 @@ export default function SurgeryPage() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, preOpNotes: e.target.value }))
                 }
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 rows={3}
               />
             </div>
@@ -971,7 +971,7 @@ export default function SurgeryPage() {
               <button
                 type="button"
                 onClick={() => setShowCreate(false)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>

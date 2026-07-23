@@ -3886,44 +3886,44 @@ function AllergyForm({
     <Modal title="Add Allergy" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3" noValidate>
         <div>
-          <label htmlFor="allergy-allergen" className="text-xs text-gray-600">Allergen *</label>
+          <label htmlFor="allergy-allergen" className="text-xs text-gray-600 dark:text-gray-300">Allergen *</label>
           <input
             id="allergy-allergen"
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
             value={allergen}
             onChange={(e) => setAllergen(e.target.value)}
           />
         </div>
         <div>
-          <label htmlFor="allergy-severity" className="text-xs text-gray-600">Severity *</label>
+          <label htmlFor="allergy-severity" className="text-xs text-gray-600 dark:text-gray-300">Severity *</label>
           <select
             id="allergy-severity"
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
             value={severity}
             onChange={(e) =>
               setSeverity(e.target.value as Allergy["severity"])
             }
           >
-            <option value="MILD">Mild</option>
-            <option value="MODERATE">Moderate</option>
-            <option value="SEVERE">Severe</option>
-            <option value="LIFE_THREATENING">Life Threatening</option>
+            <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="MILD">Mild</option>
+            <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="MODERATE">Moderate</option>
+            <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="SEVERE">Severe</option>
+            <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="LIFE_THREATENING">Life Threatening</option>
           </select>
         </div>
         <div>
-          <label htmlFor="allergy-reaction" className="text-xs text-gray-600">Reaction</label>
+          <label htmlFor="allergy-reaction" className="text-xs text-gray-600 dark:text-gray-300">Reaction</label>
           <input
             id="allergy-reaction"
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
             value={reaction}
             onChange={(e) => setReaction(e.target.value)}
           />
         </div>
         <div>
-          <label htmlFor="allergy-notes" className="text-xs text-gray-600">Notes</label>
+          <label htmlFor="allergy-notes" className="text-xs text-gray-600 dark:text-gray-300">Notes</label>
           <textarea
             id="allergy-notes"
-            className="w-full rounded-md border px-3 py-2 text-sm"
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

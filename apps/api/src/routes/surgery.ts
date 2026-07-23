@@ -66,18 +66,23 @@ function withStaleFlags<T extends { status: string; scheduledAt: Date | string }
   };
 }
 
-// Generate next case number like SRG000001
-async function nextCaseNumber(): Promise<string> {
-  const last = await rawPrisma.surgery.findFirst({
-    orderBy: { caseNumber: "desc" },
+// Generate next case number like SRG000001.
+async function nextCaseNumber(offset = 0): Promise<string> {
+  // Surgery.caseNumber is globally unique and existing data may include
+  // namespaced values such as SRG-SEED-0001 / SRG-XPB-... . Lexicographic
+  // ordering can pick one of those or a stale numeric value and repeatedly
+  // collide, so derive the max only from canonical SRG000001-style rows.
+  const rows = await rawPrisma.surgery.findMany({
+    where: { caseNumber: { startsWith: "SRG" } },
     select: { caseNumber: true },
   });
-  let n = 1;
-  if (last?.caseNumber) {
-    const m = last.caseNumber.match(/(\d+)$/);
-    if (m) n = parseInt(m[1], 10) + 1;
-  }
-  return `SRG${String(n).padStart(6, "0")}`;
+  const max = rows.reduce((acc, row) => {
+    const m = row.caseNumber.match(/^SRG(\d+)$/);
+    if (!m) return acc;
+    const n = parseInt(m[1], 10);
+    return Number.isFinite(n) ? Math.max(acc, n) : acc;
+  }, 0);
+  return `SRG${String(max + 1 + offset).padStart(6, "0")}`;
 }
 
 // ─── OPERATING THEATERS ─────────────────────────────────
@@ -262,7 +267,7 @@ router.post(
       let lastErr: unknown = null;
       for (let attempt = 0; attempt < 3 && !surgery; attempt++) {
         try {
-          const caseNumber = await nextCaseNumber();
+          const caseNumber = await nextCaseNumber(attempt);
           surgery = await prisma.surgery.create({
             data: {
               caseNumber,

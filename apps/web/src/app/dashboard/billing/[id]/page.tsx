@@ -131,6 +131,7 @@ export default function InvoiceDetailPage() {
   // Pay Online + Back.
   const { user } = useAuthStore();
   const isStaff = user?.role === "ADMIN" || user?.role === "RECEPTION";
+  const canApproveDiscounts = user?.role === "ADMIN";
   const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [hospital, setHospital] = useState<HospitalProfile>(DEFAULT_HOSPITAL);
@@ -180,6 +181,7 @@ export default function InvoiceDetailPage() {
     reason: string;
   }>>([]);
   const [planOpen, setPlanOpen] = useState(false);
+  const [approvingDiscountId, setApprovingDiscountId] = useState<string | null>(null);
 
   // Razorpay availability — server tells us whether keys are configured + test mode.
   const [razorpay, setRazorpay] = useState<{
@@ -378,6 +380,20 @@ export default function InvoiceDetailPage() {
       toast.error(err instanceof Error ? err.message : "Discount failed");
     }
     setDiscSubmitting(false);
+  }
+
+  async function approvePendingDiscount(approvalId: string) {
+    if (!(await confirm({ title: "Approve this discount?" }))) return;
+    setApprovingDiscountId(approvalId);
+    try {
+      await api.post(`/billing/discount-approvals/${approvalId}/approve`);
+      toast.success("Discount approved");
+      await loadInvoice();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Discount approval failed");
+    } finally {
+      setApprovingDiscountId(null);
+    }
   }
 
   async function submitPayment() {
@@ -804,14 +820,39 @@ export default function InvoiceDetailPage() {
 
       {/* Pending discount approval badge */}
       {pendingApprovals.length > 0 && (
-        <div className="no-print mx-auto mb-3 max-w-3xl rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-800">
-          <strong>Discount Pending Approval:</strong>{" "}
-          {pendingApprovals.map((p) => (
-            <span key={p.id}>
-              Rs.{p.amount.toFixed(2)}
-              {p.percentage != null ? ` (${p.percentage}%)` : ""} — {p.reason};{" "}
-            </span>
-          ))}
+        <div className="no-print mx-auto mb-3 flex max-w-3xl flex-wrap items-center justify-between gap-3 rounded-lg border border-orange-300 bg-orange-50 p-3 text-sm text-orange-800">
+          <div>
+            <strong>Discount Pending Approval:</strong>{" "}
+            <div className="mt-1 space-y-1">
+              {pendingApprovals.map((p) => (
+                <div key={p.id} className="flex flex-wrap items-center gap-2">
+                  <span>
+                    Rs.{p.amount.toFixed(2)}
+                    {p.percentage != null ? ` (${p.percentage}%)` : ""} - {p.reason}
+                  </span>
+                  {canApproveDiscounts && (
+                    <button
+                      type="button"
+                      onClick={() => approvePendingDiscount(p.id)}
+                      disabled={approvingDiscountId === p.id}
+                      className="rounded-md bg-orange-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+                    >
+                      {approvingDiscountId === p.id ? "Approving..." : "Approve now"}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-orange-700">
+              Approve it to reduce this invoice before collecting the remaining payment.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/discount-approvals"
+            className="rounded-md bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700"
+          >
+            Review approvals
+          </Link>
         </div>
       )}
 

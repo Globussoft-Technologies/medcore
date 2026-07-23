@@ -994,8 +994,12 @@ describe("Surgery dashboard page", () => {
       { timeout: 2000 },
     );
 
+    expect(document.getElementById("surgery-surgeon")).toHaveClass("dark:bg-gray-900", "dark:text-gray-100");
+    expect(document.getElementById("surgery-ot")).toHaveClass("dark:bg-gray-900", "dark:text-gray-100");
+
     // Result row renders; click it to select.
     const resultBtn = await screen.findByText("Test Patient");
+    expect(resultBtn.closest("button")).toHaveClass("dark:text-gray-100", "dark:hover:bg-gray-800");
     fireEvent.click(resultBtn);
 
     // Selected card replaces the typeahead.

@@ -1090,6 +1090,48 @@ describe("PharmacyPage (inventory dashboard — full surface)", () => {
     ).toHaveTextContent("Amlodipine 5mg");
   });
 
+  it("AddStock modal - selecting a medicine auto-fills the latest unit cost", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url.startsWith("/medicines?search=")) {
+        return Promise.resolve({
+          data: [{ id: "m-1", name: "Amlodipine 5mg" }],
+        });
+      }
+      if (url.startsWith("/pharmacy/inventory?search=")) {
+        return Promise.resolve({
+          data: [
+            invFixture({
+              medicine: { id: "m-1", name: "Amlodipine 5mg" },
+              unitCost: 7.5,
+              sellingPrice: 12,
+            }),
+          ],
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(<PharmacyPage />);
+    await screen.findByText(/No inventory items\./i);
+
+    fireEvent.click(screen.getByRole("button", { name: /Add Stock/i }));
+    fireEvent.change(screen.getByTestId("add-stock-medicine-search"), {
+      target: { value: "Amlo" },
+    });
+
+    const med = await screen.findByText(
+      "Amlodipine 5mg",
+      {},
+      { timeout: 1000 },
+    );
+    fireEvent.click(med);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("add-stock-unit-cost")).toHaveValue(7.5),
+    );
+    expect(screen.getByTestId("add-stock-selling-price")).toHaveValue(12);
+  });
+
   it("AddStock modal — happy POST submits the full payload and closes (verified by reload-triggered second GET)", async () => {
     const tomorrowIso = (() => {
       const d = new Date();

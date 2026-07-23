@@ -32,7 +32,6 @@
  *            - digits in name (PATIENT_NAME_REGEX rejects, per CLAUDE.md #8)
  *            - empty phone → "Phone number is required"
  *            - bad phone (alpha) → regex error
- *            - age out of [1,150] → range error
  *            - future DOB → "cannot be in the future"
  *            - address > 500 chars → length error
  *            - bad email → format error
@@ -509,7 +508,7 @@ describe("WalkInPage", () => {
       );
     });
 
-    it("validation — bad phone, out-of-range age, future DOB, oversize address, bad email", async () => {
+    it("validation — bad phone, future DOB, oversize address, bad email", async () => {
       const user = userEvent.setup();
       await openNewPatient(user);
 
@@ -517,8 +516,6 @@ describe("WalkInPage", () => {
       await user.type(screen.getByTestId("walkin-newpatient-name"), "Aarav");
       // Bad phone first.
       await user.type(screen.getByTestId("walkin-newpatient-phone"), "abcd");
-      // Age out of range.
-      await user.type(screen.getByTestId("walkin-newpatient-age"), "999");
       // Future DOB.
       const future = new Date();
       future.setFullYear(future.getFullYear() + 2);
@@ -543,7 +540,6 @@ describe("WalkInPage", () => {
       expect(await screen.findByTestId("error-phone")).toHaveTextContent(
         /10–15 digits/,
       );
-      expect(screen.getByTestId("error-age")).toHaveTextContent(/between 1 and 150/i);
       expect(screen.getByTestId("error-dob")).toHaveTextContent(/future/i);
       expect(screen.getByTestId("error-address")).toHaveTextContent(/at most 500/i);
       expect(screen.getByTestId("error-email")).toHaveTextContent(/valid address/i);
@@ -620,7 +616,6 @@ describe("WalkInPage", () => {
 
       await user.type(screen.getByTestId("walkin-newpatient-name"), "Riya");
       await user.type(screen.getByTestId("walkin-newpatient-phone"), "9876543210");
-      await user.type(screen.getByTestId("walkin-newpatient-age"), "30");
       // Valid DOB (past).
       fireEvent.change(screen.getByTestId("walkin-newpatient-dob"), {
         target: { value: "1995-01-15" },
@@ -652,7 +647,6 @@ describe("WalkInPage", () => {
           name: "Riya",
           phone: "9876543210",
           gender: "MALE",
-          age: 30,
           dateOfBirth: "1995-01-15",
           address: "12 MG Road, Mumbai",
           email: "riya@example.com",
@@ -677,7 +671,7 @@ describe("WalkInPage", () => {
       expect(screen.getByTestId("walkin-mr-number").textContent).toMatch(/MR-NEW/);
     });
 
-    it("happy path — omits optional fields (age/dob/address/email empty) from the /patients body", async () => {
+    it("happy path — omits optional fields (dob/address/email empty) from the /patients body", async () => {
       apiMock.get.mockResolvedValue({
         data: [doctor({ id: "d1", user: { name: "Dr. Singh" } })],
       });
@@ -716,7 +710,6 @@ describe("WalkInPage", () => {
         (c) => c[0] === "/patients",
       );
       const body = patientsCall?.[1] as Record<string, unknown>;
-      expect(body.age).toBeUndefined();
       expect(body.dateOfBirth).toBeUndefined();
       expect(body.address).toBeUndefined();
       expect(body.email).toBeUndefined();

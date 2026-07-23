@@ -336,7 +336,7 @@ export default function ReferralsPage() {
                 <tr
                   key={r.id}
                   onClick={() => setSelected(r)}
-                  className="cursor-pointer border-b last:border-0 hover:bg-gray-50"
+                  className="cursor-pointer border-b border-gray-100 text-gray-900 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-700/60"
                 >
                   <td className="px-4 py-3 font-medium">{r.referralNumber}</td>
                   <td className="px-4 py-3">
@@ -401,7 +401,7 @@ export default function ReferralsPage() {
           <form
             onSubmit={submit}
             noValidate
-            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
           >
             <h2 className="mb-4 text-lg font-semibold">New Referral</h2>
 
@@ -411,7 +411,7 @@ export default function ReferralsPage() {
                 <p className="mb-1 text-xs text-red-600">{formErrors.patient}</p>
               )}
               {selectedPatient ? (
-                <div className="flex items-center justify-between rounded-lg border bg-gray-50 px-3 py-2">
+                <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
                   <div>
                     <p className="text-sm font-medium">{selectedPatient.user.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -434,10 +434,10 @@ export default function ReferralsPage() {
                     placeholder="Search by name or phone..."
                     value={patientSearch}
                     onChange={(e) => setPatientSearch(e.target.value)}
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg px-3 py-2 text-sm border border-gray-300 bg-white text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   />
                   {patientResults.length > 0 && (
-                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-900">
                       {patientResults.map((p) => (
                         <button
                           key={p.id}
@@ -447,7 +447,7 @@ export default function ReferralsPage() {
                             setPatientResults([]);
                             setPatientSearch("");
                           }}
-                          className="block w-full border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-gray-50"
+                          className="block w-full border-b border-gray-100 px-3 py-2 text-left text-sm text-gray-900 last:border-0 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-100 dark:hover:bg-gray-800"
                         >
                           <p className="font-medium">{p.user.name}</p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -473,13 +473,13 @@ export default function ReferralsPage() {
                     setForm((f) => ({ ...f, fromDoctorId: e.target.value }))
                   }
                   className={
-                    "w-full rounded-lg border px-3 py-2 text-sm " +
+                    "w-full rounded-lg px-3 py-2 text-sm border border-gray-300 bg-white text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 " +
                     (formErrors.fromDoctorId ? "border-red-500" : "")
                   }
                 >
-                  <option value="">Select doctor</option>
+                  <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="">Select doctor</option>
                   {doctors.map((d) => (
-                    <option key={d.id} value={d.id}>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" key={d.id} value={d.id}>
                       {d.user.name} — {d.specialization}
                     </option>
                   ))}
@@ -530,13 +530,13 @@ export default function ReferralsPage() {
                     setForm((f) => ({ ...f, toDoctorId: e.target.value }))
                   }
                   className={
-                    "w-full rounded-lg border px-3 py-2 text-sm " +
+                    "w-full rounded-lg px-3 py-2 text-sm border border-gray-300 bg-white text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 " +
                     (formErrors.toDoctorId ? "border-red-500" : "")
                   }
                 >
-                  <option value="">Select specialist</option>
+                  <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="">Select specialist</option>
                   {doctors.map((d) => (
-                    <option key={d.id} value={d.id}>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" key={d.id} value={d.id}>
                       {d.user.name} — {d.specialization}
                     </option>
                   ))}
@@ -559,7 +559,7 @@ export default function ReferralsPage() {
                       setForm((f) => ({ ...f, externalProvider: e.target.value }))
                     }
                     className={
-                      "w-full rounded-lg border px-3 py-2 text-sm " +
+                      "w-full rounded-lg px-3 py-2 text-sm border border-gray-300 bg-white text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 " +
                       (formErrors.externalProvider ? "border-red-500" : "")
                     }
                     aria-invalid={!!formErrors.externalProvider}
@@ -579,7 +579,7 @@ export default function ReferralsPage() {
                     onChange={(e) =>
                       setForm((f) => ({ ...f, externalContact: e.target.value }))
                     }
-                    className="w-full rounded-lg border px-3 py-2 text-sm"
+                    className="w-full rounded-lg px-3 py-2 text-sm border border-gray-300 bg-white text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                     placeholder="Phone / email"
                   />
                 </div>
@@ -616,7 +616,7 @@ export default function ReferralsPage() {
                 value={form.reason}
                 onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
                 className={
-                  "w-full rounded-lg border px-3 py-2 text-sm " +
+                  "w-full rounded-lg px-3 py-2 text-sm border border-gray-300 bg-white text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 " +
                   (formErrors.reason ? "border-red-500" : "")
                 }
                 rows={2}
@@ -636,7 +636,7 @@ export default function ReferralsPage() {
                 id="referral-notes"
                 value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                className="w-full rounded-lg border px-3 py-2 text-sm"
+                className="w-full rounded-lg px-3 py-2 text-sm border border-gray-300 bg-white text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 rows={3}
               />
             </div>
@@ -645,7 +645,7 @@ export default function ReferralsPage() {
               <button
                 type="button"
                 onClick={() => setShowCreate(false)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
               >
                 Cancel
               </button>
@@ -667,7 +667,7 @@ export default function ReferralsPage() {
           onClick={() => setSelected(null)}
         >
           <div
-            className="w-full max-h-[90vh] overflow-y-auto max-w-xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800"
+            className="w-full max-h-[90vh] overflow-y-auto max-w-xl rounded-2xl bg-white p-6 text-gray-900 shadow-xl dark:bg-gray-800 dark:text-gray-100"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-start justify-between">
@@ -709,14 +709,14 @@ export default function ReferralsPage() {
               )}
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Reason: </span>
-                <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-3">
+                <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
                   {selected.reason}
                 </p>
               </div>
               {selected.notes && (
                 <div>
                   <span className="text-gray-500 dark:text-gray-400">Notes: </span>
-                  <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-3">
+                  <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-3 text-gray-900 dark:bg-gray-900 dark:text-gray-100">
                     {selected.notes}
                   </p>
                 </div>
@@ -750,7 +750,7 @@ export default function ReferralsPage() {
               )}
               <button
                 onClick={() => setSelected(null)}
-                className="rounded-lg border px-3 py-1.5 text-sm"
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
               >
                 Close
               </button>

@@ -673,6 +673,9 @@ describe("AdmissionDetailPage (IPD admission detail — top-level wiring + tabs)
     ).toBeInTheDocument();
     // Fill the 3 required-or-disabled fields. Use explicit ids — the
     // "Discharge Summary" label collides with the header Print-CTA label.
+    const conditionSelect = document.getElementById("discharge-condition")!;
+    expect(conditionSelect).toHaveClass("dark:bg-gray-900", "dark:text-gray-100");
+    expect(conditionSelect.querySelector('option[value="STABLE"]')).toHaveClass("dark:bg-gray-900", "dark:text-gray-100");
     fireEvent.change(document.getElementById("discharge-summary")!, {
       target: { value: "Patient improved, stable for home." },
     });
@@ -887,6 +890,27 @@ describe("AdmissionDetailPage (IPD admission detail — top-level wiring + tabs)
     await screen.findByText(/120\/80/);
     expect(screen.getByText(/110\/70/)).toBeInTheDocument();
     expect(screen.getByText("Stable")).toBeInTheDocument();
+  });
+
+  it("Vitals tab: wraps long notes inside the table", async () => {
+    const longNote = "followup".repeat(40);
+    wireDefaults({
+      vitals: [
+        {
+          id: "v-long-note",
+          recordedAt: today.toISOString(),
+          bloodPressureSystolic: 120,
+          bloodPressureDiastolic: 80,
+          notes: longNote,
+        },
+      ],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Vitals/ }));
+    const note = await screen.findByText(longNote);
+    expect(note.closest("table")).toHaveClass("table-fixed");
+    expect(note.closest("td")?.className).toContain("[overflow-wrap:anywhere]");
+    expect(note.closest("td")).toHaveClass("whitespace-pre-wrap", "break-words");
   });
 
   it("Vitals tab: NURSE sees the form (canRecord = true)", async () => {

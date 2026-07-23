@@ -1858,7 +1858,7 @@ export default function QuickBookPage() {
                     {awaitingHospital && (
                       <div
                         data-testid="quick-book-hospitals"
-                        className="flex w-full flex-col self-start overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-500/10 mc-anim-slide-left lg:order-first lg:w-[26rem] lg:shrink-0 dark:border-emerald-900/50 dark:bg-gray-800"
+                        className="flex w-full flex-col overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-500/10 mc-anim-slide-left lg:order-first lg:h-[38rem] lg:w-[26rem] lg:shrink-0 dark:border-emerald-900/50 dark:bg-gray-800"
                       >
                         <div className="flex items-center gap-2 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-5 py-4 dark:border-gray-700 dark:from-emerald-950 dark:to-teal-950">
                           <Stethoscope className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
@@ -1873,7 +1873,7 @@ export default function QuickBookPage() {
                         <div
                           onScroll={onHospitalScroll}
                           data-testid="quick-book-hospitals-scroll"
-                          className="flex max-h-[26rem] flex-col gap-3 overflow-y-auto p-4"
+                          className="flex max-h-[26rem] min-h-0 flex-col gap-3 overflow-y-auto p-4 lg:flex-1 lg:max-h-none"
                         >
                           {hospitals.slice(0, hospitalVisibleCount).map((h) => (
                             <button

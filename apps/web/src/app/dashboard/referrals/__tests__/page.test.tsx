@@ -306,6 +306,7 @@ describe("Referrals dashboard page (specialist referrals workspace)", () => {
     render(<ReferralsPage />);
 
     expect(await screen.findByText("REF-A")).toBeInTheDocument();
+    expect(screen.getByText("REF-A").closest("tr")).toHaveClass("dark:text-gray-100", "dark:hover:bg-gray-700/60");
     expect(screen.getByText("REF-B")).toBeInTheDocument();
     expect(screen.getByText("REF-C")).toBeInTheDocument();
     expect(screen.getByText("REF-D")).toBeInTheDocument();
@@ -609,6 +610,8 @@ describe("Referrals dashboard page (specialist referrals workspace)", () => {
         (c[0] as string).startsWith("/patients?search=Su&limit=10"),
       ),
     ).toBe(true);
+    const patientRow = await screen.findByRole("button", { name: /Suresh Iyer/i });
+    expect(patientRow).toHaveClass("dark:text-gray-100", "dark:hover:bg-gray-800");
   });
 
   it("Patient search swallows a failed GET and shows no result rows", async () => {
@@ -869,6 +872,8 @@ describe("Referrals dashboard page (specialist referrals workspace)", () => {
     expect(screen.getAllByText("Ramesh Kumar").length).toBeGreaterThan(0);
     expect(screen.getByText("Cardiac eval")).toBeInTheDocument();
     expect(screen.getByText(/watch for arrhythmia/i)).toBeInTheDocument();
+    expect(screen.getByText("Cardiac eval")).toHaveClass("dark:bg-gray-900", "dark:text-gray-100");
+    expect(screen.getByText(/watch for arrhythmia/i)).toHaveClass("dark:bg-gray-900", "dark:text-gray-100");
     // PENDING → Accept + Decline buttons render.
     expect(screen.getByRole("button", { name: /^Accept$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Decline$/i })).toBeInTheDocument();

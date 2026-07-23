@@ -30,21 +30,17 @@ export default function WalkInPage() {
     name: "",
     phone: "",
     gender: "MALE",
-    age: "",
     // Issue #206 (2026-04-30): reception needs DOB / Address / Email at
     // walk-in registration so the back office isn't chasing the patient
     // for these later. All three are optional on the API side.
     dateOfBirth: "",
     address: "",
     email: "",
-  });
-  // Issue #354: track age error too now that the walk-in "+ New Patient"
-  // form enforces a sane numeric range.
+  });
   // Issue #206: extend errors map to cover DOB / address / email.
   const [fieldErrors, setFieldErrors] = useState<{
     name?: string;
-    phone?: string;
-    age?: string;
+    phone?: string;
     dateOfBirth?: string;
     address?: string;
     email?: string;
@@ -84,8 +80,6 @@ export default function WalkInPage() {
   // Issue #354 (2026-04-26): align walk-in "+ New Patient" with the canonical
   // patient name/phone regexes from packages/shared (so digits in names and
   // letters in phones get rejected here, not just on the patient list page).
-  // Issue #167: age must be at least 1 for adult registration unless the user
-  // also supplies a date of birth.
   const PATIENT_NAME_REGEX_LOCAL = /^[A-Za-zऀ-ॿ\s.\-']{2,100}$/;
   const PHONE_REGEX_LOCAL = /^\+?\d{10,15}$/;
   // Issue #206: simple sanity-check email regex (server applies the
@@ -96,7 +90,6 @@ export default function WalkInPage() {
     const errs: {
       name?: string;
       phone?: string;
-      age?: string;
       dateOfBirth?: string;
       address?: string;
       email?: string;
@@ -116,13 +109,7 @@ export default function WalkInPage() {
     const trimmedPhone = newPatient.phone.trim();
     if (!trimmedPhone) errs.phone = "Phone number is required";
     else if (!PHONE_REGEX_LOCAL.test(trimmedPhone))
-      errs.phone = "Phone must be 10–15 digits, optional leading +";
-    if (newPatient.age) {
-      const a = parseInt(newPatient.age, 10);
-      if (Number.isNaN(a) || a < 1 || a > 150) {
-        errs.age = "Age must be between 1 and 150";
-      }
-    }
+      errs.phone = "Phone must be 10–15 digits, optional leading +";
     // Issue #206: DOB must parse and not be in the future. Empty is OK
     // (field is optional on the API side).
     if (newPatient.dateOfBirth) {
@@ -163,8 +150,7 @@ export default function WalkInPage() {
       const patientRes = await api.post<{ data: PatientResult }>("/patients", {
         name: newPatient.name,
         phone: newPatient.phone,
-        gender: newPatient.gender,
-        age: newPatient.age ? parseInt(newPatient.age) : undefined,
+        gender: newPatient.gender,
         dateOfBirth: newPatient.dateOfBirth || undefined,
         address: newPatient.address.trim() || undefined,
         email: newPatient.email.trim() || undefined,
@@ -439,34 +425,17 @@ export default function WalkInPage() {
                         <option value="FEMALE">Female</option>
                         <option value="OTHER">Other</option>
                       </select>
-                      <div>
-                        <input
-                          placeholder="Age"
-                          type="number"
-                          value={newPatient.age}
-                          onChange={(e) => {
-                            setNewPatient({ ...newPatient, age: e.target.value });
-                            if (fieldErrors.age)
-                              setFieldErrors((p) => ({ ...p, age: undefined }));
-                          }}
-                          className={`w-full rounded border bg-white px-2 py-1.5 text-sm text-gray-900 placeholder-gray-400 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500 ${
-                            fieldErrors.age ? "border-red-500" : "border-gray-200 dark:border-gray-600"
-                          }`}
-                          data-testid="walkin-newpatient-age"
-                        />
-                        {fieldErrors.age && (
-                          <p
-                            className="mt-1 text-xs text-red-600 dark:text-red-400"
-                            data-testid="error-age"
-                          >
-                            {fieldErrors.age}
-                          </p>
-                        )}
-                      </div>
                       {/* Issue #206 (2026-04-30): DOB / Email / Address.
                           All optional but if filled must validate. */}
                       <div>
+                        <label
+                          htmlFor="walkin-newpatient-dob"
+                          className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300"
+                        >
+                          DOB
+                        </label>
                         <input
+                          id="walkin-newpatient-dob"
                           aria-label="Date of birth"
                           placeholder="Date of Birth"
                           type="date"

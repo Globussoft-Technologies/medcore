@@ -176,6 +176,18 @@ describe("Refunds dashboard page", () => {
     expect(screen.getByText(/2 refunds/)).toBeInTheDocument();
   });
 
+  it("keeps very long refund reasons inside the reason column", async () => {
+    const longReason = "refund".repeat(80);
+    apiMock.get.mockResolvedValue(ok([refundRow({ reason: longReason })], 500));
+
+    render(<RefundsPage />);
+
+    const reason = await screen.findByText(longReason);
+    expect(reason.closest("table")).toHaveClass("table-fixed");
+    expect(reason.closest("td")).toHaveClass("break-words");
+    expect(reason.closest("td")).toHaveClass("whitespace-normal");
+  });
+
   it("renders the empty state when the API returns zero refunds", async () => {
     apiMock.get.mockResolvedValue(ok([], 0));
     render(<RefundsPage />);

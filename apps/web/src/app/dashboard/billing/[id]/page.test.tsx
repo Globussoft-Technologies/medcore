@@ -155,6 +155,57 @@ describe("InvoiceDetailPage — Issue #42 (hospital header)", () => {
   });
 });
 
+describe("InvoiceDetailPage - pending discount approvals", () => {
+  beforeEach(() => {
+    apiMock.get.mockReset();
+    apiMock.get.mockImplementation(async (url: string) => {
+      if (url.startsWith("/billing/invoices/")) return { data: invoiceFixture };
+      if (url.startsWith("/billing/discount-approvals")) {
+        return {
+          data: [
+            {
+              id: "approval-1",
+              amount: 500,
+              percentage: null,
+              reason: "Manager approval needed",
+            },
+          ],
+        };
+      }
+      if (url.startsWith("/billing/hospital-profile")) {
+        return { data: hospitalProfileFixture };
+      }
+      return { data: null };
+    });
+  });
+
+  it("shows where to approve a pending discount before collection", async () => {
+    const user = userEvent.setup();
+    apiMock.post.mockResolvedValueOnce({ data: { approved: true } });
+
+    render(<InvoiceDetailPage />);
+
+    expect(
+      await screen.findByText(/Discount Pending Approval/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Approve it to reduce this invoice/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Review approvals/i })).toHaveAttribute(
+      "href",
+      "/dashboard/discount-approvals",
+    );
+
+    await user.click(screen.getByRole("button", { name: /Approve now/i }));
+    await waitFor(() =>
+      expect(apiMock.post).toHaveBeenCalledWith(
+        "/billing/discount-approvals/approval-1/approve",
+      ),
+    );
+    expect(toastMock.success).toHaveBeenCalledWith("Discount approved");
+  });
+});
+
 describe("InvoiceDetailPage — Issue #43 (GST line breakdown)", () => {
   beforeEach(() => {
     apiMock.get.mockReset();

@@ -581,7 +581,7 @@ function OverviewTab({
             <h3 className="mb-4 font-semibold">{t("admDetail.discharge.title", "Discharge Patient")}</h3>
             <div className="space-y-3">
               <div>
-                <label htmlFor="discharge-summary" className="text-xs font-medium text-gray-600">
+                <label htmlFor="discharge-summary" className="text-xs font-medium text-gray-600 dark:text-gray-300">
                   {t("admDetail.discharge.summaryLabel", "Discharge Summary *")}
                 </label>
                 <textarea
@@ -589,12 +589,12 @@ function OverviewTab({
                   value={summary}
                   onChange={(e) => setSummary(e.target.value)}
                   rows={3}
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label htmlFor="discharge-final-diagnosis" className="text-xs font-medium text-gray-600">
+                  <label htmlFor="discharge-final-diagnosis" className="text-xs font-medium text-gray-600 dark:text-gray-300">
                     {t("admDetail.discharge.finalDiagnosis", "Final Diagnosis")}
                   </label>
                   <input
@@ -606,11 +606,11 @@ function OverviewTab({
                         finalDiagnosis: e.target.value,
                       })
                     }
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   />
                 </div>
                 <div>
-                  <label htmlFor="discharge-condition" className="text-xs font-medium text-gray-600">
+                  <label htmlFor="discharge-condition" className="text-xs font-medium text-gray-600 dark:text-gray-300">
                     {t("admDetail.discharge.condition", "Condition at Discharge")}
                   </label>
                   <select
@@ -622,18 +622,18 @@ function OverviewTab({
                         conditionAtDischarge: e.target.value,
                       })
                     }
-                    className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                   >
-                    <option value="STABLE">{t("admDetail.condition.stable", "Stable")}</option>
-                    <option value="IMPROVED">{t("admDetail.condition.improved", "Improved")}</option>
-                    <option value="CRITICAL">{t("admDetail.condition.critical", "Critical")}</option>
-                    <option value="UNCHANGED">{t("admDetail.condition.unchanged", "Unchanged")}</option>
-                    <option value="DECEASED">{t("admDetail.condition.deceased", "Deceased")}</option>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="STABLE">{t("admDetail.condition.stable", "Stable")}</option>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="IMPROVED">{t("admDetail.condition.improved", "Improved")}</option>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="CRITICAL">{t("admDetail.condition.critical", "Critical")}</option>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="UNCHANGED">{t("admDetail.condition.unchanged", "Unchanged")}</option>
+                    <option className="bg-white text-gray-900 dark:bg-gray-900 dark:text-gray-100" value="DECEASED">{t("admDetail.condition.deceased", "Deceased")}</option>
                   </select>
                 </div>
               </div>
               <div>
-                <label htmlFor="discharge-treatment-given" className="text-xs font-medium text-gray-600">
+                <label htmlFor="discharge-treatment-given" className="text-xs font-medium text-gray-600 dark:text-gray-300">
                   {t("admDetail.discharge.treatmentGiven", "Treatment Given")}
                 </label>
                 <textarea
@@ -646,11 +646,11 @@ function OverviewTab({
                     })
                   }
                   rows={2}
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
               <div>
-                <label htmlFor="discharge-medications" className="text-xs font-medium text-gray-600">
+                <label htmlFor="discharge-medications" className="text-xs font-medium text-gray-600 dark:text-gray-300">
                   {t("admDetail.discharge.medications", "Discharge Medications")}
                 </label>
                 <textarea
@@ -664,11 +664,11 @@ function OverviewTab({
                   }
                   rows={2}
                   placeholder={t("admDetail.discharge.medicationsPlaceholder", "e.g. Amoxicillin 500mg TID x 5 days")}
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
               <div>
-                <label htmlFor="discharge-followup" className="text-xs font-medium text-gray-600">
+                <label htmlFor="discharge-followup" className="text-xs font-medium text-gray-600 dark:text-gray-300">
                   {t("admDetail.discharge.followUp", "Follow-up Instructions")}
                 </label>
                 <textarea
@@ -682,14 +682,14 @@ function OverviewTab({
                   }
                   rows={2}
                   placeholder={t("admDetail.discharge.followUpPlaceholder", "e.g. Review in 1 week with CBC report")}
-                  className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder-gray-500"
                 />
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button
                 onClick={() => setDischargeOpen(false)}
-                className="rounded-lg border px-4 py-2 text-sm"
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700"
               >
                 {t("admDetail.cancel", "Cancel")}
               </button>
@@ -1122,17 +1122,17 @@ function VitalsTab({
             {t("admDetail.vitals.empty", "No vitals recorded yet.")}
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-xs text-gray-500 dark:text-gray-300">
-                <th className="px-3 py-2">{t("admDetail.vitals.col.time", "Time")}</th>
-                <th className="px-3 py-2">{t("admDetail.vitals.col.bp", "BP")}</th>
-                <th className="px-3 py-2">{t("admDetail.vitals.col.temp", "Temp")}</th>
-                <th className="px-3 py-2">{t("admDetail.vitals.col.pulse", "Pulse")}</th>
-                <th className="px-3 py-2">{t("admDetail.vitals.col.rr", "RR")}</th>
-                <th className="px-3 py-2">{t("admDetail.vitals.col.spO2", "SpO2")}</th>
-                <th className="px-3 py-2">{t("admDetail.vitals.col.pain", "Pain")}</th>
-                <th className="px-3 py-2">{t("admDetail.vitals.col.sugar", "Sugar")}</th>
+                <th className="w-20 px-3 py-2">{t("admDetail.vitals.col.time", "Time")}</th>
+                <th className="w-16 px-3 py-2">{t("admDetail.vitals.col.bp", "BP")}</th>
+                <th className="w-14 px-3 py-2">{t("admDetail.vitals.col.temp", "Temp")}</th>
+                <th className="w-14 px-3 py-2">{t("admDetail.vitals.col.pulse", "Pulse")}</th>
+                <th className="w-12 px-3 py-2">{t("admDetail.vitals.col.rr", "RR")}</th>
+                <th className="w-14 px-3 py-2">{t("admDetail.vitals.col.spO2", "SpO2")}</th>
+                <th className="w-14 px-3 py-2">{t("admDetail.vitals.col.pain", "Pain")}</th>
+                <th className="w-16 px-3 py-2">{t("admDetail.vitals.col.sugar", "Sugar")}</th>
                 <th className="px-3 py-2">{t("admDetail.notes", "Notes")}</th>
               </tr>
             </thead>
@@ -1157,7 +1157,7 @@ function VitalsTab({
                     <td className="px-3 py-2">{v.spO2 ?? "—"}</td>
                     <td className="px-3 py-2">{v.painScore ?? "—"}</td>
                     <td className="px-3 py-2">{v.bloodSugar ?? "—"}</td>
-                    <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
+                    <td className="min-w-0 whitespace-pre-wrap break-words px-3 py-2 text-xs text-gray-600 [overflow-wrap:anywhere] dark:text-gray-400">
                       {v.notes || "—"}
                     </td>
                   </tr>

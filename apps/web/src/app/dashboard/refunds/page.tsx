@@ -235,14 +235,14 @@ export default function RefundsPage() {
             {t("dashboard.refunds.empty")}
           </div>
         ) : (
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <thead>
               <tr className="border-b border-gray-200 text-left text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                <th className="px-4 py-3">{t("common.date")}</th>
-                <th className="px-4 py-3">{t("dashboard.billing.invoiceNumber")}</th>
-                <th className="px-4 py-3">{t("dashboard.billing.patient")}</th>
-                <th className="px-4 py-3">{t("dashboard.billing.amount")}</th>
-                <th className="px-4 py-3">{t("dashboard.refunds.mode")}</th>
+                <th className="w-36 px-4 py-3">{t("common.date")}</th>
+                <th className="w-28 px-4 py-3">{t("dashboard.billing.invoiceNumber")}</th>
+                <th className="w-44 px-4 py-3">{t("dashboard.billing.patient")}</th>
+                <th className="w-28 px-4 py-3">{t("dashboard.billing.amount")}</th>
+                <th className="w-20 px-4 py-3">{t("dashboard.refunds.mode")}</th>
                 <th className="px-4 py-3">{t("common.reason")}</th>
               </tr>
             </thead>
@@ -273,7 +273,7 @@ export default function RefundsPage() {
                     {fmtMoney(r.amount)}
                   </td>
                   <td className="px-4 py-3 text-sm">{r.mode}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                  <td className="whitespace-normal break-words px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                     {r.reason || "—"}
                   </td>
                 </tr>

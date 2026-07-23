@@ -4661,7 +4661,7 @@ function MultiPatientPicker({
           className="w-full rounded-lg border px-3 py-2 text-sm"
         />
         {open && query.trim().length >= 2 && (
-          <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
+          <ul className="relative z-10 mt-1 max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white text-gray-900 shadow-lg dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100">
             {loading && (
               <li className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">Searching...</li>
             )}
@@ -4682,8 +4682,8 @@ function MultiPatientPicker({
                     className={
                       "cursor-pointer px-3 py-2 text-sm " +
                       (already
-                        ? "bg-gray-100 text-gray-400"
-                        : "hover:bg-blue-50")
+                        ? "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
+                        : "hover:bg-blue-50 dark:hover:bg-gray-700")
                     }
                   >
                     <div className="font-medium">{p.name}</div>

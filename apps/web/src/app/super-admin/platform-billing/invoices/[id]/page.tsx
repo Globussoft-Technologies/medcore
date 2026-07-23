@@ -532,36 +532,36 @@ export default function PlatformInvoiceDetailPage() {
       ) : null}
 
       {invoice ? (
-        <article className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 text-slate-900 shadow-sm dark:border-gray-700">
-          <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
+        <article className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 !text-slate-900 shadow-sm dark:border-slate-200 dark:bg-white dark:!text-slate-900">
+          <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
             <div className="space-y-1">
               <h1
-                className="text-2xl font-semibold tracking-tight"
+                className="text-2xl font-semibold tracking-tight !text-slate-950"
                 data-testid="platform-billing-invoice-number"
               >
                 {invoice.invoiceNumber}
               </h1>
-              <p className="text-sm text-slate-600">
+              <p className="text-sm !text-slate-700">
                 Tenant:{" "}
-                <span className="font-medium text-slate-900">
+                <span className="font-medium !text-slate-950">
                   {invoice.tenant?.name ?? "(unknown)"}
                 </span>{" "}
-                <span className="text-xs text-slate-500">
+                <span className="text-xs !text-slate-600">
                   ({invoice.tenant?.subdomain ?? "—"})
                 </span>
               </p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs !text-slate-600">
                 Billing period {formatDate(invoice.periodStart)} —{" "}
                 {formatDate(invoice.periodEnd)}
               </p>
             </div>
-            <div className="text-right text-xs text-slate-500">
+            <div className="text-right text-xs !text-slate-600">
               <div>Issued: {formatDate(invoice.issuedAt)}</div>
               <div>Paid: {formatDate(invoice.paidAt)}</div>
               {invoice.paymentReference ? (
                 <div data-testid="platform-billing-invoice-payment-ref">
                   Ref:{" "}
-                  <span className="font-mono text-slate-700">
+                  <span className="font-mono !text-slate-800">
                     {invoice.paymentReference}
                   </span>
                 </div>
@@ -571,11 +571,11 @@ export default function PlatformInvoiceDetailPage() {
 
           {/* Line items */}
           <div
-            className="overflow-x-auto rounded-lg border border-slate-200"
+            className="overflow-x-auto rounded-lg border border-slate-300 bg-white"
             data-testid="platform-billing-invoice-lineitems-wrapper"
           >
-            <table className="min-w-full text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+            <table className="min-w-full text-left text-sm !text-slate-900">
+              <thead className="border-b border-slate-300 bg-slate-50 text-xs uppercase tracking-wide !text-slate-600">
                 <tr>
                   <th scope="col" className="px-4 py-2 font-medium">Description</th>
                   <th scope="col" className="px-4 py-2 font-medium">HSN/SAC</th>
@@ -584,12 +584,12 @@ export default function PlatformInvoiceDetailPage() {
                   <th scope="col" className="px-4 py-2 font-medium text-right">Amount</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-200">
                 {invoice.lineItems.length === 0 ? (
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-4 py-6 text-center text-sm text-slate-500"
+                      className="px-4 py-6 text-center text-sm !text-slate-600"
                     >
                       No line items.
                     </td>
@@ -597,17 +597,17 @@ export default function PlatformInvoiceDetailPage() {
                 ) : null}
                 {invoice.lineItems.map((li) => (
                   <tr key={li.id}>
-                    <td className="px-4 py-2 text-slate-700">{li.description}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-slate-600">
+                    <td className="px-4 py-2 !text-slate-800">{li.description}</td>
+                    <td className="px-4 py-2 font-mono text-xs !text-slate-700">
                       {li.hsnSacCode}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                    <td className="px-4 py-2 text-right tabular-nums !text-slate-800">
                       {formatRupees(li.unitPriceInPaise)}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                    <td className="px-4 py-2 text-right tabular-nums !text-slate-800">
                       {li.quantity}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums font-medium text-slate-900">
+                    <td className="px-4 py-2 text-right tabular-nums font-medium !text-slate-950">
                       {formatRupees(li.amountInPaise)}
                     </td>
                   </tr>
@@ -617,27 +617,27 @@ export default function PlatformInvoiceDetailPage() {
           </div>
 
           {/* Tax + total summary */}
-          <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm sm:grid-cols-2 sm:gap-1">
-            <div className="text-slate-600">Subtotal</div>
-            <div className="text-right tabular-nums font-medium text-slate-900">
+          <div className="grid grid-cols-1 gap-2 rounded-lg border border-slate-300 bg-slate-50 p-4 text-sm !text-slate-900 sm:grid-cols-2 sm:gap-1">
+            <div className="!text-slate-700">Subtotal</div>
+            <div className="text-right tabular-nums font-medium !text-slate-950">
               {formatRupees(invoice.subtotalInPaise)}
             </div>
-            <div className="text-slate-600">CGST</div>
-            <div className="text-right tabular-nums text-slate-700">
+            <div className="!text-slate-700">CGST</div>
+            <div className="text-right tabular-nums !text-slate-800">
               {formatRupees(invoice.cgstInPaise)}
             </div>
-            <div className="text-slate-600">SGST</div>
-            <div className="text-right tabular-nums text-slate-700">
+            <div className="!text-slate-700">SGST</div>
+            <div className="text-right tabular-nums !text-slate-800">
               {formatRupees(invoice.sgstInPaise)}
             </div>
-            <div className="text-slate-600">IGST</div>
-            <div className="text-right tabular-nums text-slate-700">
+            <div className="!text-slate-700">IGST</div>
+            <div className="text-right tabular-nums !text-slate-800">
               {formatRupees(invoice.igstInPaise)}
             </div>
-            <div className="col-span-2 my-2 border-t border-slate-200" />
-            <div className="text-base font-semibold text-slate-900">Total</div>
+            <div className="col-span-2 my-2 border-t border-slate-300" />
+            <div className="text-base font-semibold !text-slate-950">Total</div>
             <div
-              className="text-right text-base font-semibold tabular-nums text-slate-900"
+              className="text-right text-base font-semibold tabular-nums !text-slate-950"
               data-testid="platform-billing-invoice-total"
             >
               <span className="inline-flex items-center gap-1">
@@ -662,7 +662,7 @@ export default function PlatformInvoiceDetailPage() {
             </p>
           ) : null}
 
-          <p className="text-xs text-slate-400">
+          <p className="text-xs !text-slate-600">
             <Link
               href="/dashboard/platform-billing"
               className="underline-offset-2 hover:underline"

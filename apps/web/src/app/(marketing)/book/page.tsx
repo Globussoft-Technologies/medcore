@@ -43,7 +43,6 @@ import {
   Star,
   ShieldCheck,
   Mic,
-  Square,
   Loader2,
   Bot,
   Send,
@@ -81,6 +80,12 @@ interface DoctorSuggestion {
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+interface WaveBarStyle {
+  height: string;
+  opacity: number;
+  animationDelay: string;
 }
 
 type Step = "identity" | "chat" | "doctor" | "otp" | "done";
@@ -649,8 +654,13 @@ export default function QuickBookPage() {
   const [voiceState, setVoiceState] = useState<
     "idle" | "recording" | "transcribing"
   >("idle");
+  const [voiceLevel, setVoiceLevel] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const voiceAudioContextRef = useRef<AudioContext | null>(null);
+  const voiceAnalyserRef = useRef<AnalyserNode | null>(null);
+  const voiceLevelFrameRef = useRef<number | null>(null);
+  const voiceDataRef = useRef<Uint8Array | null>(null);
 
   // OTP step state (verify the WhatsApp number → sets the patient session).
   const [otp, setOtp] = useState("");
@@ -1096,6 +1106,20 @@ export default function QuickBookPage() {
   }
 
   // ── Step 3: book the picked doctor/slot (identity already collected) ──
+  const voiceWaveBars: WaveBarStyle[] =
+    voiceState !== "recording"
+      ? []
+      : [0.4, 0.72, 1, 0.72, 0.4, 0.9, 0.58, 0.82, 0.46, 0.68, 0.38].map(
+          (multiplier, index) => {
+            const normalized = Math.max(0.18, Math.min(1, voiceLevel * multiplier));
+            return {
+              height: `${Math.round(8 + normalized * 20)}px`,
+              opacity: 0.45 + normalized * 0.55,
+              animationDelay: `${index * 70}ms`,
+            };
+          }
+        );
+
   async function confirmBooking() {
     setError(null);
     if (!selectedDoctor) {
@@ -2202,19 +2226,44 @@ export default function QuickBookPage() {
 
                       {/* Input bar */}
                       <div className="border-t border-gray-100 p-3 dark:border-gray-700">
-                        <div className="flex gap-2">
-                          <input
-                            data-testid="quick-book-chat-input"
-                            type="text"
-                            value={chatInput}
-                            onChange={(e) => setChatInput(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") void sendChat(chatInput);
-                            }}
-                            placeholder="Describe your symptoms…"
-                            disabled={chatBusy}
-                            className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:disabled:bg-gray-800"
-                          />
+                        <div className="flex items-center gap-2">
+                          {voiceState === "recording" ? (
+                            <div className="flex h-11 flex-1 items-center gap-3 rounded-2xl border border-violet-400/20 bg-[#1b1f33] px-4 text-sm text-violet-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                              <span className="h-2 w-2 rounded-full bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.65)]" />
+                              <span className="font-medium text-violet-200">
+                                Listening
+                              </span>
+                              <span
+                                aria-hidden="true"
+                                className="flex flex-1 items-center gap-1"
+                              >
+                                {voiceWaveBars.map((bar, index) => (
+                                  <span
+                                    key={index}
+                                    className="w-1 rounded-full bg-violet-300 transition-[height,opacity] duration-100 ease-out animate-pulse"
+                                    style={{
+                                      height: bar.height,
+                                      opacity: bar.opacity,
+                                      animationDelay: bar.animationDelay,
+                                    }}
+                                  />
+                                ))}
+                              </span>
+                            </div>
+                          ) : (
+                            <input
+                              data-testid="quick-book-chat-input"
+                              type="text"
+                              value={chatInput}
+                              onChange={(e) => setChatInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void sendChat(chatInput);
+                              }}
+                              placeholder="Describe your symptoms…"
+                              disabled={chatBusy}
+                              className="flex-1 rounded-xl border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:disabled:bg-gray-800"
+                            />
+                          )}
                           <button
                             type="button"
                             data-testid="quick-book-voice"
@@ -2225,30 +2274,38 @@ export default function QuickBookPage() {
                                 ? "Stop listening"
                                 : "Start voice input"
                             }
-                            className={`flex h-9 w-9 items-center justify-center rounded-xl transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                            className={`relative flex items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-50 ${
                               voiceState === "recording"
-                                ? "bg-red-500 text-white hover:bg-red-600"
+                                ? "h-12 w-12 rounded-full bg-[#ff4b5c] text-white shadow-[0_0_0_4px_rgba(120,86,255,0.12),0_0_0_10px_rgba(120,86,255,0.08)] hover:bg-[#ff5a69]"
                                 : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
                             }`}
                           >
+                            {voiceState === "recording" && (
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute inset-0 rounded-full border border-white/15"
+                              />
+                            )}
                             {voiceState === "transcribing" ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : voiceState === "recording" ? (
-                              <Square className="h-4 w-4" />
+                              <Mic className="h-5 w-5" />
                             ) : (
                               <Mic className="h-4 w-4" />
                             )}
                           </button>
-                          <button
-                            type="button"
-                            data-testid="quick-book-chat-send"
-                            onClick={() => void sendChat(chatInput)}
-                            disabled={chatBusy || !chatInput.trim()}
-                            aria-label="Send"
-                            className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <Send className="h-4 w-4" />
-                          </button>
+                          {voiceState !== "recording" && (
+                            <button
+                              type="button"
+                              data-testid="quick-book-chat-send"
+                              onClick={() => void sendChat(chatInput)}
+                              disabled={chatBusy || !chatInput.trim()}
+                              aria-label="Send"
+                              className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <Send className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
 
                         {/* Date strip — horizontally scrollable; drives the

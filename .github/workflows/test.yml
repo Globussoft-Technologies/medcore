@@ -633,17 +633,18 @@ jobs:
         # of the dev server would otherwise hit "Permission denied" (exit 126).
         #
         # CI passes the exact commit SHA into deploy.sh so the demo box serves
-        # the precise revision that cleared the gate. In this mode deploy.sh
-        # force-resets tracked files to that SHA before install/migrate/build,
-        # which avoids long-lived dirty-checkout drift on the demo server from
-        # blocking every future deploy.
+        # the precise revision that cleared the gate. We ALSO bootstrap the
+        # server checkout to that SHA before invoking deploy.sh: if the box is
+        # still on an older copy of deploy.sh, that old script can abort on a
+        # dirty tracked file before it ever reaches the new self-healing logic.
+        # Pre-fetch + hard-reset here breaks that chicken-and-egg loop.
         #
         # The script handles git pull, npm ci, prisma generate + migrate
         # deploy, web build, pm2 restart, and a curl-based health check.
         run: |
           ssh -o BatchMode=yes -o ServerAliveInterval=30 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            "bash -lc 'cd /home/empcloud-development/medcore && bash scripts/deploy.sh --yes --ci-sha=${DEPLOY_SHA}'"
+            "bash -lc 'cd /home/empcloud-development/medcore && git fetch origin && git reset --hard ${DEPLOY_SHA} && bash scripts/deploy.sh --yes --ci-sha=${DEPLOY_SHA}'"
 
       - name: Smoke-check public endpoints
         id: smoke

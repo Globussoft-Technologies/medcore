@@ -11,6 +11,7 @@
 // Skipped unless DATABASE_URL_TEST is set.
 import { it, expect, beforeAll } from "vitest";
 import request from "supertest";
+import { waitForAuditFlush } from "../helpers/audit-wait";
 import { describeIfDB, resetDB, getAuthToken, getPrisma } from "../setup";
 import {
   createMedicineFixture,
@@ -232,20 +233,19 @@ describeIfDB("Controlled Substances API (integration)", () => {
   // entry after a successful POST.
   it("POST / writes an AuditLog row with action CONTROLLED_ENTRY_CREATE", async () => {
     const med = await seedNarcoticWithStock(30);
-    const before = await (await getPrisma()).auditLog.count({
-      where: { action: "CONTROLLED_ENTRY_CREATE" },
-    });
+    const prisma = await getPrisma();
     const res = await request(app)
       .post("/api/v1/controlled-substances")
       .set("Authorization", `Bearer ${pharmacistToken}`)
       .send({ medicineId: med.id, quantity: 2, witnessSignature: VALID_WITNESS });
     expect(res.status).toBe(201);
     // auditLog() is fire-and-forget — give it a tick to complete.
-    await new Promise((r) => setTimeout(r, 50));
-    const after = await (await getPrisma()).auditLog.count({
-      where: { action: "CONTROLLED_ENTRY_CREATE" },
+    const row = await waitForAuditFlush(prisma, {
+      action: "CONTROLLED_ENTRY_CREATE",
+      entity: "controlled_substance_entry",
+      entityId: res.body.data.id,
     });
-    expect(after).toBeGreaterThan(before);
+    expect(row.action).toBe("CONTROLLED_ENTRY_CREATE");
   });
 
   // ─── Witness co-signing (gap #2 — 2026-05-03) ────────────────────────

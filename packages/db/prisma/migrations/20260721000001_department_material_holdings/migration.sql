@@ -2,7 +2,7 @@
 -- this migration adds the per-department holding table plus its movement ledger
 -- so issued/received stock and later adjustments stay auditable.
 
-CREATE TABLE "department_material_holdings" (
+CREATE TABLE IF NOT EXISTS "department_material_holdings" (
     "id" TEXT NOT NULL,
     "departmentId" TEXT NOT NULL,
     "materialId" TEXT NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE "department_material_holdings" (
     CONSTRAINT "department_material_holdings_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "department_material_movements" (
+CREATE TABLE IF NOT EXISTS "department_material_movements" (
     "id" TEXT NOT NULL,
     "departmentId" TEXT NOT NULL,
     "materialId" TEXT NOT NULL,

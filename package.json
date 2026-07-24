@@ -51,14 +51,14 @@
     "vitest": "^2.1.9",
     "axios": "1.18.1",
     "brace-expansion": "1.1.16",
-    "postcss": "8.5.15",
+    "postcss": "8.5.22",
     "sharp": "0.35.3"
   },
   "overrides": {
     "react-test-renderer": "19.2.7",
-    "postcss": "8.5.15",
+    "postcss": "8.5.22",
     "next": {
-      "postcss": "8.5.15",
+      "postcss": "8.5.22",
       "sharp": "0.35.3"
     },
     "ws": "8.21.0",

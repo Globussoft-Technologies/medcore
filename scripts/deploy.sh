@@ -10,6 +10,8 @@
 #   ssh empcloud-development@163.227.174.141
 #   cd /home/empcloud-development/medcore
 #   bash scripts/deploy.sh [--seed] [--yes]
+# CI exact-SHA deploy:
+#   bash scripts/deploy.sh --yes --ci-sha <commit>
 # See docs/DEPLOY.md "Manual fallback runbook" for the full walkthrough.
 #
 # Guard rails:
@@ -30,11 +32,13 @@ SCHEMA_PATH="packages/db/prisma/schema.prisma"
 AUTO_YES=0
 DO_SEED=0
 DO_ROLLBACK=0
+CI_SHA=""
 for arg in "$@"; do
     case "$arg" in
         --yes|-y)    AUTO_YES=1 ;;
         --seed)      DO_SEED=1 ;;
         --rollback)  DO_ROLLBACK=1 ;;
+        --ci-sha=*)  CI_SHA="${arg#*=}" ;;
     esac
 done
 
@@ -96,20 +100,36 @@ git checkout -- package-lock.json 2>/dev/null || true
 # drifts from what the prod build writes and dirties the tree. Drop that
 # cosmetic drift — the build regenerates the file anyway.
 git checkout -- apps/web/next-env.d.ts 2>/dev/null || true
-if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo "  ABORT — uncommitted local changes on prod checkout."
-    echo "  git status:"
-    git status --short
-    exit 1
-fi
 PREV_SHA="$(git rev-parse HEAD)"
-echo "  OK — HEAD=${PREV_SHA}"
 echo "$PREV_SHA" > /tmp/medcore-prev-sha
+if [ -n "$CI_SHA" ]; then
+    echo "  CI exact-SHA mode — forcing tracked files to ${CI_SHA}"
+    echo "  Previous HEAD=${PREV_SHA}"
+    git fetch origin
+    if ! git rev-parse --verify "${CI_SHA}^{commit}" >/dev/null 2>&1; then
+        echo "  ABORT — commit ${CI_SHA} not found after git fetch origin."
+        exit 1
+    fi
+    git reset --hard "$CI_SHA"
+    echo "  OK — now at $(git rev-parse HEAD)"
+else
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "  ABORT — uncommitted local changes on prod checkout."
+        echo "  git status:"
+        git status --short
+        exit 1
+    fi
+    echo "  OK — HEAD=${PREV_SHA}"
+fi
 
 echo "=== 1. Pulling latest code ==="
-git fetch origin
-git checkout main
-git pull --ff-only origin main
+if [ -n "$CI_SHA" ]; then
+    echo "  Skipping branch pull — using exact CI commit ${CI_SHA}"
+else
+    git fetch origin
+    git checkout main
+    git pull --ff-only origin main
+fi
 
 echo "=== 2. Installing dependencies ==="
 # NOTE: @tailwindcss/oxide-linux-x64-gnu is pinned in apps/web/package.json

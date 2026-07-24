@@ -618,6 +618,7 @@ jobs:
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SHA: ${{ github.sha }}
         # `bash -lc` loads the user's profile so NVM is on PATH (the deploy
         # script itself sources NVM, but `npm`/`node` need to be reachable
         # before the script even starts).
@@ -627,20 +628,18 @@ jobs:
         # Windows commits .sh files as 100644 by default, and a fresh clone
         # of the dev server would otherwise hit "Permission denied" (exit 126).
         #
-        # We also pre-clean a stale `package-lock.json` before invoking the
-        # script. Background: npm/cli#4828 occasionally leaves the lock file
-        # dirty after `npm ci` resolves @tailwindcss/oxide's optional deps.
-        # The script's step-0 working-tree-clean check then aborts before
-        # it can `git pull` the in-tree workaround. Doing the cleanup here
-        # at the workflow level breaks the chicken-and-egg loop and matches
-        # the proven pattern from the original manual-deploy command.
+        # CI passes the exact commit SHA into deploy.sh so the demo box serves
+        # the precise revision that cleared the gate. In this mode deploy.sh
+        # force-resets tracked files to that SHA before install/migrate/build,
+        # which avoids long-lived dirty-checkout drift on the demo server from
+        # blocking every future deploy.
         #
         # The script handles git pull, npm ci, prisma generate + migrate
         # deploy, web build, pm2 restart, and a curl-based health check.
         run: |
           ssh -o BatchMode=yes -o ServerAliveInterval=30 \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'bash -lc "cd /home/empcloud-development/medcore && git checkout -- package-lock.json 2>/dev/null; git checkout -- apps/web/next-env.d.ts 2>/dev/null; bash scripts/deploy.sh --yes"'
+            "bash -lc 'cd /home/empcloud-development/medcore && bash scripts/deploy.sh --yes --ci-sha=${DEPLOY_SHA}'"
 
       - name: Smoke-check public endpoints
         id: smoke

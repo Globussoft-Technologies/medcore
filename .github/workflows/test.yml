@@ -280,6 +280,9 @@ jobs:
             //   next + sharp: Next 16.2.x is pinned to latest and app/runtime sharp
             //     is pinned to 0.35.3; npm audit can still report the bundled
             //     optional sharp edge under Next.
+            //   postcss: root/workspace copies are pinned forward, but npm audit
+            //     can still surface inherited toolchain copies under Next /
+            //     Tailwind until those parents lift their bundled ranges.
             const allowPackages = new Set([
               "undici",
               "websocket-driver",
@@ -287,6 +290,7 @@ jobs:
               "axios",
               "brace-expansion",
               "next",
+              "postcss",
               "sharp",
             ]);
             const j = JSON.parse(fs.readFileSync("audit.json", "utf8"));

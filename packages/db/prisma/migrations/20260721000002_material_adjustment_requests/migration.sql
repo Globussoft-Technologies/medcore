@@ -1,6 +1,6 @@
 CREATE TYPE "MaterialAdjustmentRequestStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
 
-CREATE TABLE "material_adjustment_requests" (
+CREATE TABLE IF NOT EXISTS "material_adjustment_requests" (
   "id" TEXT NOT NULL,
   "materialId" TEXT NOT NULL,
   "departmentId" TEXT NOT NULL,

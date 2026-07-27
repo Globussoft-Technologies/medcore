@@ -21,7 +21,7 @@
 // fetch stubbed at the global level; the page is rendered as a unit so the
 // surrounding layout/RBAC chrome isn't exercised here.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 
 let currentParamId: string = "inv1";
@@ -47,6 +47,7 @@ vi.mock("next/link", () => ({
 }));
 
 const fetchMock = vi.fn();
+let dateNowSpy: ReturnType<typeof vi.spyOn>;
 
 function baseInvoice(overrides: Partial<any> = {}): any {
   return {
@@ -117,8 +118,15 @@ beforeEach(() => {
   fetchMock.mockReset();
   routerPush.mockReset();
   currentParamId = "inv1";
+  dateNowSpy = vi
+    .spyOn(Date, "now")
+    .mockReturnValue(new Date("2026-04-15T00:00:00.000Z").getTime());
   mockDetailOk();
   (global as unknown as { fetch: typeof fetchMock }).fetch = fetchMock;
+});
+
+afterEach(() => {
+  dateNowSpy.mockRestore();
 });
 
 import PlatformInvoiceDetailPage from "../page";
@@ -165,6 +173,16 @@ describe("/dashboard/platform-billing/invoices/[id] — detail page", () => {
     expect(
       screen.queryByTestId("platform-billing-invoice-paid-banner"),
     ).toBeNull();
+  });
+
+  it("renders Past due for an unpaid invoice after its period end", async () => {
+    dateNowSpy.mockReturnValue(new Date("2026-06-02T00:00:00.000Z").getTime());
+    render(<PlatformInvoiceDetailPage />);
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("platform-billing-invoice-status-inv1"),
+      ).toHaveTextContent(/Past due/);
+    });
   });
 
   it("renders the PAID banner + payment reference + suppresses Mark Paid when PAID", async () => {

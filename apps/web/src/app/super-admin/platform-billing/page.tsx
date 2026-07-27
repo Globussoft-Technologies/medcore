@@ -242,6 +242,55 @@ function formatRupees(paise: number): string {
   }).format(paise / 100);
 }
 
+function addUtcMonth(iso: string): string {
+  const next = new Date(iso);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  return next.toISOString();
+}
+
+function getVisibleSubscriptionPeriod(
+  subscription: Pick<SubscriptionRow, "status" | "currentPeriodStart" | "currentPeriodEnd">,
+  nowMs: number = Date.now(),
+): { currentPeriodStart: string; currentPeriodEnd: string } {
+  let currentPeriodStart = subscription.currentPeriodStart;
+  let currentPeriodEnd = subscription.currentPeriodEnd;
+
+  if (subscription.status !== "active") {
+    return { currentPeriodStart, currentPeriodEnd };
+  }
+
+  while (new Date(currentPeriodEnd).getTime() <= nowMs) {
+    currentPeriodStart = currentPeriodEnd;
+    currentPeriodEnd = addUtcMonth(currentPeriodEnd);
+  }
+
+  return { currentPeriodStart, currentPeriodEnd };
+}
+
+function isInvoicePastDue(
+  status: InvoiceStatus,
+  periodEnd?: string | null,
+  issuedAt?: string | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (status !== "ISSUED") return false;
+
+  const periodEndMs = periodEnd ? new Date(periodEnd).getTime() : Number.NaN;
+  const issuedAtMs = issuedAt ? new Date(issuedAt).getTime() : Number.NaN;
+
+  let dueAtMs = periodEndMs;
+  if (Number.isFinite(issuedAtMs)) {
+    const issuedPlusOneMonth = new Date(issuedAtMs);
+    issuedPlusOneMonth.setUTCMonth(issuedPlusOneMonth.getUTCMonth() + 1);
+    const issuedGraceMs = issuedPlusOneMonth.getTime();
+    dueAtMs = Number.isFinite(dueAtMs)
+      ? Math.max(dueAtMs, issuedGraceMs)
+      : issuedGraceMs;
+  }
+
+  return Number.isFinite(dueAtMs) && nowMs >= dueAtMs;
+}
+
 function subscriptionStatusBadge(s: SubscriptionStatus): {
   cls: string;
   Icon: typeof Clock;
@@ -266,19 +315,15 @@ function subscriptionStatusBadge(s: SubscriptionStatus): {
 function invoiceStatusBadge(
   s: InvoiceStatus,
   periodEnd?: string,
+  issuedAt?: string | null,
 ): {
   cls: string;
   Icon: typeof Clock;
   label: string;
 } {
-  // An unpaid (ISSUED) invoice whose billing period has already ended is past
-  // due. Derived from the stored `periodEnd` — no separate persisted flag is
-  // needed since the date already lives on the row.
-  if (
-    s === "ISSUED" &&
-    periodEnd &&
-    new Date(periodEnd).getTime() < Date.now()
-  ) {
+  // An unpaid invoice remains Issued through the tenant's current billing
+  // window, then becomes Past due exactly at the renewal/period-end instant.
+  if (isInvoicePastDue(s, periodEnd, issuedAt)) {
     return {
       cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300",
       Icon: AlertCircle,
@@ -322,6 +367,9 @@ export default function PlatformBillingPage() {
   // tile is correct everywhere (the per-tab list alone left it at 0 on the
   // Subscriptions tab).
   const [unpaidTotalPaise, setUnpaidTotalPaise] = useState(0);
+  const [pastDueInvoiceTenantIds, setPastDueInvoiceTenantIds] = useState<
+    string[]
+  >([]);
 
   // Modal state for the Mark-Paid action.
   const [markPaidForId, setMarkPaidForId] = useState<string | null>(null);
@@ -472,6 +520,13 @@ export default function PlatformBillingPage() {
       );
       const invBody = (await invRes.json()) as InvoicesResponse;
       if (invRes.ok && invBody.success) {
+        const overdueTenantIds = new Set<string>();
+        for (const inv of invBody.data.invoices) {
+          if (isInvoicePastDue(inv.status, inv.periodEnd, inv.issuedAt ?? inv.createdAt)) {
+            overdueTenantIds.add(inv.tenantId);
+          }
+        }
+        setPastDueInvoiceTenantIds([...overdueTenantIds]);
         setUnpaidTotalPaise(
           invBody.data.invoices.reduce(
             (s, i) => s + Math.abs(i.totalInPaise),
@@ -964,16 +1019,20 @@ export default function PlatformBillingPage() {
   // Subscription KPI counts from the loaded subscription list; the unpaid
   // total comes from `unpaidTotalPaise` (loaded by loadKpis) so it's correct
   // regardless of the active tab / invoice filter.
-  // A subscription on a SUSPENDED tenant (tenant.active === false) reads as
-  // "suspended" even if its billing status is still active/trial — the
-  // operator suspended the tenant, so that's the effective state used for the
-  // KPI counts, the badge, the filter, and the sort below.
-  const effStatus = (s: SubscriptionRow): SubscriptionStatus =>
-    s.tenant?.active === false ? "suspended" : s.status;
+  // The subscriptions table shows the tenant's live access state. Invoice
+  // rows carry the billing lifecycle (Issued / Past due), so non-trial,
+  // non-suspended subscriptions stay visually Active here even when an older
+  // invoice has rolled into past due.
+  const effStatus = (s: SubscriptionRow): SubscriptionStatus => {
+    if (s.tenant?.active === false || s.status === "suspended") {
+      return "suspended";
+    }
+    if (s.status === "trial") return "trial";
+    if (s.status === "cancelled") return "cancelled";
+    return "active";
+  };
   const totalTrial = subscriptions.filter((s) => effStatus(s) === "trial").length;
-  const totalPastDue = subscriptions.filter(
-    (s) => effStatus(s) === "past_due",
-  ).length;
+  const totalPastDue = new Set(pastDueInvoiceTenantIds).size;
   const totalActive = subscriptions.filter(
     (s) => effStatus(s) === "active",
   ).length;
@@ -1061,7 +1120,7 @@ export default function PlatformBillingPage() {
         <KpiTile
           label={t("platformBilling.kpi.pastDue", "Past due")}
           value={totalPastDue}
-          tone="amber"
+          tone="rose"
           Icon={AlertCircle}
         />
         <KpiTile
@@ -1222,6 +1281,7 @@ export default function PlatformBillingPage() {
               ) : null}
               {visibleSubs.map((s) => {
                 const badge = subscriptionStatusBadge(effStatus(s));
+                const visiblePeriod = getVisibleSubscriptionPeriod(s);
                 // Plan can't be changed for a cancelled/suspended subscription
                 // OR a suspended tenant (active === false) — the tenant must be
                 // restored first.
@@ -1278,10 +1338,10 @@ export default function PlatformBillingPage() {
                       {formatDate(s.trialEndsAt)}
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      {formatDate(s.currentPeriodStart)}
+                      {formatDate(visiblePeriod.currentPeriodStart)}
                     </td>
                     <td className="px-4 py-3 text-slate-700 dark:text-slate-300">
-                      {formatDate(s.currentPeriodEnd)}
+                      {formatDate(visiblePeriod.currentPeriodEnd)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {canChange ? (
@@ -1396,7 +1456,11 @@ export default function PlatformBillingPage() {
                   </tr>
                 ) : null}
                 {invoices.map((inv) => {
-                  const badge = invoiceStatusBadge(inv.status, inv.periodEnd);
+                  const badge = invoiceStatusBadge(
+                    inv.status,
+                    inv.periodEnd,
+                    inv.issuedAt ?? inv.createdAt,
+                  );
                   return (
                     <tr
                       key={inv.id}
@@ -1434,6 +1498,7 @@ export default function PlatformBillingPage() {
                       <td className="px-4 py-3">
                         <span
                           className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${badge.cls}`}
+                          data-testid={`platform-billing-invoice-status-${inv.id}`}
                         >
                           <badge.Icon size={12} aria-hidden="true" />
                           {badge.label}
@@ -2495,3 +2560,5 @@ function KpiTile({
     </div>
   );
 }
+
+

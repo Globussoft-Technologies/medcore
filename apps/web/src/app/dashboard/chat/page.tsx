@@ -161,6 +161,10 @@ export default function ChatPage() {
     try {
       const res = await api.get<{ data: Room[] }>("/chat/rooms");
       setRooms(res.data);
+      setSelectedRoom((current) => {
+        if (!current) return current;
+        return res.data.find((room) => room.id === current.id) ?? current;
+      });
     } catch {
       // empty
     }
@@ -225,11 +229,21 @@ export default function ChatPage() {
   async function send() {
     if (!input.trim() || !selectedRoom) return;
     try {
-      await api.post(`/chat/rooms/${selectedRoom.id}/messages`, {
-        content: input,
-        type: "TEXT",
-      });
+      const res = await api.post<{ data: Message }>(
+        `/chat/rooms/${selectedRoom.id}/messages`,
+        {
+          content: input,
+          type: "TEXT",
+        },
+      );
       setInput("");
+      if (res.data) {
+        setMessages((prev) =>
+          prev.some((m) => m.id === res.data.id) ? prev : [res.data, ...prev],
+        );
+        setTimeout(scrollToBottom, 50);
+      }
+      void loadRooms();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     }

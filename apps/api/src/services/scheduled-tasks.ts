@@ -1,4 +1,4 @@
-import fs from "fs";
+﻿import fs from "fs";
 import path from "path";
 import { prisma } from "@medcore/db";
 import { NotificationType } from "@medcore/shared";
@@ -12,25 +12,26 @@ import { autoEnrolAndRemove } from "./chronic-care-enrolment";
 import { runChronicCareSequenceSends } from "./chronic-care-scheduler";
 import { dispatchPendingCampaigns } from "./campaign-dispatcher-sweep";
 import { collectYesterdayUsage } from "./tenant-usage-collector";
-import { generateMonthlyPlatformInvoices } from "./platform-invoice-generator";
+import { generateMonthlyPlatformInvoices, ensureCurrentPeriodInvoices } from "./platform-invoice-generator";
 import { sendMonthlyInvoiceEmails } from "./platform-invoice-mailer";
 import { seedPlatformBillingConfig } from "./platform-billing-config";
 import {
   checkGracePeriodExpirations,
   checkTrialExpirations,
+  renewActiveSubscriptionPeriods,
 } from "./platform-subscription-state";
 import { runTenantArchiveSweep } from "./tenant-archival";
 
-// ───────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Lightweight setInterval-based scheduler.
-// ───────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Every 60 seconds we walk through the registered tasks,
 // read their `last-run` from the `system_config` key
 // `medcore_task_registry:<task_name>`, and run any tasks whose
 // interval has elapsed. Each task runner is fire-and-forget.
 //
-// Tasks are additive — existing notification triggers and
+// Tasks are additive â€” existing notification triggers and
 // domain logic remain unchanged. This is purely a scheduler.
 
 interface ScheduledTask {
@@ -69,14 +70,14 @@ async function setLastRun(name: string, at: Date): Promise<void> {
   }
 }
 
-// ─── Task implementations ──────────────────────────────
+// â”€â”€â”€ Task implementations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // Issue #879 bonus + #841 family: the seed data and some manual
 // registrations save doctors with `User.name = "Dr. Rajesh Sharma"`. When
 // the 24h / 1h reminder templates prepend their own "Dr. " the patient sees
 // "Dr. Dr. Rajesh Sharma". The web side has a `formatDoctorName` helper
 // (apps/web/src/lib/format-doctor-name.ts) for the same problem; we
-// duplicate the 4-line logic here rather than reach across the apps→web
+// duplicate the 4-line logic here rather than reach across the appsâ†’web
 // boundary. TODO: lift this to `@medcore/shared` so both apps share one
 // implementation.
 function formatDoctorName(name: string | null | undefined): string {
@@ -126,14 +127,14 @@ async function appointmentReminders24h(): Promise<void> {
     if (!a.patient?.user) continue;
     try {
       // Dedup: send the 24h reminder ONCE per appointment. The cron runs
-      // hourly with a 23–25h window, so an appointment can fall in the window
+      // hourly with a 23â€“25h window, so an appointment can fall in the window
       // on two consecutive ticks; without this guard the patient would get
       // the same reminder twice. We skip if a 24h reminder notification was
       // already created for this appointment.
       if (await reminderAlreadySent(a.id, "Appointment Reminder (24h)")) {
         continue;
       }
-      // Issue #879: the original template said "tomorrow" — accurate at send
+      // Issue #879: the original template said "tomorrow" â€” accurate at send
       // time, but the notification row persists and the patient can read it
       // days later when "tomorrow" is no longer correct. Bake the actual
       // appointment date into the message so it stays factually accurate
@@ -174,14 +175,14 @@ async function appointmentReminders1h(): Promise<void> {
   });
   for (const a of appts) {
     if (!a.slotStart) continue;
-    // slotStart is "HH:MM" — compare with now
+    // slotStart is "HH:MM" â€” compare with now
     const [hh, mm] = a.slotStart.split(":").map((s) => parseInt(s, 10));
     const slotAt = new Date(day);
     slotAt.setHours(hh, mm, 0, 0);
     if (slotAt < from || slotAt > to) continue;
     if (!a.patient?.user) continue;
     try {
-      // Dedup: the 1h cron runs every 15 min with a 45–75 min window, so an
+      // Dedup: the 1h cron runs every 15 min with a 45â€“75 min window, so an
       // appointment can fall in the window across up to 3 ticks. Send the 1h
       // reminder ONCE per appointment.
       if (await reminderAlreadySent(a.id, "Appointment Starting Soon (1h)")) {
@@ -346,7 +347,7 @@ async function shiftStartReminders(): Promise<void> {
   }
 }
 
-// ─── Auto-PO: low stock → draft PO (Task 20) ───────────
+// â”€â”€â”€ Auto-PO: low stock â†’ draft PO (Task 20) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function autoDraftPurchaseOrders(): Promise<void> {
   try {
@@ -368,7 +369,7 @@ async function autoDraftPurchaseOrders(): Promise<void> {
     );
     if (needing.length === 0) return;
 
-    // Group by supplier string — use the first active supplier match if any
+    // Group by supplier string â€” use the first active supplier match if any
     const suppliers = await prisma.supplier.findMany({
       where: { isActive: true },
       take: 50,
@@ -439,7 +440,7 @@ async function autoDraftPurchaseOrders(): Promise<void> {
   }
 }
 
-// ─── Cleanup orphaned uploads (Task: cleanup_orphaned_uploads) ──
+// â”€â”€â”€ Cleanup orphaned uploads (Task: cleanup_orphaned_uploads) â”€â”€
 //
 // Walks the on-disk EHR upload directory and deletes physical files that
 // are NOT referenced by any PatientDocument.filePath AND are older than
@@ -491,15 +492,15 @@ async function cleanupOrphanedUploads(): Promise<void> {
   }
 }
 
-// ─── Rate-limit bypass alarm (Gap 3) ───────────────────
+// â”€â”€â”€ Rate-limit bypass alarm (Gap 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // `DISABLE_RATE_LIMITS=true` is an ops escape hatch for running load tests /
 // E2E campaigns against prod without tripping the 429 gate. It MUST be
-// short-lived — left on permanently it silently disables the global 600/min
+// short-lived â€” left on permanently it silently disables the global 600/min
 // defence plus every per-route limiter. This alarm counts consecutive
 // scheduler ticks that observed the env var set and fires a single
 // `RATE_LIMITS_DISABLED_EXTENDED` audit entry once the counter reaches 3
-// (≈ 3 minutes of sustained bypass). The counter resets the moment
+// (â‰ˆ 3 minutes of sustained bypass). The counter resets the moment
 // DISABLE_RATE_LIMITS is unset. The alarm is rate-limited to once per 6h to
 // avoid audit-log spam during an extended campaign.
 
@@ -543,7 +544,7 @@ async function rateLimitBypassCheck(): Promise<void> {
           severity: "WARNING",
           consecutiveChecks: rateLimitAlarmState.count,
           message:
-            "DISABLE_RATE_LIMITS=true observed across 3+ scheduler ticks — ops must unset this env var unless a load/E2E campaign is still running.",
+            "DISABLE_RATE_LIMITS=true observed across 3+ scheduler ticks â€” ops must unset this env var unless a load/E2E campaign is still running.",
         } as any,
       } as any,
     });
@@ -564,14 +565,14 @@ export function _peekRateLimitAlarmStateForTests(): RateLimitAlarmState {
   return { ...rateLimitAlarmState };
 }
 
-// ─── Auto-cancel stale SCHEDULED surgeries (Issue #160) ─────
+// â”€â”€â”€ Auto-cancel stale SCHEDULED surgeries (Issue #160) â”€â”€â”€â”€â”€
 //
 // The withStaleFlags helper in routes/surgery.ts only re-labels rows on read;
 // the underlying Prisma row stays SCHEDULED forever. After ~7 days a missed
 // surgery is unequivocally not happening, so we transition the row to
 // CANCELLED and emit an audit log so the audit trail captures the fact that
 // no human cancelled it. Hospitals can re-create a fresh row if the case is
-// rescheduled — we deliberately do NOT delete data.
+// rescheduled â€” we deliberately do NOT delete data.
 
 const STALE_SURGERY_CANCEL_AFTER_DAYS = 7;
 
@@ -639,7 +640,7 @@ async function autoCancelMissedSurgeries(): Promise<void> {
   }
 }
 
-// ─── Auto-assign overdue complaints (Issue #161) ──────────────
+// â”€â”€â”€ Auto-assign overdue complaints (Issue #161) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // A complaint that has been OPEN for >48h with no `assignedTo` is dropping
 // through the cracks. We pick the on-duty admin with the lowest current
@@ -770,14 +771,14 @@ async function autoAssignOverdueComplaintsTask(): Promise<void> {
   }
 }
 
-// ─── Auto-escalate SLA-breached complaints (Issue #760) ──────
+// â”€â”€â”€ Auto-escalate SLA-breached complaints (Issue #760) â”€â”€â”€â”€â”€â”€
 //
 // `auto_assign_overdue_complaints` (Issue #161) only handles the
 // assignment-routing side: it picks the lowest-load admin for any OPEN
 // complaint that's been unassigned >48h. It does NOT change the row's
 // `status`, so a CRITICAL ticket sitting at 798h overdue (the symptom
 // reported in #760) still showed `status=OPEN` indefinitely with no
-// visible escalation flag — and the matching `POST /complaints/auto-escalate`
+// visible escalation flag â€” and the matching `POST /complaints/auto-escalate`
 // endpoint, which DID transition such rows to `ESCALATED`, was only ever
 // invoked manually (no scheduler entry).
 //
@@ -815,7 +816,7 @@ export async function autoEscalateSlaBreachedComplaints(now: Date = new Date()):
   });
   if (overdue.length === 0) return { escalated: 0, ids: [] };
 
-  // Pre-fetch admin pool for unassigned escalations — these get notified
+  // Pre-fetch admin pool for unassigned escalations â€” these get notified
   // so a human actually sees the breach instead of the row sitting in a
   // queue tab unread.
   const admins = await prisma.user.findMany({
@@ -856,7 +857,7 @@ export async function autoEscalateSlaBreachedComplaints(now: Date = new Date()):
       escalatedIds.push(c.id);
 
       // Notify the assignee directly so the escalation lands in the
-      // owner's inbox — fall back to the admin pool when unassigned so
+      // owner's inbox â€” fall back to the admin pool when unassigned so
       // CRITICAL/HIGH tickets aren't escalated into the void.
       const recipients = c.assignedTo
         ? [c.assignedTo]
@@ -907,18 +908,18 @@ async function autoEscalateSlaBreachedComplaintsTask(): Promise<void> {
   }
 }
 
-// ─── Auto-flag expired blood units (Issue #737) ────────
+// â”€â”€â”€ Auto-flag expired blood units (Issue #737) â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Even though /match and /inventory filter expired rows out of the runtime
 // query, the inventory-page count column reads the raw `status` column. So
 // an expired unit whose `status` is still `AVAILABLE` inflates the
 // "Available" count and stays orphaned in the table. This task transitions
 // any `AVAILABLE` unit whose `expiresAt < now` to `EXPIRED`, emits a single
-// audit row per batch, and is safe to re-run (idempotent — a second pass
+// audit row per batch, and is safe to re-run (idempotent â€” a second pass
 // finds zero AVAILABLE+expired rows). Runs daily at 1am host time.
 //
 // NOTE: this is purely a status-cleanup pass. The transfusion-safety guard
-// is the per-request expiry check inside the `/issue` handler — this cron
+// is the per-request expiry check inside the `/issue` handler â€” this cron
 // just keeps the inventory dashboard honest.
 export async function autoFlagExpiredBloodUnits(now: Date = new Date()): Promise<{
   flagged: number;
@@ -965,10 +966,10 @@ async function autoFlagExpiredBloodUnitsTask(): Promise<void> {
   }
 }
 
-// ─── Auto-checkout zombie visitors (Issue #734) ────────
+// â”€â”€â”€ Auto-checkout zombie visitors (Issue #734) â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // An ACTIVE visitor (checkOutAt = null) sitting >12h past their checkInAt
-// is a data anomaly — receptionist almost certainly forgot to scan them
+// is a data anomaly â€” receptionist almost certainly forgot to scan them
 // out, but the dashboard "Currently Inside" count shows them as live which
 // hurts emergency-evacuation accuracy and seat-count analytics. This task
 // runs every 30 min, picks up any ACTIVE row older than the configured
@@ -1045,11 +1046,11 @@ async function autoCheckoutStaleVisitorsTask(): Promise<void> {
   }
 }
 
-// ─── Auto-close stuck telemedicine sessions (Issue #743) ─
+// â”€â”€â”€ Auto-close stuck telemedicine sessions (Issue #743) â”€
 //
 // Telemedicine sessions whose `status` is IN_PROGRESS but whose `startedAt`
 // is older than `MAX_TELEMED_DURATION_HOURS` (default 2h, env-overridable)
-// are stuck — either the doctor closed the tab without hitting "End",
+// are stuck â€” either the doctor closed the tab without hitting "End",
 // the WebRTC connection dropped without a teardown signal, or the patient
 // abandoned the call. Leaving them IN_PROGRESS skews the live-sessions
 // dashboard and blocks doctor-side cleanup. This task transitions any
@@ -1058,7 +1059,7 @@ async function autoCheckoutStaleVisitorsTask(): Promise<void> {
 // emits a single batch audit row. Mirrors the auto-checkout-stale-visitors
 // + auto-flag-expired-blood-units patterns.
 //
-// Note: `TelemedicineStatus` enum has no `AUTO_CLOSED` member — we use
+// Note: `TelemedicineStatus` enum has no `AUTO_CLOSED` member â€” we use
 // `COMPLETED` (the natural terminal state) and rely on the `doctorNotes`
 // marker + the `TELEMEDICINE_AUTO_CLOSED_STUCK` audit action for the
 // "this was system-closed, not human-closed" signal.
@@ -1130,13 +1131,13 @@ async function autoCloseStuckTelemedicineSessionsTask(): Promise<void> {
   }
 }
 
-// ─── Chronic-care cohort auto-enrolment (Pearl §5.2 row 143) ───
+// â”€â”€â”€ Chronic-care cohort auto-enrolment (Pearl Â§5.2 row 143) â”€â”€â”€
 //
 // Every hour, re-evaluate every active ChronicCareCohort's `cohortRule`
 // and reconcile per-patient ChronicCarePlan rows: enrol newly-matching
 // patients, deactivate plans whose patients no longer match. Idempotent
-// — a no-op pass logs nothing. ScheduledTaskRun captures the run via
-// `runTaskWithAudit` (Pearl §8.4 row 222).
+// â€” a no-op pass logs nothing. ScheduledTaskRun captures the run via
+// `runTaskWithAudit` (Pearl Â§8.4 row 222).
 async function autoEnrolChronicCareCohortsTask(): Promise<void> {
   try {
     const result = await autoEnrolAndRemove();
@@ -1150,7 +1151,7 @@ async function autoEnrolChronicCareCohortsTask(): Promise<void> {
   }
 }
 
-// ─── Chronic-care sequence-step sweep (Pearl §5.2 row 144) ─────
+// â”€â”€â”€ Chronic-care sequence-step sweep (Pearl Â§5.2 row 144) â”€â”€â”€â”€â”€
 //
 // Every hour, walk every active cohort-linked ChronicCarePlan and send
 // the next pending CohortSequenceStep whose `delayDays` window has
@@ -1170,13 +1171,13 @@ async function chronicCareSequenceSweepTask(): Promise<void> {
   }
 }
 
-// ─── Campaign dispatcher sweep (Pearl §5.1 piece 2b row 131/132/137/336/338) ───
+// â”€â”€â”€ Campaign dispatcher sweep (Pearl Â§5.1 piece 2b row 131/132/137/336/338) â”€â”€â”€
 //
 // Every 5 min, find Campaign rows in `SCHEDULED` status whose
 // `scheduledAt` is in the past and dispatch them via the existing sync
 // fan-out. Per-tick cap: 10 campaigns (the remainder defer to the next
 // tick). Per-recipient send-window quiet-hour clamp enforced at sweep
-// time — out-of-window campaigns stay SCHEDULED and retry next tick.
+// time â€” out-of-window campaigns stay SCHEDULED and retry next tick.
 // Implementation: services/campaign-dispatcher-sweep.ts.
 async function campaignDispatchSweepTask(): Promise<void> {
   try {
@@ -1197,7 +1198,7 @@ async function campaignDispatchSweepTask(): Promise<void> {
   }
 }
 
-// ─── Tenant usage daily collector (Pearl §8.3 row 214) ─
+// â”€â”€â”€ Tenant usage daily collector (Pearl Â§8.3 row 214) â”€
 //
 // Once daily, group the prior UTC day's Notification rows by
 // (tenantId, channel) and upsert one TenantUsageDaily row per tenant
@@ -1217,17 +1218,17 @@ async function tenantUsageDailyCollectorTask(): Promise<void> {
   }
 }
 
-// ─── Monthly platform-invoice generator (Pearl §8.3 row 215 piece 3b) ─
+// â”€â”€â”€ Monthly platform-invoice generator (Pearl Â§8.3 row 215 piece 3b) â”€
 //
 // On the 1st of every UTC month at ~02:00 UTC, walk every ACTIVE
 // TenantSubscription and create a PlatformInvoice for the PREVIOUS
-// month (idempotent — re-runs find the row + skip). The scheduler
+// month (idempotent â€” re-runs find the row + skip). The scheduler
 // doesn't have first-class day-of-month support, so the task body
 // short-circuits unless `now.getUTCDate() === 1`. The hourly cadence
 // with the `runAtHour: 2` filter means we get one shot at ~02:00 UTC
 // on the 1st; if the host is down at that hour the task waits for
 // the next month rather than back-filling (operators can re-run
-// manually via the retry endpoint — the function is idempotent).
+// manually via the retry endpoint â€” the function is idempotent).
 async function monthlyPlatformInvoiceGeneratorTask(): Promise<void> {
   const now = new Date();
   if (now.getUTCDate() !== 1) return;
@@ -1248,11 +1249,11 @@ async function monthlyPlatformInvoiceGeneratorTask(): Promise<void> {
   }
 }
 
-// ─── Platform-subscription grace-period sweep (Pearl §8.3 row 215 piece 3c) ─
+// â”€â”€â”€ Platform-subscription grace-period sweep (Pearl Â§8.3 row 215 piece 3c) â”€
 //
 // Daily at 03:00 host-time: walk every `past_due` TenantSubscription and
 // flip rows whose `pastDueSince + 7d < now` to `suspended` (login
-// blocked except for billing surface). Idempotent — a second pass on
+// blocked except for billing surface). Idempotent â€” a second pass on
 // the same day finds zero rows because the prior pass already
 // suspended them. The Razorpay webhook (routes/webhooks/platform-razorpay.ts)
 // is the OTHER entry point that can transition rows; both call the
@@ -1271,7 +1272,32 @@ async function platformGracePeriodSweepTask(): Promise<void> {
   }
 }
 
-// ─── Platform-invoice email mailer (Pearl §8.3 piece 3f) ─
+// ─── Platform active-period renewal sweep ────────────────────────────
+//
+// Daily at 02:00 host-time: roll stale ACTIVE subscription periods forward
+// and ensure the newly-current billing window has an ISSUED invoice row.
+async function platformActivePeriodRenewalTask(): Promise<void> {
+  try {
+    const now = new Date();
+    const renewal = await renewActiveSubscriptionPeriods(prisma, now);
+    const invoiceSync = await ensureCurrentPeriodInvoices(prisma, now);
+    if (
+      renewal.inspected > 0 ||
+      renewal.renewed > 0 ||
+      renewal.errors > 0 ||
+      invoiceSync.generated > 0 ||
+      invoiceSync.errors > 0
+    ) {
+      console.log(
+        `[platform_active_period_renewal] inspected=${renewal.inspected} renewed=${renewal.renewed} renewalErrors=${renewal.errors} currentInvoicesGenerated=${invoiceSync.generated} invoiceErrors=${invoiceSync.errors}`,
+      );
+    }
+  } catch (err) {
+    console.error("[platform_active_period_renewal]", err);
+  }
+}
+
+// â”€â”€â”€ Platform-invoice email mailer (Pearl Â§8.3 piece 3f) â”€
 //
 // Daily at 05:00 host-time: walks every ISSUED PlatformInvoice that
 // hasn't been emailed yet (idempotency tracked via AuditLog action
@@ -1296,7 +1322,7 @@ async function platformInvoiceMailerTask(): Promise<void> {
   }
 }
 
-// ─── Platform-subscription trial-expiration sweep (Pearl §8.3 piece 3d) ─
+// â”€â”€â”€ Platform-subscription trial-expiration sweep (Pearl Â§8.3 piece 3d) â”€
 //
 // Daily at 03:00 host-time (paired with the grace-period sweep so both
 // state-machine checks run back-to-back). Walks every `trial`
@@ -1316,7 +1342,7 @@ async function platformTrialExpirationSweepTask(): Promise<void> {
   }
 }
 
-// ─── Tenant 90-day S3 archival sweep (Pearl §8.1 row 233) ──────────
+// â”€â”€â”€ Tenant 90-day S3 archival sweep (Pearl Â§8.1 row 233) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Daily at 04:00 host-time: find every tenant currently SUSPENDED
 // (`active=false`) for >=90 days (`deactivatedAt` older than the
@@ -1325,7 +1351,7 @@ async function platformTrialExpirationSweepTask(): Promise<void> {
 // at key `tenant-archives/{tenantId}/{ts}.tar.gz`, with SHA-256
 // checksum stamped on `Tenant.archiveChecksum`. Live-data purge is a
 // SEPARATE operator-gated `purgeArchivedTenant()` function (not auto-
-// wired — irreversible, wants explicit operator confirmation).
+// wired â€” irreversible, wants explicit operator confirmation).
 // Idempotent: re-runs find no candidates because `archivedAt is null`
 // is part of the eligibility gate.
 async function tenantArchiveSweepTask(): Promise<void> {
@@ -1345,7 +1371,7 @@ async function tenantArchiveSweepTask(): Promise<void> {
   }
 }
 
-// ─── Drain queued (deferred) notifications ─────────────
+// â”€â”€â”€ Drain queued (deferred) notifications â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function notificationDrainQueued(): Promise<void> {
   try {
@@ -1358,7 +1384,7 @@ async function notificationDrainQueued(): Promise<void> {
   }
 }
 
-// ─── Task registry ─────────────────────────────────────
+// â”€â”€â”€ Task registry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TASKS: ScheduledTask[] = [
   {
@@ -1412,7 +1438,7 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 24 * 60,
     run: cleanupOrphanedUploads,
   },
-  // ── Ops-quality AI features (Apr 2026) ─────────────────
+  // â”€â”€ Ops-quality AI features (Apr 2026) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   {
     name: "ai_doc_qa_daily_sample",
     intervalMinutes: 24 * 60,
@@ -1444,7 +1470,7 @@ const TASKS: ScheduledTask[] = [
       await runAuditLogArchival({});
     },
   },
-  // Issue #160 — daily 4am IST. The host runs in IST in production; for
+  // Issue #160 â€” daily 4am IST. The host runs in IST in production; for
   // dev/test machines on UTC the task simply runs at the host's 4am, which
   // is acceptable for an ops-cleanup job.
   {
@@ -1453,14 +1479,14 @@ const TASKS: ScheduledTask[] = [
     runAtHour: 4,
     run: autoCancelMissedSurgeries,
   },
-  // Issue #161 — daily 6am IST. Same host-clock caveat as #160.
+  // Issue #161 â€” daily 6am IST. Same host-clock caveat as #160.
   {
     name: "auto_assign_overdue_complaints",
     intervalMinutes: 24 * 60,
     runAtHour: 6,
     run: autoAssignOverdueComplaintsTask,
   },
-  // Issue #760 — every 60 min. Transitions OPEN/UNDER_REVIEW complaints
+  // Issue #760 â€” every 60 min. Transitions OPEN/UNDER_REVIEW complaints
   // whose `slaDueAt` is past to status=ESCALATED with an "Auto-escalated:
   // SLA breach" reason, emits one audit row per ticket, and notifies the
   // assignee (or admin pool if unassigned). Hourly cadence is tight enough
@@ -1472,7 +1498,7 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 60,
     run: autoEscalateSlaBreachedComplaintsTask,
   },
-  // Issue #388 — every 30 min, transition past BOOKED appointments
+  // Issue #388 â€” every 30 min, transition past BOOKED appointments
   // (>30 min beyond their IST start instant) to NO_SHOW so analytics,
   // FHIR exports, and non-helper render paths see the correct status.
   // Companion to render-layer fix in commit aa3ab9e.
@@ -1481,7 +1507,7 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 30,
     run: autoNoShowElapsedBookedTask,
   },
-  // Issue #737 — daily 1am host time. Flips AVAILABLE blood units whose
+  // Issue #737 â€” daily 1am host time. Flips AVAILABLE blood units whose
   // `expiresAt` is already in the past to status=EXPIRED so the inventory
   // dashboard count reflects reality without runtime filtering.
   {
@@ -1490,7 +1516,7 @@ const TASKS: ScheduledTask[] = [
     runAtHour: 1,
     run: autoFlagExpiredBloodUnitsTask,
   },
-  // Issue #734 — every 30 min. Auto-closes ACTIVE visitor rows whose
+  // Issue #734 â€” every 30 min. Auto-closes ACTIVE visitor rows whose
   // checkInAt is >MAX_VISIT_DURATION_HOURS (default 12h) ago. Receptionist
   // almost certainly forgot to scan them out; the audit trail records the
   // auto-checkout so a human can correct if needed.
@@ -1499,7 +1525,7 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 30,
     run: autoCheckoutStaleVisitorsTask,
   },
-  // Issue #743 — every 30 min. Transitions IN_PROGRESS telemedicine
+  // Issue #743 â€” every 30 min. Transitions IN_PROGRESS telemedicine
   // sessions whose startedAt is >MAX_TELEMED_DURATION_HOURS (default 2h)
   // ago to COMPLETED with an Auto-closed marker, so the live-sessions
   // dashboard doesn't carry zombie rows for 24h+.
@@ -1508,7 +1534,7 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 30,
     run: autoCloseStuckTelemedicineSessionsTask,
   },
-  // Pearl §5.2 row 143 — hourly auto-enrol / auto-remove. Re-evaluates
+  // Pearl Â§5.2 row 143 â€” hourly auto-enrol / auto-remove. Re-evaluates
   // every active ChronicCareCohort's `cohortRule` against current patient
   // rows, creates/activates ChronicCarePlan rows for new matches, and
   // deactivates plans for patients who no longer match. Idempotent.
@@ -1517,7 +1543,7 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 60,
     run: autoEnrolChronicCareCohortsTask,
   },
-  // Pearl §5.2 row 144 — hourly sweep that advances the per-enrolment
+  // Pearl Â§5.2 row 144 â€” hourly sweep that advances the per-enrolment
   // sequence stepper. Sends the next pending CohortSequenceStep whose
   // delayDays window has elapsed. On-visit fast-path lives in
   // `services/notification-triggers.ts:onPatientCheckedIn` (row 145).
@@ -1526,7 +1552,7 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 60,
     run: chronicCareSequenceSweepTask,
   },
-  // Pearl §5.1 piece 2b (rows 131, 132, 137, 336, 338) — every 5 min, find
+  // Pearl Â§5.1 piece 2b (rows 131, 132, 137, 336, 338) â€” every 5 min, find
   // Campaign rows whose `scheduledAt` is in the past and dispatch via the
   // existing sync fan-out. Per-tick cap: 10 campaigns. Quiet-hour clamp
   // (Campaign.sendWindowStart/End) defers out-of-window dispatches to the
@@ -1537,12 +1563,12 @@ const TASKS: ScheduledTask[] = [
     intervalMinutes: 5,
     run: campaignDispatchSweepTask,
   },
-  // Pearl §8.3 row 214 — daily 01:00 UTC (host-time scheduler approximates
+  // Pearl Â§8.3 row 214 â€” daily 01:00 UTC (host-time scheduler approximates
   // via `runAtHour: 1`; prod hosts run IST so this lands ~01:00 IST =
   // 19:30 UTC prior day. The collector's "yesterday" computation uses UTC
   // explicitly so the date boundary is stable regardless of host TZ).
   // Groups the prior UTC day's notifications by (tenantId, channel) and
-  // upserts one TenantUsageDaily row per tenant — idempotent on the
+  // upserts one TenantUsageDaily row per tenant â€” idempotent on the
   // `@@unique([tenantId, date])` constraint.
   {
     name: "tenant_usage_daily_collector",
@@ -1550,19 +1576,24 @@ const TASKS: ScheduledTask[] = [
     runAtHour: 1,
     run: tenantUsageDailyCollectorTask,
   },
-  // Pearl §8.3 row 215 piece 3b — monthly platform-invoice generator. The
+  // Pearl Â§8.3 row 215 piece 3b â€” monthly platform-invoice generator. The
   // scheduler has no first-class day-of-month gate, so the task body returns
   // immediately on every day except the 1st (UTC). `runAtHour: 2` narrows
   // the firing window to ~02:00 host-time (prod runs IST, so ~02:00 IST =
-  // ~20:30 UTC the prior day — the task's "1st UTC" guard then keeps the
-  // generator from firing until the host's date crosses into the 1st UTC,
-  // which happens 5h30m after IST midnight). `intervalMinutes: 24*60` so
-  // the per-day "did we already run today" tracking still works.
   {
     name: "monthly_platform_invoice_generator",
     intervalMinutes: 24 * 60,
     runAtHour: 2,
     run: monthlyPlatformInvoiceGeneratorTask,
+  },
+  // Pearl §8.3 active-period renewal — daily at 02:00 host-time. Rolls any
+  // stale ACTIVE subscription window forward and ensures the current-period
+  // invoice exists so the admin + tenant invoice lists show the new cycle.
+  {
+    name: "platform_active_period_renewal",
+    intervalMinutes: 24 * 60,
+    runAtHour: 2,
+    run: platformActivePeriodRenewalTask,
   },
   // Pearl §8.3 row 215 piece 3c — daily at 03:00 host-time. Walks every
   // `past_due` TenantSubscription and flips rows whose pastDueSince was
@@ -1610,7 +1641,6 @@ const TASKS: ScheduledTask[] = [
     run: tenantArchiveSweepTask,
   },
 ];
-
 let intervalHandle: NodeJS.Timeout | null = null;
 
 /**
@@ -1813,3 +1843,4 @@ export async function _runSchedulerTickForTests(): Promise<void> {
     }
   }
 }
+

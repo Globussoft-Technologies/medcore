@@ -27,6 +27,8 @@ import {
   Download,
   MoreHorizontal,
   Globe,
+  Search,
+  X,
 } from "lucide-react";
 
 interface InvoiceRecord {
@@ -76,6 +78,10 @@ const BILLING_FALLBACKS: Record<string, string> = {
   "dashboard.billing.balance": "Balance",
   "dashboard.billing.total": "Total",
   "dashboard.billing.allTenants": "All tenants",
+  "dashboard.billing.searchLabel": "Search invoices",
+  "dashboard.billing.searchPlaceholder": "Search invoice, patient, phone, MR...",
+  "dashboard.billing.searchButton": "Search",
+  "dashboard.billing.clearSearch": "Clear search",
   "dashboard.billing.totalOutstanding": "Total Outstanding",
   "dashboard.billing.todaysCollection": "Today's Collection",
   "dashboard.billing.thisMonthsRevenue": "This Month's Revenue",
@@ -186,6 +192,8 @@ export default function BillingPage() {
   const [outstanding, setOutstanding] = useState<OutstandingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("all");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [openActionsFor, setOpenActionsFor] = useState<string | null>(null);
   // The table is wrapped in `overflow-x-auto`, which the browser couples to
   // overflow-y — so an `absolute` popover inside the table gets clipped and
@@ -239,32 +247,43 @@ export default function BillingPage() {
   const loadInvoices = useCallback(async () => {
     setLoading(true);
     try {
-      let q = tab !== "all" && tab !== "outstanding" ? `?status=${tab}` : "";
+      const params = new URLSearchParams();
+      if (tab !== "all" && tab !== "outstanding") params.set("status", tab);
+      if (searchTerm) params.set("search", searchTerm);
       // Main super-admin only: narrow the cross-tenant invoice list to one
-      // tenant. Compose with whatever `q` already carries (? vs &).
+      // tenant. Compose with whichever filters are already active.
       if (isMainSuperAdmin && selectedTenantId) {
-        q += `${q ? "&" : "?"}tenantId=${encodeURIComponent(selectedTenantId)}`;
+        params.set("tenantId", selectedTenantId);
       }
-      const res = await api.get<{ data: InvoiceRecord[] }>(`/billing/invoices${q}`);
+      const qs = params.toString();
+      const res = await api.get<{ data: InvoiceRecord[] }>(
+        `/billing/invoices${qs ? `?${qs}` : ""}`,
+      );
       setInvoices(res.data);
     } catch {
       // empty
     }
     setLoading(false);
-  }, [tab, isMainSuperAdmin, selectedTenantId]);
+  }, [tab, searchTerm, isMainSuperAdmin, selectedTenantId]);
 
   const loadOutstanding = useCallback(async () => {
     setLoading(true);
     try {
+      const params = new URLSearchParams();
+      if (searchTerm) params.set("search", searchTerm);
+      if (isMainSuperAdmin && selectedTenantId) {
+        params.set("tenantId", selectedTenantId);
+      }
+      const qs = params.toString();
       const res = await api.get<{
         data: { rows: OutstandingRow[]; totalOutstanding: number; count: number };
-      }>("/billing/reports/outstanding");
+      }>(`/billing/reports/outstanding${qs ? `?${qs}` : ""}`);
       setOutstanding(res.data.rows);
     } catch {
       // empty
     }
     setLoading(false);
-  }, []);
+  }, [searchTerm, isMainSuperAdmin, selectedTenantId]);
 
   const loadSummary = useCallback(async () => {
     // Issue #203: each tile is fed by an independent endpoint and several
@@ -321,6 +340,13 @@ export default function BillingPage() {
           : prev.monthRefunds,
     }));
   }, [isMainSuperAdmin, selectedTenantId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearchTerm(searchInput.trim());
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     if (tab === "outstanding") {
@@ -541,6 +567,11 @@ export default function BillingPage() {
     { id: "outstanding", label: t("dashboard.billing.outstandingReport") },
   ];
 
+  function clearSearch() {
+    setSearchInput("");
+    setSearchTerm("");
+  }
+
   const isStaff = user?.role === "ADMIN" || user?.role === "RECEPTION";
   // Issue #401: when the logged-in user IS the patient, hiding their own
   // phone number on every invoice row removes redundant noise. Staff
@@ -674,24 +705,57 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={(e) => {
-              e.stopPropagation();
-              setTab(t.id);
-            }}
-            className={`rounded-lg px-3 py-1.5 text-sm ${
-              tab === t.id
-                ? "bg-primary text-white"
-                : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      {/* Tabs + search */}
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                setTab(t.id);
+              }}
+              className={`rounded-lg px-3 py-1.5 text-sm ${
+                tab === t.id
+                  ? "bg-primary text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div
+          role="search"
+          aria-label={t("dashboard.billing.searchLabel")}
+          onClick={(e) => e.stopPropagation()}
+          className="w-full min-w-0 lg:max-w-xl"
+        >
+          <div className="relative min-w-0">
+            <Search
+              size={16}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+            />
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder={t("dashboard.billing.searchPlaceholder")}
+              className="h-10 w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-9 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder:text-gray-500"
+            />
+            {searchInput && (
+              <button
+                type="button"
+                onClick={clearSearch}
+                aria-label={t("dashboard.billing.clearSearch")}
+                className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 dark:hover:bg-gray-700 dark:hover:text-gray-100"
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Content */}

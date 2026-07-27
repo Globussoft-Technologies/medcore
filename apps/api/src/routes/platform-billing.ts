@@ -1,5 +1,5 @@
-/**
- * Operator-facing platform-billing API — Pearl ERP Stage 1 §8.3
+﻿/**
+ * Operator-facing platform-billing API â€” Pearl ERP Stage 1 Â§8.3
  * (gap rows 215-218 closure piece 3-UI, 2026-05-25).
  *
  * What / which modules / why:
@@ -10,15 +10,15 @@
  *     `markInvoicePaid` helper. This route ships the HTTP surface.
  *
  *   - Endpoints (all mounted at /api/v1/platform-billing):
- *       GET  /subscriptions     — cross-tenant TenantSubscription list with
+ *       GET  /subscriptions     â€” cross-tenant TenantSubscription list with
  *                                 tenant name + plan + status + trial-end +
  *                                 current-period-end.
- *       GET  /invoices          — cross-tenant PlatformInvoice list, default
+ *       GET  /invoices          â€” cross-tenant PlatformInvoice list, default
  *                                 filtered to status=ISSUED (the un-paid
  *                                 work queue). Supports ?status=PAID|all.
- *       GET  /invoices/:id      — single PlatformInvoice with line items +
+ *       GET  /invoices/:id      â€” single PlatformInvoice with line items +
  *                                 tenant info (for the detail page).
- *       POST /invoices/:id/mark-paid — operator marks invoice paid; calls
+ *       POST /invoices/:id/mark-paid â€” operator marks invoice paid; calls
  *                                 platform-invoice-generator.markInvoicePaid
  *                                 which writes a PLATFORM_INVOICE_MARKED_PAID
  *                                 audit row. Body: { paymentReference }.
@@ -35,10 +35,10 @@
  *   - Audit: GETs are read-only and do NOT write audit rows (otherwise
  *     a list-refresh would flood the trail). The POST mark-paid path
  *     defers audit emission to `markInvoicePaid()` in the generator
- *     service — single source of truth so a Razorpay webhook retry +
+ *     service â€” single source of truth so a Razorpay webhook retry +
  *     an operator click both produce the same audit shape.
  *
- *   - Pearl §8.3 operator-only rule (`PEARL_OPEN_DECISIONS.md` #1): the
+ *   - Pearl Â§8.3 operator-only rule (`PEARL_OPEN_DECISIONS.md` #1): the
  *     "Mark Paid" action is gated on PLATFORM_OPERATOR + PLATFORM_
  *     BILLING_OPERATOR. The READ surfaces additionally accept the
  *     existing super-admin shape (tenant-less ADMIN) so existing Pearl
@@ -54,7 +54,11 @@ import { Role } from "@medcore/shared";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
-import { markInvoicePaid } from "../services/platform-invoice-generator";
+import {
+  markInvoicePaid,
+  ensureCurrentPeriodInvoices,
+  ensureCurrentPeriodInvoiceForSubscription,
+} from "../services/platform-invoice-generator";
 import { sendSingleInvoiceReminder } from "../services/platform-invoice-mailer";
 import {
   createPlatformPaymentLink,
@@ -65,6 +69,7 @@ import {
   applyProration,
   cancelSubscription,
   transitionToActive,
+  renewActiveSubscriptionPeriods,
 } from "../services/platform-subscription-state";
 import {
   getPlanByKey,
@@ -75,12 +80,17 @@ import {
 
 const router = Router();
 
-// ─── Guards ──────────────────────────────────────────────────────────
+async function synchronizePlatformBillingSnapshot(now: Date = new Date()): Promise<void> {
+  await renewActiveSubscriptionPeriods(prisma, now);
+  await ensureCurrentPeriodInvoices(prisma, now);
+}
+
+// â”€â”€â”€ Guards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Allow PLATFORM_OPERATOR + PLATFORM_BILLING_OPERATOR through (Pearl
- * §8.3 operator-only rule) AND allow the legacy super-admin shape
- * (tenant-less ADMIN OR ADMIN on the seeded "default" tenant — mirrors
+ * Â§8.3 operator-only rule) AND allow the legacy super-admin shape
+ * (tenant-less ADMIN OR ADMIN on the seeded "default" tenant â€” mirrors
  * routes/super-admin-users.ts:requireSuperAdmin). Anything else 403s.
  */
 async function requirePlatformOperatorOrSuperAdmin(
@@ -96,7 +106,7 @@ async function requirePlatformOperatorOrSuperAdmin(
       return;
     }
     const role = req.user.role as Role;
-    // Pearl §8.2 — Role.SUPER_ADMIN is a wildcard "root" role: full
+    // Pearl Â§8.2 â€” Role.SUPER_ADMIN is a wildcard "root" role: full
     // access on every super-admin surface regardless of tenant binding.
     if (role === Role.SUPER_ADMIN) {
       return next();
@@ -139,7 +149,7 @@ async function requirePlatformOperatorOrSuperAdmin(
 
 /**
  * Stricter gate for the mutating mark-paid endpoint. Only the new
- * platform roles may flip an invoice to PAID — the legacy super-admin
+ * platform roles may flip an invoice to PAID â€” the legacy super-admin
  * shape can READ the queue but not record payments (Pearl
  * `PEARL_OPEN_DECISIONS.md` #1: "ONLY PLATFORM_OPERATOR can mark
  * invoices paid"). PLATFORM_BILLING_OPERATOR is the dedicated billing
@@ -157,7 +167,7 @@ function requirePlatformOperatorStrict(
     return;
   }
   const role = req.user.role as Role;
-  // Pearl §8.2 — Role.SUPER_ADMIN is a wildcard "root" role: full access
+  // Pearl Â§8.2 â€” Role.SUPER_ADMIN is a wildcard "root" role: full access
   // including the platform-billing mark-paid mutation. The original Pearl
   // open-decision (#1) carved this out for PLATFORM_OPERATOR only because
   // SUPER_ADMIN did not exist as a distinct role at the time; with the
@@ -179,7 +189,7 @@ function requirePlatformOperatorStrict(
 }
 
 /**
- * Pearl §8.3 — the dynamic plan CATALOG (create / edit / delete tiers) is
+ * Pearl Â§8.3 â€” the dynamic plan CATALOG (create / edit / delete tiers) is
  * managed ONLY by the main super admin, NOT by platform-billing operators.
  * The operators can read the catalog (for change-plan) and run the invoice
  * mutations, but the price/feature definitions of a tier are a higher-trust
@@ -233,14 +243,14 @@ async function requireMainSuperAdmin(
   }
 }
 
-// ─── Error helpers ───────────────────────────────────────────────────
+// â”€â”€â”€ Error helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Surface a clean, actionable message instead of leaking raw Prisma engine
  * internals to the operator UI. Specifically catches the dynamic-plans
- * migration mismatch — the `plan` column still typed as the old Prisma enum
+ * migration mismatch â€” the `plan` column still typed as the old Prisma enum
  * while the regenerated client expects `String` (Prisma throws "Error
- * converting field `plan` … incompatible value of `GROWTH`"). Any other
+ * converting field `plan` â€¦ incompatible value of `GROWTH`"). Any other
  * error falls through to the global error handler unchanged.
  */
 function handlePlanRouteError(
@@ -253,7 +263,7 @@ function handlePlanRouteError(
     // Developer-facing hint stays in the server log; the operator sees a
     // clean, non-technical message.
     console.error(
-      `[platform-billing] ${scope}: plan column not migrated — run \`npx prisma db push\` + reseed. Detail:`,
+      `[platform-billing] ${scope}: plan column not migrated â€” run \`npx prisma db push\` + reseed. Detail:`,
       err instanceof Error ? err.message : String(err),
     );
     res
@@ -264,7 +274,7 @@ function handlePlanRouteError(
   next(err);
 }
 
-// ─── Schemas ─────────────────────────────────────────────────────────
+// â”€â”€â”€ Schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const invoiceListQuerySchema = z.object({
   status: z
@@ -281,13 +291,13 @@ const markPaidBodySchema = z.object({
     .max(200, "paymentReference too long"),
 });
 
-// ─── Routes ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 router.use(authenticate);
 router.use(requirePlatformOperatorOrSuperAdmin);
 
 /**
- * GET /api/v1/platform-billing/subscriptions — list every
+ * GET /api/v1/platform-billing/subscriptions â€” list every
  * TenantSubscription with its tenant name/subdomain/active + plan +
  * status + trial-end + current-period-end. Newest-subscription-first.
  * No pagination (operator population is bounded by the number of
@@ -298,6 +308,7 @@ router.get(
   "/subscriptions",
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
+      await synchronizePlatformBillingSnapshot();
       const rows = await prisma.tenantSubscription.findMany({
         orderBy: { createdAt: "desc" },
         select: {
@@ -337,7 +348,7 @@ router.get(
 
 /**
  * GET /api/v1/platform-billing/invoices?status=ISSUED|PAID|all
- * Default is `ISSUED` — the un-paid work queue the operator opens to.
+ * Default is `ISSUED` â€” the un-paid work queue the operator opens to.
  * Newest-issued-first so the most recent invoice is at the top.
  */
 router.get(
@@ -345,6 +356,7 @@ router.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const parsed = invoiceListQuerySchema.safeParse(req.query);
+      await synchronizePlatformBillingSnapshot();
       if (!parsed.success) {
         res.status(400).json({
           success: false,
@@ -394,7 +406,7 @@ router.get(
 );
 
 /**
- * GET /api/v1/platform-billing/invoices/:id — full invoice incl. line
+ * GET /api/v1/platform-billing/invoices/:id â€” full invoice incl. line
  * items + tenant info, for the detail page (renders the printable
  * invoice + the Mark Paid modal).
  */
@@ -465,7 +477,7 @@ router.get(
 /**
  * POST /api/v1/platform-billing/invoices/:id/mark-paid
  * Body: { paymentReference: string }
- * Stricter RBAC than the read surfaces — only PLATFORM_OPERATOR or
+ * Stricter RBAC than the read surfaces â€” only PLATFORM_OPERATOR or
  * PLATFORM_BILLING_OPERATOR may mark paid. Delegates to
  * `markInvoicePaid()` in `services/platform-invoice-generator.ts` so
  * that webhook + UI paths share one transition path (and one audit
@@ -528,14 +540,14 @@ router.post(
   },
 );
 
-// ─── Pearl §8.3 — generate a Razorpay payment link ─────────────────
+// â”€â”€â”€ Pearl Â§8.3 â€” generate a Razorpay payment link â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // POST /api/v1/platform-billing/invoices/:id/payment-link
 //
 // Creates a Razorpay Payment Link for the invoice's outstanding amount
 // using the platform operator's own merchant account (env-level
 // RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET). Returns the short URL the
-// operator opens in a new tab — the hospital sees a Razorpay-hosted
+// operator opens in a new tab â€” the hospital sees a Razorpay-hosted
 // payment page pre-filled with the invoice amount, and on success the
 // platform webhook flips the invoice to PAID automatically (no
 // operator follow-up needed).
@@ -660,7 +672,7 @@ router.post(
       let order;
       try {
         // createPaymentOrder takes the amount in RUPEES (it converts to paise
-        // internally); platform account → tenantId null.
+        // internally); platform account â†’ tenantId null.
         order = await createPaymentOrder(
           invoice.id,
           invoice.totalInPaise / 100,
@@ -775,7 +787,7 @@ router.post(
   },
 );
 
-// ─── Pearl §8.3 — operator discount on a platform invoice ──────────
+// â”€â”€â”€ Pearl Â§8.3 â€” operator discount on a platform invoice â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // POST /api/v1/platform-billing/invoices/:id/apply-discount
 // Body: { amountInPaise: number, reason: string }
@@ -783,7 +795,7 @@ router.post(
 // Writes a negative-amount `PlatformInvoiceLineItem` (descriptive label
 // includes the operator's reason), then recomputes the parent invoice's
 // subtotal + GST split + total off the full line-item set. Same GST
-// rate the original line items carry — operator can't bypass GST by
+// rate the original line items carry â€” operator can't bypass GST by
 // using this surface. Refuses to land if the discount >= invoice total
 // (operator should `mark-paid` in that case). Writes a
 // PLATFORM_INVOICE_DISCOUNT_APPLIED audit row.
@@ -851,7 +863,7 @@ router.post(
       await prisma.platformInvoiceLineItem.create({
         data: {
           invoiceId: inv.id,
-          description: `Discount — ${body.reason}`,
+          description: `Discount â€” ${body.reason}`,
           unitPriceInPaise: discountPaise,
           quantity: 1,
           amountInPaise: discountPaise,
@@ -932,12 +944,12 @@ router.post(
   },
 );
 
-// ─── Pearl §8.3 piece 3f — operator-initiated reminder ───────────────
+// â”€â”€â”€ Pearl Â§8.3 piece 3f â€” operator-initiated reminder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // POST /api/v1/platform-billing/invoices/:id/send-reminder
 //
 // Re-emails an ISSUED PlatformInvoice to the tenant's billingContactEmail.
-// Unlike the daily mailer cron this is NOT idempotency-gated — operators
+// Unlike the daily mailer cron this is NOT idempotency-gated â€” operators
 // can fire it multiple times deliberately (e.g. after a contact update).
 // Writes a PLATFORM_INVOICE_REMINDER_SENT audit row carrying the
 // operator's userId so the trail distinguishes manual reminders from the
@@ -968,7 +980,7 @@ router.post(
             : result.reason === "NO_CONTACT"
               ? "Tenant has no billing contact email configured"
               : result.reason === "NOT_ISSUED"
-                ? "Only ISSUED invoices can be reminded — already paid or voided"
+                ? "Only ISSUED invoices can be reminded â€” already paid or voided"
                 : (result.error ?? "Email provider rejected the message");
         res.status(status).json({
           success: false,
@@ -988,7 +1000,7 @@ router.post(
   },
 );
 
-// ─── Pearl §8.3 piece 3d — change-plan with proration ────────────────
+// â”€â”€â”€ Pearl Â§8.3 piece 3d â€” change-plan with proration â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // POST /api/v1/platform-billing/subscriptions/:id/change-plan
 // Body: { plan: <PlatformPlan.key> }
@@ -1000,7 +1012,7 @@ router.post(
 //   3) writes a `PLATFORM_SUBSCRIPTION_PLAN_CHANGED` audit row.
 //
 // Same-plan no-op is allowed (returns deltaInPaise=0, no invoice). Strict
-// RBAC (PLATFORM_OPERATOR / PLATFORM_BILLING_OPERATOR / SUPER_ADMIN) —
+// RBAC (PLATFORM_OPERATOR / PLATFORM_BILLING_OPERATOR / SUPER_ADMIN) â€”
 // matches the mark-paid mutation gate.
 //
 // Plans are dynamic (DB-backed `PlatformPlan`), so the schema only checks the
@@ -1065,7 +1077,7 @@ router.post(
       // harmless no-op write).
       const proration = await applyProration(prisma, sub.id, fromPlan, toPlan);
 
-      // Custom-price overrides apply only to the source plan — clear
+      // Custom-price overrides apply only to the source plan â€” clear
       // when the plan actually changes so the new plan uses its tier
       // default. Enterprise bespoke deals re-set their custom price
       // via a separate UI flow after the change-plan call.
@@ -1080,7 +1092,7 @@ router.post(
 
       // Keep Tenant.plan in lock-step with the subscription so tenant-side
       // surfaces (Admin Console header, sidebar/module gating via the plan's
-      // included features) reflect the new plan immediately — otherwise the
+      // included features) reflect the new plan immediately â€” otherwise the
       // two columns drift and the tenant keeps its old plan's access.
       if (planActuallyChanged) {
         await prisma.tenant.update({
@@ -1119,7 +1131,7 @@ router.post(
   },
 );
 
-// ─── Pearl §8.3 piece 3d — explicit cancel + reactivate ──────────────
+// â”€â”€â”€ Pearl Â§8.3 piece 3d â€” explicit cancel + reactivate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // POST /api/v1/platform-billing/subscriptions/:id/cancel
 // POST /api/v1/platform-billing/subscriptions/:id/reactivate
@@ -1167,6 +1179,7 @@ router.post(
       let result;
       try {
         result = await transitionToActive(prisma, req.params.id);
+        await ensureCurrentPeriodInvoiceForSubscription(prisma, req.params.id);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("not found")) {
@@ -1190,7 +1203,7 @@ router.post(
   },
 );
 
-// ─── Pearl §8.3 piece 3e — usage events read surface ─────────────────
+// â”€â”€â”€ Pearl Â§8.3 piece 3e â€” usage events read surface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // GET /api/v1/platform-billing/usage?tenantId=&from=&to=&kind=
 //
@@ -1253,17 +1266,17 @@ router.get(
   },
 );
 
-// ─── Pearl §8.3 — dynamic plan catalog CRUD ──────────────────────────
+// â”€â”€â”€ Pearl Â§8.3 â€” dynamic plan catalog CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // The platform plan tiers are DB-backed (`PlatformPlan`), so the super-admin
 // can create / edit / deactivate / delete tiers at runtime with no code
 // change. Every billing path (provisioning, change-plan, proration, invoice
 // generation) resolves price + features from this catalog.
 //
-//   GET    /plans          — list (all tiers incl. inactive; ?activeOnly=true)
-//   POST   /plans          — create a tier
-//   PATCH  /plans/:id      — edit name/price/features/active/sortOrder (key immutable)
-//   DELETE /plans/:id      — delete an UNUSED tier; in-use tiers are blocked
+//   GET    /plans          â€” list (all tiers incl. inactive; ?activeOnly=true)
+//   POST   /plans          â€” create a tier
+//   PATCH  /plans/:id      â€” edit name/price/features/active/sortOrder (key immutable)
+//   DELETE /plans/:id      â€” delete an UNUSED tier; in-use tiers are blocked
 //                            (deactivate via PATCH active=false instead).
 //
 // Reads ride the router-level operator-or-super-admin gate; mutations use the
@@ -1402,7 +1415,7 @@ router.delete(
           .json({ success: false, data: null, error: "Plan not found" });
         return;
       }
-      // Block deletion when any tenant or subscription is still on this key —
+      // Block deletion when any tenant or subscription is still on this key â€”
       // removing it would orphan those rows. The operator should deactivate
       // (PATCH active=false) instead so existing tenants keep paying their tier
       // while it disappears from the create/change dropdowns.
@@ -1415,7 +1428,7 @@ router.delete(
         res.status(409).json({
           success: false,
           data: null,
-          error: `Cannot delete plan "${plan.key}" — ${inUse} tenant(s)/subscription(s) still use it. Deactivate it instead.`,
+          error: `Cannot delete plan "${plan.key}" â€” ${inUse} tenant(s)/subscription(s) still use it. Deactivate it instead.`,
         });
         return;
       }
@@ -1435,3 +1448,4 @@ router.delete(
 );
 
 export const platformBillingRouter = router;
+

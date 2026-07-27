@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
+  AlertCircle,
   ArrowLeft,
   Bell,
   CheckCircle2,
@@ -113,11 +114,46 @@ function formatRupees(paise: number): string {
   }).format(paise / 100);
 }
 
-function statusBadge(s: InvoiceStatus): {
+function isInvoicePastDue(
+  status: InvoiceStatus,
+  periodEnd?: string | null,
+  issuedAt?: string | null,
+  nowMs: number = Date.now(),
+): boolean {
+  if (status !== "ISSUED") return false;
+
+  const periodEndMs = periodEnd ? new Date(periodEnd).getTime() : Number.NaN;
+  const issuedAtMs = issuedAt ? new Date(issuedAt).getTime() : Number.NaN;
+
+  let dueAtMs = periodEndMs;
+  if (Number.isFinite(issuedAtMs)) {
+    const issuedPlusOneMonth = new Date(issuedAtMs);
+    issuedPlusOneMonth.setUTCMonth(issuedPlusOneMonth.getUTCMonth() + 1);
+    const issuedGraceMs = issuedPlusOneMonth.getTime();
+    dueAtMs = Number.isFinite(dueAtMs)
+      ? Math.max(dueAtMs, issuedGraceMs)
+      : issuedGraceMs;
+  }
+
+  return Number.isFinite(dueAtMs) && nowMs >= dueAtMs;
+}
+
+function statusBadge(
+  s: InvoiceStatus,
+  periodEnd?: string,
+  issuedAt?: string | null,
+): {
   cls: string;
   Icon: typeof Clock;
   label: string;
 } {
+  if (isInvoicePastDue(s, periodEnd, issuedAt)) {
+    return {
+      cls: "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300",
+      Icon: AlertCircle,
+      label: "Past due",
+    };
+  }
   switch (s) {
     case "DRAFT":
       return { cls: "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300", Icon: FileText, label: "Draft" };
@@ -477,7 +513,11 @@ export default function PlatformInvoiceDetailPage() {
           invoice metadata below so the top row stays for actions). */}
       {invoice ? (
         (() => {
-          const badge = statusBadge(invoice.status);
+          const badge = statusBadge(
+            invoice.status,
+            invoice.periodEnd,
+            invoice.issuedAt,
+          );
           return (
             <div className="print:hidden">
               <span

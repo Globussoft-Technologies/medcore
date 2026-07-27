@@ -18,8 +18,9 @@ import { validate } from "../middleware/validate";
 import { auditLog } from "../middleware/audit";
 import { getPlanByKey } from "../services/plan-catalog";
 import { createPaymentOrder, verifyPayment } from "../services/razorpay";
-import { markInvoicePaid } from "../services/platform-invoice-generator";
+import { markInvoicePaid, ensureCurrentPeriodInvoiceForSubscription } from "../services/platform-invoice-generator";
 import { generatePlatformInvoicePDFBuffer } from "../services/pdf-generator";
+import { renewSubscriptionPeriodIfNeeded } from "../services/platform-subscription-state";
 
 const router = Router();
 
@@ -27,6 +28,19 @@ router.use(authenticate);
 // Tenant ADMINs only — their own billing is sensitive. (Other tenant roles
 // don't get the sidebar entry; this is the server-side enforcement.)
 router.use(authorize(Role.ADMIN));
+
+async function synchronizeTenantBilling(tenantId: string, now: Date = new Date()): Promise<void> {
+  const subscription = await prisma.tenantSubscription.findUnique({
+    where: { tenantId },
+    select: { id: true, status: true, currentPeriodEnd: true },
+  });
+  if (!subscription || subscription.status !== "active") return;
+
+  if (subscription.currentPeriodEnd.getTime() <= now.getTime()) {
+    await renewSubscriptionPeriodIfNeeded(prisma, subscription.id, now);
+  }
+  await ensureCurrentPeriodInvoiceForSubscription(prisma, subscription.id, now);
+}
 
 // GET /api/v1/my-subscription — the caller's own subscription + resolved plan
 // price/label. Returns `{ data: null }` for a tenant-less caller.
@@ -37,6 +51,8 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
       res.json({ success: true, data: null, error: null });
       return;
     }
+
+    await synchronizeTenantBilling(tenantId);
 
     const [tenant, subscription] = await Promise.all([
       prisma.tenant.findUnique({
@@ -97,6 +113,8 @@ router.get(
         res.json({ success: true, data: { invoices: [] }, error: null });
         return;
       }
+
+      await synchronizeTenantBilling(tenantId);
 
       const invoices = await prisma.platformInvoice.findMany({
         where: { tenantId, status: { not: "DRAFT" } },

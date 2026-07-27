@@ -62,6 +62,8 @@ vi.mock("./usage-tracker", () => ({
 
 import {
   generateMonthlyPlatformInvoices,
+  ensureCurrentPeriodInvoiceForSubscription,
+  ensureCurrentPeriodInvoices,
   markInvoicePaid,
   computePreviousMonthUtcWindow,
   PLATFORM_OPERATOR_STATE,
@@ -92,7 +94,21 @@ function buildPrismaMock(
 
   const prismaMock: any = {
     tenantSubscription: {
-      findMany: vi.fn(async () => subscriptions),
+      findMany: vi.fn(async ({ where, select }: any = {}) => {
+        let rows = [...subscriptions];
+        if (where?.status?.in) rows = rows.filter((s) => s.status == null || where.status.in.includes(s.status));
+        else if (where?.status) rows = rows.filter((s) => s.status == null || s.status === where.status);
+        if (where?.tenantId) rows = rows.filter((s) => s.tenantId === where.tenantId);
+        if (select && Object.keys(select).length === 1 && select.id) {
+          return rows.map((s) => ({ id: s.id }));
+        }
+        return rows;
+      }),
+      findUnique: vi.fn(async ({ where }: any) => {
+        if (where?.id) return subscriptions.find((s) => s.id === where.id) ?? null;
+        if (where?.tenantId) return subscriptions.find((s) => s.tenantId === where.tenantId) ?? null;
+        return null;
+      }),
     },
     platformInvoice: {
       findFirst: vi.fn(async ({ where }: any) => {
@@ -438,6 +454,159 @@ describe("generateMonthlyPlatformInvoices", () => {
   });
 });
 
+describe("ensureCurrentPeriodInvoiceForSubscription", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates an ISSUED invoice for the subscription's current period", async () => {
+    const subs = [
+      {
+        id: "sub-current",
+        tenantId: "t-1",
+        plan: "STARTER",
+        status: "active",
+        customPriceMonthlyInPaise: null,
+        currentPeriodStart: new Date("2026-07-03T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-08-03T00:00:00.000Z"),
+        tenant: {
+          active: true,
+          branches: [{ state: "Maharashtra" }],
+        },
+      },
+    ];
+    const { prismaMock, invoiceStore } = buildPrismaMock(subs);
+
+    const result = await ensureCurrentPeriodInvoiceForSubscription(
+      prismaMock,
+      "sub-current",
+      new Date("2026-07-27T00:00:00.000Z"),
+    );
+
+    expect(result.generated).toBe(true);
+    expect(invoiceStore).toHaveLength(1);
+    expect(invoiceStore[0].periodStart.toISOString()).toBe("2026-07-03T00:00:00.000Z");
+    expect(invoiceStore[0].status).toBe("ISSUED");
+  });
+
+  it("is idempotent for a current period that already has an invoice", async () => {
+    const subs = [
+      {
+        id: "sub-current",
+        tenantId: "t-1",
+        plan: "STARTER",
+        status: "active",
+        customPriceMonthlyInPaise: null,
+        currentPeriodStart: new Date("2026-07-03T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-08-03T00:00:00.000Z"),
+        tenant: {
+          active: true,
+          branches: [{ state: "Maharashtra" }],
+        },
+      },
+    ];
+    const seeded = {
+      id: "inv-current",
+      tenantId: "t-1",
+      periodStart: new Date("2026-07-03T00:00:00.000Z"),
+      invoiceNumber: "PI-202607-0001",
+      status: "ISSUED",
+      totalInPaise: 118000,
+      paidAt: null,
+      paidByUserId: null,
+      paymentReference: null,
+    };
+    const { prismaMock, invoiceStore } = buildPrismaMock(subs, [seeded]);
+
+    const result = await ensureCurrentPeriodInvoiceForSubscription(
+      prismaMock,
+      "sub-current",
+      new Date("2026-07-27T00:00:00.000Z"),
+    );
+
+    expect(result.generated).toBe(false);
+    expect(invoiceStore).toHaveLength(1);
+  });
+
+
+  it("creates the current-period invoice for a live past-due subscription", async () => {
+    const subs = [
+      {
+        id: "sub-past-due",
+        tenantId: "t-3",
+        plan: "STARTER",
+        status: "past_due",
+        customPriceMonthlyInPaise: null,
+        currentPeriodStart: new Date("2026-07-03T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-08-03T00:00:00.000Z"),
+        tenant: {
+          active: true,
+          branches: [{ state: "Maharashtra" }],
+        },
+      },
+    ];
+    const { prismaMock, invoiceStore } = buildPrismaMock(subs);
+
+    const result = await ensureCurrentPeriodInvoiceForSubscription(
+      prismaMock,
+      "sub-past-due",
+      new Date("2026-07-27T00:00:00.000Z"),
+    );
+
+    expect(result.generated).toBe(true);
+    expect(invoiceStore).toHaveLength(1);
+    expect(invoiceStore[0].tenantId).toBe("t-3");
+    expect(invoiceStore[0].periodStart.toISOString()).toBe("2026-07-03T00:00:00.000Z");
+  });
+
+  it("ensures missing current-period invoices across active subscriptions", async () => {
+    const subs = [
+      {
+        id: "sub-current",
+        tenantId: "t-1",
+        plan: "STARTER",
+        status: "active",
+        customPriceMonthlyInPaise: null,
+        currentPeriodStart: new Date("2026-07-03T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-08-03T00:00:00.000Z"),
+        tenant: { active: true, branches: [{ state: "Maharashtra" }] },
+      },
+      {
+        id: "sub-existing",
+        tenantId: "t-2",
+        plan: "GROWTH",
+        status: "active",
+        customPriceMonthlyInPaise: null,
+        currentPeriodStart: new Date("2026-07-10T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-08-10T00:00:00.000Z"),
+        tenant: { active: true, branches: [{ state: "Karnataka" }] },
+      },
+    ];
+    const seeded = {
+      id: "inv-existing",
+      tenantId: "t-2",
+      periodStart: new Date("2026-07-10T00:00:00.000Z"),
+      invoiceNumber: "PI-202607-0002",
+      status: "ISSUED",
+      totalInPaise: 590000,
+      paidAt: null,
+      paidByUserId: null,
+      paymentReference: null,
+    };
+    const { prismaMock, invoiceStore } = buildPrismaMock(subs, [seeded]);
+
+    const result = await ensureCurrentPeriodInvoices(
+      prismaMock,
+      new Date("2026-07-27T00:00:00.000Z"),
+    );
+
+    expect(result.inspected).toBe(2);
+    expect(result.generated).toBe(1);
+    expect(invoiceStore).toHaveLength(2);
+    expect(invoiceStore.some((row) => row.tenantId === "t-1")).toBe(true);
+  });
+});
+
 describe("markInvoicePaid", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -518,3 +687,6 @@ describe("markInvoicePaid", () => {
     expect(periodEnd.getTime()).toBe(MAY_START.getTime());
   });
 });
+
+
+

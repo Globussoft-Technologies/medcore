@@ -156,6 +156,8 @@ vi.mock("lucide-react", () => ({
   Download: () => <span data-testid="icon-download" />,
   MoreHorizontal: () => <span data-testid="icon-more" />,
   Globe: () => <span data-testid="icon-globe" />,
+  Search: () => <span data-testid="icon-search" />,
+  X: () => <span data-testid="icon-x" />,
 }));
 
 import BillingPage from "../page";
@@ -974,6 +976,52 @@ describe("BillingPage — global billing dashboard", () => {
 
     await waitFor(() => {
       expect(toastMock.error).toHaveBeenCalledWith("discount 500");
+    });
+  });
+
+
+  it("auto-searches /billing/invoices while typing and keeps it when changing status tabs", async () => {
+    render(<BillingPage />);
+    await screen.findByTestId("empty-state");
+    apiMock.get.mockClear();
+
+    fireEvent.change(
+      screen.getByPlaceholderText(/Search invoice, patient, phone, MR/i),
+      { target: { value: "857" } },
+    );
+
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith("/billing/invoices?search=857");
+    });
+
+    apiMock.get.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /^Pending$/i }));
+
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(
+        "/billing/invoices?status=PENDING&search=857",
+      );
+    });
+  });
+
+  it("applies the search term to the outstanding report endpoint", async () => {
+    render(<BillingPage />);
+    await screen.findByTestId("empty-state");
+
+    fireEvent.change(
+      screen.getByPlaceholderText(/Search invoice, patient, phone, MR/i),
+      { target: { value: "INV-OUT" } },
+    );
+
+    apiMock.get.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Outstanding Report/i }),
+    );
+
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(
+        "/billing/reports/outstanding?search=INV-OUT",
+      );
     });
   });
 

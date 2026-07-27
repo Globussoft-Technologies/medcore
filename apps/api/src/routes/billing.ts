@@ -694,14 +694,15 @@ router.get(
         }
       }
 
-      // Issue #82: support `?search=<invoiceNumber|patient name>` so the
-      // EntityPicker on the Insurance Claims modal can find an invoice by
-      // typing. Falls through to no-op when search is missing/empty.
+      // Issue #82: support `?search=<invoiceNumber|patient name|MR|phone>` so
+      // billing surfaces can find an invoice by typing. Falls through to no-op
+      // when search is missing/empty.
       const q = typeof search === "string" ? search.trim() : "";
       if (q.length >= 1) {
         where.OR = [
           { invoiceNumber: { contains: q, mode: "insensitive" } },
           { patient: { user: { name: { contains: q, mode: "insensitive" } } } },
+          { patient: { user: { phone: { contains: q } } } },
           { patient: { mrNumber: { contains: q, mode: "insensitive" } } },
         ];
       }
@@ -2475,7 +2476,7 @@ router.get(
       // at admit-time.
       await syncIpdInvoiceTotals().catch(() => undefined);
       const { tenantFilter } = await resolveBillingReportScope(req);
-      const { from, to, minAmount } = req.query;
+      const { from, to, minAmount, search } = req.query;
       const min = minAmount ? parseFloat(minAmount as string) : 0;
 
       const where: Record<string, unknown> = {
@@ -2487,6 +2488,15 @@ router.get(
           ...(from ? { gte: new Date(from as string) } : {}),
           ...(to ? { lte: new Date(to as string) } : {}),
         };
+      }
+      const q = typeof search === "string" ? search.trim() : "";
+      if (q.length >= 1) {
+        where.OR = [
+          { invoiceNumber: { contains: q, mode: "insensitive" } },
+          { patient: { user: { name: { contains: q, mode: "insensitive" } } } },
+          { patient: { user: { phone: { contains: q } } } },
+          { patient: { mrNumber: { contains: q, mode: "insensitive" } } },
+        ];
       }
 
       const invoices = await prisma.invoice.findMany({

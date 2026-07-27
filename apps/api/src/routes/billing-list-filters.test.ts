@@ -32,6 +32,7 @@ const { prismaMock } = vi.hoisted(() => {
     },
     payment: { create: vi.fn() },
     auditLog: { create: vi.fn(async () => ({ id: "al-1" })) },
+    $queryRaw: vi.fn(async () => [{ isMainSuperAdmin: true }]),
     $transaction: vi.fn(async (fn: (tx: any) => Promise<any>) => fn(base)),
     $extends() {
       return base;
@@ -114,6 +115,41 @@ describe("GET /billing/invoices — Issue #597 dateFrom / dateTo filters", () =>
 
     expect(res.status).toBe(400);
     expect(res.body.details?.[0]?.field).toBe("dateFrom");
+  });
+
+
+  it("passes search into invoice number, patient name, phone, and MR filters", async () => {
+    await request(buildApp())
+      .get("/api/v1/billing/invoices?search=857")
+      .set("Authorization", `Bearer ${adminToken()}`)
+      .expect(200);
+
+    const callArgs = (prismaMock.invoice.findMany as any).mock.calls[0][0];
+    expect(callArgs.where.OR).toEqual(
+      expect.arrayContaining([
+        { invoiceNumber: { contains: "857", mode: "insensitive" } },
+        { patient: { user: { name: { contains: "857", mode: "insensitive" } } } },
+        { patient: { user: { phone: { contains: "857" } } } },
+        { patient: { mrNumber: { contains: "857", mode: "insensitive" } } },
+      ]),
+    );
+  });
+
+  it("passes search into the outstanding report invoice filters", async () => {
+    await request(buildApp())
+      .get("/api/v1/billing/reports/outstanding?search=Stella")
+      .set("Authorization", `Bearer ${adminToken()}`)
+      .expect(200);
+
+    const callArgs = (prismaMock.invoice.findMany as any).mock.calls[0][0];
+    expect(callArgs.where.OR).toEqual(
+      expect.arrayContaining([
+        { invoiceNumber: { contains: "Stella", mode: "insensitive" } },
+        { patient: { user: { name: { contains: "Stella", mode: "insensitive" } } } },
+        { patient: { user: { phone: { contains: "Stella" } } } },
+        { patient: { mrNumber: { contains: "Stella", mode: "insensitive" } } },
+      ]),
+    );
   });
 
   it("preserves existing behaviour when neither date filter is supplied", async () => {

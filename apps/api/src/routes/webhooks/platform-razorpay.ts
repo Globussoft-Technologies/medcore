@@ -51,7 +51,7 @@ import { Router, type Request, type Response } from "express";
 import express from "express";
 import { prisma } from "@medcore/db";
 import { verifyWebhookSignature } from "../../services/razorpay";
-import { markInvoicePaid } from "../../services/platform-invoice-generator";
+import { markInvoicePaid, ensureCurrentPeriodInvoiceForSubscription } from "../../services/platform-invoice-generator";
 import {
   transitionToActive,
   transitionToPastDue,
@@ -166,6 +166,7 @@ async function handleSubscriptionCharged(
   if (sub.status === "trial" || sub.status === "past_due") {
     try {
       await transitionToActive(prisma, sub.id, now);
+      await ensureCurrentPeriodInvoiceForSubscription(prisma, sub.id, now);
     } catch (err) {
       console.error(
         "[platform-razorpay-webhook] transitionToActive failed",

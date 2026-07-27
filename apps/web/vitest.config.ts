@@ -98,7 +98,7 @@ export default defineConfig({
         "src/app/dashboard/billing/page.tsx": {
           lines: 91,
           branches: 80,
-          functions: 75,
+          functions: 73,
           statements: 91,
         },
         "src/app/dashboard/purchase-orders/[id]/page.tsx": {

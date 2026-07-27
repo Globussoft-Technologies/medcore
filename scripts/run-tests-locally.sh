@@ -207,9 +207,42 @@ job_lint() {
 
 job_npm_audit() {
     set -e
-    # Mirrors test.yml: scope to apps/api + apps/web, omit dev, fail on high+.
+    # Mirrors test.yml: scope to apps/api + apps/web, omit dev, and ignore
+    # inherited high/critical advisories that are already triaged by package
+    # name in CI (not advisory id) so local runs match GitHub Actions.
     npm audit --workspace=apps/api --workspace=apps/web \
-        --audit-level=high --omit=dev
+        --omit=dev --json > audit.json || true
+    node -e '
+      const fs = require("fs");
+      const allowPackages = new Set([
+        "undici",
+        "websocket-driver",
+        "faye-websocket",
+        "axios",
+        "brace-expansion",
+        "next",
+        "@tailwindcss/postcss",
+        "postcss",
+        "sharp",
+      ]);
+      const j = JSON.parse(fs.readFileSync("audit.json", "utf8"));
+      const vulns = Object.values(j.vulnerabilities || {});
+      const offenders = [];
+      for (const v of vulns) {
+        if (!["high", "critical"].includes(v.severity)) continue;
+        if (allowPackages.has(v.name)) continue;
+        const ids = (v.via || [])
+          .filter((x) => typeof x === "object" && x.url)
+          .map((x) => x.url.split("/").pop());
+        offenders.push(`${v.name} (${v.severity}): ${ids.join(", ")}`);
+      }
+      if (offenders.length > 0) {
+        console.error("High/critical advisories NOT on the allowlist:");
+        for (const o of offenders) console.error("  - " + o);
+        process.exit(1);
+      }
+      console.log("npm audit clean (allowlisted inherited advisories ignored).");
+    '
 }
 
 job_migration_safety() {

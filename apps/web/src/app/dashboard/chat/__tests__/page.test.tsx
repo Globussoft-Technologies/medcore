@@ -557,10 +557,18 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     expect(drOtherMatches.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("send POSTs /chat/rooms/:id/messages and clears the input on success", async () => {
+  it("send POSTs /chat/rooms/:id/messages, renders the returned message, and clears the input", async () => {
     const room = roomFixture({ id: "r-send" });
     wireGetByPath({ rooms: [room], messages: [], pinned: [] });
-    apiMock.post.mockResolvedValue({ data: { id: "new-msg" } });
+    apiMock.post.mockResolvedValue({
+      data: messageFixture({
+        id: "new-msg",
+        roomId: "r-send",
+        senderId: "u-me",
+        content: "hi everyone",
+        sender: { id: "u-me", name: "Me Doctor", role: "DOCTOR" },
+      }),
+    });
 
     render(<ChatPage />);
     fireEvent.click(
@@ -581,13 +589,22 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
       ),
     );
 
+    expect(await screen.findByText("hi everyone")).toBeInTheDocument();
     await waitFor(() => expect(input.value).toBe(""));
   });
 
   it("Enter key in the message input fires send()", async () => {
     const room = roomFixture({ id: "r-enter" });
     wireGetByPath({ rooms: [room], messages: [], pinned: [] });
-    apiMock.post.mockResolvedValue({ data: { id: "new-msg" } });
+    apiMock.post.mockResolvedValue({
+      data: messageFixture({
+        id: "new-msg-enter",
+        roomId: "r-enter",
+        senderId: "u-me",
+        content: "via enter",
+        sender: { id: "u-me", name: "Me Doctor", role: "DOCTOR" },
+      }),
+    });
 
     render(<ChatPage />);
     fireEvent.click(

@@ -15,7 +15,7 @@
 // fetch stubbed at the global level so the page can be unit-tested without
 // a real API.
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 
 const sampleSubscriptions = [
@@ -91,6 +91,7 @@ const sampleInvoices = [
 ];
 
 const fetchMock = vi.fn();
+let dateNowSpy: ReturnType<typeof vi.spyOn>;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -131,7 +132,7 @@ const samplePlans = [
   },
 ];
 
-function mockSubsOk(subs = sampleSubscriptions) {
+function mockSubsOk(subs = sampleSubscriptions, invoices = sampleInvoices) {
   fetchMock.mockImplementation(async (url: string) => {
     // Order matters: /plans is checked before the generic /subscriptions +
     // /invoices branches so the catalog fetch resolves with sample tiers.
@@ -159,7 +160,7 @@ function mockSubsOk(subs = sampleSubscriptions) {
         status: 200,
         json: async () => ({
           success: true,
-          data: { invoices: sampleInvoices },
+          data: { invoices },
           error: null,
         }),
       };
@@ -174,8 +175,15 @@ function mockSubsOk(subs = sampleSubscriptions) {
 
 beforeEach(() => {
   fetchMock.mockReset();
+  dateNowSpy = vi
+    .spyOn(Date, "now")
+    .mockReturnValue(new Date("2026-04-15T00:00:00.000Z").getTime());
   mockSubsOk();
   (global as unknown as { fetch: typeof fetchMock }).fetch = fetchMock;
+});
+
+afterEach(() => {
+  dateNowSpy.mockRestore();
 });
 
 import PlatformBillingPage from "../page";
@@ -200,6 +208,47 @@ describe("/dashboard/platform-billing landing — Pearl §8.3", () => {
     // Default fetch should be /subscriptions.
     const firstUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
     expect(firstUrl).toContain("/api/v1/platform-billing/subscriptions");
+  });
+
+  it("shows a renewed visible period for stale active subscriptions", async () => {
+    dateNowSpy.mockReturnValue(new Date("2026-07-27T00:00:00.000Z").getTime());
+    mockSubsOk([
+      {
+        ...sampleSubscriptions[0],
+        currentPeriodStart: "2026-06-03T00:00:00Z",
+        currentPeriodEnd: "2026-07-03T00:00:00Z",
+      },
+      sampleSubscriptions[1],
+    ]);
+
+    render(<PlatformBillingPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("platform-billing-subscription-row-sub-1"),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("03 Jul 2026")).toBeInTheDocument();
+    expect(screen.getByText("03 Aug 2026")).toBeInTheDocument();
+  });
+
+  it("shows active in subscriptions when billing is past due but the tenant is still live", async () => {
+    mockSubsOk([
+      {
+        ...sampleSubscriptions[0],
+        status: "past_due",
+      },
+      sampleSubscriptions[1],
+    ]);
+
+    render(<PlatformBillingPage />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("platform-billing-subscription-status-sub-1"),
+      ).toHaveTextContent(/Active/);
+    });
   });
 
   it("clicking Invoices tab swaps to the invoices table and defaults to status=ISSUED", async () => {
@@ -227,6 +276,48 @@ describe("/dashboard/platform-billing landing — Pearl §8.3", () => {
     );
     expect(invoicesCall).toBeDefined();
     expect(String(invoicesCall?.[0] ?? "")).toContain("status=ISSUED");
+  });
+
+  it("keeps a freshly issued invoice in issued state for the current month window", async () => {
+    dateNowSpy.mockReturnValue(new Date("2026-05-15T00:00:00.000Z").getTime());
+    render(<PlatformBillingPage />);
+    fireEvent.click(screen.getByTestId("platform-billing-tab-invoices"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("platform-billing-invoice-status-inv-1"),
+      ).toHaveTextContent(/Issued/);
+    });
+  });
+
+  it("counts unpaid invoices as past due after one month from issue for the same tenant", async () => {
+    dateNowSpy.mockReturnValue(new Date("2026-06-02T00:00:00.000Z").getTime());
+    mockSubsOk(sampleSubscriptions, [
+      sampleInvoices[0],
+      {
+        ...sampleInvoices[0],
+        id: "inv-duplicate-tenant",
+        invoiceNumber: "PI-202604-0099",
+      },
+    ]);
+
+    render(<PlatformBillingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Past due").parentElement).toHaveTextContent("1");
+    });
+  });
+
+  it("shows an issued invoice as past due at the period-end boundary", async () => {
+    dateNowSpy.mockReturnValue(new Date("2026-06-02T00:00:00.000Z").getTime());
+    render(<PlatformBillingPage />);
+    fireEvent.click(screen.getByTestId("platform-billing-tab-invoices"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("platform-billing-invoice-status-inv-1"),
+      ).toHaveTextContent(/Past due/);
+    });
   });
 
   it("clicking Mark Paid opens the modal and POSTs the entered paymentReference", async () => {
@@ -386,3 +477,5 @@ describe("/dashboard/platform-billing landing — Pearl §8.3", () => {
     ).toBeInTheDocument();
   });
 });
+
+

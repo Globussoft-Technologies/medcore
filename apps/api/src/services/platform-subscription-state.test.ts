@@ -44,6 +44,8 @@ import {
   transitionToSuspended,
   cancelSubscription,
   checkGracePeriodExpirations,
+  renewSubscriptionPeriodIfNeeded,
+  renewActiveSubscriptionPeriods,
   applyProration,
 } from "./platform-subscription-state";
 
@@ -89,12 +91,17 @@ function buildPrismaMock(subs: FakeSubscription[]) {
       }),
       findMany: vi.fn(async ({ where }: any) => {
         let rows = [...subStore];
-        if (where?.status) rows = rows.filter((s) => s.status === where.status);
+        if (where?.status?.in) rows = rows.filter((s) => where.status.in.includes(s.status));
+        else if (where?.status) rows = rows.filter((s) => s.status === where.status);
         if (where?.pastDueSince?.lt) {
           const cutoff = where.pastDueSince.lt as Date;
           rows = rows.filter(
             (s) => s.pastDueSince && s.pastDueSince.getTime() < cutoff.getTime(),
           );
+        }
+        if (where?.currentPeriodEnd?.lte) {
+          const cutoff = where.currentPeriodEnd.lte as Date;
+          rows = rows.filter((s) => s.currentPeriodEnd.getTime() <= cutoff.getTime());
         }
         return rows.map((s) => ({ id: s.id }));
       }),
@@ -394,6 +401,81 @@ describe("checkGracePeriodExpirations", () => {
   });
 });
 
+describe("subscription period renewal", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("renews one stale subscription window in place", async () => {
+    const { prismaMock, subStore, auditStore } = buildPrismaMock([
+      baseSubscription({
+        currentPeriodStart: new Date("2026-06-03T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-07-03T00:00:00.000Z"),
+      }),
+    ]);
+
+    const result = await renewSubscriptionPeriodIfNeeded(
+      prismaMock,
+      "sub-1",
+      new Date("2026-07-27T00:00:00.000Z"),
+    );
+
+    expect(result.changed).toBe(true);
+    expect(subStore[0].currentPeriodStart.toISOString()).toBe("2026-07-03T00:00:00.000Z");
+    expect(subStore[0].currentPeriodEnd.toISOString()).toBe("2026-08-03T00:00:00.000Z");
+    expect(auditStore.at(-1)?.action).toBe("PLATFORM_SUBSCRIPTION_PERIOD_RENEWED");
+  });
+
+  it("leaves a current subscription window unchanged", async () => {
+    const { prismaMock } = buildPrismaMock([baseSubscription()]);
+
+    const result = await renewSubscriptionPeriodIfNeeded(prismaMock, "sub-1", NOW);
+
+    expect(result.changed).toBe(false);
+    expect(prismaMock.tenantSubscription.update).not.toHaveBeenCalled();
+  });
+
+  it("sweeps stale live subscriptions, including past-due rows", async () => {
+    const { prismaMock, subStore } = buildPrismaMock([
+      baseSubscription({
+        id: "sub-stale",
+        status: "active",
+        currentPeriodStart: new Date("2026-06-03T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-07-03T00:00:00.000Z"),
+      }),
+      baseSubscription({
+        id: "sub-fresh",
+        status: "active",
+        currentPeriodStart: new Date("2026-07-15T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-08-15T00:00:00.000Z"),
+      }),
+      baseSubscription({
+        id: "sub-past-due",
+        status: "past_due",
+        pastDueSince: new Date("2026-07-10T00:00:00.000Z"),
+        currentPeriodStart: new Date("2026-06-03T00:00:00.000Z"),
+        currentPeriodEnd: new Date("2026-07-03T00:00:00.000Z"),
+      }),
+    ]);
+
+    const result = await renewActiveSubscriptionPeriods(
+      prismaMock,
+      new Date("2026-07-27T00:00:00.000Z"),
+    );
+
+    expect(result.inspected).toBe(2);
+    expect(result.renewed).toBe(2);
+    expect(result.renewedIds).toEqual(["sub-stale", "sub-past-due"]);
+    expect(subStore.find((s) => s.id === "sub-stale")?.currentPeriodEnd.toISOString()).toBe(
+      "2026-08-03T00:00:00.000Z",
+    );
+    expect(subStore.find((s) => s.id === "sub-fresh")?.currentPeriodEnd.toISOString()).toBe(
+      "2026-08-15T00:00:00.000Z",
+    );
+    expect(subStore.find((s) => s.id === "sub-past-due")?.currentPeriodEnd.toISOString()).toBe(
+      "2026-08-03T00:00:00.000Z",
+    );
+  });
+});
+
 describe("applyProration", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -472,3 +554,12 @@ describe("applyProration", () => {
     expect(invoiceStore[0].igstInPaise).toBe(0);
   });
 });
+
+
+
+
+
+
+
+
+

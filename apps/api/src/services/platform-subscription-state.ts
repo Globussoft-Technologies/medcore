@@ -1,12 +1,12 @@
 /**
- * Pearl ERP Stage 1 §8.3 (gap rows 215-218 closure piece 3c, 2026-05-25) —
+ * Pearl ERP Stage 1 Â§8.3 (gap rows 215-218 closure piece 3c, 2026-05-25) â€”
  * platform-subscription state-machine transitions + grace-period sweep
  * + proration helper.
  *
  * What / which modules / why
- * ──────────────────────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * - WHAT: pure transition functions over `TenantSubscription.status`
- *   (`trial → active → past_due → suspended → cancelled`) plus a daily
+ *   (`trial â†’ active â†’ past_due â†’ suspended â†’ cancelled`) plus a daily
  *   grace-period sweep that flips long-overdue tenants to `suspended`
  *   and a proration helper that emits a one-line `PlatformInvoice` line
  *   item when a tenant changes plan mid-cycle.
@@ -19,13 +19,13 @@
  *     proration row is a separate same-month invoice so the per-month
  *     sequence stays contiguous and the GST math is recomputed on the
  *     deltas only.
- *   - Reads pricing from `@medcore/shared` (`PLAN_DEFINITIONS`) — same
+ *   - Reads pricing from `@medcore/shared` (`PLAN_DEFINITIONS`) â€” same
  *     source-of-truth that the monthly generator pins.
  *   - Writes `AuditLog` rows for every transition so the super-admin
  *     trail captures every state change.
  * - WHY: piece 3a (commit 7f9f2a1) shipped the schema + status enum;
  *   piece 3b (commit 886e7b2) shipped the monthly invoice generator +
- *   `markInvoicePaid` helper. This piece closes the chain — without
+ *   `markInvoicePaid` helper. This piece closes the chain â€” without
  *   these transitions, the `past_due` and `suspended` columns would
  *   never be written, the Razorpay webhook (sibling file) would have
  *   no business-logic surface to call, and mid-cycle plan changes
@@ -34,17 +34,17 @@
  *   double-flipping state.
  *
  * Grace-period semantics
- * ──────────────────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * `GRACE_PERIOD_DAYS` (7, from `@medcore/shared`) is the read-only
  * window between `past_due` (failed charge OR trial ended without
  * paid conversion) and `suspended` (login blocked except for billing
  * surface). `checkGracePeriodExpirations` walks every `past_due` row
  * whose `pastDueSince + GRACE_PERIOD_DAYS < now` and flips them to
- * `suspended`. Safe to re-run — already-`suspended` rows are skipped
+ * `suspended`. Safe to re-run â€” already-`suspended` rows are skipped
  * by the `status: "past_due"` filter.
  *
  * Proration math
- * ──────────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * `applyProration` computes `(newMonthlyPaise - oldMonthlyPaise) *
  * (remainingDaysInCycle / totalCycleDays)` and writes the delta as a
  * separate invoice row. Negative deltas (downgrade) yield a negative
@@ -64,7 +64,7 @@ const SAAS_HSN_SAC = "998314";
 
 // Mirror of PLATFORM_OPERATOR_STATE in platform-invoice-generator.ts. Kept
 // duplicated rather than re-imported so the proration helper has no
-// circular dep on the generator's mock-aware export shape — both files
+// circular dep on the generator's mock-aware export shape â€” both files
 // share the schema-level default of "Karnataka" today, and when the
 // operator's place of supply moves both constants are flipped together.
 const PLATFORM_OPERATOR_STATE = "Karnataka";
@@ -89,6 +89,49 @@ const MONTH_LABEL = [
 export type TransitionResult =
   | { changed: true; status: string; subscriptionId: string }
   | { changed: false; status: string; subscriptionId: string; reason: string };
+
+export interface SubscriptionPeriodRenewalResult {
+  changed: boolean;
+  subscriptionId: string;
+  currentPeriodStart: Date;
+  currentPeriodEnd: Date;
+}
+
+export interface ActivePeriodRenewalSweepResult {
+  inspected: number;
+  renewed: number;
+  renewedIds: string[];
+  errors: number;
+}
+
+function addUtcMonth(date: Date): Date {
+  const next = new Date(date);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  return next;
+}
+
+function rollPeriodWindowForward(
+  currentPeriodStart: Date,
+  currentPeriodEnd: Date,
+  now: Date,
+): { currentPeriodStart: Date; currentPeriodEnd: Date; changed: boolean } {
+  let nextStart = new Date(currentPeriodStart);
+  let nextEnd = new Date(currentPeriodEnd);
+  let changed = false;
+
+  while (nextEnd.getTime() <= now.getTime()) {
+    nextStart = new Date(nextEnd);
+    nextEnd = addUtcMonth(nextEnd);
+    changed = true;
+  }
+
+  return {
+    currentPeriodStart: nextStart,
+    currentPeriodEnd: nextEnd,
+    changed,
+  };
+}
+
 
 async function writeStateAudit(
   prisma: PrismaClient,
@@ -116,7 +159,7 @@ async function writeStateAudit(
 }
 
 /**
- * Move `trial` or `past_due` → `active`. Idempotent — re-calling on an
+ * Move `trial` or `past_due` â†’ `active`. Idempotent â€” re-calling on an
  * already-`active` subscription is a no-op. Clears `pastDueSince` when
  * lifting out of `past_due` so the grace clock restarts cleanly on the
  * next failed charge.
@@ -128,7 +171,14 @@ export async function transitionToActive(
 ): Promise<TransitionResult> {
   const row = await prisma.tenantSubscription.findUnique({
     where: { id: subscriptionId },
-    select: { id: true, status: true, tenantId: true, plan: true },
+    select: {
+      id: true,
+      status: true,
+      tenantId: true,
+      plan: true,
+      currentPeriodStart: true,
+      currentPeriodEnd: true,
+    },
   });
   if (!row) throw new Error(`TenantSubscription ${subscriptionId} not found`);
   if (row.status === "active") {
@@ -149,11 +199,18 @@ export async function transitionToActive(
   }
 
   const fromStatus = row.status;
+  const rolledPeriod = rollPeriodWindowForward(
+    row.currentPeriodStart,
+    row.currentPeriodEnd,
+    now,
+  );
   await prisma.tenantSubscription.update({
     where: { id: subscriptionId },
     data: {
       status: "active",
       pastDueSince: null,
+      currentPeriodStart: rolledPeriod.currentPeriodStart,
+      currentPeriodEnd: rolledPeriod.currentPeriodEnd,
     },
   });
   await writeStateAudit(prisma, "PLATFORM_SUBSCRIPTION_ACTIVATED", subscriptionId, {
@@ -162,12 +219,15 @@ export async function transitionToActive(
     fromStatus,
     toStatus: "active",
     at: now.toISOString(),
+    periodRenewed: rolledPeriod.changed,
+    currentPeriodStart: rolledPeriod.currentPeriodStart.toISOString(),
+    currentPeriodEnd: rolledPeriod.currentPeriodEnd.toISOString(),
   });
   return { changed: true, status: "active", subscriptionId };
 }
 
 /**
- * Move `active` → `past_due`. Idempotent — re-calling on a row that's
+ * Move `active` â†’ `past_due`. Idempotent â€” re-calling on a row that's
  * already `past_due` re-writes neither `pastDueSince` nor the audit row.
  * Refuses to flip cancelled/suspended rows (those are terminal-ish from
  * the auto-debit pipeline's point of view).
@@ -218,7 +278,7 @@ export async function transitionToPastDue(
 }
 
 /**
- * Move `past_due` → `suspended`. Idempotent — `suspended` rows are
+ * Move `past_due` â†’ `suspended`. Idempotent â€” `suspended` rows are
  * left alone. Refuses to suspend from any other state so the grace
  * window can never be skipped accidentally.
  */
@@ -265,7 +325,7 @@ export async function transitionToSuspended(
 }
 
 /**
- * Move any non-terminal state → `cancelled`. Idempotent — `cancelled`
+ * Move any non-terminal state â†’ `cancelled`. Idempotent â€” `cancelled`
  * rows are left alone. Stamps `cancelledAt` so the operator UI can
  * surface "cancelled on X" without scanning AuditLog.
  */
@@ -314,12 +374,12 @@ export interface TrialExpirationSweepResult {
 }
 
 /**
- * Pearl §8.3 piece 3d (2026-05-28) — trial expiry → past_due sweep.
+ * Pearl Â§8.3 piece 3d (2026-05-28) â€” trial expiry â†’ past_due sweep.
  * Walks every `trial` subscription whose `trialEndsAt < now` and flips it
  * to `past_due`, starting the 7-day grace clock. After the grace window
  * the existing `checkGracePeriodExpirations` cron will suspend them.
  *
- * Pure / idempotent — already-`past_due`/`active`/`suspended` rows are
+ * Pure / idempotent â€” already-`past_due`/`active`/`suspended` rows are
  * untouched (filtered by `status: "trial"`). Safe to re-run.
  */
 export async function checkTrialExpirations(
@@ -370,7 +430,7 @@ export interface GracePeriodSweepResult {
 
 /**
  * Walk every `past_due` subscription; flip to `suspended` any whose
- * `pastDueSince + GRACE_PERIOD_DAYS < now`. Idempotent — a second run
+ * `pastDueSince + GRACE_PERIOD_DAYS < now`. Idempotent â€” a second run
  * on the same day finds zero rows because the prior run already
  * suspended them.
  */
@@ -414,6 +474,107 @@ export async function checkGracePeriodExpirations(
   return result;
 }
 
+export async function renewSubscriptionPeriodIfNeeded(
+  prisma: PrismaClient,
+  subscriptionId: string,
+  now: Date = new Date(),
+): Promise<SubscriptionPeriodRenewalResult> {
+  const row = await prisma.tenantSubscription.findUnique({
+    where: { id: subscriptionId },
+    select: {
+      id: true,
+      status: true,
+      tenantId: true,
+      plan: true,
+      currentPeriodStart: true,
+      currentPeriodEnd: true,
+    },
+  });
+  if (!row) throw new Error(`TenantSubscription ${subscriptionId} not found`);
+
+  const rolledPeriod = rollPeriodWindowForward(
+    row.currentPeriodStart,
+    row.currentPeriodEnd,
+    now,
+  );
+  if (!rolledPeriod.changed) {
+    return {
+      changed: false,
+      subscriptionId,
+      currentPeriodStart: rolledPeriod.currentPeriodStart,
+      currentPeriodEnd: rolledPeriod.currentPeriodEnd,
+    };
+  }
+
+  await prisma.tenantSubscription.update({
+    where: { id: subscriptionId },
+    data: {
+      currentPeriodStart: rolledPeriod.currentPeriodStart,
+      currentPeriodEnd: rolledPeriod.currentPeriodEnd,
+    },
+  });
+  await writeStateAudit(
+    prisma,
+    "PLATFORM_SUBSCRIPTION_PERIOD_RENEWED",
+    subscriptionId,
+    {
+      tenantId: row.tenantId,
+      plan: row.plan,
+      at: now.toISOString(),
+      currentPeriodStart: rolledPeriod.currentPeriodStart.toISOString(),
+      currentPeriodEnd: rolledPeriod.currentPeriodEnd.toISOString(),
+    },
+  );
+
+  return {
+    changed: true,
+    subscriptionId,
+    currentPeriodStart: rolledPeriod.currentPeriodStart,
+    currentPeriodEnd: rolledPeriod.currentPeriodEnd,
+  };
+}
+
+const RENEWABLE_LIVE_SUBSCRIPTION_STATUSES = ["active", "past_due"] as const;
+
+export async function renewActiveSubscriptionPeriods(
+  prisma: PrismaClient,
+  now: Date = new Date(),
+): Promise<ActivePeriodRenewalSweepResult> {
+  const candidates = await prisma.tenantSubscription.findMany({
+    where: {
+      status: { in: [...RENEWABLE_LIVE_SUBSCRIPTION_STATUSES] },
+      currentPeriodEnd: { lte: now },
+    },
+    select: { id: true },
+  });
+
+  const result: ActivePeriodRenewalSweepResult = {
+    inspected: candidates.length,
+    renewed: 0,
+    renewedIds: [],
+    errors: 0,
+  };
+
+  for (const c of candidates) {
+    try {
+      const renewal = await renewSubscriptionPeriodIfNeeded(prisma, c.id, now);
+      if (renewal.changed) {
+        result.renewed += 1;
+        result.renewedIds.push(c.id);
+      }
+    } catch (err) {
+      result.errors += 1;
+      console.error(
+        "[platform_subscription_state] active-period renewal sweep failed for",
+        c.id,
+        err,
+      );
+    }
+  }
+
+  return result;
+}
+
 export interface ApplyProrationResult {
   invoiceId: string;
   invoiceNumber: string;
@@ -422,10 +583,10 @@ export interface ApplyProrationResult {
 }
 
 /**
- * Plan-change billing (no credits — the charge is never negative):
+ * Plan-change billing (no credits â€” the charge is never negative):
  *
- *   charge = (daysUsed / totalDays) × OLD plan monthly   ← usage to date (≥ 0)
- *          + NEW plan full monthly                        ← the plan switched to
+ *   charge = (daysUsed / totalDays) Ã— OLD plan monthly   â† usage to date (â‰¥ 0)
+ *          + NEW plan full monthly                        â† the plan switched to
  *
  * Written as a two-line `PlatformInvoice` (status `ISSUED`): the old-plan
  * usage line (omitted on a same-day change, where daysUsed = 0) plus the new
@@ -434,7 +595,7 @@ export interface ApplyProrationResult {
  * numbering convention so historical traceability stays contiguous.
  *
  * `deltaInPaise` in the result is the total (pre-GST) charge. A same-plan
- * no-op call returns `{ deltaInPaise: 0 }` without writing anything — safe to
+ * no-op call returns `{ deltaInPaise: 0 }` without writing anything â€” safe to
  * invoke speculatively from the plan-change UI.
  */
 export async function applyProration(
@@ -468,7 +629,7 @@ export async function applyProration(
   if (!sub) throw new Error(`TenantSubscription ${subscriptionId} not found`);
 
   // Resolve both tiers from the dynamic plan catalog (DB). Throws a clear
-  // error if a key is missing (e.g. a deleted plan) rather than billing ₹0.
+  // error if a key is missing (e.g. a deleted plan) rather than billing â‚¹0.
   const fromPlanDef = await requirePlanByKey(prisma, fromPlan);
   const toPlanDef = await requirePlanByKey(prisma, toPlan);
 
@@ -486,7 +647,7 @@ export async function applyProration(
   const DAY_MS = 24 * 60 * 60 * 1000;
   const totalDays = totalCycleMs > 0 ? totalCycleMs / DAY_MS : 0;
   // Whole days the OLD plan was actually used this cycle. A same-day change
-  // (taken today, switched today) is 0 days → no charge for the old plan's
+  // (taken today, switched today) is 0 days â†’ no charge for the old plan's
   // used portion. Guards against degenerate windows (start > end / 0-length).
   const usedDays = Math.max(
     0,
@@ -494,15 +655,15 @@ export async function applyProration(
   );
   const prorationFactor = totalDays > 0 ? Math.min(1, usedDays / totalDays) : 0;
 
-  // Billing model (no credits — never negative):
-  //   charge = (daysUsed / totalDays) × OLD plan   ← usage to date (≥ 0)
-  //          + NEW plan full monthly               ← the plan switched to
+  // Billing model (no credits â€” never negative):
+  //   charge = (daysUsed / totalDays) Ã— OLD plan   â† usage to date (â‰¥ 0)
+  //          + NEW plan full monthly               â† the plan switched to
   // Subsequent cycles bill only the new plan's monthly amount, as usual.
   const oldUsedInPaise = Math.round(prorationFactor * oldMonthlyPaise);
   const newPlanInPaise = newMonthlyPaise;
   const deltaInPaise = oldUsedInPaise + newPlanInPaise;
 
-  // Same-plan no-op (or a zero charge) → write nothing.
+  // Same-plan no-op (or a zero charge) â†’ write nothing.
   if (fromPlan === toPlan || deltaInPaise === 0) {
     return {
       invoiceId: "",
@@ -521,8 +682,8 @@ export async function applyProration(
     !!tenantState &&
     tenantState.trim().toLowerCase() === PLATFORM_OPERATOR_STATE.toLowerCase();
 
-  // Charge is always ≥ 0 now (used-days of old + full new monthly), so GST is
-  // a straight positive split — no sign juggling needed.
+  // Charge is always â‰¥ 0 now (used-days of old + full new monthly), so GST is
+  // a straight positive split â€” no sign juggling needed.
   const subtotalInPaise = deltaInPaise;
   const cgstInPaise = sameState
     ? Math.round((subtotalInPaise * CGST_RATE) / 100)
@@ -546,10 +707,10 @@ export async function applyProration(
 
   const lineItemCreates: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput[] =
     [];
-  // Old-plan usage to date (omitted entirely on a same-day change → 0).
+  // Old-plan usage to date (omitted entirely on a same-day change â†’ 0).
   if (oldUsedInPaise > 0) {
     lineItemCreates.push({
-      description: `${fromPlanDef.name} — usage to date (${usedDays}/${Math.round(totalDays)} days, ${monthLabel})`,
+      description: `${fromPlanDef.name} â€” usage to date (${usedDays}/${Math.round(totalDays)} days, ${monthLabel})`,
       unitPriceInPaise: oldUsedInPaise,
       quantity: 1,
       amountInPaise: oldUsedInPaise,
@@ -558,18 +719,18 @@ export async function applyProration(
   }
   // New plan's full monthly charge.
   lineItemCreates.push({
-    description: `${toPlanDef.name} plan — monthly (${monthLabel})`,
+    description: `${toPlanDef.name} plan â€” monthly (${monthLabel})`,
     unitPriceInPaise: newPlanInPaise,
     quantity: 1,
     amountInPaise: newPlanInPaise,
     ...gstRates,
   });
 
-  // ── One invoice per tenant per month ────────────────────────────────
+  // â”€â”€ One invoice per tenant per month â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Repeated plan changes within the same month must NOT spawn duplicate
   // invoices (the PI-YYYYMM-000N pile-up). Reuse this tenant's existing
-  // UNPAID (ISSUED) invoice for the current month if there is one —
-  // replacing its line items + totals in place — otherwise mint a fresh one.
+  // UNPAID (ISSUED) invoice for the current month if there is one â€”
+  // replacing its line items + totals in place â€” otherwise mint a fresh one.
   // A PAID invoice is never mutated; a later change writes a new one.
   const sharedData = {
     subscriptionId: sub.id,
@@ -647,3 +808,6 @@ export async function applyProration(
     prorationFactor,
   };
 }
+
+
+

@@ -1,9 +1,9 @@
 /**
- * Pearl ERP Stage 1 §8.3 (gap row 215 closure piece 3b, 2026-05-24) —
+ * Pearl ERP Stage 1 Â§8.3 (gap row 215 closure piece 3b, 2026-05-24) â€”
  * monthly platform-invoice generator + operator-paid marker.
  *
  * What / which modules / why
- * ──────────────────────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * - WHAT: a once-per-month cron that walks every `TenantSubscription`
  *   in status `active` and creates a `PlatformInvoice` row for the
  *   PREVIOUS calendar month (UTC) if one does not already exist for
@@ -16,20 +16,20 @@
  *     same-month invoice-number sequence) from `@medcore/db`.
  *   - Writes `PlatformInvoice` + `PlatformInvoiceLineItem` rows.
  *   - Reads pricing from `@medcore/shared` (re-exports
- *     `PLAN_DEFINITIONS` from `billing/plans`) — the same
+ *     `PLAN_DEFINITIONS` from `billing/plans`) â€” the same
  *     source-of-truth that the piece 3a tests pin.
  *   - Writes one `AuditLog` row per generated invoice via Prisma so
  *     the super-admin trail captures the system-generated billable.
  * - WHY: piece 3a (commit 7f9f2a1) shipped the schema only. This is
- *   the first consumer — billing operators need a monthly run that
+ *   the first consumer â€” billing operators need a monthly run that
  *   produces ISSUED invoices the moment a billing cycle closes,
  *   without anyone clicking a button. The Razorpay webhook + the
  *   subscription state-machine transitions ship separately as piece
  *   3c (per docs/PEARL_OPEN_DECISIONS.md "DECISIONS LANDED 2026-05-24"
- *   §1).
+ *   Â§1).
  *
  * GST split
- * ─────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * GST is split CGST+SGST when the tenant's place of supply matches
  * the platform-operator state, IGST otherwise. `Tenant` itself has
  * no state column today (the only state-typed field on the model
@@ -37,14 +37,14 @@
  * `Branch` (`isDefault=true`) and compare its `state` string against
  * the constant `PLATFORM_OPERATOR_STATE` below. If the default
  * branch has no state set OR no default branch exists, we default
- * to IGST (the safer cross-state assumption — under-charging GST on
+ * to IGST (the safer cross-state assumption â€” under-charging GST on
  * an interstate transaction is a tax exposure; over-charging on an
  * intrastate one is recoverable). A separate piece will add an
  * explicit `Tenant.gstinNumber` + `Tenant.stateCode` field; until
  * then this resolution path is the load-bearing source.
  *
  * Idempotency
- * ───────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * - Per-tenant-per-month: a `PlatformInvoice.findFirst({ where: {
  *   tenantId, periodStart } })` gate skips re-generation. Safe to
  *   re-run after a partial outage.
@@ -52,7 +52,7 @@
  *   re-call from a Razorpay webhook retry.
  *
  * Numbering
- * ─────────
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * `PI-YYYYMM-NNNN` per the schema header. `NNNN` is a monotonic
  * per-month counter scoped to ALL tenants in that month, computed
  * as `count(PlatformInvoice where invoiceNumber LIKE 'PI-YYYYMM-%')
@@ -60,7 +60,7 @@
  * to a Prisma unique-violation, which the caller handles by
  * retrying once with the next counter (rare in a once-monthly
  * cron, but the retry costs nothing). All numbers issued in the
- * same month form a contiguous sequence — required for GST-audit
+ * same month form a contiguous sequence â€” required for GST-audit
  * traceability.
  */
 import type { Prisma, PrismaClient } from "@medcore/db";
@@ -74,7 +74,7 @@ import {
  * Platform-operator place-of-supply state used for the CGST+SGST vs
  * IGST decision. Set to Karnataka (the most common Indian SaaS-vendor
  * registration state). When the operator's billing entity moves, flip
- * this constant — the schema persists per-invoice CGST/SGST/IGST so
+ * this constant â€” the schema persists per-invoice CGST/SGST/IGST so
  * historical invoices are unaffected.
  */
 export const PLATFORM_OPERATOR_STATE = "Karnataka";
@@ -83,6 +83,8 @@ const CGST_RATE = 9;
 const SGST_RATE = 9;
 const IGST_RATE = 18;
 const SAAS_HSN_SAC = "998314";
+
+const BILLABLE_LIVE_SUBSCRIPTION_STATUSES = ["active", "past_due"] as const;
 
 const MONTH_LABEL = [
   "January",
@@ -102,7 +104,7 @@ const MONTH_LABEL = [
 /**
  * Compute the UTC [startOfPreviousMonth, startOfThisMonth) window for
  * a given `now` instant. Bounds are midnight UTC on the 1st of each
- * month — the half-open interval guarantees a notification or signup
+ * month â€” the half-open interval guarantees a notification or signup
  * exactly at `00:00:00.000 UTC` on the 1st of `now`'s month belongs to
  * `now`'s month, not the previous one.
  */
@@ -140,7 +142,7 @@ export interface GenerateMonthlyPlatformInvoicesResult {
 
 /**
  * Generate one `PlatformInvoice` per `active` tenant for the previous
- * calendar month. Idempotent — a re-run skips any tenant that already
+ * calendar month. Idempotent â€” a re-run skips any tenant that already
  * has an invoice with the same `periodStart`. Returns a digest the
  * scheduler can log.
  */
@@ -207,7 +209,7 @@ export async function generateMonthlyPlatformInvoices(
         !!tenantState && tenantState.trim().toLowerCase() ===
           PLATFORM_OPERATOR_STATE.toLowerCase();
 
-      // Pearl §8.3 piece 3e — aggregate usage events for the period and
+      // Pearl Â§8.3 piece 3e â€” aggregate usage events for the period and
       // emit one additional line item per usage kind that has activity.
       // Same GST rates apply per line; per-line `amountInPaise` rolls up
       // into the invoice subtotal below.
@@ -221,7 +223,7 @@ export async function generateMonthlyPlatformInvoices(
       const lineItems: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput[] =
         [
           {
-            description: `MedCore HMS — ${planDef.name} subscription ${monthLabel}`,
+            description: `MedCore HMS â€” ${planDef.name} subscription ${monthLabel}`,
             unitPriceInPaise: planUnitPriceInPaise,
             quantity: 1,
             amountInPaise: planUnitPriceInPaise,
@@ -231,7 +233,7 @@ export async function generateMonthlyPlatformInvoices(
             igstRate: sameState ? 0 : IGST_RATE,
           },
           ...usageRows.map((u) => ({
-            description: `${USAGE_KIND_LABEL[u.kind]} (${u.totalQuantity.toLocaleString()}) — ${monthLabel}`,
+            description: `${USAGE_KIND_LABEL[u.kind]} (${u.totalQuantity.toLocaleString()}) â€” ${monthLabel}`,
             unitPriceInPaise: u.unitPriceInPaise,
             quantity: u.totalQuantity,
             amountInPaise: u.amountInPaise,
@@ -258,7 +260,7 @@ export async function generateMonthlyPlatformInvoices(
       const gstTotal = cgstInPaise + sgstInPaise + igstInPaise;
       const totalInPaise = subtotalInPaise + gstTotal;
 
-      // Counter scoped to ALL tenants for this YYYYMM — produces
+      // Counter scoped to ALL tenants for this YYYYMM â€” produces
       // a contiguous monotonic sequence required for GST traceability.
       const monthCount = await prisma.platformInvoice.count({
         where: { invoiceNumber: { startsWith: `PI-${yyyymm}-` } },
@@ -287,7 +289,7 @@ export async function generateMonthlyPlatformInvoices(
       summary.generated += 1;
       summary.invoiceIds.push(invoice.id);
 
-      // Audit row — keep the failure here from poisoning the loop;
+      // Audit row â€” keep the failure here from poisoning the loop;
       // a missing audit on a successfully-created invoice is still
       // better than crashing the cron for everyone.
       try {
@@ -339,19 +341,19 @@ export async function generateMonthlyPlatformInvoices(
 }
 
 /**
- * Pearl §8.3 — generate the FIRST invoice for a brand-new ACTIVE (no-trial)
+ * Pearl Â§8.3 â€” generate the FIRST invoice for a brand-new ACTIVE (no-trial)
  * subscription immediately at tenant creation, so a no-trial tenant is billed
  * from day 1 instead of waiting for the monthly arrears run. Bills the plan's
- * monthly amount for the subscription's current period (`currentPeriodStart →
+ * monthly amount for the subscription's current period (`currentPeriodStart â†’
  * currentPeriodEnd`) with the same GST split + `PI-YYYYMM-NNNN` numbering as
  * the monthly generator.
  *
- * - Trial subscriptions are a no-op (`{ generated: false }`) — they are billed
+ * - Trial subscriptions are a no-op (`{ generated: false }`) â€” they are billed
  *   only after the trial flips to active.
  * - Idempotent: skips if an invoice already exists for (tenantId, periodStart).
- * - Brand-new tenant → no usage events yet, so this is the plan line only.
+ * - Brand-new tenant â†’ no usage events yet, so this is the plan line only.
  */
-export async function generateInitialInvoiceForSubscription(
+export async function ensureCurrentPeriodInvoiceForSubscription(
   prisma: PrismaClient,
   subscriptionId: string,
   now: Date = new Date(),
@@ -379,9 +381,9 @@ export async function generateInitialInvoiceForSubscription(
     },
   });
   if (!sub) throw new Error(`TenantSubscription ${subscriptionId} not found`);
-  // Only active (no-trial) subscriptions bill immediately; trials wait for the
-  // daily trial-expiry cron to flip them to active.
-  if (sub.status !== "active" || !sub.tenant?.active) {
+  // Only live, billable subscriptions generate the current cycle invoice.
+  // Trials wait until activation; suspended/cancelled tenants stop here.
+  if (!BILLABLE_LIVE_SUBSCRIPTION_STATUSES.includes(sub.status) || !sub.tenant?.active) {
     return { generated: false };
   }
 
@@ -411,7 +413,7 @@ export async function generateInitialInvoiceForSubscription(
 
   const lineItems: Prisma.PlatformInvoiceLineItemCreateWithoutInvoiceInput[] = [
     {
-      description: `MedCore HMS — ${planDef.name} subscription ${monthLabel}`,
+      description: `MedCore HMS â€” ${planDef.name} subscription ${monthLabel}`,
       unitPriceInPaise: planUnitPriceInPaise,
       quantity: 1,
       amountInPaise: planUnitPriceInPaise,
@@ -466,6 +468,59 @@ export async function generateInitialInvoiceForSubscription(
   };
 }
 
+export async function ensureCurrentPeriodInvoices(
+  prisma: PrismaClient,
+  now: Date = new Date(),
+  tenantId?: string,
+): Promise<{ inspected: number; generated: number; invoiceIds: string[]; errors: number }> {
+  const subscriptions = await prisma.tenantSubscription.findMany({
+    where: {
+      status: { in: [...BILLABLE_LIVE_SUBSCRIPTION_STATUSES] },
+      ...(tenantId ? { tenantId } : {}),
+    },
+    select: { id: true },
+    take: 500,
+  });
+
+  const result = {
+    inspected: subscriptions.length,
+    generated: 0,
+    invoiceIds: [] as string[],
+    errors: 0,
+  };
+
+  for (const subscription of subscriptions) {
+    try {
+      const ensured = await ensureCurrentPeriodInvoiceForSubscription(
+        prisma,
+        subscription.id,
+        now,
+      );
+      if (ensured.generated && ensured.invoiceId) {
+        result.generated += 1;
+        result.invoiceIds.push(ensured.invoiceId);
+      }
+    } catch (err) {
+      result.errors += 1;
+      console.error(
+        "[platform_invoice_generator] failed to ensure current-period invoice for",
+        subscription.id,
+        err,
+      );
+    }
+  }
+
+  return result;
+}
+
+export async function generateInitialInvoiceForSubscription(
+  prisma: PrismaClient,
+  subscriptionId: string,
+  now: Date = new Date(),
+): Promise<{ generated: boolean; invoiceId?: string; invoiceNumber?: string }> {
+  return ensureCurrentPeriodInvoiceForSubscription(prisma, subscriptionId, now);
+}
+
 export interface MarkInvoicePaidResult {
   status: "PAID" | "ALREADY_PAID";
   invoiceId: string;
@@ -473,7 +528,7 @@ export interface MarkInvoicePaidResult {
 
 /**
  * Idempotently mark an invoice as PAID. Re-calling this on a PAID row
- * is a no-op — required so a Razorpay webhook retry (which can fire
+ * is a no-op â€” required so a Razorpay webhook retry (which can fire
  * the same payment event multiple times) cannot accidentally overwrite
  * the original `paidAt` / `paymentReference` stamps.
  *
@@ -540,3 +595,4 @@ export async function markInvoicePaid(
 
   return { status: "PAID", invoiceId };
 }
+

@@ -38,6 +38,17 @@ export const suggestDoctorsSchema = z.object({
   // that hospital's panel. Optional for back-compat (subdomain/default
   // resolution still applies when absent), but the UI always sends it.
   tenantId: z.string().trim().min(1).optional(),
+  // Patient location for nearest-hospital ranking. Coordinates come from the
+  // browser Geolocation API when granted; city / pincode are the manual
+  // fallback when the caller declines location access.
+  patientLatitude: z.number().min(-90).max(90).optional(),
+  patientLongitude: z.number().min(-180).max(180).optional(),
+  patientCity: z.string().trim().min(1).max(120).optional(),
+  patientPincode: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "PIN code must be 6 digits")
+    .optional(),
 });
 export type SuggestDoctorsInput = z.infer<typeof suggestDoctorsSchema>;
 

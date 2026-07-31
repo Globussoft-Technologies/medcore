@@ -12,6 +12,8 @@ describe("quick booking identity validation", () => {
       gender: "",
       dob: "",
       email: "not-an-email",
+      city: "a".repeat(121),
+      pincode: "5600",
     });
 
     expect(errors.name).toMatch(/name/i);
@@ -19,6 +21,8 @@ describe("quick booking identity validation", () => {
     expect(errors.gender).toMatch(/gender/i);
     expect(errors.dob).toMatch(/date of birth/i);
     expect(errors.email).toMatch(/email/i);
+    expect(errors.city).toMatch(/city/i);
+    expect(errors.pincode).toMatch(/pin code/i);
     expect(firstQuickBookIdentityError(errors)).toBe(errors.name);
   });
 
@@ -30,6 +34,8 @@ describe("quick booking identity validation", () => {
         gender: "MALE",
         dob: "1995-04-12",
         email: "",
+        city: "Bengaluru",
+        pincode: "560001",
       }),
     ).toEqual({});
   });

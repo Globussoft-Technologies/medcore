@@ -6,6 +6,8 @@ export interface QuickBookIdentityInput {
   gender: QuickBookGender;
   dob: string;
   email: string;
+  city?: string;
+  pincode?: string;
 }
 
 export interface QuickBookIdentityErrors {
@@ -14,6 +16,8 @@ export interface QuickBookIdentityErrors {
   gender?: string;
   dob?: string;
   email?: string;
+  city?: string;
+  pincode?: string;
 }
 
 const PATIENT_NAME_REGEX = /^[A-Za-z\u0900-\u097F\s.'-]+$/u;
@@ -68,6 +72,16 @@ export function validateQuickBookIdentity(
     errors.email = "Enter a valid email address, or leave it blank.";
   }
 
+  const city = input.city?.trim() ?? "";
+  if (city && city.length > 120) {
+    errors.city = "City must be at most 120 characters.";
+  }
+
+  const pincode = input.pincode?.trim() ?? "";
+  if (pincode && !/^\d{6}$/.test(pincode)) {
+    errors.pincode = "PIN code must be 6 digits.";
+  }
+
   return errors;
 }
 
@@ -80,6 +94,8 @@ export function firstQuickBookIdentityError(
     errors.gender ??
     errors.dob ??
     errors.email ??
+    errors.city ??
+    errors.pincode ??
     null
   );
 }

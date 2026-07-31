@@ -256,6 +256,10 @@ export interface CreateTenantParams {
     email?: string;
     gstin?: string;
     address?: string;
+    city?: string;
+    pincode?: string;
+    latitude?: string;
+    longitude?: string;
   };
   /**
    * Pearl §8.3 — the dynamic `PlatformPlan.key` the new tenant pays on.
@@ -495,6 +499,10 @@ export async function createTenant(
         { key: "hospital_email", value: hospitalConfig?.email ?? "" },
         { key: "hospital_gstin", value: hospitalConfig?.gstin ?? "" },
         { key: "hospital_address", value: hospitalConfig?.address ?? "" },
+        { key: "hospital_city", value: hospitalConfig?.city ?? "" },
+        { key: "hospital_pincode", value: hospitalConfig?.pincode ?? "" },
+        { key: "hospital_latitude", value: hospitalConfig?.latitude ?? "" },
+        { key: "hospital_longitude", value: hospitalConfig?.longitude ?? "" },
         { key: "onboarding_started_at", value: new Date().toISOString() },
         // Pearl §8.1 — stamp the "Account created" onboarding step complete at
         // provisioning time; its completion date is the tenant's creation date

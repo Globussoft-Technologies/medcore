@@ -30,6 +30,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "@medcore/db";
+import { z } from "zod";
 import {
   Role,
   suggestDoctorsSchema,
@@ -309,6 +310,120 @@ async function symptomToSpecialties(symptom: string): Promise<string[]> {
   return specialties;
 }
 
+interface HospitalLocationMeta {
+  address: string | null;
+  city: string | null;
+  pincode: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+async function readHospitalLocationMeta(
+  tenantIds: string[],
+): Promise<Map<string, HospitalLocationMeta>> {
+  if (tenantIds.length === 0) return new Map();
+  const rows = await prisma.systemConfig.findMany({
+    where: {
+      key: {
+        in: tenantIds.flatMap((tenantId) => [
+          `tenant:${tenantId}:hospital_address`,
+          `tenant:${tenantId}:hospital_city`,
+          `tenant:${tenantId}:hospital_pincode`,
+          `tenant:${tenantId}:hospital_latitude`,
+          `tenant:${tenantId}:hospital_longitude`,
+        ]),
+      },
+    },
+    select: { key: true, value: true },
+  });
+  const out = new Map<string, HospitalLocationMeta>();
+  for (const row of rows) {
+    const match = row.key.match(
+      /^tenant:([^:]+):(hospital_address|hospital_city|hospital_pincode|hospital_latitude|hospital_longitude)$/,
+    );
+    if (!match) continue;
+    const [, tenantId, key] = match;
+    const meta =
+      out.get(tenantId) ??
+      ({
+        address: null,
+        city: null,
+        pincode: null,
+        latitude: null,
+        longitude: null,
+      } satisfies HospitalLocationMeta);
+    if (key === "hospital_address") meta.address = row.value || null;
+    if (key === "hospital_city") meta.city = row.value || null;
+    if (key === "hospital_pincode") meta.pincode = row.value || null;
+    if (key === "hospital_latitude") {
+      const n = Number(row.value);
+      meta.latitude = Number.isFinite(n) ? n : null;
+    }
+    if (key === "hospital_longitude") {
+      const n = Number(row.value);
+      meta.longitude = Number.isFinite(n) ? n : null;
+    }
+    out.set(tenantId, meta);
+  }
+  return out;
+}
+
+function haversineKm(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const toRad = (deg: number): number => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function normaliseCity(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function derivePatientCoordsFromHospitalMeta(
+  metaById: Map<string, HospitalLocationMeta>,
+  patientCity: string,
+  patientPincode: string,
+): { latitude: number; longitude: number } | null {
+  const candidates = Array.from(metaById.values()).filter((meta) => {
+    if (meta.latitude == null || meta.longitude == null) return false;
+    if (patientPincode && meta.pincode === patientPincode) return true;
+    if (patientCity && normaliseCity(meta.city) === patientCity) return true;
+    return false;
+  });
+  if (candidates.length === 0) return null;
+
+  const total = candidates.reduce(
+    (acc, meta) => ({
+      latitude: acc.latitude + (meta.latitude ?? 0),
+      longitude: acc.longitude + (meta.longitude ?? 0),
+    }),
+    { latitude: 0, longitude: 0 },
+  );
+
+  return {
+    latitude: total.latitude / candidates.length,
+    longitude: total.longitude / candidates.length,
+  };
+}
+
+const recommendHospitalsSchema = z.object({
+  symptom: z.string().trim().min(2).max(500),
+  patientLatitude: z.number().min(-90).max(90).optional(),
+  patientLongitude: z.number().min(-180).max(180).optional(),
+  patientCity: z.string().trim().max(120).optional(),
+  patientPincode: z.string().trim().regex(/^\d{6}$/).optional(),
+});
+
 // ════════════════════════════════════════════════════════
 // POST /api/v1/public/booking/chat
 // Body: { messages: {role:"user"|"assistant", content:string}[], language?, name? }
@@ -324,6 +439,158 @@ async function symptomToSpecialties(symptom: string): Promise<string[]> {
 // ════════════════════════════════════════════════════════
 const MAX_CHAT_TURNS = 20;
 const MAX_CHAT_MSG_CHARS = 1000;
+publicBookingRouter.post(
+  "/recommend-hospitals",
+  rateLimit(20, 60_000),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const parsed = recommendHospitalsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({
+          success: false,
+          data: null,
+          error: parsed.error.issues[0]?.message || "Invalid request",
+        });
+        return;
+      }
+
+      const {
+        symptom,
+        patientLatitude,
+        patientLongitude,
+        patientCity,
+        patientPincode,
+      } = parsed.data;
+      const cleanCity = normaliseCity(patientCity);
+      const cleanPincode = (patientPincode ?? "").trim();
+      const specialties = await symptomToSpecialties(symptom);
+
+      const tenantRows = await prisma.doctor.findMany({
+        where: {
+          user: { isActive: true },
+          tenantId: { not: null },
+          OR: specialties.map((s) => ({
+            specialization: { contains: s, mode: "insensitive" as const },
+          })),
+        },
+        select: { tenantId: true },
+        distinct: ["tenantId"],
+      });
+      const tenantIds = tenantRows
+        .map((row) => row.tenantId)
+        .filter((id): id is string => !!id);
+
+      const tenants = tenantIds.length
+        ? await prisma.tenant.findMany({
+            where: { id: { in: tenantIds }, active: true },
+            select: { id: true, name: true },
+          })
+        : [];
+      const codeRows = await prisma.systemConfig.findMany({
+        where: {
+          key: { in: tenants.map((tenant) => `tenant:${tenant.id}:code`) },
+        },
+        select: { key: true, value: true },
+      });
+      const codeById = new Map<string, string>();
+      for (const row of codeRows) {
+        const match = row.key.match(/^tenant:([^:]+):code$/);
+        if (match) codeById.set(match[1], row.value);
+      }
+      const metaById = await readHospitalLocationMeta(
+        tenants.map((tenant) => tenant.id),
+      );
+      const derivedPatientCoords =
+        typeof patientLatitude === "number" &&
+        typeof patientLongitude === "number"
+          ? {
+              latitude: patientLatitude,
+              longitude: patientLongitude,
+            }
+          : derivePatientCoordsFromHospitalMeta(
+              metaById,
+              cleanCity,
+              cleanPincode,
+            );
+
+      const hospitals = tenants
+        .map((tenant) => {
+          const meta =
+            metaById.get(tenant.id) ??
+            ({
+              address: null,
+              city: null,
+              pincode: null,
+              latitude: null,
+              longitude: null,
+            } satisfies HospitalLocationMeta);
+          const hasHospitalCoords =
+            meta.latitude != null && meta.longitude != null;
+          const hasAnyLocation = Boolean(
+            hasHospitalCoords || meta.city || meta.pincode || meta.address,
+          );
+
+          let bucket = 3;
+          let distanceKm: number | null = null;
+          if (derivedPatientCoords && hasHospitalCoords) {
+            bucket = 0;
+            distanceKm = haversineKm(
+              derivedPatientCoords.latitude,
+              derivedPatientCoords.longitude,
+              meta.latitude!,
+              meta.longitude!,
+            );
+          } else if (cleanPincode && meta.pincode === cleanPincode) {
+            bucket = 1;
+          } else if (
+            cleanCity &&
+            normaliseCity(meta.city) &&
+            normaliseCity(meta.city) === cleanCity
+          ) {
+            bucket = 2;
+          } else if (!hasAnyLocation) {
+            bucket = 4;
+          }
+
+          return {
+            id: tenant.id,
+            name: tenant.name,
+            code: codeById.get(tenant.id) ?? null,
+            address: meta.address,
+            city: meta.city,
+            pincode: meta.pincode,
+            latitude: meta.latitude,
+            longitude: meta.longitude,
+            distanceKm,
+            _bucket: bucket,
+          };
+        })
+        .sort((a, b) => {
+          if (a._bucket !== b._bucket) return a._bucket - b._bucket;
+          if (a.distanceKm != null && b.distanceKm != null) {
+            if (a.distanceKm !== b.distanceKm) return a.distanceKm - b.distanceKm;
+          } else if (a.distanceKm != null) {
+            return -1;
+          } else if (b.distanceKm != null) {
+            return 1;
+          }
+          return a.name.localeCompare(b.name);
+        })
+        .map(({ _bucket, ...hospital }) => hospital);
+
+      res.json({
+        success: true,
+        data: {
+          matchedSpecialties: specialties,
+          hospitals,
+        },
+        error: null,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 publicBookingRouter.post(
   "/chat",
   rateLimit(15, 60_000), // 15/min/IP — bounds LLM cost on an unauth surface

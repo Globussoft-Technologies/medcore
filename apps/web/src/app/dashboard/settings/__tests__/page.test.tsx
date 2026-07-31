@@ -1167,6 +1167,10 @@ describe("SettingsPage — Branding tab (ADMIN, Issues #716 / #717)", () => {
         hospitalEmail: "",
         hospitalGstin: "",
         hospitalAddress: "",
+        hospitalCity: "",
+        hospitalPincode: "",
+        hospitalLatitude: "",
+        hospitalLongitude: "",
       }),
     );
     expect(toastMock.success).toHaveBeenCalledWith("Branding saved");
@@ -1805,6 +1809,34 @@ describe("SettingsPage — Branding hospital details", () => {
     fireEvent.click(screen.getByRole("button", { name: /Save Branding/i }));
     await waitFor(() => expect(toastMock.warning).toHaveBeenCalled());
     expect(apiMock.patch).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid booking location fields", async () => {
+    asTenantAdmin();
+    mockGets({ "/settings/branding": () => Promise.resolve(brandingResp()) });
+    render(<SettingsPage />);
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/auth/me"));
+    fireEvent.click(screen.getByRole("button", { name: /^Branding$/i }));
+    await screen.findByTestId("branding-hospital-name");
+    fireEvent.change(screen.getByTestId("branding-hospital-pincode"), {
+      target: { value: "5600" },
+    });
+    fireEvent.change(screen.getByTestId("branding-hospital-latitude"), {
+      target: { value: "100" },
+    });
+    fireEvent.change(screen.getByTestId("branding-hospital-longitude"), {
+      target: { value: "200" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save Branding/i }));
+    await waitFor(() => expect(toastMock.warning).toHaveBeenCalled());
+    expect(apiMock.patch).not.toHaveBeenCalled();
+    expect(screen.getByText(/PIN code must be 6 digits/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Latitude must be between -90 and 90/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Longitude must be between -180 and 180/i),
+    ).toBeInTheDocument();
   });
 
   it("saves hospital contact + legal fields", async () => {

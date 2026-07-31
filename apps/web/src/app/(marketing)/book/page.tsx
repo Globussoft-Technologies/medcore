@@ -50,6 +50,8 @@ import {
   CalendarX,
   ChevronDown,
   Check,
+  MapPin,
+  LocateFixed,
 } from "lucide-react";
 import { Container } from "../_components/Container";
 import {
@@ -80,6 +82,37 @@ interface DoctorSuggestion {
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+interface HospitalOption {
+  id: string;
+  name: string;
+  code: string | null;
+  address?: string | null;
+  city?: string | null;
+  pincode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  distanceKm?: number | null;
+}
+
+function sortHospitalOptions(list: HospitalOption[]): HospitalOption[] {
+  return [...list].sort((a, b) => {
+    const aDistance = typeof a.distanceKm === "number" ? a.distanceKm : null;
+    const bDistance = typeof b.distanceKm === "number" ? b.distanceKm : null;
+
+    if (aDistance != null && bDistance != null && aDistance !== bDistance) {
+      return aDistance - bDistance;
+    }
+    if (aDistance != null) return -1;
+    if (bDistance != null) return 1;
+
+    const aHasLocation = Boolean(a.address || a.city || a.pincode);
+    const bHasLocation = Boolean(b.address || b.city || b.pincode);
+    if (aHasLocation !== bHasLocation) return aHasLocation ? -1 : 1;
+
+    return a.name.localeCompare(b.name);
+  });
 }
 
 interface WaveBarStyle {
@@ -549,9 +582,12 @@ export default function QuickBookPage() {
   // Hospital selection. The AI asks which hospital once it's ready to suggest
   // doctors; the chat shows these as clickable chips. The chosen tenantId
   // scopes the doctor suggestions + the booking to that hospital.
-  const [hospitals, setHospitals] = useState<
-    Array<{ id: string; name: string; code: string | null }>
-  >([]);
+  const [hospitals, setHospitals] = useState<HospitalOption[]>([]);
+  const [recommendedHospitals, setRecommendedHospitals] = useState<HospitalOption[]>([]);
+  const [recommendedSpecialties, setRecommendedSpecialties] = useState<string[]>([]);
+  const [hospitalsLoading, setHospitalsLoading] = useState(false);
+  const [hospitalRecommendationsReady, setHospitalRecommendationsReady] =
+    useState(false);
   const [tenantId, setTenantId] = useState("");
   // True once the chat is ready for doctors but the patient hasn't picked a
   // hospital yet → the chat shows the hospital chips instead of doctors.
@@ -568,11 +604,15 @@ export default function QuickBookPage() {
   // Reveal the next page when the scroll position is within ~120px of the end.
   function onHospitalScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
+    const visibleHospitals =
+      hospitalRecommendationsReady && recommendedHospitals.length > 0
+        ? recommendedHospitals
+        : hospitals;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
       setHospitalVisibleCount((c) =>
-        c >= hospitals.length
+        c >= visibleHospitals.length
           ? c
-          : Math.min(c + HOSPITAL_PAGE, hospitals.length),
+          : Math.min(c + HOSPITAL_PAGE, visibleHospitals.length),
       );
     }
   }
@@ -583,11 +623,7 @@ export default function QuickBookPage() {
         const res = await fetch(`${API_BASE}/public/hospitals`);
         const json = await res.json();
         if (cancelled) return;
-        const list = (json?.data ?? []) as Array<{
-          id: string;
-          name: string;
-          code: string | null;
-        }>;
+        const list = sortHospitalOptions((json?.data ?? []) as HospitalOption[]);
         setHospitals(list);
         // If there's only one hospital, pick it silently — no need to ask.
         if (list.length === 1) setTenantId(list[0].id);
@@ -611,6 +647,34 @@ export default function QuickBookPage() {
   const [dobMonth, setDobMonth] = useState("");
   const [dobYear, setDobYear] = useState("");
   const [email, setEmail] = useState("");
+  const [patientCity, setPatientCity] = useState("");
+  const [patientPincode, setPatientPincode] = useState("");
+  const [patientLatitude, setPatientLatitude] = useState<number | null>(null);
+  const [patientLongitude, setPatientLongitude] = useState<number | null>(null);
+  const [locationBusy, setLocationBusy] = useState(false);
+  const [locationDenied, setLocationDenied] = useState(false);
+  const [showManualLocation, setShowManualLocation] = useState(false);
+
+  useEffect(() => {
+    const hasResolvedLocation =
+      (patientLatitude != null && patientLongitude != null) ||
+      !!patientCity.trim() ||
+      !!patientPincode.trim();
+    if (!hasResolvedLocation || !error) return;
+
+    if (
+      error === "Location permission denied. Enter your city or PIN code to continue." ||
+      error === "Use current location or enter your city or PIN code to get nearby hospitals."
+    ) {
+      setError(null);
+    }
+  }, [
+    patientLatitude,
+    patientLongitude,
+    patientCity,
+    patientPincode,
+    error,
+  ]);
 
   // ── ABHA (ABDM M1 V3) "Continue with Aadhaar" state ──────────────────
   // Optional identity shortcut: the patient enters their Aadhaar, gets an
@@ -648,6 +712,10 @@ export default function QuickBookPage() {
   // even when the result is empty.
   const [doctorsLoading, setDoctorsLoading] = useState(false);
   const [doctorsSearched, setDoctorsSearched] = useState(false);
+  // Identifies the newest doctor lookup. A patient can go back and choose a
+  // different hospital before the previous request finishes; stale responses
+  // must never replace doctors for the latest hospital choice.
+  const doctorSuggestionsRequestRef = useRef(0);
 
   // Voice input (Sarvam) — shared by the chat composer. `voiceState` drives
   // the mic button; the recorder POSTs to /public/booking/transcribe.
@@ -735,6 +803,144 @@ export default function QuickBookPage() {
       );
     } else {
       setDob("");
+    }
+  }
+
+  async function requestCurrentLocation() {
+    setError(null);
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.geolocation
+    ) {
+      setLocationDenied(true);
+      setShowManualLocation(true);
+      setError("Location isn't supported in this browser. Enter your city or PIN code instead.");
+      return;
+    }
+    setLocationBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        setPatientLatitude(latitude);
+        setPatientLongitude(longitude);
+        setLocationDenied(false);
+        setShowManualLocation(true);
+        try {
+          const qs = new URLSearchParams({
+            format: "jsonv2",
+            lat: String(latitude),
+            lon: String(longitude),
+            addressdetails: "1",
+          });
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?${qs.toString()}`,
+            {
+              headers: {
+                Accept: "application/json",
+              },
+            },
+          );
+          if (res.ok) {
+            const json = (await res.json()) as {
+              address?: {
+                city?: string;
+                town?: string;
+                village?: string;
+                suburb?: string;
+                county?: string;
+                state_district?: string;
+                postcode?: string;
+              };
+            };
+            const address = json.address ?? {};
+            const detectedCity =
+              address.city ||
+              address.town ||
+              address.village ||
+              address.suburb ||
+              address.county ||
+              address.state_district ||
+              "";
+            const detectedPincode = (address.postcode || "")
+              .replace(/\D/g, "")
+              .slice(0, 6);
+
+            if (detectedCity) {
+              setPatientCity(detectedCity);
+              setIdentityErrors((prev) => ({ ...prev, city: undefined }));
+            }
+            if (detectedPincode) {
+              setPatientPincode(detectedPincode);
+              setIdentityErrors((prev) => ({ ...prev, pincode: undefined }));
+            }
+          }
+        } catch {
+          // Keep the coordinates and let the patient fill any missing city/PIN manually.
+        } finally {
+          setLocationBusy(false);
+        }
+      },
+      () => {
+        setPatientLatitude(null);
+        setPatientLongitude(null);
+        setLocationDenied(true);
+        setShowManualLocation(true);
+        setLocationBusy(false);
+        setError("Location permission denied. Enter your city or PIN code to continue.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
+    );
+  }
+
+  async function loadHospitalRecommendations(history?: ChatMessage[]) {
+    const src = history ?? messages;
+    const symptomText = src
+      .filter((m) => m.role === "user")
+      .map((m) => m.content)
+      .join(". ")
+      .trim();
+    if (symptomText.length < 2) return;
+
+    setHospitalRecommendationsReady(false);
+    setHospitalsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/public/booking/recommend-hospitals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symptom: symptomText,
+          ...(patientLatitude != null ? { patientLatitude } : {}),
+          ...(patientLongitude != null ? { patientLongitude } : {}),
+          ...(patientCity.trim() ? { patientCity: patientCity.trim() } : {}),
+          ...(patientPincode.trim() ? { patientPincode: patientPincode.trim() } : {}),
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        const nextHospitals = (((json.data?.hospitals as HospitalOption[]) ?? hospitals) || []).map(
+          (hospital) => ({
+            ...hospital,
+            distanceKm:
+              typeof hospital.distanceKm === "number"
+                ? hospital.distanceKm
+                : hospital.distanceKm == null
+                  ? null
+                  : Number(hospital.distanceKm),
+          }),
+        );
+        setRecommendedHospitals(sortHospitalOptions(nextHospitals));
+        setRecommendedSpecialties((json.data?.matchedSpecialties as string[]) ?? []);
+      } else {
+        setRecommendedHospitals([]);
+        setRecommendedSpecialties([]);
+      }
+    } catch {
+      setRecommendedHospitals([]);
+      setRecommendedSpecialties([]);
+    } finally {
+      setHospitalRecommendationsReady(true);
+      setHospitalsLoading(false);
     }
   }
 
@@ -868,12 +1074,24 @@ export default function QuickBookPage() {
       gender,
       dob,
       email,
+      city: patientCity,
+      pincode: patientPincode,
     });
     setIdentityErrors(nextErrors);
     const firstError = firstQuickBookIdentityError(nextErrors);
     if (firstError) {
       setError(firstError);
       return;
+    }
+    if (
+      patientLatitude == null ||
+      patientLongitude == null
+    ) {
+      if (!patientCity.trim() && !patientPincode.trim()) {
+        setError("Use current location or enter your city or PIN code to get nearby hospitals.");
+        setShowManualLocation(true);
+        return;
+      }
     }
     // Seed the assistant greeting (knows the patient's first name).
     const firstName = name.trim().split(/\s+/)[0];
@@ -961,6 +1179,7 @@ export default function QuickBookPage() {
         // hospital chips instead of loading doctors. Once chosen (or only one
         // hospital exists), load the doctors scoped to it.
         if (!tenantId && hospitals.length > 1) {
+          void loadHospitalRecommendations(next);
           setAwaitingHospital(true);
         } else {
           void loadDoctorSuggestions(next, effectiveDate);
@@ -995,6 +1214,13 @@ export default function QuickBookPage() {
       .join(". ")
       .trim();
     if (symptomText.length < 2) return;
+    const requestId = ++doctorSuggestionsRequestRef.current;
+    // Remove doctors from the previous hospital before rendering the loading
+    // state, so its cards cannot remain visible during this request.
+    setDoctors([]);
+    setSelectedDoctor(null);
+    setSelectedSlot(null);
+    setDoctorsSearched(false);
     setDoctorsLoading(true);
     try {
       const res = await fetch(`${API_BASE}/public/booking/suggest-doctors`, {
@@ -1009,16 +1235,19 @@ export default function QuickBookPage() {
         }),
       });
       const json = await res.json();
+      if (requestId !== doctorSuggestionsRequestRef.current) return;
       if (res.ok && json.success) {
         setDoctors(json.data?.doctors ?? []);
       } else {
         setDoctors([]);
       }
     } catch {
-      setDoctors([]);
+      if (requestId === doctorSuggestionsRequestRef.current) setDoctors([]);
     } finally {
-      setDoctorsSearched(true);
-      setDoctorsLoading(false);
+      if (requestId === doctorSuggestionsRequestRef.current) {
+        setDoctorsSearched(true);
+        setDoctorsLoading(false);
+      }
     }
   }
 
@@ -1834,12 +2063,116 @@ export default function QuickBookPage() {
                   )}
                 </div>
 
+                <div className="mc-anim-slide-up mc-delay-5 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 dark:text-gray-100">
+                        <MapPin className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                        Find the nearest hospital
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        We use your browser location only to sort hospitals by distance. If you skip it, enter your city or PIN code.
+                      </p>
+                    </div>
+                    {(patientLatitude != null && patientLongitude != null) && (
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                        Location ready
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      data-testid="quick-book-use-location"
+                      onClick={() => void requestCurrentLocation()}
+                      disabled={locationBusy}
+                      className={`${primaryBtn} justify-center sm:flex-1`}
+                    >
+                      <span className="relative z-10 inline-flex items-center gap-2">
+                        <LocateFixed className="h-4 w-4" />
+                        {locationBusy ? "Locating…" : "Use Current Location"}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowManualLocation((v) => !v)}
+                      className={`${ghostBtn} justify-center border-emerald-300 text-emerald-700 hover:border-emerald-400 dark:border-emerald-800 dark:text-emerald-300 sm:flex-1`}
+                    >
+                      Enter city / PIN instead
+                    </button>
+                  </div>
+                  {(locationDenied ||
+                    showManualLocation ||
+                    patientLatitude != null ||
+                    patientLongitude != null ||
+                    patientCity.trim().length > 0 ||
+                    patientPincode.trim().length > 0) && (
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label
+                          htmlFor="qb-city"
+                          className="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200"
+                        >
+                          City
+                        </label>
+                        <input
+                          id="qb-city"
+                          data-testid="quick-book-city"
+                          type="text"
+                          value={patientCity}
+                          aria-invalid={!!identityErrors.city}
+                          onChange={(e) => {
+                            setPatientCity(e.target.value);
+                            setIdentityErrors((prev) => ({ ...prev, city: undefined }));
+                          }}
+                          placeholder="e.g. Bengaluru"
+                          className={inputClassFor("city")}
+                        />
+                        {identityErrors.city && (
+                          <p className={fieldErrorCls}>{identityErrors.city}</p>
+                        )}
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="qb-pincode"
+                          className="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200"
+                        >
+                          PIN code
+                        </label>
+                        <input
+                          id="qb-pincode"
+                          data-testid="quick-book-pincode"
+                          type="text"
+                          inputMode="numeric"
+                          value={patientPincode}
+                          aria-invalid={!!identityErrors.pincode}
+                          onChange={(e) => {
+                            setPatientPincode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                            setIdentityErrors((prev) => ({ ...prev, pincode: undefined }));
+                          }}
+                          placeholder="560001"
+                          className={inputClassFor("pincode")}
+                        />
+                        {identityErrors.pincode && (
+                          <p className={fieldErrorCls}>{identityErrors.pincode}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {(patientCity.trim() || patientPincode.trim()) && (
+                    <p className="mt-3 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                      Detected location: {patientCity.trim() || "City unavailable"}
+                      {patientPincode.trim() ? ` • ${patientPincode.trim()}` : ""}
+                    </p>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   data-testid="quick-book-to-chat"
                   disabled={busy}
                   onClick={() => startChat()}
-                  className={`${primaryBtn} mc-shimmer mc-anim-slide-up mc-delay-5 w-full`}
+                  className={`${primaryBtn} mc-shimmer mc-anim-slide-up mc-delay-6 w-full`}
                 >
                   <span className="relative z-10 inline-flex items-center gap-2">
                     Continue
@@ -1882,13 +2215,23 @@ export default function QuickBookPage() {
                     {awaitingHospital && (
                       <div
                         data-testid="quick-book-hospitals"
-                        className="flex w-full flex-col overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-500/10 mc-anim-slide-left lg:order-first lg:h-[38rem] lg:w-[26rem] lg:shrink-0 dark:border-emerald-900/50 dark:bg-gray-800"
+                        className="flex w-full flex-col overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-500/10 mc-anim-slide-left lg:order-last lg:h-[38rem] lg:w-[26rem] lg:shrink-0 dark:border-emerald-900/50 dark:bg-gray-800"
                       >
                         <div className="flex items-center gap-2 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-5 py-4 dark:border-gray-700 dark:from-emerald-950 dark:to-teal-950">
                           <Stethoscope className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
-                          <p className="text-base font-semibold text-gray-800 dark:text-gray-100">
-                            Which hospital would you like to visit?
-                          </p>
+                          <div>
+                            <p className="text-base font-semibold text-gray-800 dark:text-gray-100">
+                              Nearest hospitals
+                            </p>
+                            {recommendedSpecialties.length > 0 && (
+                              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                                Best matched for {recommendedSpecialties[0]}
+                              </p>
+                            )}
+                          </div>
+                          {hospitalsLoading && (
+                            <Loader2 className="ml-auto h-4 w-4 animate-spin text-emerald-500" />
+                          )}
                         </div>
                         {/* Scrollable list — capped height so a long hospital
                             roster scrolls inside the panel instead of pushing
@@ -1899,63 +2242,128 @@ export default function QuickBookPage() {
                           data-testid="quick-book-hospitals-scroll"
                           className="flex max-h-[26rem] min-h-0 flex-col gap-3 overflow-y-auto p-4 lg:flex-1 lg:max-h-none"
                         >
-                          {hospitals.slice(0, hospitalVisibleCount).map((h) => (
-                            <button
-                              key={h.id}
-                              type="button"
-                              data-testid={`quick-book-hospital-${h.id}`}
-                              onClick={() => {
-                                setTenantId(h.id);
-                                setAwaitingHospital(false);
-                                // Pass h.id explicitly — setTenantId hasn't
-                                // applied yet this tick, so the suggestion fetch
-                                // must use the fresh id or it scopes to default.
-                                void loadDoctorSuggestions(undefined, date, h.id);
-                              }}
-                              className="group flex shrink-0 items-center justify-between rounded-xl border-2 border-gray-200 px-5 py-4 text-left transition hover:border-emerald-500 hover:bg-emerald-50 hover:shadow-md dark:border-gray-700 dark:hover:bg-gray-700"
-                            >
-                              <span className="flex flex-col">
-                                <span className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                                  {h.name}
-                                </span>
-                                {h.code ? (
-                                  <span className="text-xs text-gray-500 dark:text-gray-400">
-                                    {h.code}
-                                  </span>
-                                ) : null}
-                              </span>
-                              <span
-                                aria-hidden
-                                className="text-lg text-gray-400 transition group-hover:translate-x-0.5 group-hover:text-emerald-600"
-                              >
-                                →
-                              </span>
-                            </button>
-                          ))}
-                          {hospitalVisibleCount < hospitals.length && (
+                          {!hospitalRecommendationsReady ? (
+                            <div className="space-y-3" data-testid="quick-book-hospitals-loading">
+                              {Array.from({ length: 4 }).map((_, index) => (
+                                <div
+                                  key={index}
+                                  className="rounded-xl border-2 border-gray-200 px-5 py-4 dark:border-gray-700"
+                                >
+                                  <div className="mb-3 h-5 w-28 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700" />
+                                  <div className="mb-2 h-6 w-3/4 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
+                                  <div className="h-4 w-1/2 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <>
+                              {(recommendedHospitals.length > 0
+                                ? recommendedHospitals
+                                : hospitals)
+                                .slice(0, hospitalVisibleCount)
+                                .map((h) => (
+                                  <button
+                                    key={h.id}
+                                    type="button"
+                                    data-testid={`quick-book-hospital-${h.id}`}
+                                    onClick={() => {
+                                      setTenantId(h.id);
+                                      setAwaitingHospital(false);
+                                      // Pass h.id explicitly — setTenantId hasn't
+                                      // applied yet this tick, so the suggestion fetch
+                                      // must use the fresh id or it scopes to default.
+                                      void loadDoctorSuggestions(undefined, date, h.id);
+                                    }}
+                                    className="group flex shrink-0 items-center justify-between rounded-xl border-2 border-gray-200 px-5 py-4 text-left transition hover:border-emerald-500 hover:bg-emerald-50 hover:shadow-md dark:border-gray-700 dark:hover:bg-gray-700"
+                                  >
+                                    <span className="flex min-w-0 flex-col">
+                                      <span
+                                        className={`mb-1 inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                          h.distanceKm != null
+                                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                            : "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300"
+                                        }`}
+                                      >
+                                        {typeof h.distanceKm === "number"
+                                          ? h.distanceKm < 1
+                                            ? "Less than 1 km away"
+                                            : `${h.distanceKm.toFixed(1)} km away`
+                                          : "Distance unavailable"}
+                                      </span>
+                                      <span className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                                        {h.name}
+                                      </span>
+                                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                                        {[h.code, h.city, h.pincode].filter(Boolean).join(" · ") || "Location not added"}
+                                      </span>
+                                      {false ? (
+                                        <span className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-300" />
+                                      ) : null}
+                                    </span>
+                                    <span
+                                      aria-hidden
+                                      className="text-lg text-gray-400 transition group-hover:translate-x-0.5 group-hover:text-emerald-600"
+                                    >
+                                      →
+                                    </span>
+                                  </button>
+                                ))}
+                            </>
+                          )}
+                          {hospitalRecommendationsReady &&
+                            hospitalVisibleCount <
+                              (recommendedHospitals.length > 0
+                                ? recommendedHospitals.length
+                                : hospitals.length) && (
                             <p
                               data-testid="quick-book-hospitals-more"
                               className="py-1 text-center text-xs text-gray-400 dark:text-gray-500"
                             >
                               Scroll for more — showing {hospitalVisibleCount} of{" "}
-                              {hospitals.length}
+                              {recommendedHospitals.length > 0
+                                ? recommendedHospitals.length
+                                : hospitals.length}
                             </p>
                           )}
                         </div>
                       </div>
                     )}
-                    {(doctors.length > 0 || doctorsLoading || doctorsSearched) && (
+                    {!awaitingHospital &&
+                      (doctors.length > 0 || doctorsLoading || doctorsSearched) && (
                       <div
                         data-testid="quick-book-doctors"
-                        className="flex w-full flex-col overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-500/10 mc-anim-slide-left lg:order-first lg:h-[38rem] lg:w-[26rem] dark:border-emerald-900/50 dark:bg-gray-800"
+                        className="flex w-full flex-col overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-lg shadow-emerald-500/10 mc-anim-slide-left lg:order-last lg:h-[38rem] lg:w-[26rem] dark:border-emerald-900/50 dark:bg-gray-800"
                       >
                         <div className="flex items-center gap-2 border-b border-gray-100 bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-3 dark:border-gray-700 dark:from-emerald-950 dark:to-teal-950">
                           <Stethoscope className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                           <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
                             Suggested doctors
                           </p>
+                          {hospitals.length > 1 && (
+                            <button
+                              type="button"
+                              data-testid="quick-book-doctors-back-to-hospitals"
+                              onClick={() => {
+                                // Invalidate an unfinished lookup and remove the
+                                // current hospital's doctors before reopening
+                                // the hospital picker.
+                                doctorSuggestionsRequestRef.current += 1;
+                                setDoctors([]);
+                                setDoctorsLoading(false);
+                                setDoctorsSearched(false);
+                                setSelectedDoctor(null);
+                                setSelectedSlot(null);
+                                setTenantId("");
+                                setAwaitingHospital(true);
+                              }}
+                              className="ml-auto inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-emerald-700 transition hover:bg-white/70 hover:text-emerald-900 dark:text-emerald-300 dark:hover:bg-gray-700/70 dark:hover:text-emerald-100"
+                            >
+                              <ArrowLeft className="h-3.5 w-3.5" />
+                              Back
+                            </button>
+                          )}
                           {doctorsLoading && (
-                            <Loader2 className="ml-auto h-4 w-4 animate-spin text-emerald-500" />
+                            <Loader2 className="h-4 w-4 animate-spin text-emerald-500" />
                           )}
                         </div>
                         <div className="flex-1 space-y-3 overflow-y-auto p-3">
@@ -2228,9 +2636,9 @@ export default function QuickBookPage() {
                       <div className="border-t border-gray-100 p-3 dark:border-gray-700">
                         <div className="flex items-center gap-2">
                           {voiceState === "recording" ? (
-                            <div className="flex h-11 flex-1 items-center gap-3 rounded-2xl border border-violet-400/20 bg-[#1b1f33] px-4 text-sm text-violet-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                              <span className="h-2 w-2 rounded-full bg-rose-400 shadow-[0_0_10px_rgba(251,113,133,0.65)]" />
-                              <span className="font-medium text-violet-200">
+                            <div className="flex h-11 flex-1 items-center gap-3 rounded-2xl border border-cyan-500/20 bg-[#171d31] px-4 text-sm text-cyan-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                              <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.55)]" />
+                              <span className="font-medium text-cyan-100">
                                 Listening
                               </span>
                               <span
@@ -2240,7 +2648,7 @@ export default function QuickBookPage() {
                                 {voiceWaveBars.map((bar, index) => (
                                   <span
                                     key={index}
-                                    className="w-1 rounded-full bg-violet-300 transition-[height,opacity] duration-100 ease-out animate-pulse"
+                                    className="w-1 rounded-full bg-gradient-to-t from-cyan-400 to-violet-400 transition-[height,opacity] duration-100 ease-out animate-pulse"
                                     style={{
                                       height: bar.height,
                                       opacity: bar.opacity,
@@ -2277,7 +2685,7 @@ export default function QuickBookPage() {
                             className={`relative flex items-center justify-center transition disabled:cursor-not-allowed disabled:opacity-50 ${
                               voiceState === "recording"
                                 ? "h-12 w-12 rounded-full bg-[#ff4b5c] text-white shadow-[0_0_0_4px_rgba(120,86,255,0.12),0_0_0_10px_rgba(120,86,255,0.08)] hover:bg-[#ff5a69]"
-                                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                                : "h-10 w-10 rounded-xl bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
                             }`}
                           >
                             {voiceState === "recording" && (
@@ -2291,7 +2699,7 @@ export default function QuickBookPage() {
                             ) : voiceState === "recording" ? (
                               <Mic className="h-5 w-5" />
                             ) : (
-                              <Mic className="h-4 w-4" />
+                              <Mic className="h-4.5 w-4.5" />
                             )}
                           </button>
                           {voiceState !== "recording" && (

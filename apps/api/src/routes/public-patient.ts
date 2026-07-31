@@ -187,14 +187,51 @@ publicPatientRouter.get(
       // batched query and attach for display alongside the name.
       const codeRows = await prisma.systemConfig.findMany({
         where: {
-          key: { in: tenants.map((t) => `tenant:${t.id}:code`) },
+          key: {
+            in: tenants.flatMap((t) => [
+              `tenant:${t.id}:code`,
+              `tenant:${t.id}:hospital_address`,
+              `tenant:${t.id}:hospital_city`,
+              `tenant:${t.id}:hospital_pincode`,
+              `tenant:${t.id}:hospital_latitude`,
+              `tenant:${t.id}:hospital_longitude`,
+            ]),
+          },
         },
         select: { key: true, value: true },
       });
       const codeById = new Map<string, string>();
+      const metaById = new Map<
+        string,
+        {
+          address?: string;
+          city?: string;
+          pincode?: string;
+          latitude?: number;
+          longitude?: number;
+        }
+      >();
       for (const row of codeRows) {
-        const m = row.key.match(/^tenant:([^:]+):code$/);
-        if (m) codeById.set(m[1], row.value);
+        const m = row.key.match(/^tenant:([^:]+):(code|hospital_address|hospital_city|hospital_pincode|hospital_latitude|hospital_longitude)$/);
+        if (!m) continue;
+        const [, tenantId, key] = m;
+        if (key === "code") {
+          codeById.set(tenantId, row.value);
+          continue;
+        }
+        const meta = metaById.get(tenantId) ?? {};
+        if (key === "hospital_address") meta.address = row.value;
+        if (key === "hospital_city") meta.city = row.value;
+        if (key === "hospital_pincode") meta.pincode = row.value;
+        if (key === "hospital_latitude") {
+          const n = Number(row.value);
+          if (Number.isFinite(n)) meta.latitude = n;
+        }
+        if (key === "hospital_longitude") {
+          const n = Number(row.value);
+          if (Number.isFinite(n)) meta.longitude = n;
+        }
+        metaById.set(tenantId, meta);
       }
 
       res.json({
@@ -203,6 +240,11 @@ publicPatientRouter.get(
           id: t.id,
           name: t.name,
           code: codeById.get(t.id) ?? null,
+          address: metaById.get(t.id)?.address ?? null,
+          city: metaById.get(t.id)?.city ?? null,
+          pincode: metaById.get(t.id)?.pincode ?? null,
+          latitude: metaById.get(t.id)?.latitude ?? null,
+          longitude: metaById.get(t.id)?.longitude ?? null,
         })),
         error: null,
       });

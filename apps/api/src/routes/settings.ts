@@ -112,6 +112,47 @@ const updateBrandingSchema = z.object({
     })
     .optional()
     .or(z.literal("")),
+  hospitalCity: z
+    .string()
+    .trim()
+    .max(120, "City is too long")
+    .refine((v) => v === "" || !containsHtmlOrScript(v), {
+      message: "City cannot contain HTML or script tags",
+    })
+    .optional()
+    .or(z.literal("")),
+  hospitalPincode: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || /^\d{6}$/.test(v), {
+      message: "PIN code must be 6 digits",
+    })
+    .optional()
+    .or(z.literal("")),
+  hospitalLatitude: z
+    .string()
+    .trim()
+    .refine((v) => {
+      if (v === "") return true;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= -90 && n <= 90;
+    }, {
+      message: "Latitude must be between -90 and 90",
+    })
+    .optional()
+    .or(z.literal("")),
+  hospitalLongitude: z
+    .string()
+    .trim()
+    .refine((v) => {
+      if (v === "") return true;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= -180 && n <= 180;
+    }, {
+      message: "Longitude must be between -180 and 180",
+    })
+    .optional()
+    .or(z.literal("")),
 });
 
 // Per-tenant Razorpay payment credentials.
@@ -259,6 +300,10 @@ router.get("/branding", async (req: Request, res: Response, next: NextFunction) 
         hospitalEmail: hospital.email || "",
         hospitalGstin: hospital.gstin || "",
         hospitalAddress: hospital.address || "",
+        hospitalCity: hospital.city || "",
+        hospitalPincode: hospital.pincode || "",
+        hospitalLatitude: hospital.latitude || "",
+        hospitalLongitude: hospital.longitude || "",
       },
       error: null,
     });
@@ -313,6 +358,18 @@ router.patch(
       if (body.hospitalAddress !== undefined) {
         await upsertConfig(tenantId, "hospital_address", body.hospitalAddress);
       }
+      if (body.hospitalCity !== undefined) {
+        await upsertConfig(tenantId, "hospital_city", body.hospitalCity);
+      }
+      if (body.hospitalPincode !== undefined) {
+        await upsertConfig(tenantId, "hospital_pincode", body.hospitalPincode);
+      }
+      if (body.hospitalLatitude !== undefined) {
+        await upsertConfig(tenantId, "hospital_latitude", body.hospitalLatitude);
+      }
+      if (body.hospitalLongitude !== undefined) {
+        await upsertConfig(tenantId, "hospital_longitude", body.hospitalLongitude);
+      }
 
       auditLog(req, "TENANT_BRANDING_UPDATE", "tenant", tenantId, {
         hospitalName: body.hospitalName,
@@ -328,6 +385,10 @@ router.patch(
           hospitalEmail: body.hospitalEmail ?? "",
           hospitalGstin: (body.hospitalGstin ?? "").toUpperCase(),
           hospitalAddress: body.hospitalAddress ?? "",
+          hospitalCity: body.hospitalCity ?? "",
+          hospitalPincode: body.hospitalPincode ?? "",
+          hospitalLatitude: body.hospitalLatitude ?? "",
+          hospitalLongitude: body.hospitalLongitude ?? "",
         },
         error: null,
       });

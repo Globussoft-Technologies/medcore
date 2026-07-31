@@ -189,6 +189,10 @@ export default function DashboardTenantDetailPage() {
         api.get<{ data: TenantDetail }>(`/tenants/${tenantId}`),
         api.get<{ data: TenantConfigBundle }>(
           `/super-admin/tenants/${tenantId}/config`,
+          // This config bundle is supplementary. If it hits a temporary auth
+          // or permission failure, keep the tenant detail visible instead of
+          // forcing the whole app through the global 401 logout redirect.
+          { skip401Redirect: true },
         ),
       ]);
       if (tRes.status === "fulfilled") {
@@ -897,3 +901,5 @@ function IntegrationCard(props: {
     </div>
   );
 }
+
+

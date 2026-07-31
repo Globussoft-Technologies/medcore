@@ -130,6 +130,10 @@ const VALID_CREATE = () => ({
     email: "info@sunrise.test",
     gstin: "27AAACM1234Z1Z5",
     address: "1 Sunrise Rd, Mumbai",
+    city: "Mumbai",
+    pincode: "400001",
+    latitude: "18.9388",
+    longitude: "72.8354",
   },
 });
 
@@ -213,9 +217,9 @@ describeIfDB("Tenants API (integration)", () => {
     expect(res.body.data.seeded.notificationPreferences).toBe(4);
     expect(res.body.data.seeded.leaveBalances).toBe(6);
     expect(res.body.data.seeded.holidays).toBeGreaterThan(0);
-    // 7 config rows: 5 hospital-identity + onboarding_started_at + the
-    // "account_created" onboarding-step stamp written at provisioning time.
-    expect(res.body.data.seeded.systemConfigRows).toBe(7);
+    // 11 config rows: 9 hospital identity/location rows plus
+    // onboarding_started_at and the "account_created" onboarding stamp.
+    expect(res.body.data.seeded.systemConfigRows).toBe(11);
 
     // And verify the per-tenant SystemConfig actually landed in the DB.
     const prisma = await getPrisma();
@@ -223,7 +227,31 @@ describeIfDB("Tenants API (integration)", () => {
     const cfg = await prisma.systemConfig.findMany({
       where: { key: { startsWith: `tenant:${tenantId}:` } },
     });
-    expect(cfg.length).toBeGreaterThanOrEqual(6);
+    const configPrefix = `tenant:${tenantId}:`;
+    const configByKey = Object.fromEntries(
+      cfg.map((entry: { key: string; value: string }) => [
+        entry.key.slice(configPrefix.length),
+        entry.value,
+      ]),
+    );
+    expect(cfg).toHaveLength(11);
+    expect(configByKey).toEqual({
+      hospital_name: body.name,
+      hospital_phone: body.hospitalConfig.phone,
+      hospital_email: body.hospitalConfig.email,
+      hospital_gstin: body.hospitalConfig.gstin,
+      hospital_address: body.hospitalConfig.address,
+      hospital_city: body.hospitalConfig.city,
+      hospital_pincode: body.hospitalConfig.pincode,
+      hospital_latitude: body.hospitalConfig.latitude,
+      hospital_longitude: body.hospitalConfig.longitude,
+      onboarding_started_at: expect.any(String),
+      onboarding_step_account_created_completed_at: expect.any(String),
+    });
+    expect(Date.parse(configByKey.onboarding_started_at)).not.toBeNaN();
+    expect(
+      Date.parse(configByKey.onboarding_step_account_created_completed_at),
+    ).not.toBeNaN();
   });
 
   // ── 1b. No-trial create → first invoice auto-generated ──────────────

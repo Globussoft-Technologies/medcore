@@ -1167,6 +1167,10 @@ function CreateTenantModal({
     hospitalEmail: "",
     hospitalGstin: "",
     hospitalAddress: "",
+    hospitalCity: "",
+    hospitalPincode: "",
+    hospitalLatitude: "",
+    hospitalLongitude: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -1242,6 +1246,10 @@ function CreateTenantModal({
             email: form.hospitalEmail.trim() || undefined,
             gstin: form.hospitalGstin.trim() || undefined,
             address: form.hospitalAddress.trim() || undefined,
+            city: form.hospitalCity.trim() || undefined,
+            pincode: form.hospitalPincode.trim() || undefined,
+            latitude: form.hospitalLatitude.trim() || undefined,
+            longitude: form.hospitalLongitude.trim() || undefined,
           },
         },
       );
@@ -1614,6 +1622,60 @@ function CreateTenantModal({
                   className={`${inputCls} resize-none`}
                 />
               </Field>
+            </div>
+            <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-800/40">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+                Location for public booking
+              </p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="City">
+                  <input
+                    data-testid="tenants-create-hospital-city"
+                    value={form.hospitalCity}
+                    onChange={(e) =>
+                      setForm({ ...form, hospitalCity: e.target.value })
+                    }
+                    placeholder="Bengaluru"
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="PIN code">
+                  <input
+                    data-testid="tenants-create-hospital-pincode"
+                    value={form.hospitalPincode}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        hospitalPincode: e.target.value.replace(/\D/g, "").slice(0, 6),
+                      })
+                    }
+                    placeholder="560001"
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Latitude">
+                  <input
+                    data-testid="tenants-create-hospital-latitude"
+                    value={form.hospitalLatitude}
+                    onChange={(e) =>
+                      setForm({ ...form, hospitalLatitude: e.target.value })
+                    }
+                    placeholder="12.9716"
+                    className={inputCls}
+                  />
+                </Field>
+                <Field label="Longitude">
+                  <input
+                    data-testid="tenants-create-hospital-longitude"
+                    value={form.hospitalLongitude}
+                    onChange={(e) =>
+                      setForm({ ...form, hospitalLongitude: e.target.value })
+                    }
+                    placeholder="77.5946"
+                    className={inputCls}
+                  />
+                </Field>
+              </div>
             </div>
           </section>
         </div>

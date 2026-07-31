@@ -1242,6 +1242,10 @@ interface BrandingResponse {
     hospitalEmail?: string;
     hospitalGstin?: string;
     hospitalAddress?: string;
+    hospitalCity?: string;
+    hospitalPincode?: string;
+    hospitalLatitude?: string;
+    hospitalLongitude?: string;
   };
 }
 
@@ -1253,6 +1257,10 @@ function BrandingTab() {
   const [hospitalEmail, setHospitalEmail] = useState("");
   const [hospitalGstin, setHospitalGstin] = useState("");
   const [hospitalAddress, setHospitalAddress] = useState("");
+  const [hospitalCity, setHospitalCity] = useState("");
+  const [hospitalPincode, setHospitalPincode] = useState("");
+  const [hospitalLatitude, setHospitalLatitude] = useState("");
+  const [hospitalLongitude, setHospitalLongitude] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -1268,6 +1276,10 @@ function BrandingTab() {
         setHospitalEmail(res.data.hospitalEmail || "");
         setHospitalGstin(res.data.hospitalGstin || "");
         setHospitalAddress(res.data.hospitalAddress || "");
+        setHospitalCity(res.data.hospitalCity || "");
+        setHospitalPincode(res.data.hospitalPincode || "");
+        setHospitalLatitude(res.data.hospitalLatitude || "");
+        setHospitalLongitude(res.data.hospitalLongitude || "");
       } catch {
         // Ignore — keep the panel rendered with empty fields so the admin
         // can populate from scratch.
@@ -1304,6 +1316,28 @@ function BrandingTab() {
     ) {
       errs.hospitalGstin = "GSTIN must be 15 letters/digits";
     }
+    if (
+      hospitalPincode.trim().length > 0 &&
+      !/^\d{6}$/.test(hospitalPincode.trim())
+    ) {
+      errs.hospitalPincode = "PIN code must be 6 digits";
+    }
+    if (
+      hospitalLatitude.trim().length > 0 &&
+      !(Number.isFinite(Number(hospitalLatitude.trim())) &&
+        Number(hospitalLatitude.trim()) >= -90 &&
+        Number(hospitalLatitude.trim()) <= 90)
+    ) {
+      errs.hospitalLatitude = "Latitude must be between -90 and 90";
+    }
+    if (
+      hospitalLongitude.trim().length > 0 &&
+      !(Number.isFinite(Number(hospitalLongitude.trim())) &&
+        Number(hospitalLongitude.trim()) >= -180 &&
+        Number(hospitalLongitude.trim()) <= 180)
+    ) {
+      errs.hospitalLongitude = "Longitude must be between -180 and 180";
+    }
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) {
       toast.warning("Please fix the highlighted fields");
@@ -1320,6 +1354,10 @@ function BrandingTab() {
         hospitalEmail: hospitalEmail.trim(),
         hospitalGstin: hospitalGstin.trim().toUpperCase(),
         hospitalAddress: hospitalAddress.trim(),
+        hospitalCity: hospitalCity.trim(),
+        hospitalPincode: hospitalPincode.trim(),
+        hospitalLatitude: hospitalLatitude.trim(),
+        hospitalLongitude: hospitalLongitude.trim(),
       });
       toast.success("Branding saved");
     } catch (err) {
@@ -1494,6 +1532,91 @@ function BrandingTab() {
               className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
             />
           </Field>
+        </div>
+        <div className="mt-5 border-t border-gray-100 pt-5 dark:border-gray-700">
+          <h3 className="mb-1 text-sm font-semibold">Location for public booking</h3>
+          <p className="mb-4 text-xs text-gray-500 dark:text-gray-400">
+            Used to sort this hospital by nearest distance in the public booking flow.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="City">
+              <input
+                type="text"
+                value={hospitalCity}
+                onChange={(e) => setHospitalCity(e.target.value)}
+                data-testid="branding-hospital-city"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-900"
+              />
+            </Field>
+            <Field label="PIN code">
+              <input
+                type="text"
+                value={hospitalPincode}
+                onChange={(e) => {
+                  setHospitalPincode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                  if (fieldErrors.hospitalPincode)
+                    setFieldErrors((p) => ({ ...p, hospitalPincode: "" }));
+                }}
+                data-testid="branding-hospital-pincode"
+                aria-invalid={fieldErrors.hospitalPincode ? "true" : undefined}
+                className={
+                  "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+                  (fieldErrors.hospitalPincode
+                    ? "border-red-500 bg-red-50 dark:bg-red-900/20"
+                    : "border-gray-300 dark:border-gray-600")
+                }
+              />
+              {fieldErrors.hospitalPincode && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.hospitalPincode}</p>
+              )}
+            </Field>
+            <Field label="Latitude">
+              <input
+                type="text"
+                value={hospitalLatitude}
+                onChange={(e) => {
+                  setHospitalLatitude(e.target.value);
+                  if (fieldErrors.hospitalLatitude)
+                    setFieldErrors((p) => ({ ...p, hospitalLatitude: "" }));
+                }}
+                placeholder="e.g. 12.9716"
+                data-testid="branding-hospital-latitude"
+                aria-invalid={fieldErrors.hospitalLatitude ? "true" : undefined}
+                className={
+                  "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+                  (fieldErrors.hospitalLatitude
+                    ? "border-red-500 bg-red-50 dark:bg-red-900/20"
+                    : "border-gray-300 dark:border-gray-600")
+                }
+              />
+              {fieldErrors.hospitalLatitude && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.hospitalLatitude}</p>
+              )}
+            </Field>
+            <Field label="Longitude">
+              <input
+                type="text"
+                value={hospitalLongitude}
+                onChange={(e) => {
+                  setHospitalLongitude(e.target.value);
+                  if (fieldErrors.hospitalLongitude)
+                    setFieldErrors((p) => ({ ...p, hospitalLongitude: "" }));
+                }}
+                placeholder="e.g. 77.5946"
+                data-testid="branding-hospital-longitude"
+                aria-invalid={fieldErrors.hospitalLongitude ? "true" : undefined}
+                className={
+                  "w-full rounded-lg border px-3 py-2 dark:bg-gray-900 " +
+                  (fieldErrors.hospitalLongitude
+                    ? "border-red-500 bg-red-50 dark:bg-red-900/20"
+                    : "border-gray-300 dark:border-gray-600")
+                }
+              />
+              {fieldErrors.hospitalLongitude && (
+                <p className="mt-1 text-xs text-red-600">{fieldErrors.hospitalLongitude}</p>
+              )}
+            </Field>
+          </div>
         </div>
       </div>
 

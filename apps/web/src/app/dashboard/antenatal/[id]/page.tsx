@@ -1025,9 +1025,9 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
   }
 
   return (
-    <div className="rounded-xl bg-white p-5 shadow-sm">
+    <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="font-semibold">Partograph</h3>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Partograph</h3>
         {canEdit && (!active || active.endedAt) && (
           <button
             onClick={startNew}
@@ -1046,10 +1046,10 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
           <SkeletonTable rows={4} columns={5} />
         </div>
       ) : !active ? (
-        <p className="text-sm text-gray-500">No partograph started.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No partograph started.</p>
       ) : (
         <>
-          <div className="mb-3 text-xs text-gray-600">
+          <div className="mb-3 text-xs text-gray-600 dark:text-gray-300">
             Started: {new Date(active.startedAt).toLocaleString()}
             {active.endedAt && (
               <span className="ml-3">
@@ -1060,9 +1060,9 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
           </div>
 
           {active.flags && active.flags.length > 0 && (
-            <div className="mb-3 rounded-lg border-l-4 border-amber-500 bg-amber-50 p-2 text-xs">
-              <p className="font-semibold text-amber-900">Flags</p>
-              <ul className="list-disc pl-4 text-amber-800">
+            <div className="mb-3 rounded-lg border-l-4 border-amber-500 bg-amber-50 p-2 text-xs dark:bg-amber-950/40">
+              <p className="font-semibold text-amber-900 dark:text-amber-100">Flags</p>
+              <ul className="list-disc pl-4 text-amber-800 dark:text-amber-200">
                 {active.flags.map((f, i) => (
                   <li key={i}>{f}</li>
                 ))}
@@ -1076,8 +1076,8 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
           )}
 
           {canEdit && !active.endedAt && (
-            <div className="mt-4 rounded-lg border p-3">
-              <p className="mb-2 text-xs font-semibold text-gray-600">
+            <div className="mt-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+              <p className="mb-2 text-xs font-semibold text-gray-600 dark:text-gray-300">
                 Add Observation
               </p>
               <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -1085,14 +1085,14 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
                   type="datetime-local"
                   value={obs.time}
                   onChange={(e) => setObs({ ...obs, time: e.target.value })}
-                  className="rounded-lg border px-3 py-2 text-sm"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 />
                 <input
                   type="number"
                   placeholder="FHR (bpm)"
                   value={obs.fetalHeartRate ?? ""}
                   onChange={(e) => setObs({ ...obs, fetalHeartRate: Number(e.target.value) || undefined })}
-                  className="rounded-lg border px-3 py-2 text-sm"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
                 <input
                   type="number"
@@ -1100,27 +1100,27 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
                   placeholder="Dilation (cm)"
                   value={obs.cervicalDilation ?? ""}
                   onChange={(e) => setObs({ ...obs, cervicalDilation: Number(e.target.value) || undefined })}
-                  className="rounded-lg border px-3 py-2 text-sm"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
                 <input
                   type="number"
                   placeholder="Contractions /10min"
                   value={obs.contractionsPer10Min ?? ""}
                   onChange={(e) => setObs({ ...obs, contractionsPer10Min: Number(e.target.value) || undefined })}
-                  className="rounded-lg border px-3 py-2 text-sm"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
                 <input
                   placeholder="Maternal BP"
                   value={obs.maternalBP ?? ""}
                   onChange={(e) => setObs({ ...obs, maternalBP: e.target.value })}
-                  className="rounded-lg border px-3 py-2 text-sm"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
                 <input
                   type="number"
                   placeholder="Maternal pulse"
                   value={obs.maternalPulse ?? ""}
                   onChange={(e) => setObs({ ...obs, maternalPulse: Number(e.target.value) || undefined })}
-                  className="rounded-lg border px-3 py-2 text-sm"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
                 <input
                   type="number"
@@ -1128,12 +1128,12 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
                   placeholder="Temp °C"
                   value={obs.temperature ?? ""}
                   onChange={(e) => setObs({ ...obs, temperature: Number(e.target.value) || undefined })}
-                  className="rounded-lg border px-3 py-2 text-sm"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
                 />
                 <select
                   value={obs.contractionStrength ?? ""}
                   onChange={(e) => setObs({ ...obs, contractionStrength: e.target.value || undefined })}
-                  className="rounded-lg border px-3 py-2 text-sm"
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
                 >
                   <option value="">Strength</option>
                   <option value="MILD">Mild</option>
@@ -1144,7 +1144,7 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
               <div className="mt-2 flex justify-end gap-2">
                 <button
                   onClick={endPg}
-                  className="rounded-lg border border-red-300 px-3 py-1 text-xs text-red-700"
+                  className="rounded-lg border border-red-300 px-3 py-1 text-xs text-red-700 dark:border-red-700 dark:text-red-300"
                 >
                   End Partograph
                 </button>
@@ -1160,8 +1160,8 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
 
           {active.observations.length > 0 && (
             <div className="mt-4 max-h-60 overflow-y-auto">
-              <table className="min-w-full text-xs">
-                <thead className="sticky top-0 bg-gray-50 text-gray-600">
+              <table className="min-w-full text-xs text-gray-700 dark:text-gray-200">
+                <thead className="sticky top-0 bg-gray-50 text-gray-600 dark:bg-gray-900 dark:text-gray-300">
                   <tr>
                     <th className="px-2 py-1 text-left">Time</th>
                     <th className="px-2 py-1">FHR</th>
@@ -1173,7 +1173,7 @@ function PartographTab({ caseId, canEdit }: { caseId: string; canEdit: boolean }
                 </thead>
                 <tbody>
                   {active.observations.map((o, i) => (
-                    <tr key={i} className="border-t">
+                    <tr key={i} className="border-t border-gray-200 dark:border-gray-700">
                       <td className="px-2 py-1">{o.time}</td>
                       <td className="px-2 py-1 text-center">{o.fetalHeartRate ?? "-"}</td>
                       <td className="px-2 py-1 text-center">{o.cervicalDilation ?? "-"}</td>
@@ -1383,8 +1383,8 @@ function AcogRiskTab({
           : "bg-green-100 text-green-800 border-green-300";
 
   return (
-    <div className="rounded-xl bg-white p-5 shadow-sm">
-      <h3 className="mb-4 font-semibold">ACOG-Based Risk Score</h3>
+    <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+      <h3 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">ACOG-Based Risk Score</h3>
       {canEdit && (
         <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
           <input
@@ -1393,7 +1393,7 @@ function AcogRiskTab({
             placeholder="Height (cm)"
             value={form.heightCm}
             onChange={(e) => setForm({ ...form, heightCm: e.target.value })}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <input
             type="number"
@@ -1401,7 +1401,7 @@ function AcogRiskTab({
             placeholder="Weight (kg)"
             value={form.weightKg}
             onChange={(e) => setForm({ ...form, weightKg: e.target.value })}
-            className="rounded-lg border px-3 py-2 text-sm"
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           {[
             { k: "hasPrevCSection", l: "Previous C-section" },
@@ -1416,7 +1416,7 @@ function AcogRiskTab({
           ].map((opt) => (
             <label
               key={opt.k}
-              className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
             >
               <input
                 type="checkbox"
@@ -1460,10 +1460,10 @@ function AcogRiskTab({
               {result.riskFactors.map((r, i) => (
                 <li
                   key={i}
-                  className="flex justify-between rounded border-l-4 border-gray-300 bg-gray-50 px-3 py-1.5"
+                  className="flex justify-between rounded border-l-4 border-gray-300 bg-gray-50 px-3 py-1.5 text-gray-700 dark:border-gray-600 dark:bg-gray-900/50 dark:text-gray-200"
                 >
                   <span>{r.factor}</span>
-                  <span className="font-semibold text-gray-600">+{r.points}</span>
+                  <span className="font-semibold text-gray-600 dark:text-gray-300">+{r.points}</span>
                 </li>
               ))}
             </ul>
@@ -1553,10 +1553,10 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
   }
 
   return (
-    <div className="rounded-xl bg-white p-5 shadow-sm">
-      <h3 className="mb-4 font-semibold">Postnatal Visits</h3>
+    <div className="rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800">
+      <h3 className="mb-4 font-semibold text-gray-900 dark:text-gray-100">Postnatal Visits</h3>
       {canEdit && (
-        <div className="mb-4 rounded-lg border bg-gray-50 p-4">
+        <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <input
               type="number"
@@ -1567,13 +1567,13 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
               onChange={(e) =>
                 setForm({ ...form, weekPostpartum: Number(e.target.value) || 1 })
               }
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
             />
             <input
               placeholder="Mother BP"
               value={form.motherBP}
               onChange={(e) => setForm({ ...form, motherBP: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
             />
             <input
               type="number"
@@ -1581,12 +1581,12 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
               placeholder="Mother weight (kg)"
               value={form.motherWeight}
               onChange={(e) => setForm({ ...form, motherWeight: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
             />
             <select
               value={form.lochia}
               onChange={(e) => setForm({ ...form, lochia: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
               <option value="">Lochia</option>
               <option value="NORMAL">Normal</option>
@@ -1599,7 +1599,7 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
               onChange={(e) =>
                 setForm({ ...form, uterineInvolution: e.target.value })
               }
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
               <option value="">Uterine involution</option>
               <option value="NORMAL">Normal</option>
@@ -1610,7 +1610,7 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
               onChange={(e) =>
                 setForm({ ...form, breastfeeding: e.target.value })
               }
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
             >
               <option value="">Breastfeeding</option>
               <option value="EXCLUSIVE">Exclusive</option>
@@ -1623,9 +1623,9 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
               placeholder="Baby weight (kg)"
               value={form.babyWeight}
               onChange={(e) => setForm({ ...form, babyWeight: e.target.value })}
-              className="rounded-lg border px-3 py-2 text-sm"
+              className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
             />
-            <label className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm">
+            <label className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200">
               <input
                 type="checkbox"
                 checked={form.babyJaundice}
@@ -1639,7 +1639,7 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
             placeholder="Notes"
             value={form.notes}
             onChange={(e) => setForm({ ...form, notes: e.target.value })}
-            className="mt-2 w-full rounded-lg border px-3 py-2 text-sm"
+            className="mt-2 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
           />
           <div className="mt-2 flex justify-end">
             <button
@@ -1660,11 +1660,11 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
           <SkeletonTable rows={4} columns={4} />
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-gray-500">No postnatal visits recorded.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No postnatal visits recorded.</p>
       ) : (
         <div className="space-y-2">
           {rows.map((v) => (
-            <div key={v.id} className="rounded-lg border p-3 text-sm">
+            <div key={v.id} className="rounded-lg border border-gray-200 p-3 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-200">
               <div className="flex items-center justify-between">
                 <p className="font-medium">
                   Week {v.weekPostpartum} · {new Date(v.visitDate).toLocaleDateString()}
@@ -1675,7 +1675,7 @@ function PostnatalTab({ caseId, canEdit }: { caseId: string; canEdit: boolean })
                   </span>
                 )}
               </div>
-              <div className="mt-1 grid grid-cols-2 gap-x-4 text-xs text-gray-600 md:grid-cols-4">
+              <div className="mt-1 grid grid-cols-2 gap-x-4 text-xs text-gray-600 dark:text-gray-300 md:grid-cols-4">
                 {v.motherBP && <p>Mother BP: {v.motherBP}</p>}
                 {v.motherWeight != null && <p>Mother wt: {v.motherWeight} kg</p>}
                 {v.lochia && <p>Lochia: {v.lochia}</p>}

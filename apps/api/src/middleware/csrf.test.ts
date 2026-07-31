@@ -106,6 +106,7 @@ describe("csrfProtection — path-based bypass for auth bootstrap routes", () =>
     "/api/v1/auth/2fa/enrol-setup",
     "/api/v1/auth/2fa/enrol-verify",
     "/api/v1/billing/webhooks/razorpay",
+    "/api/v1/public/booking/recommend-hospitals",
     // Public ABHA (ABDM M1 V3) Aadhaar flow — unauthenticated booking surface,
     // no session/CSRF cookie. startsWith covers request-otp / verify-otp /
     // login/* / profile / card. See routes/public-abha.ts.

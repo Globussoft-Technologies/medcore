@@ -39,6 +39,43 @@ describe("suggestDoctorsSchema", () => {
       }).success,
     ).toBe(false);
   });
+  it("accepts optional patient location fields for hospital ranking", () => {
+    expect(
+      suggestDoctorsSchema.safeParse({
+        symptom: "fever",
+        date: "2026-06-15",
+        patientLatitude: 12.9716,
+        patientLongitude: 77.5946,
+        patientCity: "Bengaluru",
+        patientPincode: "560001",
+      }).success,
+    ).toBe(true);
+  });
+  it("rejects an invalid PIN code in location fallback data", () => {
+    expect(
+      suggestDoctorsSchema.safeParse({
+        symptom: "fever",
+        date: "2026-06-15",
+        patientPincode: "56001",
+      }).success,
+    ).toBe(false);
+  });
+  it("rejects out-of-range patient coordinates", () => {
+    expect(
+      suggestDoctorsSchema.safeParse({
+        symptom: "fever",
+        date: "2026-06-15",
+        patientLatitude: 95,
+      }).success,
+    ).toBe(false);
+    expect(
+      suggestDoctorsSchema.safeParse({
+        symptom: "fever",
+        date: "2026-06-15",
+        patientLongitude: 190,
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("publicBookSchema", () => {

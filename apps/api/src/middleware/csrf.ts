@@ -91,6 +91,7 @@ const CSRF_BYPASS_PATHS = [
   // (suggest 20/min, book 10/min) + strict Zod validation on every body, and
   // the booking only ever creates a PATIENT row keyed by the supplied phone
   // (no privilege to escalate). See routes/public-booking.ts.
+  "/api/v1/public/booking/recommend-hospitals",
   "/api/v1/public/booking/suggest-doctors",
   "/api/v1/public/booking/book",
   // Read-only pre-submit duplicate check for the kiosk booking modal.

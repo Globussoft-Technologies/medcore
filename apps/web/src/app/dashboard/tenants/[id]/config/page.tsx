@@ -99,6 +99,9 @@ export default function TenantConfigPage() {
         api.get<{ data: TenantSummary }>(`/tenants/${tenantId}`),
         api.get<{ data: { features: FeatureRow[] } }>(
           `/super-admin/tenants/${tenantId}/feature-flags`,
+          // The summary page can still render if the feature-catalog request
+          // fails; avoid treating that one request as a whole-session logout.
+          { skip401Redirect: true },
         ),
       ]);
       setTenant(tRes.data);
@@ -490,3 +493,5 @@ export default function TenantConfigPage() {
     </div>
   );
 }
+
+

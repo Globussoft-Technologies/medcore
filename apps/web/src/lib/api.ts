@@ -70,7 +70,9 @@ const MUTATION_METHODS = new Set(["POST", "PATCH", "PUT", "DELETE"]);
  * /auth/me) can opt out by passing `{ skip401Redirect: true }`.
  */
 let authExpiredHandled = false;
-function handleAuthExpired(): void {
+function handleAuthExpired(
+  message: string = "Your session has expired, please sign in again.",
+): void {
   if (authExpiredHandled) return;
   authExpiredHandled = true;
   if (typeof window === "undefined") return;
@@ -83,7 +85,7 @@ function handleAuthExpired(): void {
   } catch {
     // localStorage may be unavailable in private mode — best-effort.
   }
-  toast.error("Your session has expired, please sign in again.", 6000);
+  toast.error(message, 6000);
   // Avoid redirecting if we're already on /login — prevents a loop when the
   // login form itself returns a 401 for bad credentials.
   const here = window.location.pathname;
@@ -231,7 +233,11 @@ async function request<T>(
     // Issues #101 + #132: 401 → expired session. Redirect+toast unless
     // the caller opted out (e.g. /auth/me on app boot).
     if (res.status === 401 && !skip401Redirect && typeof window !== "undefined") {
-      handleAuthExpired();
+      const authMessage =
+        data?.code === "session_idle"
+          ? "You were signed out due to inactivity. Please sign in again."
+          : "Your session has expired, please sign in again.";
+      handleAuthExpired(authMessage);
     }
     // Prefer the most specific human-readable message the server gave us:
     //   1. Zod validation → `details[0].message` (e.g. "Enter a valid phone…")

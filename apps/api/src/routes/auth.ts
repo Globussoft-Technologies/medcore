@@ -59,6 +59,10 @@ import {
 // <img>, so it must be resolved (signed) on read — same as the patient
 // endpoints do for Patient.photoUrl.
 import { resolvePatientPhotoUrl } from "../lib/patient-photo";
+import {
+  clearSuperAdminIdleActivity,
+  touchSuperAdminIdleActivity,
+} from "../middleware/session-idle";
 
 /**
  * Resolve the caller's IP for lockout / audit purposes. Mirrors the same
@@ -1584,8 +1588,14 @@ router.post(
         .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
         .catch(console.error);
 
+      // Fresh login must start a fresh idle window. Without this, a stale
+      // in-memory timestamp from a previous session can make the first
+      // super-admin click after re-auth look instantly idle.
+      clearSuperAdminIdleActivity(user.id);
+      touchSuperAdminIdleActivity(user.id);
+
       // Issue #477: set the access + refresh + csrf cookies. The login
-      // honoured the user's `rememberMe` flag for refresh-token TTL — pass
+      // honoured the user's `rememberMe` flag for refresh-token TTL ? pass
       // the same value through so the cookie's maxAge matches the JWT exp.
       setAuthCookies(res, tokens, tokens.refreshTtlSeconds);
 
@@ -1810,6 +1820,7 @@ router.post(
       }
 
       if (userId) {
+        clearSuperAdminIdleActivity(userId);
         auditLog(req, "AUTH_LOGOUT", "user", userId).catch(console.error);
       }
 
@@ -2572,6 +2583,11 @@ router.post(
       prisma.user
         .update({ where: { id: user.id }, data: { lastLoginAt: new Date() } })
         .catch(console.error);
+
+      // 2FA completion is the real start of the authenticated session, so
+      // reset any stale idle timestamp carried over from a previous session.
+      clearSuperAdminIdleActivity(user.id);
+      touchSuperAdminIdleActivity(user.id);
 
       // Issue #477: set cookies after 2FA verify (same as login).
       setAuthCookies(res, tokens, tokens.refreshTtlSeconds);

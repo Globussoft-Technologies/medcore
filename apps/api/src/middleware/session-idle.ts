@@ -110,6 +110,14 @@ export async function enforceSuperAdminIdleTimeout(
 /**
  * Test helpers — reset the in-memory state between cases.
  */
+export function clearSuperAdminIdleActivity(userId: string): void {
+  lastActivityByUser.delete(userId);
+}
+
+export function touchSuperAdminIdleActivity(userId: string): void {
+  lastActivityByUser.set(userId, Date.now());
+}
+
 export function __resetSessionIdleStateForTests(): void {
   lastActivityByUser.clear();
   cachedIdleMs = null;

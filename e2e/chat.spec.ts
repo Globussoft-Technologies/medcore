@@ -7,8 +7,8 @@
  *   GET   /api/v1/chat/rooms              — list user's rooms with unread counts
  *   GET   /api/v1/chat/users              — staff picker (excludes PATIENT)
  *   POST  /api/v1/chat/rooms              — start a 1-on-1 (returns existing if any)
- *   POST  /api/v1/chat/rooms/:id/messages — send a TEXT message
  *   PATCH /api/v1/chat/rooms/:id/read     — mark-as-read on room select
+ *   Socket.IO `chat:message:send`         — send a TEXT message
  *   (apps/api/src/routes/chat.ts)
  *
  * Surfaces touched:
@@ -27,10 +27,10 @@
  *     full directory.
  *   - 1-on-1 room creation + message send: ADMIN picks a staff member,
  *     `startChat` posts /chat/rooms, then types a uniquely-tagged message
- *     and clicks Send. Asserts the POST /messages round-trip 2xx + the
- *     bubble lands in the scroller. Locks the create→message→render
- *     happy path that drives every other ops feature (reactions / pin /
- *     mentions / typing) downstream of it.
+ *     and sends via the socket-backed composer. Asserts the composer
+ *     clears, which only happens after the socket ack succeeds. Locks the
+ *     create→message happy path that drives reactions / pin / mentions /
+ *     typing downstream of it.
  *   - Direct-URL reachability for PATIENT / LAB_TECH / PHARMACIST: the
  *     route has NO client-side VIEW_ALLOWED block — only the dashboard
  *     layout's auth guard runs. So the page should render the heading
@@ -169,7 +169,7 @@ test.describe("Chat — /dashboard/chat (room list + start-chat picker + message
     expect(createRes.status()).toBeLessThan(400);
   });
 
-  test("ADMIN can send a TEXT message to a freshly-opened 1-on-1 — POST /chat/rooms/:id/messages returns 201 and the composer clears (bubble rendering itself depends on socket.io which is unreliable under Playwright)", async ({
+  test("ADMIN can send a TEXT message to a freshly-opened 1-on-1 and the socket-backed composer clears", async ({
     adminPage,
   }) => {
     const page = adminPage;
@@ -219,28 +219,18 @@ test.describe("Chat — /dashboard/chat (room list + start-chat picker + message
 
     await composer.fill(messageText);
 
-    // The composer also wires Enter→send() (page.tsx:589-591). The
+    // The composer wires Enter→send() and send() now goes over the
+    // socket ack path, not the legacy POST /chat/rooms/:id/messages API.
+    // The
     // explicit Send button at bottom-right gets visually overlapped by
     // the floating Help panel "?" icon on tighter viewports, which
     // intermittently fails Playwright's actionability check. Pressing
     // Enter on the focused composer is the cleaner, equivalent path.
-    const sendPromise = page.waitForResponse(
-      (r) =>
-        /\/api\/v1\/chat\/rooms\/[^/]+\/messages$/.test(r.url()) &&
-        r.request().method() === "POST",
-      { timeout: 15_000 }
-    );
     await composer.press("Enter");
-    const sendRes = await sendPromise;
-
-    // 201 expected per chat.ts:341. A 4xx here means either
-    // sendMessageSchema drifted, the room participant gate fired
-    // unexpectedly (chat.ts:289-297), or auth was lost mid-test.
-    expect(sendRes.status()).toBeLessThan(400);
 
     // Composer should be cleared after a successful send
-    // (page.tsx:198 — `setInput("")`).
-    await expect(composer).toHaveValue("");
+    // (`setInput("")` on successful socket ack).
+    await expect(composer).toHaveValue("", { timeout: 15_000 });
 
     // We do NOT assert the bubble appears in the local scroller. The
     // page only renders new bubbles when the chat:new-message socket

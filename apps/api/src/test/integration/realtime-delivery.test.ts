@@ -78,11 +78,15 @@ function waitForEvent<T = any>(
 /**
  * Connects a fresh socket.io client. Resolves once `connect` fires.
  */
-async function connectClient(extra?: (sock: ClientSocket) => void): Promise<ClientSocket> {
+async function connectClient(
+  token: string,
+  extra?: (sock: ClientSocket) => void
+): Promise<ClientSocket> {
   const sock = ioClient(makeUrl(), {
     transports: ["websocket"],
     reconnection: false,
     forceNew: true,
+    auth: { token },
   });
   await new Promise<void>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("client connect timeout")), 5000);
@@ -133,8 +137,8 @@ describeIfDB("Realtime Socket.IO delivery (E2E)", () => {
     baseUrl = `http://127.0.0.1:${port}`;
 
     // Always-on clients
-    adminClient = await connectClient();
-    displayClient = await connectClient();
+    adminClient = await connectClient(adminToken);
+    displayClient = await connectClient(adminToken);
     await joinAndSettle(displayClient, "join-display");
   }, 30000);
 
@@ -150,7 +154,7 @@ describeIfDB("Realtime Socket.IO delivery (E2E)", () => {
     const patient = await createPatientFixture();
     const doctor = await createDoctorFixture();
 
-    const doctorClient = await connectClient();
+    const doctorClient = await connectClient(adminToken);
     await joinAndSettle(doctorClient, "join-doctor-queue", doctor.id);
 
     const queuePromise = waitForEvent<any>(doctorClient, "queue-updated");
@@ -339,7 +343,7 @@ describeIfDB("Realtime Socket.IO delivery (E2E)", () => {
     const doctorA = await createDoctorFixture();
     const doctorB = await createDoctorFixture();
 
-    const clientA = await connectClient();
+    const clientA = await connectClient(adminToken);
     await joinAndSettle(clientA, "join-doctor-queue", doctorA.id);
 
     let leaked = false;

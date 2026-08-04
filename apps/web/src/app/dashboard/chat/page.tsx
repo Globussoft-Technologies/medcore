@@ -94,6 +94,10 @@ function groupByDate(messages: Message[]): Array<{ date: string; msgs: Message[]
   return Object.entries(groups).map(([date, msgs]) => ({ date, msgs }));
 }
 
+function roomParticipants(room: Room | null | undefined): Participant[] {
+  return room?.participants ?? [];
+}
+
 export default function ChatPage() {
   const { user } = useAuthStore();
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -330,16 +334,16 @@ export default function ChatPage() {
 
   function roomDisplayName(room: Room): string {
     if (room.name) return room.name;
-    const other = room.participants.find((p) => p.userId !== user?.id);
+    const other = roomParticipants(room).find((p) => p.userId !== user?.id);
     return other ? other.user.name : "Unknown";
   }
 
   function otherParticipant(room: Room): Participant | null {
-    return room.participants.find((p) => p.userId !== user?.id) ?? null;
+    return roomParticipants(room).find((p) => p.userId !== user?.id) ?? null;
   }
 
   function resolveParticipantName(room: Room | null, userId: string): string {
-    return room?.participants.find((p) => p.userId === userId)?.user.name ?? "Someone";
+    return roomParticipants(room).find((p) => p.userId === userId)?.user.name ?? "Someone";
   }
 
   function typingLabel(room: Room | null): string | null {
@@ -352,7 +356,9 @@ export default function ChatPage() {
 
   function roomIsOnline(room: Room): boolean {
     if (room.isGroup) {
-      return room.participants.some((p) => p.userId !== user?.id && onlineUserIds.has(p.userId));
+      return roomParticipants(room).some(
+        (p) => p.userId !== user?.id && onlineUserIds.has(p.userId)
+      );
     }
     const other = otherParticipant(room);
     return other ? onlineUserIds.has(other.userId) : false;
@@ -367,10 +373,12 @@ export default function ChatPage() {
     const typing = typingLabel(room);
     if (typing) return typing;
     if (room.isGroup) {
-      const onlineCount = room.participants.filter(
+      const participantCount = roomParticipants(room).length;
+      const onlineCount = roomParticipants(room).filter(
         (p) => p.userId !== user?.id && onlineUserIds.has(p.userId)
       ).length;
-      return onlineCount > 0 ? `${onlineCount} online` : `${room.participants.length} participants`;
+      if (onlineCount > 0) return `${onlineCount} online`;
+      return `${participantCount} participant${participantCount === 1 ? "" : "s"}`;
     }
     if (roomIsOnline(room)) return "Online";
     const lastSeen = roomLastSeen(room);

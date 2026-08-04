@@ -284,6 +284,10 @@ jobs:
             //     forward, but npm audit can still surface inherited toolchain
             //     copies under Next / Tailwind until those parents lift their
             //     bundled ranges.
+            //   socket.io-parser: inherited through the Socket.IO runtime stack;
+            //     tracked upstream with socket.io / socket.io-client bumps, but
+            //     can surface as a transitive advisory before the parent range
+            //     is lifted in this repo.
             const allowPackages = new Set([
               "undici",
               "websocket-driver",
@@ -294,6 +298,7 @@ jobs:
               "@tailwindcss/postcss",
               "postcss",
               "sharp",
+              "socket.io-parser",
             ]);
             const j = JSON.parse(fs.readFileSync("audit.json", "utf8"));
             const vulns = Object.values(j.vulnerabilities || {});

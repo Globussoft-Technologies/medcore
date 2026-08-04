@@ -1254,9 +1254,11 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
       snapshotHandler({ onlineUserIds: ["u-online"], lastSeenAt: {} });
     });
 
-    expect(await screen.findByText("1 online")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Ward Team").closest("button")!);
-    expect(await screen.findByText("1 online")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Ward Team")).toBeInTheDocument();
+      expect(screen.getByText("1 online")).toBeInTheDocument();
+    });
   });
 
   it("textarea auto-resizes up to its max height while typing", async () => {

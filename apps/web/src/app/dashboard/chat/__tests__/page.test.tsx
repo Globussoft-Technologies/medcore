@@ -1143,6 +1143,11 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     expect(screen.getAllByText("Dr Other is typing...").length).toBeGreaterThan(0);
 
     act(() => {
+      typingHandler({ roomId: "r-typing", userId: "u-other", isTyping: true });
+    });
+    expect(screen.getAllByText("Dr Other is typing...").length).toBeGreaterThan(0);
+
+    act(() => {
       typingHandler({ roomId: "r-typing", userId: "u-other", isTyping: false });
     });
     await waitFor(() => {
@@ -1220,6 +1225,40 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     expect(await screen.findByText(/No matching chats/i)).toBeInTheDocument();
   });
 
+  it("group rooms show online participant count when another participant is online", async () => {
+    const me = userFixture({ id: "u-me", name: "Me Doctor" });
+    const other = userFixture({ id: "u-online", name: "Dr Online" });
+    const room = roomFixture({
+      id: "r-group-online",
+      name: "Ward Team",
+      isGroup: true,
+      participants: [participantFixture(me), participantFixture(other)],
+      lastMessage: null,
+    });
+    wireGetByPath({ rooms: [room], messages: [], pinned: [] });
+
+    render(<ChatPage />);
+    await screen.findByText("Ward Team");
+
+    await waitFor(() => {
+      expect(
+        socketMock.on.mock.calls.some((c) => c[0] === "presence:snapshot"),
+      ).toBe(true);
+    });
+
+    const snapshotHandler = socketMock.on.mock.calls.find(
+      (c) => c[0] === "presence:snapshot",
+    )![1] as (payload: { onlineUserIds?: string[]; lastSeenAt?: Record<string, string> }) => void;
+
+    act(() => {
+      snapshotHandler({ onlineUserIds: ["u-online"], lastSeenAt: {} });
+    });
+
+    expect(await screen.findByText("1 online")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Ward Team").closest("button")!);
+    expect(await screen.findByText("1 online")).toBeInTheDocument();
+  });
+
   it("textarea auto-resizes up to its max height while typing", async () => {
     const room = roomFixture({ id: "r-resize" });
     wireGetByPath({ rooms: [room], messages: [], pinned: [] });
@@ -1242,6 +1281,21 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     await waitFor(() => {
       expect(input.style.height).toBe("160px");
     });
+  });
+
+  it("mobile back button returns from the selected room to the chat list placeholder", async () => {
+    const room = roomFixture({ id: "r-back" });
+    wireGetByPath({ rooms: [room], messages: [], pinned: [] });
+
+    render(<ChatPage />);
+    fireEvent.click(
+      (await screen.findByText("Dr Other")).closest("button")!,
+    );
+
+    const backBtn = await screen.findByRole("button", { name: /Back to chats/i });
+    fireEvent.click(backBtn);
+
+    expect(await screen.findByText(/Select a chat or start a new one/i)).toBeInTheDocument();
   });
 
   it("on room-change, the previous subscription is torn down (chat:leave + .off)", async () => {

@@ -1071,6 +1071,179 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     });
   });
 
+  it("presence snapshot and updates drive online / last-seen state in the room list", async () => {
+    const room = roomFixture({ id: "r-presence" });
+    wireGetByPath({ rooms: [room], messages: [], pinned: [] });
+
+    render(<ChatPage />);
+    await screen.findByText("Dr Other");
+
+    await waitFor(() => {
+      expect(
+        socketMock.on.mock.calls.some((c) => c[0] === "presence:snapshot"),
+      ).toBe(true);
+      expect(
+        socketMock.on.mock.calls.some((c) => c[0] === "presence:update"),
+      ).toBe(true);
+    });
+
+    const snapshotHandler = socketMock.on.mock.calls.find(
+      (c) => c[0] === "presence:snapshot",
+    )![1] as (payload: { onlineUserIds?: string[]; lastSeenAt?: Record<string, string> }) => void;
+    const updateHandler = socketMock.on.mock.calls.find(
+      (c) => c[0] === "presence:update",
+    )![1] as (payload: { userId: string; online: boolean; lastSeenAt: string | null }) => void;
+
+    act(() => {
+      snapshotHandler({ onlineUserIds: ["u-other"], lastSeenAt: {} });
+    });
+    expect(await screen.findAllByText("Online")).not.toHaveLength(0);
+
+    act(() => {
+      updateHandler({
+        userId: "u-other",
+        online: false,
+        lastSeenAt: "2026-04-01T11:15:00.000Z",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Last seen/i)).toBeInTheDocument();
+    });
+  });
+
+  it("typing events render in the room list/header and clear on stop while ignoring self typing", async () => {
+    asUser(userFixture({ id: "u-me", name: "Me Doctor" }));
+    const room = roomFixture({ id: "r-typing" });
+    wireGetByPath({ rooms: [room], messages: [], pinned: [] });
+
+    render(<ChatPage />);
+    fireEvent.click(
+      (await screen.findByText("Dr Other")).closest("button")!,
+    );
+
+    await waitFor(() => {
+      expect(
+        socketMock.on.mock.calls.some((c) => c[0] === "chat:typing"),
+      ).toBe(true);
+    });
+
+    const typingHandler = socketMock.on.mock.calls.find(
+      (c) => c[0] === "chat:typing",
+    )![1] as (payload: { roomId: string; userId: string; isTyping?: boolean }) => void;
+
+    act(() => {
+      typingHandler({ roomId: "r-typing", userId: "u-other", isTyping: true });
+    });
+    expect(await screen.findAllByText("Dr Other is typing...")).not.toHaveLength(0);
+
+    act(() => {
+      typingHandler({ roomId: "r-typing", userId: "u-me", isTyping: true });
+    });
+    expect(screen.getAllByText("Dr Other is typing...").length).toBeGreaterThan(0);
+
+    act(() => {
+      typingHandler({ roomId: "r-typing", userId: "u-other", isTyping: false });
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Dr Other is typing...")).not.toBeInTheDocument();
+    });
+  });
+
+  it("composer emits typing start/stop and send clears typing state", async () => {
+    const room = roomFixture({ id: "r-compose" });
+    wireGetByPath({ rooms: [room], messages: [], pinned: [] });
+    socketMock.emit.mockImplementation((event, ...args) => {
+      const ack = args[args.length - 1];
+      if (event === "chat:message:send" && typeof ack === "function") {
+        ack({
+          success: true,
+          data: messageFixture({
+            id: "m-compose",
+            roomId: "r-compose",
+            senderId: "u-me",
+            content: "hello typing",
+            sender: { id: "u-me", name: "Me Doctor", role: "DOCTOR" },
+          }),
+        });
+      }
+    });
+
+    render(<ChatPage />);
+    fireEvent.click(
+      (await screen.findByText("Dr Other")).closest("button")!,
+    );
+
+    const input = await screen.findByPlaceholderText(
+      /Type a message/i,
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "hello typing" } });
+
+    expect(
+      socketMock.emit.mock.calls.some(
+        (c) => c[0] === "chat:typing:start" && c[1] === "r-compose",
+      ),
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
+
+    await waitFor(() => {
+      expect(
+        socketMock.emit.mock.calls.some(
+          (c) => c[0] === "chat:typing:stop" && c[1] === "r-compose",
+        ),
+      ).toBe(true);
+      expect(
+        socketMock.emit.mock.calls.some(
+          (c) => c[0] === "chat:message:send" && c[1]?.roomId === "r-compose",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("search can filter existing rooms to the no-matches empty state", async () => {
+    wireGetByPath({
+      rooms: [
+        roomFixture({ id: "r-match", name: "Cardio Team", isGroup: true, lastMessage: null }),
+      ],
+      users: [],
+    });
+
+    render(<ChatPage />);
+    await screen.findByText("Cardio Team");
+
+    const search = screen.getByPlaceholderText(
+      /Search users to start chat/i,
+    ) as HTMLInputElement;
+    fireEvent.change(search, { target: { value: "zzz-no-room" } });
+
+    expect(await screen.findByText(/No matching chats/i)).toBeInTheDocument();
+  });
+
+  it("textarea auto-resizes up to its max height while typing", async () => {
+    const room = roomFixture({ id: "r-resize" });
+    wireGetByPath({ rooms: [room], messages: [], pinned: [] });
+
+    render(<ChatPage />);
+    fireEvent.click(
+      (await screen.findByText("Dr Other")).closest("button")!,
+    );
+
+    const input = await screen.findByPlaceholderText(
+      /Type a message/i,
+    ) as HTMLTextAreaElement;
+    Object.defineProperty(input, "scrollHeight", {
+      configurable: true,
+      value: 240,
+    });
+
+    fireEvent.change(input, { target: { value: "line 1\nline 2\nline 3\nline 4" } });
+
+    await waitFor(() => {
+      expect(input.style.height).toBe("160px");
+    });
+  });
+
   it("on room-change, the previous subscription is torn down (chat:leave + .off)", async () => {
     const roomA = roomFixture({
       id: "r-A",

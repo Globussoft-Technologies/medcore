@@ -123,6 +123,24 @@ async function seedPaidInvoice(
   return (await after.json()).data as InvoiceCreateResponse;
 }
 
+async function seedPendingInvoiceStable(
+  api: import("@playwright/test").APIRequestContext
+): Promise<InvoiceCreateResponse> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await seedPendingInvoice(api);
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof Error) || !/seed invoice: 5\d\d/i.test(error.message) || attempt === 2) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 750 * (attempt + 1)));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("seedPendingInvoiceStable failed");
+}
+
 test.describe("Invoice line-items + credit notes — /dashboard/billing/[id] revenue-critical deeper coverage (RECEPTION delete-with-audit + qty-replace + partial-refund stub + credit-note API)", () => {
   test("RECEPTION removes a line item via the UI; the INVOICE_ITEM_DELETE audit row lands tied to this invoice id (billing-id only pinned the row disappearance — this case anchors the audit-side contract)", async ({
     receptionPage,
@@ -130,7 +148,7 @@ test.describe("Invoice line-items + credit notes — /dashboard/billing/[id] rev
     adminApi,
     request,
   }) => {
-    const inv = await seedPendingInvoice(receptionApi);
+    const inv = await seedPendingInvoiceStable(receptionApi);
     expect(inv.items.length).toBe(2);
     // Pick the second seed item (ECG procedure, amount 600) so we can
     // separately assert which item the audit row references.
@@ -198,7 +216,7 @@ test.describe("Invoice line-items + credit notes — /dashboard/billing/[id] rev
     receptionApi,
     request,
   }) => {
-    const inv = await seedPendingInvoice(receptionApi);
+    const inv = await seedPendingInvoiceStable(receptionApi);
     // Subtotal at seed = 800 + 600 = 1400. We will replace the ECG row
     // (qty 1 × 600) with a qty-3 version (3 × 600 = 1800), netting 800 +
     // 1800 = 2600. Doing it as delete-then-re-add is the actual prod path.

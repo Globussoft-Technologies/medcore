@@ -67,10 +67,11 @@ describe("ChatPage", () => {
             {
               id: "r1",
               name: "General",
-              type: "DIRECT",
+              isGroup: true,
               unreadCount: 0,
-              members: [],
+              participants: [],
               lastMessage: null,
+              lastMessageAt: null,
             },
           ],
         });

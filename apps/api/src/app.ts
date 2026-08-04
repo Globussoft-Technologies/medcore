@@ -24,6 +24,7 @@ import fs from "fs";
 import path from "path";
 import { createServer } from "http";
 import { Server as SocketServer } from "socket.io";
+import type { Socket } from "socket.io";
 import { authRouter } from "./routes/auth";
 import { patientAuthRouter } from "./routes/patient-auth";
 import { featureFlagsRouter } from "./routes/feature-flags";
@@ -218,6 +219,68 @@ import { errorHandler } from "./middleware/error";
 import { rateLimit } from "./middleware/rate-limit";
 import { sanitize } from "./middleware/sanitize";
 import { tenantContextMiddleware } from "./middleware/tenant";
+import { prisma, runWithTenant, tenantScopedPrisma } from "@medcore/db";
+import { verifyAccessToken } from "./services/jwt";
+
+type SocketAuthUser = {
+  userId: string;
+  role: string;
+  tenantId?: string;
+};
+
+type ChatSocket = Socket & {
+  data: Socket["data"] & {
+    user?: SocketAuthUser;
+    joinedChatRooms?: Set<string>;
+  };
+};
+
+type SocketAck = (payload: { success: boolean; data?: unknown; error?: string }) => void;
+
+const onlineSocketsByUser = new Map<string, Set<string>>();
+const lastSeenAtByUser = new Map<string, string>();
+const tenantUsersBySocket = new Map<string, { userId: string; tenantKey: string }>();
+
+function parseCookieValue(cookieHeader: string | undefined, name: string): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(new RegExp(`(?:^|; )${name}=([^;]+)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function resolveSocketToken(socket: ChatSocket): string | null {
+  const authToken =
+    typeof socket.handshake.auth?.token === "string"
+      ? socket.handshake.auth.token
+      : null;
+  if (authToken) return authToken;
+  const header = socket.handshake.headers.authorization;
+  const bearer =
+    typeof header === "string" && header.startsWith("Bearer ")
+      ? header.slice("Bearer ".length)
+      : null;
+  if (bearer) return bearer;
+  return parseCookieValue(socket.handshake.headers.cookie, "medcore_at");
+}
+
+function tenantRoomKey(tenantId?: string): string {
+  return `tenant:${tenantId ?? "__global__"}`;
+}
+
+function socketOnlineUserIdsForTenant(tenantKey: string): string[] {
+  const ids = new Set<string>();
+  tenantUsersBySocket.forEach((entry) => {
+    if (entry.tenantKey === tenantKey) ids.add(entry.userId);
+  });
+  return Array.from(ids);
+}
+
+function emitPresence(io: SocketServer, tenantKey: string, payload: {
+  userId: string;
+  online: boolean;
+  lastSeenAt: string | null;
+}) {
+  io.to(tenantKey).emit("presence:update", payload);
+}
 import { apiMetricsMiddleware } from "./middleware/metrics";
 // Issue #477: cookie-parser populates req.cookies for the auth middleware
 // (which now reads `medcore_at`) and the CSRF guard (which compares the
@@ -262,7 +325,33 @@ export function buildApp() {
     cors: {
       origin: corsOrigins,
       methods: ["GET", "POST"],
+      credentials: true,
     },
+  });
+
+  io.use((socket, next) => {
+    try {
+      const chatSocket = socket as ChatSocket;
+      const token = resolveSocketToken(chatSocket);
+      if (!token) {
+        next(new Error("Unauthorized"));
+        return;
+      }
+      const decoded = verifyAccessToken<{
+        userId: string;
+        role: string;
+        tenantId?: string;
+      }>(token);
+      chatSocket.data.user = {
+        userId: decoded.userId,
+        role: decoded.role,
+        ...(decoded.tenantId !== undefined ? { tenantId: decoded.tenantId } : {}),
+      };
+      chatSocket.data.joinedChatRooms = new Set<string>();
+      next();
+    } catch {
+      next(new Error("Unauthorized"));
+    }
   });
 
   // Make io accessible to routes
@@ -617,17 +706,176 @@ export function buildApp() {
 
   // WebSocket for queue updates
   io.on("connection", (socket) => {
+    const chatSocket = socket as ChatSocket;
+    const user = chatSocket.data.user;
+    const tenantKey = tenantRoomKey(user?.tenantId);
+
+    if (user) {
+      socket.join(`user:${user.userId}`);
+      socket.join(tenantKey);
+      tenantUsersBySocket.set(socket.id, { userId: user.userId, tenantKey });
+
+      const sockets = onlineSocketsByUser.get(user.userId) ?? new Set<string>();
+      const wasOffline = sockets.size === 0;
+      sockets.add(socket.id);
+      onlineSocketsByUser.set(user.userId, sockets);
+
+      socket.emit("presence:snapshot", {
+        onlineUserIds: socketOnlineUserIdsForTenant(tenantKey),
+        lastSeenAt: Object.fromEntries(lastSeenAtByUser.entries()),
+      });
+
+      if (wasOffline) {
+        emitPresence(io, tenantKey, {
+          userId: user.userId,
+          online: true,
+          lastSeenAt: null,
+        });
+      }
+    }
+
     socket.on("join-doctor-queue", (doctorId: string) => {
       socket.join(`queue:${doctorId}`);
     });
     socket.on("join-display", () => {
       socket.join("token-display");
     });
-    socket.on("chat:join", (roomId: string) => {
+    socket.on("chat:join", async (roomId: string) => {
+      if (!user || typeof roomId !== "string" || !roomId.trim()) return;
+      const participant = await tenantScopedPrisma.chatParticipant.findUnique({
+        where: { roomId_userId: { roomId, userId: user.userId } },
+      });
+      const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+      if ((!participant || participant.leftAt) && !isAdmin) {
+        socket.emit("chat:error", { roomId, error: "Not a participant" });
+        return;
+      }
       socket.join(`chat:${roomId}`);
+      chatSocket.data.joinedChatRooms?.add(roomId);
     });
     socket.on("chat:leave", (roomId: string) => {
       socket.leave(`chat:${roomId}`);
+      chatSocket.data.joinedChatRooms?.delete(roomId);
+    });
+    socket.on("chat:typing:start", async (roomId: string) => {
+      if (!user || typeof roomId !== "string" || !roomId.trim()) return;
+      const participant = await tenantScopedPrisma.chatParticipant.findUnique({
+        where: { roomId_userId: { roomId, userId: user.userId } },
+      });
+      const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+      if ((!participant || participant.leftAt) && !isAdmin) return;
+      socket.to(`chat:${roomId}`).emit("chat:typing", {
+        roomId,
+        userId: user.userId,
+        isTyping: true,
+        at: new Date().toISOString(),
+      });
+    });
+    socket.on("chat:typing:stop", (roomId: string) => {
+      if (!user || typeof roomId !== "string" || !roomId.trim()) return;
+      socket.to(`chat:${roomId}`).emit("chat:typing", {
+        roomId,
+        userId: user.userId,
+        isTyping: false,
+        at: new Date().toISOString(),
+      });
+    });
+    socket.on(
+      "chat:message:send",
+      async (
+        payload: {
+          roomId?: string;
+          content?: string;
+          type?: "TEXT" | "IMAGE" | "FILE" | "SYSTEM";
+          attachmentUrl?: string | null;
+        },
+        ack?: SocketAck
+      ) => {
+        try {
+          if (!user) {
+            ack?.({ success: false, error: "Unauthorized" });
+            return;
+          }
+          const roomId = payload?.roomId?.trim();
+          const content = payload?.content?.trim();
+          if (!roomId || !content) {
+            ack?.({ success: false, error: "Message content is required" });
+            return;
+          }
+          const result = await runWithTenant(user.tenantId ?? "", async () => {
+            const participant = await tenantScopedPrisma.chatParticipant.findUnique({
+              where: { roomId_userId: { roomId, userId: user.userId } },
+            });
+            const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
+            if ((!participant || participant.leftAt) && !isAdmin) {
+              return { error: "Not a participant" as const };
+            }
+
+            const msg = await tenantScopedPrisma.chatMessage.create({
+              data: {
+                roomId,
+                senderId: user.userId,
+                content,
+                type: payload?.type ?? "TEXT",
+                attachmentUrl: payload?.attachmentUrl ?? undefined,
+              },
+              include: { sender: { select: { id: true, name: true, role: true } } },
+            });
+
+            await tenantScopedPrisma.chatRoom.update({
+              where: { id: roomId },
+              data: { lastMessageAt: new Date() },
+            });
+
+            const recipients = await tenantScopedPrisma.chatParticipant.findMany({
+              where: { roomId, leftAt: null },
+              select: { userId: true },
+            });
+
+            return { msg, recipients };
+          });
+
+          if ("error" in result) {
+            ack?.({ success: false, error: result.error });
+            return;
+          }
+
+          io.to(`chat:${roomId}`).emit("chat:message", result.msg);
+          io.to(`chat:${roomId}`).emit("chat:typing", {
+            roomId,
+            userId: user.userId,
+            isTyping: false,
+            at: new Date().toISOString(),
+          });
+          for (const recipient of result.recipients) {
+            io.to(`user:${recipient.userId}`).emit("chat:message", result.msg);
+          }
+
+          ack?.({ success: true, data: result.msg });
+        } catch (err) {
+          console.error(err);
+          ack?.({ success: false, error: "Failed to send message" });
+        }
+      }
+    );
+    socket.on("disconnect", () => {
+      if (!user) return;
+      const sockets = onlineSocketsByUser.get(user.userId);
+      if (!sockets) return;
+      sockets.delete(socket.id);
+      tenantUsersBySocket.delete(socket.id);
+      if (sockets.size === 0) {
+        onlineSocketsByUser.delete(user.userId);
+        const lastSeenAt = new Date().toISOString();
+        lastSeenAtByUser.set(user.userId, lastSeenAt);
+        emitPresence(io, tenantKey, {
+          userId: user.userId,
+          online: false,
+          lastSeenAt,
+        });
+      } else {
+        onlineSocketsByUser.set(user.userId, sockets);
+      }
     });
   });
 

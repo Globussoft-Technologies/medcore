@@ -160,11 +160,11 @@ router.post(
       if (!isGroup && uniqueIds.length === 2) {
         const other = uniqueIds.find((x) => x !== me)!;
         const mine = await prisma.chatParticipant.findMany({
-          where: { userId: me },
+          where: { userId: me, leftAt: null },
           select: { roomId: true },
         });
         const theirs = await prisma.chatParticipant.findMany({
-          where: { userId: other },
+          where: { userId: other, leftAt: null },
           select: { roomId: true },
         });
         const mineSet = new Set(mine.map((p) => p.roomId));
@@ -197,10 +197,16 @@ router.post(
           name,
           isGroup,
           createdBy: me,
-          participants: {
-            create: uniqueIds.map((uid) => ({ userId: uid })),
-          },
         },
+      });
+
+      await prisma.chatParticipant.createMany({
+        data: uniqueIds.map((uid) => ({ roomId: room.id, userId: uid })),
+        skipDuplicates: true,
+      });
+
+      const hydratedRoom = await prisma.chatRoom.findUniqueOrThrow({
+        where: { id: room.id },
         include: {
           participants: {
             where: { leftAt: null },
@@ -213,7 +219,7 @@ router.post(
         },
       });
 
-      res.status(201).json({ success: true, data: room, error: null });
+      res.status(201).json({ success: true, data: hydratedRoom, error: null });
     } catch (err) {
       next(err);
     }
@@ -348,6 +354,13 @@ router.post(
       const io = req.app.get("io");
       if (io) {
         io.to(`chat:${req.params.id}`).emit("chat:message", msg);
+        const recipients = await prisma.chatParticipant.findMany({
+          where: { roomId: req.params.id, leftAt: null },
+          select: { userId: true },
+        });
+        for (const recipient of recipients) {
+          io.to(`user:${recipient.userId}`).emit("chat:message", msg);
+        }
       }
 
       res.status(201).json({ success: true, data: msg, error: null });
@@ -682,8 +695,14 @@ router.post(
           isChannel: true,
           isGroup: true,
           createdBy: me,
-          participants: { create: unique.map((uid) => ({ userId: uid })) },
         },
+      });
+      await prisma.chatParticipant.createMany({
+        data: unique.map((uid) => ({ roomId: room.id, userId: uid })),
+        skipDuplicates: true,
+      });
+      const hydratedRoom = await prisma.chatRoom.findUniqueOrThrow({
+        where: { id: room.id },
         include: {
           participants: {
             where: { leftAt: null },
@@ -694,7 +713,7 @@ router.post(
       auditLog(req, "CHAT_CHANNEL_CREATE", "chat_room", room.id, { department }).catch(
         console.error
       );
-      res.status(201).json({ success: true, data: room, error: null });
+      res.status(201).json({ success: true, data: hydratedRoom, error: null });
     } catch (err) {
       next(err);
     }
@@ -730,6 +749,7 @@ router.post(
         io.to(`chat:${req.params.id}`).emit("chat:typing", {
           roomId: req.params.id,
           userId,
+          isTyping: true,
           at: new Date().toISOString(),
         });
       }

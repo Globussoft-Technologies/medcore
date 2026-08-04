@@ -383,7 +383,7 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
 
     const search = screen.getByPlaceholderText(
       /Search users to start chat/i,
-    ) as HTMLInputElement;
+    ) as HTMLTextAreaElement;
     fireEvent.change(search, { target: { value: "alice" } });
 
     expect(await screen.findByText("Alice Anderson")).toBeInTheDocument();
@@ -557,17 +557,23 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     expect(drOtherMatches.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("send POSTs /chat/rooms/:id/messages, renders the returned message, and clears the input", async () => {
+  it("Send emits chat:message:send, renders the returned message, and clears the textarea", async () => {
     const room = roomFixture({ id: "r-send" });
     wireGetByPath({ rooms: [room], messages: [], pinned: [] });
-    apiMock.post.mockResolvedValue({
-      data: messageFixture({
-        id: "new-msg",
-        roomId: "r-send",
-        senderId: "u-me",
-        content: "hi everyone",
-        sender: { id: "u-me", name: "Me Doctor", role: "DOCTOR" },
-      }),
+    socketMock.emit.mockImplementation((event, ...args) => {
+      const ack = args[args.length - 1];
+      if (event === "chat:message:send" && typeof ack === "function") {
+        ack({
+          success: true,
+          data: messageFixture({
+            id: "new-msg",
+            roomId: "r-send",
+            senderId: "u-me",
+            content: "hi everyone",
+            sender: { id: "u-me", name: "Me Doctor", role: "DOCTOR" },
+          }),
+        });
+      }
     });
 
     render(<ChatPage />);
@@ -577,15 +583,16 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
 
     const input = await screen.findByPlaceholderText(
       /Type a message/i,
-    ) as HTMLInputElement;
+    ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "hi everyone" } });
 
     fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
 
     await waitFor(() =>
-      expect(apiMock.post).toHaveBeenCalledWith(
-        "/chat/rooms/r-send/messages",
-        { content: "hi everyone", type: "TEXT" },
+      expect(socketMock.emit).toHaveBeenCalledWith(
+        "chat:message:send",
+        { roomId: "r-send", content: "hi everyone", type: "TEXT" },
+        expect.any(Function),
       ),
     );
 
@@ -593,17 +600,23 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
     await waitFor(() => expect(input.value).toBe(""));
   });
 
-  it("Enter key in the message input fires send()", async () => {
+  it("Enter key in the message textarea fires send()", async () => {
     const room = roomFixture({ id: "r-enter" });
     wireGetByPath({ rooms: [room], messages: [], pinned: [] });
-    apiMock.post.mockResolvedValue({
-      data: messageFixture({
-        id: "new-msg-enter",
-        roomId: "r-enter",
-        senderId: "u-me",
-        content: "via enter",
-        sender: { id: "u-me", name: "Me Doctor", role: "DOCTOR" },
-      }),
+    socketMock.emit.mockImplementation((event, ...args) => {
+      const ack = args[args.length - 1];
+      if (event === "chat:message:send" && typeof ack === "function") {
+        ack({
+          success: true,
+          data: messageFixture({
+            id: "new-msg-enter",
+            roomId: "r-enter",
+            senderId: "u-me",
+            content: "via enter",
+            sender: { id: "u-me", name: "Me Doctor", role: "DOCTOR" },
+          }),
+        });
+      }
     });
 
     render(<ChatPage />);
@@ -613,19 +626,64 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
 
     const input = await screen.findByPlaceholderText(
       /Type a message/i,
-    ) as HTMLInputElement;
+    ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "via enter" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
     await waitFor(() =>
-      expect(apiMock.post).toHaveBeenCalledWith(
-        "/chat/rooms/r-enter/messages",
-        { content: "via enter", type: "TEXT" },
+      expect(socketMock.emit).toHaveBeenCalledWith(
+        "chat:message:send",
+        { roomId: "r-enter", content: "via enter", type: "TEXT" },
+        expect.any(Function),
       ),
     );
   });
 
-  it("whitespace-only input is rejected — Send button is disabled and POST does not fire", async () => {
+  it("Shift+Enter adds a newline instead of sending", async () => {
+    const room = roomFixture({ id: "r-shift-enter" });
+    wireGetByPath({ rooms: [room], messages: [], pinned: [] });
+
+    render(<ChatPage />);
+    fireEvent.click(
+      (await screen.findByText("Dr Other")).closest("button")!,
+    );
+
+    const input = await screen.findByPlaceholderText(
+      /Type a message/i,
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "line 1" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    fireEvent.change(input, { target: { value: "line 1\nline 2" } });
+
+    expect(
+      socketMock.emit.mock.calls.some((call) => call[0] === "chat:message:send"),
+    ).toBe(false);
+    expect(input.value).toBe("line 1\nline 2");
+  });
+
+  it("Ctrl+Enter adds a newline instead of sending", async () => {
+    const room = roomFixture({ id: "r-ctrl-enter" });
+    wireGetByPath({ rooms: [room], messages: [], pinned: [] });
+
+    render(<ChatPage />);
+    fireEvent.click(
+      (await screen.findByText("Dr Other")).closest("button")!,
+    );
+
+    const input = await screen.findByPlaceholderText(
+      /Type a message/i,
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.keyDown(input, { key: "Enter", ctrlKey: true });
+    fireEvent.change(input, { target: { value: "hello\nagain" } });
+
+    expect(
+      socketMock.emit.mock.calls.some((call) => call[0] === "chat:message:send"),
+    ).toBe(false);
+    expect(input.value).toBe("hello\nagain");
+  });
+
+  it("whitespace-only input is rejected and no socket send fires", async () => {
     const room = roomFixture({ id: "r-ws" });
     wireGetByPath({ rooms: [room], messages: [], pinned: [] });
 
@@ -646,18 +704,27 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
 
     // Click is no-op on disabled button.
     fireEvent.click(sendBtn);
-    expect(apiMock.post).not.toHaveBeenCalled();
+    expect(
+      socketMock.emit.mock.calls.some((call) => call[0] === "chat:message:send"),
+    ).toBe(false);
 
     // Enter on whitespace also no-ops via the source-side trim guard.
-    apiMock.post.mockClear();
+    socketMock.emit.mockClear();
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(apiMock.post).not.toHaveBeenCalled();
+    expect(
+      socketMock.emit.mock.calls.some((call) => call[0] === "chat:message:send"),
+    ).toBe(false);
   });
 
-  it("send error toasts the error message", async () => {
+  it("send error from socket ack toasts the error message", async () => {
     const room = roomFixture({ id: "r-err" });
     wireGetByPath({ rooms: [room], messages: [], pinned: [] });
-    apiMock.post.mockRejectedValueOnce(new Error("Network down"));
+    socketMock.emit.mockImplementation((event, ...args) => {
+      const ack = args[args.length - 1];
+      if (event === "chat:message:send" && typeof ack === "function") {
+        ack({ success: false, error: "Network down" });
+      }
+    });
 
     render(<ChatPage />);
     fireEvent.click(
@@ -666,7 +733,7 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
 
     const input = await screen.findByPlaceholderText(
       /Type a message/i,
-    ) as HTMLInputElement;
+    ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "x" } });
     fireEvent.click(screen.getByRole("button", { name: /^Send$/ }));
 

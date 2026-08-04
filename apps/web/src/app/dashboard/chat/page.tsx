@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Pin, SmilePlus, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, Pin, SmilePlus } from "lucide-react";
 import { api } from "@/lib/api";
+import { getSocket } from "@/lib/socket";
 import { useAuthStore } from "@/lib/store";
 import { toast } from "@/lib/toast";
-import { getSocket } from "@/lib/socket";
 
 interface UserInfo {
   id: string;
@@ -44,6 +44,23 @@ interface Room {
   unreadCount: number;
 }
 
+interface PresenceSnapshot {
+  onlineUserIds?: string[];
+  lastSeenAt?: Record<string, string>;
+}
+
+interface PresenceUpdate {
+  userId: string;
+  online: boolean;
+  lastSeenAt: string | null;
+}
+
+interface TypingEvent {
+  roomId: string;
+  userId: string;
+  isTyping?: boolean;
+}
+
 const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 function initials(name: string): string {
@@ -55,35 +72,13 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-/**
- * Issue #850 — sanitize a chat last-message preview before rendering.
- *
- * The chat list shows the trailing text of each room's last message as a
- * single-line preview. A staging seed row in `All Staff Announcements`
- * literally read `alert('XSS')` and was rendered verbatim, which both
- * presents an injection-shaped payload as legitimate operational content
- * AND demonstrates the preview slot does nothing to defuse script-like
- * input. This helper:
- *   1. Strips any HTML/script tags so a payload like `<script>alert(1)</script>`
- *      shows as plain text without the surrounding markup.
- *   2. Collapses adjacent whitespace + trims, so single-line previews stay
- *      legible.
- *   3. If the result still matches a JS-call-shape pattern (e.g.
- *      `alert(...)`, `eval(...)`, `<script>`, `onerror=`), masks it to
- *      `[blocked content]` so seed-data injections don't surface as
- *      apparent operational content.
- * The full message body (rendered with `whitespace-pre-wrap` in the chat
- * canvas) is unaffected — we only sanitize the at-a-glance preview slot.
- */
 function sanitizeChatPreview(raw: string | undefined | null): string {
   if (!raw) return "";
-  // Strip tags (greedy match of `<...>` blocks)
   const stripped = String(raw).replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
   if (!stripped) return "";
-  // Pattern-match script-shaped seed data and mask it; everything else
-  // passes through as plain text.
-  const SUSPICIOUS = /(?:\b(?:alert|eval|prompt|confirm|document\.|window\.|javascript:)\b|on\w+\s*=)/i;
-  if (SUSPICIOUS.test(stripped)) {
+  const suspicious =
+    /(?:\b(?:alert|eval|prompt|confirm|document\.|window\.|javascript:)\b|on\w+\s*=)/i;
+  if (suspicious.test(stripped)) {
     return "[blocked content]";
   }
   return stripped;
@@ -92,9 +87,9 @@ function sanitizeChatPreview(raw: string | undefined | null): string {
 function groupByDate(messages: Message[]): Array<{ date: string; msgs: Message[] }> {
   const groups: Record<string, Message[]> = {};
   for (const m of messages) {
-    const d = new Date(m.createdAt).toDateString();
-    if (!groups[d]) groups[d] = [];
-    groups[d].push(m);
+    const date = new Date(m.createdAt).toDateString();
+    if (!groups[date]) groups[date] = [];
+    groups[date].push(m);
   }
   return Object.entries(groups).map(([date, msgs]) => ({ date, msgs }));
 }
@@ -112,15 +107,50 @@ export default function ChatPage() {
   const [showUsers, setShowUsers] = useState(false);
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [onlineUserIds, setOnlineUserIds] = useState<Set<string>>(new Set());
+  const [lastSeenByUser, setLastSeenByUser] = useState<Record<string, string | null>>({});
+  const [typingByRoom, setTypingByRoom] = useState<Record<string, string[]>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const typingStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeTypingRoomRef = useRef<string | null>(null);
+  const typingActiveRef = useRef(false);
 
   useEffect(() => {
-    loadRooms();
-    loadUsers();
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "0px";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  }, [input]);
+
+  useEffect(() => {
+    void loadRooms();
+    void loadUsers();
     const sock = getSocket();
     if (!sock.connected) sock.connect();
+
+    const presenceSnapshotHandler = (payload: PresenceSnapshot) => {
+      setOnlineUserIds(new Set(payload.onlineUserIds ?? []));
+      setLastSeenByUser(payload.lastSeenAt ?? {});
+    };
+    const presenceUpdateHandler = (payload: PresenceUpdate) => {
+      setOnlineUserIds((prev) => {
+        const next = new Set(prev);
+        if (payload.online) next.add(payload.userId);
+        else next.delete(payload.userId);
+        return next;
+      });
+      if (payload.lastSeenAt) {
+        setLastSeenByUser((prev) => ({ ...prev, [payload.userId]: payload.lastSeenAt }));
+      }
+    };
+
+    sock.on("presence:snapshot", presenceSnapshotHandler);
+    sock.on("presence:update", presenceUpdateHandler);
+
     return () => {
-      // don't disconnect — shared socket
+      sock.off("presence:snapshot", presenceSnapshotHandler);
+      sock.off("presence:update", presenceUpdateHandler);
     };
   }, []);
 
@@ -128,34 +158,52 @@ export default function ChatPage() {
     if (!selectedRoom) return;
     const sock = getSocket();
     sock.emit("chat:join", selectedRoom.id);
-    loadMessages(selectedRoom.id);
-    loadPinned(selectedRoom.id);
-    markRead(selectedRoom.id);
+    void loadMessages(selectedRoom.id);
+    void loadPinned(selectedRoom.id);
+    void markRead(selectedRoom.id);
 
-    const handler = (msg: Message) => {
+    const messageHandler = (msg: Message) => {
       if (msg.roomId === selectedRoom.id) {
-        setMessages((prev) => [msg, ...prev]);
+        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [msg, ...prev]));
+        setTypingByRoom((prev) => ({ ...prev, [msg.roomId]: [] }));
         scrollToBottom();
+        void markRead(selectedRoom.id);
       }
-      loadRooms();
+      void loadRooms();
     };
+
     const reactionHandler = (msg: Message) => {
       if (msg.roomId === selectedRoom.id) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m))
-        );
+        setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)));
       }
+      void loadRooms();
     };
-    sock.on("chat:message", handler);
+
+    const typingHandler = (payload: TypingEvent) => {
+      if (!payload.roomId || !payload.userId || payload.userId === user?.id) return;
+      setTypingByRoom((prev) => {
+        const current = prev[payload.roomId] ?? [];
+        if (payload.isTyping === false) {
+          return { ...prev, [payload.roomId]: current.filter((id) => id !== payload.userId) };
+        }
+        if (current.includes(payload.userId)) return prev;
+        return { ...prev, [payload.roomId]: [...current, payload.userId] };
+      });
+    };
+
+    sock.on("chat:message", messageHandler);
     sock.on("chat:reaction", reactionHandler);
+    sock.on("chat:typing", typingHandler);
 
     return () => {
+      stopTyping(selectedRoom.id);
       sock.emit("chat:leave", selectedRoom.id);
-      sock.off("chat:message", handler);
+      sock.off("chat:message", messageHandler);
       sock.off("chat:reaction", reactionHandler);
+      sock.off("chat:typing", typingHandler);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRoom?.id]);
+  }, [selectedRoom?.id, user?.id]);
 
   async function loadRooms() {
     try {
@@ -163,10 +211,10 @@ export default function ChatPage() {
       setRooms(res.data);
       setSelectedRoom((current) => {
         if (!current) return current;
-        return res.data.find((room) => room.id === current.id) ?? current;
+        return res.data.find((room) => room.id === current.id) ?? null;
       });
     } catch {
-      // empty
+      // no-op
     }
   }
 
@@ -175,15 +223,13 @@ export default function ChatPage() {
       const res = await api.get<{ data: UserInfo[] }>("/chat/users");
       setUsers(res.data);
     } catch {
-      // empty
+      // no-op
     }
   }
 
   async function loadMessages(roomId: string) {
     try {
-      const res = await api.get<{ data: Message[] }>(
-        `/chat/rooms/${roomId}/messages?limit=100`
-      );
+      const res = await api.get<{ data: Message[] }>(`/chat/rooms/${roomId}/messages?limit=100`);
       setMessages(res.data);
       setTimeout(scrollToBottom, 50);
     } catch {
@@ -193,9 +239,7 @@ export default function ChatPage() {
 
   async function loadPinned(roomId: string) {
     try {
-      const res = await api.get<{ data: Message[] }>(
-        `/chat/rooms/${roomId}/pinned`
-      );
+      const res = await api.get<{ data: Message[] }>(`/chat/rooms/${roomId}/pinned`);
       setPinnedMessages(res.data);
     } catch {
       setPinnedMessages([]);
@@ -205,9 +249,9 @@ export default function ChatPage() {
   async function markRead(roomId: string) {
     try {
       await api.patch(`/chat/rooms/${roomId}/read`, {});
-      loadRooms();
+      void loadRooms();
     } catch {
-      // empty
+      // no-op
     }
   }
 
@@ -219,8 +263,9 @@ export default function ChatPage() {
       });
       setShowUsers(false);
       setUserSearch("");
-      await loadRooms();
+      setRooms((prev) => [res.data, ...prev.filter((room) => room.id !== res.data.id)]);
       setSelectedRoom(res.data);
+      void loadRooms();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     }
@@ -229,20 +274,23 @@ export default function ChatPage() {
   async function send() {
     if (!input.trim() || !selectedRoom) return;
     try {
-      const res = await api.post<{ data: Message }>(
-        `/chat/rooms/${selectedRoom.id}/messages`,
-        {
-          content: input,
+      stopTyping(selectedRoom.id);
+      const sock = getSocket();
+      const messageContent = input;
+      const res = await new Promise<{ success: boolean; data?: Message; error?: string }>((resolve) => {
+        sock.emit("chat:message:send", {
+          roomId: selectedRoom.id,
+          content: messageContent,
           type: "TEXT",
-        },
-      );
-      setInput("");
-      if (res.data) {
-        setMessages((prev) =>
-          prev.some((m) => m.id === res.data.id) ? prev : [res.data, ...prev],
-        );
-        setTimeout(scrollToBottom, 50);
+        }, resolve);
+      });
+      if (!res.success || !res.data) {
+        throw new Error(res.error || "Failed");
       }
+      setInput("");
+      setMessages((prev) => (prev.some((m) => m.id === res.data!.id) ? prev : [res.data!, ...prev]));
+      setTypingByRoom((prev) => ({ ...prev, [selectedRoom.id]: [] }));
+      setTimeout(scrollToBottom, 50);
       void loadRooms();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
@@ -251,13 +299,10 @@ export default function ChatPage() {
 
   async function toggleReaction(messageId: string, emoji: string) {
     try {
-      const res = await api.post<{ data: Message }>(
-        `/chat/messages/${messageId}/reactions`,
-        { emoji }
-      );
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, ...res.data } : m))
-      );
+      const res = await api.post<{ data: Message }>(`/chat/messages/${messageId}/reactions`, {
+        emoji,
+      });
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, ...res.data } : m)));
       setPickerFor(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Reaction failed");
@@ -266,14 +311,11 @@ export default function ChatPage() {
 
   async function togglePin(msg: Message) {
     try {
-      const res = await api.patch<{ data: Message }>(
-        `/chat/messages/${msg.id}/pin`,
-        { pinned: !msg.isPinned }
-      );
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msg.id ? { ...m, ...res.data } : m))
-      );
-      if (selectedRoom) loadPinned(selectedRoom.id);
+      const res = await api.patch<{ data: Message }>(`/chat/messages/${msg.id}/pin`, {
+        pinned: !msg.isPinned,
+      });
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...res.data } : m)));
+      if (selectedRoom) void loadPinned(selectedRoom.id);
       setMenuFor(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Pin failed");
@@ -292,8 +334,83 @@ export default function ChatPage() {
     return other ? other.user.name : "Unknown";
   }
 
+  function otherParticipant(room: Room): Participant | null {
+    return room.participants.find((p) => p.userId !== user?.id) ?? null;
+  }
+
+  function resolveParticipantName(room: Room | null, userId: string): string {
+    return room?.participants.find((p) => p.userId === userId)?.user.name ?? "Someone";
+  }
+
+  function typingLabel(room: Room | null): string | null {
+    if (!room) return null;
+    const typingIds = (typingByRoom[room.id] ?? []).filter((id) => id !== user?.id);
+    if (typingIds.length === 0) return null;
+    const names = typingIds.map((id) => resolveParticipantName(room, id));
+    return names.length === 1 ? `${names[0]} is typing...` : `${names.join(", ")} are typing...`;
+  }
+
+  function roomIsOnline(room: Room): boolean {
+    if (room.isGroup) {
+      return room.participants.some((p) => p.userId !== user?.id && onlineUserIds.has(p.userId));
+    }
+    const other = otherParticipant(room);
+    return other ? onlineUserIds.has(other.userId) : false;
+  }
+
+  function roomLastSeen(room: Room): string | null {
+    const other = otherParticipant(room);
+    return other ? lastSeenByUser[other.userId] ?? null : null;
+  }
+
+  function selectedRoomStatus(room: Room): string {
+    const typing = typingLabel(room);
+    if (typing) return typing;
+    if (room.isGroup) {
+      const onlineCount = room.participants.filter(
+        (p) => p.userId !== user?.id && onlineUserIds.has(p.userId)
+      ).length;
+      return onlineCount > 0 ? `${onlineCount} online` : `${room.participants.length} participants`;
+    }
+    if (roomIsOnline(room)) return "Online";
+    const lastSeen = roomLastSeen(room);
+    return lastSeen ? `Last seen ${new Date(lastSeen).toLocaleString()}` : "Offline";
+  }
+
+  function scheduleTypingStop(roomId: string) {
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    typingStopTimerRef.current = setTimeout(() => {
+      stopTyping(roomId);
+    }, 1200);
+  }
+
+  function startTyping(roomId: string) {
+    const sock = getSocket();
+    if (!typingActiveRef.current || activeTypingRoomRef.current !== roomId) {
+      sock.emit("chat:typing:start", roomId);
+      typingActiveRef.current = true;
+      activeTypingRoomRef.current = roomId;
+    }
+    scheduleTypingStop(roomId);
+  }
+
+  function stopTyping(roomId?: string | null) {
+    const activeRoomId = roomId ?? activeTypingRoomRef.current;
+    if (typingStopTimerRef.current) {
+      clearTimeout(typingStopTimerRef.current);
+      typingStopTimerRef.current = null;
+    }
+    if (!typingActiveRef.current || !activeRoomId) return;
+    getSocket().emit("chat:typing:stop", activeRoomId);
+    typingActiveRef.current = false;
+    if (activeTypingRoomRef.current === activeRoomId) activeTypingRoomRef.current = null;
+  }
+
   const filteredUsers = users.filter((u) =>
     u.name.toLowerCase().includes(userSearch.toLowerCase())
+  );
+  const filteredRooms = rooms.filter((room) =>
+    roomDisplayName(room).toLowerCase().includes(userSearch.toLowerCase())
   );
 
   const orderedMessages = [...messages].reverse();
@@ -301,8 +418,11 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-[calc(100vh-3rem)] overflow-hidden rounded-xl bg-white shadow-sm dark:bg-gray-800">
-      {/* Sidebar */}
-      <div className="flex w-80 flex-col border-r border-gray-200 dark:border-gray-700">
+      <div
+        className={`${
+          selectedRoom ? "hidden md:flex" : "flex"
+        } w-full flex-col border-r border-gray-200 dark:border-gray-700 md:w-72 xl:w-80`}
+      >
         <div className="border-b border-gray-200 p-3 dark:border-gray-700">
           <h2 className="mb-2 font-semibold">Chats</h2>
           <input
@@ -351,14 +471,23 @@ export default function ChatPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
+          <div className="border-b border-gray-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400 dark:border-gray-700">
+            Recent chats
+          </div>
           {rooms.length === 0 ? (
             <p className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
-              No chats yet. Search for a user above to start.
+              No chats yet. Search for a user above and click a user to start chat.
+            </p>
+          ) : filteredRooms.length === 0 ? (
+            <p className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
+              No matching chats.
             </p>
           ) : (
-            rooms.map((room) => {
+            filteredRooms.map((room) => {
               const displayName = roomDisplayName(room);
               const isActive = selectedRoom?.id === room.id;
+              const typing = typingLabel(room);
+              const isOnline = roomIsOnline(room);
               return (
                 <button
                   key={room.id}
@@ -369,24 +498,29 @@ export default function ChatPage() {
                       : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
                   }`}
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
+                  <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
                     {initials(displayName)}
+                    <span
+                      className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-gray-800 ${
+                        isOnline ? "bg-emerald-500" : "bg-gray-400"
+                      }`}
+                    />
                   </div>
                   <div className="flex-1 overflow-hidden">
                     <div className="flex items-center justify-between">
                       <p className="truncate font-medium">{displayName}</p>
                       {room.lastMessageAt && (
                         <span className="text-xs text-gray-400">
-                          {new Date(room.lastMessageAt).toLocaleTimeString(
-                            [],
-                            { hour: "2-digit", minute: "2-digit" }
-                          )}
+                          {new Date(room.lastMessageAt).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                        {sanitizeChatPreview(room.lastMessage?.content) || "No messages yet"}
+                        {typing || sanitizeChatPreview(room.lastMessage?.content) || "No messages yet"}
                       </p>
                       {room.unreadCount > 0 && (
                         <span className="ml-2 rounded-full bg-primary px-2 py-0.5 text-xs text-white">
@@ -394,6 +528,16 @@ export default function ChatPage() {
                         </span>
                       )}
                     </div>
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {isOnline
+                        ? "Online"
+                        : roomLastSeen(room)
+                          ? `Last seen ${new Date(roomLastSeen(room) as string).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}`
+                          : "Offline"}
+                    </p>
                   </div>
                 </button>
               );
@@ -402,28 +546,40 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Chat window */}
-      <div className="flex flex-1 flex-col">
+      <div className={`${selectedRoom ? "flex" : "hidden md:flex"} min-w-0 flex-1 flex-col`}>
         {!selectedRoom ? (
           <div className="flex flex-1 items-center justify-center text-gray-400">
             Select a chat or start a new one
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-3 border-b border-gray-200 p-4 dark:border-gray-700">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
+            <div className="flex items-center gap-3 border-b border-gray-200 p-3 sm:p-4 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={() => setSelectedRoom(null)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 text-gray-600 hover:bg-gray-100 md:hidden dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"
+                aria-label="Back to chats"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <div className="relative flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-white">
                 {initials(roomDisplayName(selectedRoom))}
+                {!selectedRoom.isGroup && (
+                  <span
+                    className={`absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-gray-800 ${
+                      roomIsOnline(selectedRoom) ? "bg-emerald-500" : "bg-gray-400"
+                    }`}
+                  />
+                )}
               </div>
               <div className="flex-1">
                 <p className="font-semibold">{roomDisplayName(selectedRoom)}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {selectedRoom.participants.length} participant
-                  {selectedRoom.participants.length !== 1 ? "s" : ""}
+                  {selectedRoomStatus(selectedRoom)}
                 </p>
               </div>
             </div>
 
-            {/* Pinned banner */}
             {pinnedMessages.length > 0 && (
               <div className="border-b border-gray-200 bg-amber-50 px-4 py-2 text-xs dark:border-gray-700 dark:bg-amber-900/20">
                 <button
@@ -457,7 +613,7 @@ export default function ChatPage() {
 
             <div
               ref={scrollRef}
-              className="flex-1 space-y-4 overflow-y-auto bg-gray-50 p-4 dark:bg-gray-900"
+              className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto bg-gray-50 p-3 sm:p-4 dark:bg-gray-900"
               onClick={() => {
                 setMenuFor(null);
                 setPickerFor(null);
@@ -476,6 +632,7 @@ export default function ChatPage() {
                     const reactionEntries = Object.entries(reactions).filter(
                       ([, arr]) => arr && arr.length > 0
                     );
+
                     return (
                       <div
                         key={m.id}
@@ -488,27 +645,25 @@ export default function ChatPage() {
                         >
                           {initials(m.sender.name)}
                         </div>
-                        <div className="relative flex max-w-md flex-col gap-1">
+                        <div className="relative flex max-w-[85%] min-w-0 flex-col gap-1 sm:max-w-md">
                           <div
-                            className={`rounded-2xl px-4 py-2 text-sm ${
+                            className={`max-w-full rounded-2xl px-4 py-2 text-sm ${
                               mine
                                 ? "bg-primary text-white"
                                 : "bg-white text-gray-800 shadow-sm dark:bg-gray-700 dark:text-gray-100"
                             }`}
                           >
                             {!mine && (
-                              <p className="mb-1 text-xs font-semibold">
-                                {m.sender.name}
-                              </p>
+                              <p className="mb-1 text-xs font-semibold">{m.sender.name}</p>
                             )}
-                            <p className="whitespace-pre-wrap">{m.content}</p>
+                            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                              {m.content}
+                            </p>
                             <div className="mt-1 flex items-center gap-2">
                               {m.isPinned && (
                                 <Pin
                                   size={10}
-                                  className={
-                                    mine ? "text-white/70" : "text-amber-500"
-                                  }
+                                  className={mine ? "text-white/70" : "text-amber-500"}
                                 />
                               )}
                               <p
@@ -522,21 +677,14 @@ export default function ChatPage() {
                             </div>
                           </div>
 
-                          {/* Reaction pills */}
                           {reactionEntries.length > 0 && (
-                            <div
-                              className={`flex flex-wrap gap-1 ${mine ? "justify-end" : ""}`}
-                            >
+                            <div className={`flex flex-wrap gap-1 ${mine ? "justify-end" : ""}`}>
                               {reactionEntries.map(([emoji, userIds]) => {
-                                const reacted = user
-                                  ? userIds.includes(user.id)
-                                  : false;
+                                const reacted = user ? userIds.includes(user.id) : false;
                                 return (
                                   <button
                                     key={emoji}
-                                    onClick={() =>
-                                      toggleReaction(m.id, emoji)
-                                    }
+                                    onClick={() => toggleReaction(m.id, emoji)}
                                     className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition ${
                                       reacted
                                         ? "border-primary bg-primary/10"
@@ -544,35 +692,26 @@ export default function ChatPage() {
                                     }`}
                                   >
                                     <span>{emoji}</span>
-                                    <span className="font-semibold">
-                                      {userIds.length}
-                                    </span>
+                                    <span className="font-semibold">{userIds.length}</span>
                                   </button>
                                 );
                               })}
                             </div>
                           )}
 
-                          {/* Action buttons (visible on hover) */}
                           <div
-                            className={`absolute ${mine ? "left-0 -translate-x-full" : "right-0 translate-x-full"} top-0 hidden gap-1 pr-2 pl-2 group-hover:flex`}
+                            className={`absolute ${mine ? "left-0 -translate-x-full" : "right-0 translate-x-full"} top-0 hidden gap-1 pl-2 pr-2 group-hover:flex`}
                             onClick={(e) => e.stopPropagation()}
                           >
                             <button
-                              onClick={() =>
-                                setPickerFor(
-                                  pickerFor === m.id ? null : m.id
-                                )
-                              }
+                              onClick={() => setPickerFor(pickerFor === m.id ? null : m.id)}
                               className="rounded-full bg-white p-1 shadow hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600"
                               title="Add reaction"
                             >
                               <SmilePlus size={14} />
                             </button>
                             <button
-                              onClick={() =>
-                                setMenuFor(menuFor === m.id ? null : m.id)
-                              }
+                              onClick={() => setMenuFor(menuFor === m.id ? null : m.id)}
                               className="rounded-full bg-white p-1 shadow hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600"
                               title="More"
                             >
@@ -580,7 +719,6 @@ export default function ChatPage() {
                             </button>
                           </div>
 
-                          {/* Reaction picker */}
                           {pickerFor === m.id && (
                             <div
                               className={`absolute ${mine ? "right-0" : "left-0"} -top-10 z-10 flex gap-1 rounded-full bg-white p-1 shadow-lg dark:bg-gray-800`}
@@ -598,7 +736,6 @@ export default function ChatPage() {
                             </div>
                           )}
 
-                          {/* Context menu */}
                           {menuFor === m.id && (
                             <div
                               className={`absolute ${mine ? "right-0" : "left-0"} top-8 z-10 w-40 rounded-lg bg-white py-1 shadow-lg dark:bg-gray-800`}
@@ -631,21 +768,32 @@ export default function ChatPage() {
               ))}
             </div>
 
-            <div className="flex gap-2 border-t border-gray-200 p-3 dark:border-gray-700">
-              <input
-                type="text"
+            <div className="flex items-end gap-2 border-t border-gray-200 p-2 sm:p-3 dark:border-gray-700">
+              <textarea
+                ref={textareaRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setInput(value);
+                  if (!selectedRoom) return;
+                  if (value.trim()) startTyping(selectedRoom.id);
+                  else stopTyping(selectedRoom.id);
+                }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") send();
+                  if (e.key !== "Enter") return;
+                  if (e.shiftKey || e.ctrlKey) return;
+                  e.preventDefault();
+                  send();
                 }}
                 placeholder="Type a message..."
-                className="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
+                rows={1}
+                className="min-h-[44px] flex-1 resize-none overflow-y-auto rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm leading-6 text-gray-900 placeholder:text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
+                style={{ maxHeight: "160px" }}
               />
               <button
                 onClick={send}
                 disabled={!input.trim()}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50"
+                className="min-h-[44px] shrink-0 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white hover:bg-primary-dark disabled:opacity-50 sm:px-4"
               >
                 Send
               </button>

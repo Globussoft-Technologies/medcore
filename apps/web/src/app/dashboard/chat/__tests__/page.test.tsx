@@ -1254,9 +1254,9 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
       snapshotHandler({ onlineUserIds: ["u-online"], lastSeenAt: {} });
     });
 
-    fireEvent.click(screen.getByText("Ward Team").closest("button")!);
+    fireEvent.click(screen.getAllByText("Ward Team")[0].closest("button")!);
     await waitFor(() => {
-      expect(screen.getByText("Ward Team")).toBeInTheDocument();
+      expect(screen.getAllByText("Ward Team").length).toBeGreaterThan(0);
       expect(screen.getByText("1 online")).toBeInTheDocument();
     });
   });

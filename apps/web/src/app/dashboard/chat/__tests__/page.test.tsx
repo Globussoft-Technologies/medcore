@@ -1154,10 +1154,10 @@ describe("Chat dashboard page (DM list + composer + socket)", () => {
       (await screen.findByText("Dr Other")).closest("button")!,
     );
 
-    // Header still renders (room is selected) — no crash.
+    // Header + composer still render (room is selected) — no crash.
     await waitFor(() => {
-      // Selected-room header: "1 participants" / "2 participants" text.
-      expect(screen.getAllByText(/participant/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Dr Other").length).toBeGreaterThan(0);
+      expect(screen.getByPlaceholderText(/Type a message/i)).toBeInTheDocument();
     });
 
     // No toast on initial messages/pinned failures (silent try/catch).

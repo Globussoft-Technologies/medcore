@@ -34,6 +34,53 @@ interface SearchHit {
   href: string;
 }
 
+export interface SearchModule {
+  href: string;
+  label: string;
+}
+
+// Record results must obey the same module visibility contract as the
+// sidebar. Some result hrefs are detail routes (and admissions use /ipd), so
+// type is a more reliable access key than comparing the result href alone.
+const moduleRoutesByResultType: Record<string, string[]> = {
+  patient: ["/dashboard/patients"],
+  appointment: ["/dashboard/appointments", "/patient/appointments"],
+  prescription: ["/dashboard/prescriptions", "/patient/prescriptions"],
+  invoice: ["/dashboard/billing", "/patient/bills"],
+  admission: ["/dashboard/admissions"],
+  surgery: ["/dashboard/surgery"],
+  lab: ["/dashboard/lab"],
+  doctor: ["/dashboard/doctors"],
+  medicine: ["/dashboard/medicines"],
+  ward: ["/dashboard/wards"],
+  blood: ["/dashboard/bloodbank"],
+  ambulance: ["/dashboard/ambulance"],
+  staff: ["/dashboard/users"],
+  tenant: ["/dashboard/tenants"],
+};
+
+function pathIsVisible(href: string, visibleHrefs: Set<string>): boolean {
+  const path = href.split(/[?#]/, 1)[0];
+  for (const visible of visibleHrefs) {
+    if (path === visible) return true;
+    // Dashboard landing pages are roots, not permission prefixes. Treating
+    // /dashboard as a prefix would make every hidden dashboard route visible.
+    if (
+      visible !== "/dashboard" &&
+      visible !== "/patient/dashboard" &&
+      path.startsWith(`${visible}/`)
+    )
+      return true;
+  }
+  return false;
+}
+
+function hitIsVisible(hit: SearchHit, visibleHrefs: Set<string>): boolean {
+  const moduleRoutes = moduleRoutesByResultType[hit.type];
+  if (moduleRoutes) return moduleRoutes.some((href) => visibleHrefs.has(href));
+  return pathIsVisible(hit.href, visibleHrefs);
+}
+
 const typeIcon: Record<string, React.ElementType> = {
   patient: User,
   appointment: Calendar,
@@ -123,9 +170,12 @@ function saveRecent(userId: string | null | undefined, q: string) {
 export function SearchPalette({
   open,
   onClose,
+  modules = [],
 }: {
   open: boolean;
   onClose: () => void;
+  /** The layout's final role/plan/tenant-filtered sidebar items. */
+  modules?: SearchModule[];
 }) {
   const [q, setQ] = useState("");
   const [results, setResults] = useState<SearchHit[]>([]);
@@ -205,7 +255,9 @@ export function SearchPalette({
       onClose();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((a) => Math.min(a + 1, Math.max(results.length - 1, 0)));
+      setActive((a) =>
+        Math.min(a + 1, Math.max(navigableResults.length - 1, 0)),
+      );
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(a - 1, 0));
@@ -214,13 +266,37 @@ export function SearchPalette({
       // no-op, not "go to undefined href". Guard explicitly so a future
       // refactor can't introduce a regression where `go(undefined)`
       // silently routes to /dashboard/null.
-      if (results.length === 0 || !results[active]) return;
+      if (navigableResults.length === 0 || !navigableResults[active]) return;
       e.preventDefault();
-      go(results[active]);
+      go(navigableResults[active]);
     }
   }
 
   if (!open) return null;
+
+  const normalizedQuery = q.trim().toLocaleLowerCase();
+  const visibleHrefs = new Set(modules.map((module) => module.href));
+  const moduleResults: SearchHit[] = modules
+    .filter(
+      (module) =>
+        !normalizedQuery ||
+        module.label.toLocaleLowerCase().includes(normalizedQuery),
+    )
+    .map((module) => ({
+      type: "label",
+      id: `label:${module.href}`,
+      title: module.label,
+      subtitle: "Open module",
+      href: module.href,
+    }));
+  // With no modules prop (unit tests / older consumers), retain the original
+  // server-only behaviour. In the dashboard layout, every record and module
+  // must have a destination that survived the sidebar filters.
+  const visibleServerResults =
+    modules.length === 0
+      ? results
+      : results.filter((hit) => hitIsVisible(hit, visibleHrefs));
+  const displayedResults = [...moduleResults, ...visibleServerResults];
 
   // Group results by type
   // Issue #582 #4: same hit was rendered multiple times when a single
@@ -229,7 +305,7 @@ export function SearchPalette({
   // before bucketing so the user sees each entity exactly once.
   const seen = new Set<string>();
   const groups: Array<{ type: string; items: SearchHit[] }> = [];
-  for (const r of results) {
+  for (const r of displayedResults) {
     const dedupeKey = `${r.type}::${r.id}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
@@ -240,6 +316,9 @@ export function SearchPalette({
     }
     g.items.push(r);
   }
+  // The UI is rendered group-by-group, which can differ from the API's raw
+  // interleaved type order. Keyboard selection must follow visual row order.
+  const navigableResults = groups.flatMap((group) => group.items);
 
   let idx = -1;
 
@@ -310,13 +389,13 @@ export function SearchPalette({
             </div>
           )}
 
-          {q && !loading && results.length === 0 && q.length >= 2 && (
+          {q && !loading && displayedResults.length === 0 && q.length >= 2 && (
             <div className="p-6 text-center text-xs text-gray-400 dark:text-gray-500">
               No results for &quot;{q}&quot;
             </div>
           )}
 
-          {q && q.length < 2 && (
+          {q && q.length < 2 && displayedResults.length === 0 && (
             <div className="p-6 text-center text-xs text-gray-400 dark:text-gray-500">
               Type at least 2 characters to search
             </div>

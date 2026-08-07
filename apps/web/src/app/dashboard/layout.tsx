@@ -1504,7 +1504,14 @@ export default function DashboardLayout({
         })}
       </nav>
 
-      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <SearchPalette
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        modules={nav.map((item) => ({
+          href: item.href,
+          label: tNav(item.label),
+        }))}
+      />
       <KeyboardShortcutsModal
         open={shortcutsOpen}
         onClose={() => setShortcutsOpen(false)}

@@ -150,6 +150,70 @@ describe("SearchPalette (Cmd+K global palette)", () => {
     expect(screen.getByText(/anywhere/i)).toBeInTheDocument();
   });
 
+  it("shows every visible sidebar module and searches them locally", async () => {
+    apiMock.get.mockResolvedValueOnce({ data: [] });
+    render(
+      <SearchPalette
+        open={true}
+        onClose={vi.fn()}
+        modules={[
+          { href: "/dashboard", label: "Dashboard" },
+          { href: "/dashboard/departments", label: "Departments" },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("Departments")).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Search patients/i), {
+      target: { value: "depart" },
+    });
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalled());
+    expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
+    expect(screen.getByText("Departments")).toBeInTheDocument();
+  });
+
+  it("hides server modules and records whose destination is absent from the sidebar", async () => {
+    apiMock.get.mockResolvedValueOnce({
+      data: [
+        hit({
+          id: "hidden-patient",
+          title: "Hidden Patient",
+          href: "/dashboard/patients/hidden-patient",
+        }),
+        hit({
+          type: "label",
+          id: "label:/dashboard/ai-radiology",
+          title: "AI Radiology",
+          href: "/dashboard/ai-radiology",
+        }),
+        hit({
+          type: "appointment",
+          id: "visible-appointment",
+          title: "Visible Appointment",
+          href: "/dashboard/appointments?id=visible-appointment",
+        }),
+      ],
+    });
+    render(
+      <SearchPalette
+        open={true}
+        onClose={vi.fn()}
+        modules={[
+          { href: "/dashboard", label: "Dashboard" },
+          { href: "/dashboard/appointments", label: "Appointments" },
+        ]}
+      />,
+    );
+    fireEvent.change(screen.getByPlaceholderText(/Search patients/i), {
+      target: { value: "visible" },
+    });
+
+    expect(await screen.findByText("Visible Appointment")).toBeInTheDocument();
+    expect(screen.queryByText("Hidden Patient")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI Radiology")).not.toBeInTheDocument();
+  });
+
   it("renders the trimmed PATIENT placeholder when the user is a patient (Issue #406)", () => {
     setUser({ id: "u-pat", role: "PATIENT" });
     render(<SearchPalette open={true} onClose={vi.fn()} />);

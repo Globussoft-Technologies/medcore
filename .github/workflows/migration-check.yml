@@ -71,7 +71,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout (full history for merge-base)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # We need git history so we can resolve the FROM schema as
           # whatever schema.prisma looked like at the merge-base (PR)
@@ -290,7 +290,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Node 22
         uses: actions/setup-node@v6

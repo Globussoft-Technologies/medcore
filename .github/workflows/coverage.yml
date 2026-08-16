@@ -75,7 +75,7 @@ jobs:
       functions_pct: ${{ steps.report.outputs.FUNCTIONS_PCT }}
       statements_pct: ${{ steps.report.outputs.STATEMENTS_PCT }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
